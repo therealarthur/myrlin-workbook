@@ -874,7 +874,8 @@ class CWMApp {
 
     // Actions
     items.push(
-      { label: 'Edit', icon: '&#9998;', action: () => this.renameSession(sessionId) },
+      { label: 'Rename', icon: '&#9998;', action: () => this.renameSession(sessionId) },
+      { label: 'Auto Title', icon: '&#9733;', action: () => this.autoTitleSession(sessionId) },
       { label: 'Copy Session ID', icon: '&#128203;', action: () => {
         navigator.clipboard.writeText(session.resumeSessionId || session.id);
         this.showToast('Session ID copied', 'success');
@@ -930,7 +931,7 @@ class CWMApp {
   showProjectSessionContextMenu(sessionName, projectPath, x, y) {
     const items = [];
 
-    // Open in terminal (resume the Claude session)
+    // Open in terminal (resume the Claude session) — no workspace needed
     items.push({
       label: 'Open in Terminal', icon: '&#9654;', action: () => {
         const emptySlot = this.terminalPanes.findIndex(p => p === null);
@@ -938,27 +939,12 @@ class CWMApp {
           this.showToast('All terminal panes full. Close one first.', 'warning');
           return;
         }
-        if (!this.state.activeWorkspace) {
-          this.showToast('Select or create a workspace first', 'warning');
-          return;
-        }
         this.setViewMode('terminal');
-        // Create session in active workspace and open terminal
-        this.api('POST', '/api/sessions', {
-          name: sessionName,
-          workspaceId: this.state.activeWorkspace.id,
-          workingDir: projectPath,
-          topic: 'Resumed session',
-          command: 'claude',
+        const tempId = 'pty-' + sessionName;
+        this.openTerminalInPane(emptySlot, tempId, sessionName, {
+          cwd: projectPath,
           resumeSessionId: sessionName,
-        }).then(async (data) => {
-          await this.loadSessions();
-          await this.loadStats();
-          if (data && data.session) {
-            this.openTerminalInPane(emptySlot, data.session.id, sessionName);
-          }
-        }).catch(err => {
-          this.showToast(err.message || 'Failed to create session', 'error');
+          command: 'claude',
         });
       },
     });
@@ -970,8 +956,12 @@ class CWMApp {
           this.showToast('Select or create a workspace first', 'warning');
           return;
         }
+        // Use project folder name as friendly default name instead of raw UUID
+        const projectName = projectPath ? projectPath.split('\\').pop() || projectPath.split('/').pop() || sessionName : sessionName;
+        const shortId = sessionName.length > 8 ? sessionName.substring(0, 8) : sessionName;
+        const friendlyName = projectName + ' (' + shortId + ')';
         this.api('POST', '/api/sessions', {
-          name: sessionName,
+          name: friendlyName,
           workspaceId: this.state.activeWorkspace.id,
           workingDir: projectPath,
           topic: 'Resumed session',
@@ -1076,6 +1066,24 @@ class CWMApp {
       }
     } catch (err) {
       this.showToast(err.message || 'Failed to update session', 'error');
+    }
+  }
+
+  async autoTitleSession(sessionId) {
+    try {
+      this.showToast('Generating title...', 'info');
+      const data = await this.api('POST', `/api/sessions/${sessionId}/auto-title`);
+      if (data && data.title) {
+        this.showToast(`Titled: "${data.title}"`, 'success');
+        await this.loadSessions();
+        this.renderWorkspaces();
+        if (this.state.selectedSession && this.state.selectedSession.id === sessionId) {
+          this.state.selectedSession = this.state.sessions.find(s => s.id === sessionId);
+          this.renderSessionDetail();
+        }
+      }
+    } catch (err) {
+      this.showToast(err.message || 'Failed to auto-title', 'error');
     }
   }
 
@@ -2574,15 +2582,19 @@ class CWMApp {
         try {
           const ps = JSON.parse(projSessJson);
           const claudeSessionId = ps.sessionName;
+          // Create a friendly default name: project folder name + short session ID
+          const projectName = ps.projectPath ? (ps.projectPath.split('\\').pop() || ps.projectPath.split('/').pop() || claudeSessionId) : claudeSessionId;
+          const shortId = claudeSessionId.length > 8 ? claudeSessionId.substring(0, 8) : claudeSessionId;
+          const friendlyName = projectName + ' (' + shortId + ')';
           await this.api('POST', '/api/sessions', {
-            name: claudeSessionId,
+            name: friendlyName,
             workspaceId,
             workingDir: ps.projectPath,
             topic: 'Resumed session',
             command: 'claude',
             resumeSessionId: claudeSessionId,
           });
-          this.showToast(`Session "${claudeSessionId}" added`, 'success');
+          this.showToast(`Session "${friendlyName}" added`, 'success');
           await this.loadSessions();
           await this.loadStats();
           this.renderWorkspaces();
@@ -2660,59 +2672,41 @@ class CWMApp {
           }
 
           // Drop a project-session (individual .jsonl from project accordion) into terminal pane
+          // Opens directly in terminal WITHOUT adding to any workspace
           const projSessJson = e.dataTransfer.getData('cwm/project-session');
           if (projSessJson) {
             try {
               const ps = JSON.parse(projSessJson);
-              // Create a session in the active workspace first, then open terminal
-              if (!this.state.activeWorkspace) {
-                this.showToast('Select or create a workspace first', 'warning');
-                return;
-              }
-              // Use --resume with the Claude session ID (the .jsonl filename)
               const claudeSessionId = ps.sessionName; // This IS the Claude session UUID
-              const data = await this.api('POST', '/api/sessions', {
-                name: claudeSessionId,
-                workspaceId: this.state.activeWorkspace.id,
-                workingDir: ps.projectPath,
-                topic: 'Resumed session',
-                command: 'claude',
+              // Open terminal directly — pass spawn options via WebSocket URL
+              // Use a temporary ID for the terminal pane (prefixed to avoid store collisions)
+              const tempId = 'pty-' + claudeSessionId;
+              this.openTerminalInPane(slotIdx, tempId, claudeSessionId, {
+                cwd: ps.projectPath,
                 resumeSessionId: claudeSessionId,
+                command: 'claude',
               });
-              await this.loadSessions();
-              await this.loadStats();
-              if (data && data.session) {
-                this.openTerminalInPane(slotIdx, data.session.id, claudeSessionId);
-              }
+              this.showToast('Opening session — drag to a workspace to save it', 'info');
             } catch (err) {
-              this.showToast(err.message || 'Failed to create session', 'error');
+              this.showToast(err.message || 'Failed to open session', 'error');
             }
             return;
           }
 
           // Drop an entire project into terminal pane
+          // Opens a new Claude session in the project dir WITHOUT adding to workspace
           const projectJson = e.dataTransfer.getData('cwm/project');
           if (projectJson) {
             try {
               const project = JSON.parse(projectJson);
-              if (!this.state.activeWorkspace) {
-                this.showToast('Select or create a workspace first', 'warning');
-                return;
-              }
-              const data = await this.api('POST', '/api/sessions', {
-                name: project.name,
-                workspaceId: this.state.activeWorkspace.id,
-                workingDir: project.path,
-                topic: '',
+              const tempId = 'pty-project-' + Date.now();
+              this.openTerminalInPane(slotIdx, tempId, project.name, {
+                cwd: project.path,
                 command: 'claude',
               });
-              await this.loadSessions();
-              await this.loadStats();
-              if (data && data.session) {
-                this.openTerminalInPane(slotIdx, data.session.id, project.name);
-              }
+              this.showToast('Opening project — drag to a workspace to save it', 'info');
             } catch (err) {
-              this.showToast(err.message || 'Failed to create session', 'error');
+              this.showToast(err.message || 'Failed to open project', 'error');
             }
             return;
           }
@@ -2755,7 +2749,7 @@ class CWMApp {
      TERMINAL GRID VIEW
      ═══════════════════════════════════════════════════════════ */
 
-  openTerminalInPane(slotIdx, sessionId, sessionName) {
+  openTerminalInPane(slotIdx, sessionId, sessionName, spawnOpts) {
     console.log('[DnD] openTerminalInPane slot:', slotIdx, 'session:', sessionId, 'name:', sessionName);
     // If the target slot already has an active terminal, find the next empty slot
     if (this.terminalPanes[slotIdx]) {
@@ -2784,7 +2778,7 @@ class CWMApp {
     if (closeBtn) closeBtn.hidden = false;
 
     // Create and mount TerminalPane
-    const tp = new TerminalPane(containerId, sessionId, sessionName);
+    const tp = new TerminalPane(containerId, sessionId, sessionName, spawnOpts);
     this.terminalPanes[slotIdx] = tp;
     tp.mount();
 
