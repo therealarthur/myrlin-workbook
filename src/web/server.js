@@ -722,6 +722,103 @@ function decodeClaudePath(encoded) {
 }
 
 // ──────────────────────────────────────────────────────────
+//  Session Auto-Title
+// ──────────────────────────────────────────────────────────
+
+/**
+ * POST /api/sessions/:id/auto-title
+ * Reads the Claude session's .jsonl file and generates a title
+ * from the first user message or conversation content.
+ */
+app.post('/api/sessions/:id/auto-title', requireAuth, (req, res) => {
+  const session = store.getSession(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  const claudeSessionId = session.resumeSessionId;
+  if (!claudeSessionId) {
+    return res.status(400).json({ error: 'Session has no Claude conversation to read' });
+  }
+
+  // Find the .jsonl file in ~/.claude/projects/
+  const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
+  let jsonlPath = null;
+
+  try {
+    if (fs.existsSync(claudeProjectsDir)) {
+      const projectDirs = fs.readdirSync(claudeProjectsDir, { withFileTypes: true })
+        .filter(d => d.isDirectory());
+
+      for (const dir of projectDirs) {
+        const candidate = path.join(claudeProjectsDir, dir.name, claudeSessionId + '.jsonl');
+        if (fs.existsSync(candidate)) {
+          jsonlPath = candidate;
+          break;
+        }
+      }
+    }
+  } catch (_) {}
+
+  if (!jsonlPath) {
+    return res.status(404).json({ error: 'Session conversation file not found' });
+  }
+
+  try {
+    // Read first 50KB to find user messages (don't read huge files)
+    const fd = fs.openSync(jsonlPath, 'r');
+    const buf = Buffer.alloc(50 * 1024);
+    const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    const content = buf.toString('utf-8', 0, bytesRead);
+    const lines = content.split('\n').filter(l => l.trim());
+
+    let title = '';
+
+    // Look for the first human/user message
+    for (const line of lines) {
+      try {
+        const msg = JSON.parse(line);
+        // Claude JSONL format: { role: 'user', content: ... } or { type: 'human', ... }
+        if (msg.role === 'user' || msg.type === 'human') {
+          let text = '';
+          if (typeof msg.content === 'string') {
+            text = msg.content;
+          } else if (Array.isArray(msg.content)) {
+            // Content blocks: [{ type: 'text', text: '...' }]
+            const textBlock = msg.content.find(b => b.type === 'text');
+            if (textBlock) text = textBlock.text;
+          } else if (msg.message && typeof msg.message === 'string') {
+            text = msg.message;
+          }
+
+          if (text) {
+            // Clean and truncate to make a title
+            title = text
+              .replace(/[\r\n]+/g, ' ')  // collapse newlines
+              .replace(/\s+/g, ' ')       // collapse whitespace
+              .trim();
+            // Truncate to ~60 chars at word boundary
+            if (title.length > 60) {
+              title = title.substring(0, 60).replace(/\s+\S*$/, '') + '...';
+            }
+            break;
+          }
+        }
+      } catch (_) { /* skip malformed lines */ }
+    }
+
+    if (!title) {
+      return res.status(404).json({ error: 'No user message found in session' });
+    }
+
+    // Update the session name
+    store.updateSession(req.params.id, { name: title });
+    return res.json({ success: true, title });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read session: ' + err.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
 //  SSE - Server-Sent Events for live updates
 // ──────────────────────────────────────────────────────────
 

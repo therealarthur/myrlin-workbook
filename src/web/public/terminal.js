@@ -3,10 +3,11 @@
  * Performance-critical: raw binary I/O, no JSON wrapping for terminal data
  */
 class TerminalPane {
-  constructor(containerId, sessionId, sessionName) {
+  constructor(containerId, sessionId, sessionName, spawnOpts) {
     this.containerId = containerId;
     this.sessionId = sessionId;
     this.sessionName = sessionName || 'Terminal';
+    this.spawnOpts = spawnOpts || {}; // Extra params for PTY spawn (cwd, resumeSessionId, etc.)
     this.term = null;
     this.fitAddon = null;
     this.ws = null;
@@ -160,7 +161,11 @@ class TerminalPane {
     }
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = protocol + '//' + location.host + '/ws/terminal?token=' + encodeURIComponent(token) + '&sessionId=' + this.sessionId;
+    let wsUrl = protocol + '//' + location.host + '/ws/terminal?token=' + encodeURIComponent(token) + '&sessionId=' + this.sessionId;
+    // Append optional spawn options as query params
+    if (this.spawnOpts.cwd) wsUrl += '&cwd=' + encodeURIComponent(this.spawnOpts.cwd);
+    if (this.spawnOpts.resumeSessionId) wsUrl += '&resumeSessionId=' + encodeURIComponent(this.spawnOpts.resumeSessionId);
+    if (this.spawnOpts.command) wsUrl += '&command=' + encodeURIComponent(this.spawnOpts.command);
     this._log('Opening WebSocket: ' + wsUrl.substring(0, 80) + '...');
 
     try {

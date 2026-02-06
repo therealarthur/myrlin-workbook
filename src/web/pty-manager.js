@@ -79,11 +79,6 @@ class PtySessionManager {
     let fullCommand = command;
     if (resumeSessionId) {
       fullCommand += ' --resume ' + resumeSessionId;
-      // When resuming a session in an embedded terminal, skip the trust prompt
-      // since the user already authenticated through the web UI
-      if (!bypassPermissions) {
-        bypassPermissions = true;
-      }
     }
     if (bypassPermissions) {
       fullCommand += ' --dangerously-skip-permissions';
