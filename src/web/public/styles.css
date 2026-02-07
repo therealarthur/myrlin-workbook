@@ -1837,11 +1837,162 @@ textarea.input {
     max-width: 100%;
   }
 
-  .terminal-grid { grid-template-columns: 1fr !important; grid-template-rows: repeat(auto-fill, minmax(200px, 1fr)); }
+  /* Mobile terminal: single pane at a time, tab strip to switch */
+  .terminal-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr !important;
+    display: flex !important;
+    flex-direction: column;
+  }
+
+  .terminal-grid .terminal-pane {
+    display: none;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .terminal-grid .terminal-pane.mobile-active {
+    display: flex;
+  }
+
+  /* Hide resize handles on mobile */
+  .terminal-resize-handle { display: none; }
+
+  /* Larger sidebar section resize handle for touch */
+  .sidebar-section-resize {
+    height: 20px;
+    margin: 4px 8px;
+  }
+  .sidebar-section-resize::after {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: var(--surface1);
+    border-radius: 2px;
+    margin: 8px auto 0;
+  }
+
   #projects-list { max-height: 200px; overflow-y: auto; }
 
   .sidebar-resize-handle { display: none; }
   .sidebar-collapse-bar { display: none; }
+}
+
+/* ─── Mobile Terminal Tab Strip ──────────────────────────────── */
+
+.terminal-tab-strip {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .terminal-tab-strip {
+    display: flex;
+    gap: 2px;
+    padding: 4px 6px;
+    background: var(--crust);
+    border-bottom: 1px solid var(--surface0);
+    overflow-x: auto;
+    flex-shrink: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--mantle);
+  border: 1px solid var(--surface0);
+  border-radius: var(--radius-sm);
+  color: var(--subtext0);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.terminal-tab.active {
+  background: var(--surface0);
+  color: var(--text);
+  border-color: var(--mauve);
+}
+
+.terminal-tab-close {
+  background: none;
+  border: none;
+  color: var(--overlay0);
+  font-size: 16px;
+  padding: 0 2px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.terminal-tab-close:hover {
+  color: var(--red);
+}
+
+.terminal-tab-add {
+  color: var(--overlay0);
+  font-size: 16px;
+  font-weight: 600;
+  padding: 6px 14px;
+}
+
+.terminal-tab-add:hover {
+  color: var(--green);
+  border-color: var(--green);
+}
+
+/* ─── Mobile Terminal Toolbar ──────────────────────────────── */
+
+.terminal-mobile-toolbar {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .terminal-mobile-toolbar {
+    display: flex;
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--crust);
+    border-top: 1px solid var(--surface0);
+    overflow-x: auto;
+    flex-shrink: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .terminal-mobile-toolbar button {
+    padding: 8px 12px;
+    background: var(--surface0);
+    border: 1px solid var(--surface1);
+    border-radius: var(--radius-sm);
+    color: var(--subtext0);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    white-space: nowrap;
+    cursor: pointer;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .terminal-mobile-toolbar button:active {
+    background: var(--surface1);
+    color: var(--text);
+  }
+
+  .terminal-mobile-toolbar .toolbar-send {
+    background: var(--green);
+    color: var(--base);
+    border-color: var(--green);
+    font-weight: 600;
+  }
+
+  .terminal-mobile-toolbar .toolbar-send:active {
+    opacity: 0.8;
+  }
 }
 
 /* Small mobile */

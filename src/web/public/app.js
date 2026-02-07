@@ -482,8 +482,10 @@ class CWMApp {
     document.querySelectorAll('.terminal-mobile-toolbar button').forEach(btn => {
       btn.addEventListener('click', () => {
         const key = btn.dataset.key;
-        // Find the active terminal pane
-        const activePane = this.terminalPanes.find(tp => tp !== null);
+        // Use the tracked active terminal pane
+        const activePane = this._activeTerminalSlot !== null
+          ? this.terminalPanes[this._activeTerminalSlot]
+          : this.terminalPanes.find(tp => tp !== null);
         if (!activePane || !activePane.ws || activePane.ws.readyState !== WebSocket.OPEN) return;
 
         const keyMap = {
@@ -3412,12 +3414,14 @@ class CWMApp {
           closeBtn.addEventListener('click', () => this.closeTerminalPane(slotIdx));
         }
 
-        // Click-to-focus: clicking anywhere in a pane focuses its terminal
-        pane.addEventListener('mousedown', () => {
+        // Click-to-focus: clicking/tapping anywhere in a pane focuses its terminal
+        const focusPane = () => {
           if (this.terminalPanes[slotIdx]) {
             this.setActiveTerminalPane(slotIdx);
           }
-        }, true); // capture phase — fires before xterm's handlers
+        };
+        pane.addEventListener('mousedown', focusPane, true); // capture phase
+        pane.addEventListener('touchstart', focusPane, { passive: true, capture: true });
       });
     }
   }
@@ -3921,6 +3925,9 @@ class CWMApp {
         tab.classList.toggle('active', parseInt(tab.dataset.slot, 10) === slotIdx);
       });
     }
+
+    // Set as active pane and focus it
+    this.setActiveTerminalPane(slotIdx);
 
     // Refit the terminal after switching
     const tp = this.terminalPanes[slotIdx];
