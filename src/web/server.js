@@ -950,21 +950,26 @@ app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
       for (const line of lines) {
         if (msgs.length >= limit) break;
         try {
-          const msg = JSON.parse(line);
-          if (msg.role === 'user' || msg.type === 'human') {
+          const entry = JSON.parse(line);
+          // Claude Code JSONL: top-level has "type" ("user"/"assistant")
+          // and "message" object with "role", "content"
+          const role = entry.type || (entry.message && entry.message.role) || entry.role;
+          const contentSource = (entry.message && entry.message.content) || entry.content;
+
+          if (role === 'user' || role === 'human') {
             let text = '';
-            if (typeof msg.content === 'string') text = msg.content;
-            else if (Array.isArray(msg.content)) {
-              const tb = msg.content.find(b => b.type === 'text');
-              if (tb) text = tb.text;
+            if (typeof contentSource === 'string') text = contentSource;
+            else if (Array.isArray(contentSource)) {
+              const tb = contentSource.find(b => b.type === 'text');
+              if (tb) text = tb.text || '';
             }
             if (text) msgs.push({ role: 'user', text: text.substring(0, 500) });
-          } else if (msg.role === 'assistant') {
+          } else if (role === 'assistant') {
             let text = '';
-            if (typeof msg.content === 'string') text = msg.content;
-            else if (Array.isArray(msg.content)) {
-              const tb = msg.content.find(b => b.type === 'text');
-              if (tb) text = tb.text;
+            if (typeof contentSource === 'string') text = contentSource;
+            else if (Array.isArray(contentSource)) {
+              const textBlocks = contentSource.filter(b => b.type === 'text');
+              text = textBlocks.map(b => b.text || '').join(' ');
             }
             if (text) msgs.push({ role: 'assistant', text: text.substring(0, 500) });
           }
