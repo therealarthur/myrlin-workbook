@@ -11,6 +11,7 @@
  */
 
 const path = require('path');
+const { execFile } = require('child_process');
 const express = require('express');
 
 const { setupAuth, requireAuth, isValidToken } = require('./auth');
@@ -27,9 +28,20 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// CORS headers for local development (GUI may run on a different port)
+// CORS headers — restrict to localhost origins only
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin || '';
+  const allowedOrigins = [
+    'http://localhost',
+    'http://127.0.0.1',
+    'https://localhost',
+    'https://127.0.0.1',
+  ];
+  // Allow any localhost port (e.g. http://localhost:3456, http://localhost:5173)
+  const isAllowed = allowedOrigins.some(allowed => origin === allowed || origin.startsWith(allowed + ':'));
+  if (isAllowed) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
@@ -39,17 +51,31 @@ app.use((req, res, next) => {
   next();
 });
 
+// ─── Security Headers ────────────────────────────────────────
+app.use((req, res, next) => {
+  // Content Security Policy — allow self + inline styles (for dynamic UI) + WebSocket
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+    "connect-src 'self' ws://localhost:* wss://localhost:* ws://127.0.0.1:* wss://127.0.0.1:*; " +
+    "img-src 'self' data:; font-src 'self';"
+  );
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 // ─── Static Files ──────────────────────────────────────────
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── Debug Middleware ─────────────────────────────────────────
-// Log every request to trace auth issues
+// ─── Request Logging ─────────────────────────────────────────
 
 app.use((req, res, next) => {
-  const hasAuth = !!req.headers.authorization;
-  const hasQueryToken = !!req.query.token;
-  console.log(`[REQ] ${req.method} ${req.originalUrl} auth-header:${hasAuth} query-token:${hasQueryToken}`);
+  // Log API requests (skip static files) without exposing auth details
+  if (req.originalUrl.startsWith('/api/')) {
+    console.log(`[REQ] ${req.method} ${req.originalUrl}`);
+  }
   next();
 });
 
@@ -129,6 +155,9 @@ app.post('/api/workspaces', requireAuth, (req, res) => {
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({ error: 'Workspace name is required.' });
+  }
+  if (name.trim().length > 100) {
+    return res.status(400).json({ error: 'Workspace name must be 100 characters or fewer.' });
   }
 
   const store = getStore();
@@ -458,6 +487,9 @@ app.post('/api/sessions', requireAuth, (req, res) => {
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({ error: 'Session name is required.' });
+  }
+  if (name.trim().length > 200) {
+    return res.status(400).json({ error: 'Session name must be 200 characters or fewer.' });
   }
   if (!workspaceId) {
     return res.status(400).json({ error: 'workspaceId is required.' });
@@ -1008,33 +1040,13 @@ const sseClients = new Set();
  */
 app.get('/api/events', (req, res) => {
   // SSE (EventSource) can't set custom headers, so accept token as query param
-  const rawUrl = req.originalUrl;
-  const queryObj = req.query;
   const token = req.query.token || null;
   const valid = isValidToken(token);
-
-  console.log('[SSE] ===== SSE CONNECTION ATTEMPT =====');
-  console.log('[SSE] Raw URL:', rawUrl);
-  console.log('[SSE] req.query:', JSON.stringify(queryObj));
-  console.log('[SSE] Token present:', !!token);
-  console.log('[SSE] Token (first 16):', token ? token.substring(0, 16) : 'NONE');
-  console.log('[SSE] Token length:', token ? token.length : 0);
-  console.log('[SSE] isValidToken result:', valid);
-  console.log('[SSE] typeof isValidToken:', typeof isValidToken);
-  console.log('[SSE] =====================================');
 
   if (!valid) {
     return res.status(401).json({
       error: 'Unauthorized',
       message: 'Valid token required. Pass ?token=<token> query parameter.',
-      debug: {
-        tokenPresent: !!token,
-        tokenLength: token ? token.length : 0,
-        queryKeys: Object.keys(queryObj),
-        rawUrl: rawUrl,
-        isValidTokenType: typeof isValidToken,
-        handlerReached: true,
-      },
     });
   }
 
@@ -1143,6 +1155,112 @@ app.put('/api/layout', requireAuth, (req, res) => {
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to save layout: ' + err.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+//  RESOURCE MONITORING
+// ──────────────────────────────────────────────────────────
+
+// Track previous CPU times for delta calculation
+let _prevCpuTimes = null;
+let _prevCpuTimestamp = null;
+
+function getCpuUsagePercent() {
+  const cpus = os.cpus();
+  const totals = { idle: 0, total: 0 };
+  cpus.forEach(cpu => {
+    const times = cpu.times;
+    totals.idle += times.idle;
+    totals.total += times.user + times.nice + times.sys + times.idle + times.irq;
+  });
+
+  if (_prevCpuTimes) {
+    const idleDiff = totals.idle - _prevCpuTimes.idle;
+    const totalDiff = totals.total - _prevCpuTimes.total;
+    _prevCpuTimes = totals;
+    if (totalDiff === 0) return 0;
+    return Math.round((1 - idleDiff / totalDiff) * 1000) / 10;
+  }
+
+  _prevCpuTimes = totals;
+  return 0; // First call — no delta yet
+}
+
+function getProcessMemory(pid) {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      execFile('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { timeout: 5000 }, (err, stdout) => {
+        if (err || !stdout.trim()) return resolve(null);
+        // Format: "name","pid","session","session#","mem usage"
+        // Mem usage: "123,456 K" or "123 456 K"
+        const match = stdout.match(/"([^"]*\sK)"/);
+        if (match) {
+          const kb = parseInt(match[1].replace(/[\s,\.]/g, ''), 10);
+          if (!isNaN(kb)) return resolve(kb / 1024); // Return MB
+        }
+        resolve(null);
+      });
+    } else {
+      // Linux/macOS: ps -o rss= -p PID → returns RSS in KB
+      execFile('ps', ['-o', 'rss=', '-p', String(pid)], { timeout: 5000 }, (err, stdout) => {
+        if (err || !stdout.trim()) return resolve(null);
+        const kb = parseInt(stdout.trim(), 10);
+        if (!isNaN(kb)) return resolve(kb / 1024);
+        resolve(null);
+      });
+    }
+  });
+}
+
+/**
+ * GET /api/resources
+ * Returns system resource usage and per-Claude-session resource consumption.
+ */
+app.get('/api/resources', requireAuth, async (req, res) => {
+  try {
+    const store = getStore();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    const cpuUsage = getCpuUsagePercent();
+
+    const system = {
+      cpuCount: os.cpus().length,
+      cpuUsage,
+      totalMemoryMB: Math.round(totalMem / 1024 / 1024),
+      freeMemoryMB: Math.round(freeMem / 1024 / 1024),
+      usedMemoryMB: Math.round(usedMem / 1024 / 1024),
+      uptimeSeconds: Math.round(os.uptime()),
+    };
+
+    // Get running Claude sessions and their PIDs
+    const allSessions = store.getAllSessionsList ? store.getAllSessionsList() : [];
+    const runningSessions = allSessions.filter(s => s.status === 'running' && s.pid);
+
+    // Fetch per-session memory usage in parallel
+    const claudeSessions = await Promise.all(
+      runningSessions.map(async (s) => {
+        const memoryMB = await getProcessMemory(s.pid);
+        return {
+          sessionId: s.id,
+          sessionName: s.name || s.id.substring(0, 12),
+          pid: s.pid,
+          memoryMB: memoryMB || 0,
+          status: s.status,
+        };
+      })
+    );
+
+    const totalClaudeMemoryMB = claudeSessions.reduce((sum, s) => sum + (s.memoryMB || 0), 0);
+
+    res.json({
+      system,
+      claudeSessions,
+      totalClaudeMemoryMB: Math.round(totalClaudeMemoryMB * 10) / 10,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get resources: ' + err.message });
   }
 });
 

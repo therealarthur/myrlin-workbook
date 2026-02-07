@@ -271,6 +271,25 @@ class CWMApp {
       docsNotesCount: document.getElementById('docs-notes-count'),
       docsGoalsCount: document.getElementById('docs-goals-count'),
       docsTasksCount: document.getElementById('docs-tasks-count'),
+      docsAiInsights: document.getElementById('docs-ai-insights'),
+      docsAiRefresh: document.getElementById('docs-ai-refresh'),
+
+      // Terminal Tab Groups
+      terminalGroupsBar: document.getElementById('terminal-groups-bar'),
+      terminalGroupsTabs: document.getElementById('terminal-groups-tabs'),
+      terminalGroupsAdd: document.getElementById('terminal-groups-add'),
+
+      // Notes Editor
+      notesEditorOverlay: document.getElementById('notes-editor-overlay'),
+      notesEditorTitle: document.getElementById('notes-editor-title'),
+      notesEditorTextarea: document.getElementById('notes-editor-textarea'),
+      notesEditorClose: document.getElementById('notes-editor-close'),
+      notesEditorCancel: document.getElementById('notes-editor-cancel'),
+      notesEditorSave: document.getElementById('notes-editor-save'),
+
+      // Resources
+      resourcesPanel: document.getElementById('resources-panel'),
+      resourcesBody: document.getElementById('resources-body'),
     };
   }
 
@@ -491,6 +510,9 @@ class CWMApp {
       if (valid) {
         this.showApp();
         this.initDragAndDrop();
+        this.initTerminalGroups();
+        this.initNotesEditor();
+        this.initAIInsights();
         await this.loadAll();
         this.connectSSE();
       } else {
@@ -571,6 +593,9 @@ class CWMApp {
         localStorage.setItem('cwm_token', data.token);
         this.showApp();
         this.initDragAndDrop();
+        this.initTerminalGroups();
+        this.initNotesEditor();
+        this.initAIInsights();
         await this.loadAll();
         this.connectSSE();
       } else {
@@ -627,7 +652,7 @@ class CWMApp {
     // Restore persisted state
     const savedWorkspaceId = localStorage.getItem('cwm_activeWorkspace');
     const savedViewMode = localStorage.getItem('cwm_viewMode');
-    if (savedViewMode && ['workspace', 'all', 'recent', 'terminal'].includes(savedViewMode)) {
+    if (savedViewMode && ['workspace', 'all', 'recent', 'terminal', 'docs', 'resources'].includes(savedViewMode)) {
       this.state.viewMode = savedViewMode;
     }
     // Always apply the current view mode (handles default 'terminal' for new users)
@@ -1604,21 +1629,37 @@ class CWMApp {
       });
     }
 
-    // Toggle terminal grid vs session panels vs docs
+    // Stop resources polling when leaving resources view
+    if (mode !== 'resources' && this._resourcesInterval) {
+      clearInterval(this._resourcesInterval);
+      this._resourcesInterval = null;
+    }
+
+    // Toggle terminal grid vs session panels vs docs vs resources
     const isTerminal = mode === 'terminal';
     const isDocs = mode === 'docs';
-    this.els.sessionListPanel.hidden = isTerminal || isDocs;
-    this.els.detailPanel.hidden = isTerminal || isDocs || !this.state.selectedSession;
+    const isResources = mode === 'resources';
+    this.els.sessionListPanel.hidden = isTerminal || isDocs || isResources;
+    this.els.detailPanel.hidden = isTerminal || isDocs || isResources || !this.state.selectedSession;
     if (this.els.terminalGrid) {
       this.els.terminalGrid.hidden = !isTerminal;
+    }
+    if (this.els.terminalGroupsBar) {
+      this.els.terminalGroupsBar.hidden = !isTerminal;
     }
     if (this.els.docsPanel) {
       this.els.docsPanel.hidden = !isDocs;
     }
+    if (this.els.resourcesPanel) {
+      this.els.resourcesPanel.hidden = !isResources;
+    }
 
     if (isDocs) {
       this.loadDocs();
+    } else if (isResources) {
+      this.loadResources();
     } else if (isTerminal) {
+      if (this._tabGroups) this.renderTerminalGroupTabs();
       // Update mobile terminal tab strip when switching to terminal view
       if (this.isMobile) {
         this.updateTerminalTabs();
@@ -2302,8 +2343,16 @@ class CWMApp {
       const hiddenCount = allWsSessions.length - wsSessions.length;
       const sessionCount = wsSessions.length;
 
-      // Build session sub-items for accordion
-      const sessionItems = wsSessions.map(s => {
+      // Group sessions by workingDir for nested display
+      const projectGroupState = JSON.parse(localStorage.getItem('cwm_projectGroupState') || '{}');
+      const sessionsByDir = {};
+      wsSessions.forEach(s => {
+        const dir = s.workingDir || '(no directory)';
+        if (!sessionsByDir[dir]) sessionsByDir[dir] = [];
+        sessionsByDir[dir].push(s);
+      });
+
+      const renderSessionItem = (s) => {
         const isHidden = this.state.hiddenSessions.has(s.id);
         const statusDot = s.status === 'running' ? 'var(--green)' : 'var(--overlay0)';
         const name = s.name || s.id.substring(0, 12);
@@ -2313,7 +2362,34 @@ class CWMApp {
           <span class="ws-session-name">${this.escapeHtml(name.length > 22 ? name.substring(0, 22) + '...' : name)}</span>
           ${timeStr ? `<span class="ws-session-time">${timeStr}</span>` : ''}
         </div>`;
-      }).join('');
+      };
+
+      const dirKeys = Object.keys(sessionsByDir);
+      let sessionItems;
+      if (dirKeys.length <= 1) {
+        // Single directory or no sessions — flat list (no nesting needed)
+        sessionItems = wsSessions.map(renderSessionItem).join('');
+      } else {
+        // Multiple directories — group into nested accordions
+        sessionItems = dirKeys.map(dir => {
+          const dirSessions = sessionsByDir[dir];
+          const groupKey = ws.id + ':' + dir;
+          const isCollapsed = projectGroupState[groupKey] === false;
+          // Show last 2 path segments for readability
+          const parts = dir.replace(/\\/g, '/').split('/');
+          const shortDir = parts.slice(-2).join('/');
+          return `<div class="ws-project-group" data-group-key="${this.escapeHtml(groupKey)}">
+            <div class="ws-project-group-header" title="${this.escapeHtml(dir)}">
+              <span class="ws-project-group-chevron${isCollapsed ? ' collapsed' : ''}">&#9654;</span>
+              <span class="ws-project-group-path">${this.escapeHtml(shortDir)}</span>
+              <span class="ws-project-group-count">${dirSessions.length}</span>
+            </div>
+            <div class="ws-project-group-body${isCollapsed ? ' collapsed' : ''}">
+              ${dirSessions.map(renderSessionItem).join('')}
+            </div>
+          </div>`;
+        }).join('');
+      }
 
       return `
         <div class="workspace-accordion" data-id="${ws.id}">
@@ -2430,6 +2506,23 @@ class CWMApp {
       });
     });
 
+    // Bind project group accordion toggle
+    list.querySelectorAll('.ws-project-group-header').forEach(hdr => {
+      hdr.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const group = hdr.closest('.ws-project-group');
+        const body = group.querySelector('.ws-project-group-body');
+        const chevron = hdr.querySelector('.ws-project-group-chevron');
+        const key = group.dataset.groupKey;
+        const isCollapsed = body.classList.toggle('collapsed');
+        chevron.classList.toggle('collapsed', isCollapsed);
+        // Persist state
+        const state = JSON.parse(localStorage.getItem('cwm_projectGroupState') || '{}');
+        state[key] = !isCollapsed;
+        localStorage.setItem('cwm_projectGroupState', JSON.stringify(state));
+      });
+    });
+
     // Bind workspace session item events (drag to terminal, click to select)
     list.querySelectorAll('.ws-session-item').forEach(el => {
       el.addEventListener('click', (e) => {
@@ -2472,6 +2565,15 @@ class CWMApp {
       }, { passive: false });
       el.addEventListener('touchend', () => clearTimeout(wsSessLongPress));
       el.addEventListener('touchmove', () => clearTimeout(wsSessLongPress));
+
+      // Double-click session name for inline rename
+      const nameEl = el.querySelector('.ws-session-name');
+      if (nameEl) {
+        nameEl.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          this.startInlineRename(nameEl, el.dataset.sessionId, true);
+        });
+      }
 
       el.addEventListener('dragstart', (e) => {
         e.stopPropagation();
@@ -3699,6 +3801,26 @@ class CWMApp {
       this.els.docsPanel.querySelectorAll('.docs-item-delete').forEach(btn => {
         btn.addEventListener('click', () => this.removeDocsItem(btn.dataset.section, parseInt(btn.dataset.index)));
       });
+
+      // Click note text to edit in large editor
+      this.els.docsPanel.querySelectorAll('.docs-note-text, .docs-item-text').forEach(span => {
+        span.style.cursor = 'pointer';
+        span.title = 'Click to edit';
+        span.addEventListener('click', (e) => {
+          const item = e.target.closest('.docs-item');
+          if (!item) return;
+          const index = parseInt(item.dataset.index);
+          // Determine section from parent list
+          const parent = item.closest('[id]');
+          let section = 'notes';
+          if (parent) {
+            if (parent.id.includes('goals')) section = 'goals';
+            else if (parent.id.includes('tasks')) section = 'tasks';
+          }
+          const text = e.target.textContent;
+          this.showNotesEditor(section, index, text);
+        });
+      });
     }
 
     // Raw editor
@@ -3712,26 +3834,7 @@ class CWMApp {
       this.showToast('Select a workspace first', 'warning');
       return;
     }
-    const labels = { notes: 'Note', goals: 'Goal', tasks: 'Task' };
-    const label = labels[section] || 'Item';
-
-    const result = await this.showPromptModal({
-      title: `Add ${label}`,
-      fields: [
-        { key: 'text', label, placeholder: `Enter ${label.toLowerCase()}...`, required: true },
-      ],
-      confirmText: 'Add',
-      confirmClass: 'btn-primary',
-    });
-    if (!result || !result.text) return;
-
-    try {
-      await this.api('POST', `/api/workspaces/${this.state.activeWorkspace.id}/docs/${section}`, { text: result.text });
-      this.showToast(`${label} added`, 'success');
-      await this.loadDocs();
-    } catch (err) {
-      this.showToast(err.message || `Failed to add ${label}`, 'error');
-    }
+    this.showNotesEditor(section);
   }
 
   async toggleDocsItem(section, index) {
@@ -3772,6 +3875,522 @@ class CWMApp {
     } catch (err) {
       this.showToast(err.message || 'Failed to save documentation', 'error');
     }
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════
+     PHASE 3: INLINE SESSION RENAME
+     ═══════════════════════════════════════════════════════════ */
+
+  startInlineRename(nameEl, sessionId, isStoreSession = true) {
+    const currentName = nameEl.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'inline-rename-input';
+    input.value = currentName;
+    nameEl.textContent = '';
+    nameEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    const commit = async () => {
+      const newName = input.value.trim();
+      if (newName && newName !== currentName) {
+        try {
+          if (isStoreSession) {
+            await this.api('PUT', `/api/sessions/${sessionId}`, { name: newName });
+            const s = this.state.sessions.find(s => s.id === sessionId);
+            if (s) s.name = newName;
+          } else {
+            // Project session — save to localStorage titles
+            const titles = JSON.parse(localStorage.getItem('cwm_projectSessionTitles') || '{}');
+            titles[sessionId] = newName;
+            localStorage.setItem('cwm_projectSessionTitles', JSON.stringify(titles));
+          }
+          nameEl.textContent = newName;
+          nameEl.classList.add('rename-flash');
+          setTimeout(() => nameEl.classList.remove('rename-flash'), 600);
+        } catch (err) {
+          nameEl.textContent = currentName;
+          this.showToast('Rename failed: ' + (err.message || ''), 'error');
+        }
+      } else {
+        nameEl.textContent = currentName;
+      }
+    };
+
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { input.value = currentName; input.blur(); }
+    });
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════
+     PHASE 4: TERMINAL TAB GROUPS
+     ═══════════════════════════════════════════════════════════ */
+
+  initTerminalGroups() {
+    // Load layout from server
+    this._tabGroups = [];
+    this._activeGroupId = null;
+    this._layoutSaveTimer = null;
+
+    // Bind events
+    if (this.els.terminalGroupsAdd) {
+      this.els.terminalGroupsAdd.addEventListener('click', () => this.createTerminalGroup());
+    }
+
+    // Load saved layout
+    this.loadTerminalLayout();
+  }
+
+  async loadTerminalLayout() {
+    try {
+      const layout = await this.api('GET', '/api/layout');
+      if (layout && layout.tabGroups && layout.tabGroups.length > 0) {
+        this._tabGroups = layout.tabGroups;
+        this._activeGroupId = layout.activeGroupId || this._tabGroups[0].id;
+      } else {
+        // Create default group
+        this._tabGroups = [{ id: 'tg_default', name: 'Main', panes: [] }];
+        this._activeGroupId = 'tg_default';
+      }
+    } catch (_) {
+      this._tabGroups = [{ id: 'tg_default', name: 'Main', panes: [] }];
+      this._activeGroupId = 'tg_default';
+    }
+    this.renderTerminalGroupTabs();
+  }
+
+  renderTerminalGroupTabs() {
+    if (!this.els.terminalGroupsTabs) return;
+
+    const html = this._tabGroups.map(g => {
+      const isActive = g.id === this._activeGroupId;
+      const paneCount = g.panes ? g.panes.length : 0;
+      const hasActive = g.panes && g.panes.some(p => {
+        const tp = this.terminalPanes.find((_, i) => p.slot === i);
+        return tp !== null;
+      });
+      return `<button class="terminal-group-tab${isActive ? ' active' : ''}" data-group-id="${g.id}">
+        <span class="terminal-group-tab-dot${hasActive ? '' : ' inactive'}"></span>
+        <span class="terminal-group-tab-name">${this.escapeHtml(g.name)}</span>
+        ${paneCount > 0 ? `<span class="terminal-group-tab-count">${paneCount}</span>` : ''}
+      </button>`;
+    }).join('');
+
+    this.els.terminalGroupsTabs.innerHTML = html;
+
+    // Bind tab click events
+    this.els.terminalGroupsTabs.querySelectorAll('.terminal-group-tab').forEach(tab => {
+      tab.addEventListener('click', () => this.switchTerminalGroup(tab.dataset.groupId));
+
+      // Double-click to rename
+      tab.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        const nameEl = tab.querySelector('.terminal-group-tab-name');
+        if (nameEl) this.startInlineRenameGroup(nameEl, tab.dataset.groupId);
+      });
+
+      // Right-click context menu
+      tab.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const groupId = tab.dataset.groupId;
+        this._renderContextItems('Tab Group', [
+          { label: 'Rename', action: () => {
+            const nameEl = tab.querySelector('.terminal-group-tab-name');
+            if (nameEl) this.startInlineRenameGroup(nameEl, groupId);
+          }},
+          { label: 'Delete', danger: true, action: () => this.deleteTerminalGroup(groupId) },
+        ], e.clientX, e.clientY);
+      });
+    });
+  }
+
+  switchTerminalGroup(groupId) {
+    if (groupId === this._activeGroupId) return;
+
+    // Save current group's pane state
+    this.saveCurrentGroupPanes();
+
+    // Close current panes (disconnect but don't kill PTYs)
+    for (let i = 0; i < 4; i++) {
+      if (this.terminalPanes[i]) {
+        this.terminalPanes[i].dispose();
+        this.terminalPanes[i] = null;
+        const paneEl = document.getElementById(`term-pane-${i}`);
+        if (paneEl) {
+          paneEl.classList.add('terminal-pane-empty');
+          const header = paneEl.querySelector('.terminal-pane-title');
+          if (header) header.textContent = 'Drop a session here';
+          const closeBtn = paneEl.querySelector('.terminal-pane-close');
+          if (closeBtn) closeBtn.hidden = true;
+        }
+      }
+    }
+
+    this._activeGroupId = groupId;
+
+    // Restore the new group's panes
+    const group = this._tabGroups.find(g => g.id === groupId);
+    if (group && group.panes) {
+      group.panes.forEach(p => {
+        if (p.sessionId) {
+          this.openTerminalInPane(p.slot, p.sessionId, p.sessionName || 'Terminal');
+        }
+      });
+    }
+
+    this.renderTerminalGroupTabs();
+    this.saveTerminalLayout();
+  }
+
+  saveCurrentGroupPanes() {
+    const group = this._tabGroups.find(g => g.id === this._activeGroupId);
+    if (!group) return;
+
+    group.panes = [];
+    for (let i = 0; i < 4; i++) {
+      if (this.terminalPanes[i]) {
+        group.panes.push({
+          slot: i,
+          sessionId: this.terminalPanes[i].sessionId,
+          sessionName: this.terminalPanes[i].sessionName,
+        });
+      }
+    }
+  }
+
+  createTerminalGroup() {
+    const id = 'tg_' + Date.now().toString(36);
+    const name = 'Tab ' + (this._tabGroups.length + 1);
+    this._tabGroups.push({ id, name, panes: [] });
+    this.saveTerminalLayout();
+    this.renderTerminalGroupTabs();
+    this.showToast(`Created tab group "${name}"`, 'success');
+  }
+
+  deleteTerminalGroup(groupId) {
+    if (this._tabGroups.length <= 1) {
+      this.showToast('Cannot delete the last tab group', 'warning');
+      return;
+    }
+    this._tabGroups = this._tabGroups.filter(g => g.id !== groupId);
+    if (this._activeGroupId === groupId) {
+      this._activeGroupId = this._tabGroups[0].id;
+      this.switchTerminalGroup(this._activeGroupId);
+    }
+    this.saveTerminalLayout();
+    this.renderTerminalGroupTabs();
+  }
+
+  startInlineRenameGroup(nameEl, groupId) {
+    const currentName = nameEl.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'inline-rename-input';
+    input.value = currentName;
+    input.style.width = '80px';
+    nameEl.textContent = '';
+    nameEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+      const newName = input.value.trim() || currentName;
+      nameEl.textContent = newName;
+      const group = this._tabGroups.find(g => g.id === groupId);
+      if (group) group.name = newName;
+      this.saveTerminalLayout();
+    };
+
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { input.value = currentName; input.blur(); }
+    });
+  }
+
+  saveTerminalLayout() {
+    clearTimeout(this._layoutSaveTimer);
+    this._layoutSaveTimer = setTimeout(async () => {
+      this.saveCurrentGroupPanes();
+      try {
+        await this.api('PUT', '/api/layout', {
+          tabGroups: this._tabGroups,
+          activeGroupId: this._activeGroupId,
+        });
+      } catch (_) {}
+    }, 500);
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════
+     PHASE 5: NOTES EDITOR MODAL
+     ═══════════════════════════════════════════════════════════ */
+
+  initNotesEditor() {
+    if (!this.els.notesEditorOverlay) return;
+
+    this.els.notesEditorClose.addEventListener('click', () => this.hideNotesEditor());
+    this.els.notesEditorCancel.addEventListener('click', () => this.hideNotesEditor());
+    this.els.notesEditorSave.addEventListener('click', () => this.saveNotesEditor());
+
+    // Ctrl+Enter to save
+    this.els.notesEditorTextarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        this.saveNotesEditor();
+      }
+    });
+
+    // Toolbar buttons
+    this.els.notesEditorOverlay.querySelectorAll('.notes-toolbar-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action;
+        const ta = this.els.notesEditorTextarea;
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        const selected = ta.value.substring(start, end);
+        let insert = '';
+
+        switch (action) {
+          case 'bold': insert = `**${selected || 'bold text'}**`; break;
+          case 'italic': insert = `*${selected || 'italic text'}*`; break;
+          case 'code': insert = selected.includes('\n') ? `\`\`\`\n${selected}\n\`\`\`` : `\`${selected || 'code'}\``; break;
+          case 'link': insert = `[${selected || 'link text'}](url)`; break;
+          case 'list': insert = `- ${selected || 'item'}`; break;
+        }
+
+        ta.value = ta.value.substring(0, start) + insert + ta.value.substring(end);
+        ta.focus();
+        ta.selectionStart = start;
+        ta.selectionEnd = start + insert.length;
+      });
+    });
+
+    // Click overlay to close
+    this.els.notesEditorOverlay.addEventListener('click', (e) => {
+      if (e.target === this.els.notesEditorOverlay) this.hideNotesEditor();
+    });
+  }
+
+  showNotesEditor(section, index = null, existingText = '') {
+    this._notesEditorSection = section;
+    this._notesEditorIndex = index;
+    const isEdit = index !== null;
+    this.els.notesEditorTitle.textContent = isEdit ? `Edit ${section.slice(0, -1)}` : `Add ${section.slice(0, -1)}`;
+    this.els.notesEditorTextarea.value = existingText;
+    this.els.notesEditorOverlay.hidden = false;
+    setTimeout(() => this.els.notesEditorTextarea.focus(), 50);
+  }
+
+  hideNotesEditor() {
+    this.els.notesEditorOverlay.hidden = true;
+    this.els.notesEditorTextarea.value = '';
+  }
+
+  async saveNotesEditor() {
+    const text = this.els.notesEditorTextarea.value.trim();
+    if (!text) {
+      this.showToast('Note cannot be empty', 'warning');
+      return;
+    }
+    if (!this.state.activeWorkspace) return;
+
+    const wsId = this.state.activeWorkspace.id;
+    const section = this._notesEditorSection;
+
+    try {
+      if (this._notesEditorIndex !== null) {
+        // Edit existing — remove old, add new
+        await this.api('DELETE', `/api/workspaces/${wsId}/docs/${section}/${this._notesEditorIndex}`);
+        await this.api('POST', `/api/workspaces/${wsId}/docs/${section}`, { text });
+      } else {
+        await this.api('POST', `/api/workspaces/${wsId}/docs/${section}`, { text });
+      }
+      this.hideNotesEditor();
+      this.showToast('Saved', 'success');
+      await this.loadDocs();
+    } catch (err) {
+      this.showToast(err.message || 'Failed to save', 'error');
+    }
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════
+     PHASE 6: AI INSIGHTS
+     ═══════════════════════════════════════════════════════════ */
+
+  initAIInsights() {
+    if (this.els.docsAiRefresh) {
+      this.els.docsAiRefresh.addEventListener('click', () => this.loadAIInsights());
+    }
+    this._aiInsightsCache = {};
+  }
+
+  async loadAIInsights() {
+    if (!this.state.activeWorkspace) return;
+    const wsId = this.state.activeWorkspace.id;
+    const container = this.els.docsAiInsights;
+    if (!container) return;
+
+    // Get sessions for this workspace
+    const wsSessions = this.state.sessions.filter(s => s.workspaceId === wsId);
+    if (wsSessions.length === 0) {
+      container.innerHTML = '<div class="ai-insights-empty">No sessions in this workspace</div>';
+      return;
+    }
+
+    // Show loading skeletons
+    container.innerHTML = wsSessions.map(() =>
+      `<div class="ai-insight-skeleton">
+        <div class="ai-insight-skeleton-line"></div>
+        <div class="ai-insight-skeleton-line"></div>
+        <div class="ai-insight-skeleton-line"></div>
+      </div>`
+    ).join('');
+
+    // Fetch summaries for each session
+    const results = await Promise.allSettled(
+      wsSessions.map(async (s) => {
+        const cacheKey = s.id + ':' + (s.lastActive || '');
+        if (this._aiInsightsCache[cacheKey]) return { session: s, data: this._aiInsightsCache[cacheKey] };
+        try {
+          const data = await this.api('POST', `/api/sessions/${s.id}/summarize`, {
+            claudeSessionId: s.resumeSessionId || s.id,
+          });
+          this._aiInsightsCache[cacheKey] = data;
+          return { session: s, data };
+        } catch (err) {
+          return { session: s, error: err.message };
+        }
+      })
+    );
+
+    // Render results
+    container.innerHTML = results.map(r => {
+      if (r.status === 'rejected' || r.value.error) {
+        const s = r.value ? r.value.session : {};
+        return `<div class="ai-insight-card">
+          <div class="ai-insight-header">
+            <span class="ai-insight-name">${this.escapeHtml(s.name || 'Unknown')}</span>
+            <span class="ai-insight-badge">Error</span>
+          </div>
+          <div class="ai-insight-theme">${this.escapeHtml(r.value?.error || 'Failed to load')}</div>
+        </div>`;
+      }
+      const { session, data } = r.value;
+      const sizeKB = data.fileSize ? Math.round(data.fileSize / 1024) : '?';
+      return `<div class="ai-insight-card">
+        <div class="ai-insight-header">
+          <span class="ai-insight-name">${this.escapeHtml(session.name)}</span>
+          <span class="ai-insight-badge">${sizeKB}KB / ${data.messageCount || '?'} msgs</span>
+        </div>
+        <div class="ai-insight-theme"><strong>Theme:</strong> ${this.escapeHtml(data.overallTheme || 'Unknown')}</div>
+        <div class="ai-insight-recent"><strong>Recent:</strong> ${this.escapeHtml(data.recentTasking || 'No recent activity')}</div>
+      </div>`;
+    }).join('');
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════
+     PHASE 7: RESOURCE MONITORING
+     ═══════════════════════════════════════════════════════════ */
+
+  async loadResources() {
+    // Start auto-refresh polling
+    if (this._resourcesInterval) clearInterval(this._resourcesInterval);
+    this._resourcesInterval = setInterval(() => {
+      if (this.state.viewMode === 'resources') this.fetchResources();
+    }, 10000);
+
+    await this.fetchResources();
+  }
+
+  async fetchResources() {
+    const body = this.els.resourcesBody;
+    if (!body) return;
+
+    try {
+      const data = await this.api('GET', '/api/resources');
+      this.renderResources(data);
+    } catch (err) {
+      body.innerHTML = `<div class="resources-empty">Failed to load resources: ${this.escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  renderResources(data) {
+    const body = this.els.resourcesBody;
+    if (!body || !data) return;
+
+    const sys = data.system || {};
+    const cpuPercent = Math.round(sys.cpuUsage || 0);
+    const memUsedMB = sys.usedMemoryMB || 0;
+    const memTotalMB = sys.totalMemoryMB || 1;
+    const memPercent = Math.round((memUsedMB / memTotalMB) * 100);
+
+    const barLevel = (pct) => pct > 80 ? 'level-danger' : pct > 60 ? 'level-warn' : 'level-ok';
+    const formatUptime = (s) => {
+      if (!s) return '--';
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    };
+
+    let html = `<div class="resources-system-grid">
+      <div class="resource-card">
+        <div class="resource-card-label">CPU Usage</div>
+        <div class="resource-card-value">${cpuPercent}%</div>
+        <div class="resource-bar"><div class="resource-bar-fill ${barLevel(cpuPercent)}" style="width: ${cpuPercent}%"></div></div>
+      </div>
+      <div class="resource-card">
+        <div class="resource-card-label">Memory</div>
+        <div class="resource-card-value">${memPercent}%</div>
+        <div class="resource-bar"><div class="resource-bar-fill ${barLevel(memPercent)}" style="width: ${memPercent}%"></div></div>
+        <div style="font-size:11px;color:var(--subtext0);margin-top:4px;">${Math.round(memUsedMB/1024*10)/10} / ${Math.round(memTotalMB/1024*10)/10} GB</div>
+      </div>
+      <div class="resource-card">
+        <div class="resource-card-label">CPUs</div>
+        <div class="resource-card-value">${sys.cpuCount || '--'}</div>
+      </div>
+      <div class="resource-card">
+        <div class="resource-card-label">System Uptime</div>
+        <div class="resource-card-value">${formatUptime(sys.uptimeSeconds)}</div>
+      </div>
+    </div>`;
+
+    // Claude sessions section
+    const claudeSessions = data.claudeSessions || [];
+    const totalMem = data.totalClaudeMemoryMB || 0;
+
+    html += `<div class="resources-claude-section">
+      <div class="resources-section-title">
+        Claude Sessions
+        <span class="total-badge">${claudeSessions.length} active / ${Math.round(totalMem)} MB total</span>
+      </div>`;
+
+    if (claudeSessions.length === 0) {
+      html += '<div class="resources-empty">No running Claude sessions</div>';
+    } else {
+      html += `<table class="claude-session-table">
+        <thead><tr><th>Session</th><th>PID</th><th>Memory</th><th>Status</th></tr></thead>
+        <tbody>`;
+      claudeSessions.forEach(s => {
+        html += `<tr>
+          <td class="session-name-cell">${this.escapeHtml(s.sessionName || s.sessionId)}</td>
+          <td class="pid-cell">${s.pid || '--'}</td>
+          <td class="mem-cell">${s.memoryMB ? Math.round(s.memoryMB) + ' MB' : '--'}</td>
+          <td>${s.status || '--'}</td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+    }
+
+    html += '</div>';
+    body.innerHTML = html;
   }
 }
 

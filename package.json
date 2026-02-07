@@ -20,7 +20,7 @@
     "tui"
   ],
   "author": "Arthur",
-  "license": "ISC",
+  "license": "AGPL-3.0-only",
   "description": "Lightweight terminal workspace manager for Claude Code sessions",
   "dependencies": {
     "blessed": "^0.1.81",

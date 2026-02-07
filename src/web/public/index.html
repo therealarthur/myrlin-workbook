@@ -109,6 +109,12 @@
             </svg>
             Docs
           </button>
+          <button class="view-tab" data-mode="resources" role="tab" aria-selected="false">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M2 12V8h3v4H2zM6.5 12V5h3v7h-3zM11 12V2h3v10h-3z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+            </svg>
+            Resources
+          </button>
         </nav>
       </div>
 
@@ -323,6 +329,18 @@
           </div>
         </div>
 
+        <!-- Terminal Tab Groups Bar -->
+        <div class="terminal-groups-bar" id="terminal-groups-bar" hidden>
+          <div class="terminal-groups-tabs" id="terminal-groups-tabs">
+            <!-- Tab group tabs rendered by app.js -->
+          </div>
+          <button class="btn btn-ghost btn-icon btn-sm terminal-groups-add" id="terminal-groups-add" title="New tab group">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+
         <!-- Terminal Grid (starts with 1 pane, auto-expands on drop) -->
         <div class="terminal-grid" id="terminal-grid" data-panes="1" hidden>
           <div class="terminal-tab-strip" id="terminal-tab-strip" hidden></div>
@@ -447,6 +465,23 @@
               </div>
               <div class="docs-section-body" id="docs-tasks-list"></div>
             </div>
+
+            <div class="docs-section docs-ai-section" data-section="ai-insights">
+              <div class="docs-section-header">
+                <span class="docs-section-chevron open">&#9654;</span>
+                <h3 class="docs-section-title">AI Insights</h3>
+                <button class="btn btn-ghost btn-sm" id="docs-ai-refresh" title="Refresh summaries">
+                  <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+                    <path d="M2 7a5 5 0 019.33-2.5M12 7a5 5 0 01-9.33 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    <path d="M11 2v3h-3M3 12V9h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+              <div class="docs-section-body docs-ai-body" id="docs-ai-insights">
+                <div class="ai-insights-empty">Select a workspace to see AI-generated session summaries</div>
+              </div>
+            </div>
           </div>
 
           <!-- Raw Editor View -->
@@ -455,7 +490,50 @@
           </div>
         </div>
 
+        <!-- Resources Panel -->
+        <div class="resources-panel" id="resources-panel" hidden>
+          <div class="resources-header">
+            <h2 class="resources-title">System Resources</h2>
+            <span class="resources-refresh-indicator" id="resources-refresh-indicator">Auto-refresh: 10s</span>
+          </div>
+          <div class="resources-body" id="resources-body">
+            <!-- Resource cards and session table rendered by app.js -->
+            <div class="resources-loading">Loading resource data...</div>
+          </div>
+        </div>
+
       </main>
+    </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- NOTES EDITOR MODAL                          -->
+    <!-- ═══════════════════════════════════════════ -->
+    <div class="modal-overlay" id="notes-editor-overlay" hidden>
+      <div class="notes-editor-modal" role="dialog" aria-label="Notes Editor">
+        <div class="notes-editor-header">
+          <h3 class="notes-editor-title" id="notes-editor-title">Edit Note</h3>
+          <div class="notes-editor-toolbar">
+            <button class="btn btn-ghost btn-sm notes-toolbar-btn" data-action="bold" title="Bold"><strong>B</strong></button>
+            <button class="btn btn-ghost btn-sm notes-toolbar-btn" data-action="italic" title="Italic"><em>I</em></button>
+            <button class="btn btn-ghost btn-sm notes-toolbar-btn" data-action="code" title="Code">&lt;/&gt;</button>
+            <button class="btn btn-ghost btn-sm notes-toolbar-btn" data-action="link" title="Link">Link</button>
+            <button class="btn btn-ghost btn-sm notes-toolbar-btn" data-action="list" title="List">List</button>
+          </div>
+          <button class="btn btn-ghost btn-icon btn-sm" id="notes-editor-close" aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <textarea class="notes-editor-textarea" id="notes-editor-textarea" placeholder="Write your note here... Markdown is supported." spellcheck="true"></textarea>
+        <div class="notes-editor-footer">
+          <span class="notes-editor-hint">Markdown supported. Ctrl+Enter to save.</span>
+          <div class="notes-editor-actions">
+            <button class="btn btn-ghost" id="notes-editor-cancel">Cancel</button>
+            <button class="btn btn-primary" id="notes-editor-save">Save</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════ -->
