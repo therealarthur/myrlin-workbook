@@ -1,0 +1,580 @@
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE OVERRIDES
+   All styles in this file are scoped to @media queries.
+   Desktop layout is untouched.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Phase 1: Foundation + Tap Targets ────────────────────── */
+
+@media (max-width: 768px) {
+
+  /* Safe area insets for notched devices */
+  body {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Minimum 44px tap targets for all interactive elements */
+  .btn-icon,
+  .btn-sm.btn-icon {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .workspace-actions .btn {
+    padding: 8px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .docs-add-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+
+  .docs-checkbox {
+    padding: 10px;
+  }
+
+  .view-tab {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  .terminal-pane-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Hover-only elements → always visible on mobile */
+  .workspace-actions {
+    opacity: 1 !important;
+  }
+
+  .docs-item-delete {
+    opacity: 0.6 !important;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+  }
+
+  /* Prevent iOS zoom on input focus (requires ≥16px) */
+  input,
+  textarea,
+  select,
+  .qs-search-input,
+  .input {
+    font-size: 16px !important;
+  }
+
+  /* Sidebar transition for smooth open/close */
+  .sidebar {
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+/* Bottom-sheet modals on small phones */
+@media (max-width: 480px) {
+  .modal-overlay {
+    align-items: flex-end;
+    padding-top: 0;
+  }
+
+  .modal {
+    border-radius: 18px 18px 0 0;
+    max-width: 100%;
+    margin: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    max-height: 85vh;
+    overflow-y: auto;
+    animation: sheet-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .modal-footer {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .modal-footer .btn {
+    width: 100%;
+    padding: 14px;
+    justify-content: center;
+  }
+}
+
+
+/* ─── Phase 2: Bottom Tab Bar ──────────────────────────────── */
+
+.mobile-tab-bar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-subtle);
+  padding: 0 4px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  align-items: center;
+  justify-content: space-around;
+}
+
+.mobile-tab-bar[hidden] {
+  display: none !important;
+}
+
+.mobile-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 0;
+  min-width: 48px;
+  min-height: 48px;
+  background: none;
+  border: none;
+  color: var(--overlay0);
+  font-size: 10px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-tab svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.mobile-tab.active {
+  color: var(--green);
+}
+
+.mobile-tab:active {
+  opacity: 0.7;
+}
+
+@media (max-width: 768px) {
+  .mobile-tab-bar {
+    display: flex;
+  }
+
+  /* Hide desktop header tabs — bottom bar replaces them */
+  .header-center .view-tabs {
+    display: none !important;
+  }
+
+  /* Hide header-right actions — moved to "More" tab */
+  .header-right {
+    display: none;
+  }
+
+  /* Make room for bottom tab bar */
+  .app-body {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Session detail slides in from the right */
+  .session-detail-panel {
+    position: fixed;
+    top: var(--header-height);
+    right: 0;
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+    left: 0;
+    z-index: 15;
+    background: var(--bg-primary);
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow-y: auto;
+  }
+
+  .session-detail-panel.mobile-visible {
+    transform: translateX(0);
+  }
+
+  /* Never hide the session list on mobile — detail overlays it */
+  .session-list-panel.detail-active {
+    display: block !important;
+  }
+
+  /* Toast above bottom tab bar */
+  .toast-container {
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+
+/* ─── Phase 3: Action Sheet ────────────────────────────────── */
+
+.action-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(17, 17, 27, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: overlay-in 0.15s ease;
+}
+
+.action-sheet-overlay[hidden] {
+  display: none !important;
+}
+
+.action-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-secondary);
+  border-radius: 18px 18px 0 0;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  max-height: 70vh;
+  overflow-y: auto;
+  animation: sheet-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.action-sheet-handle {
+  width: 36px;
+  height: 4px;
+  background: var(--surface2);
+  border-radius: 2px;
+  margin: 0 auto 12px;
+}
+
+.action-sheet-header {
+  padding: 4px 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.action-sheet-header:empty {
+  display: none;
+}
+
+.action-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  min-height: 48px;
+  border-radius: 10px;
+  font-size: 15px;
+  color: var(--text-primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+}
+
+.action-sheet-item:active {
+  background: var(--bg-hover);
+}
+
+.action-sheet-item .as-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.7;
+  font-size: 16px;
+}
+
+.action-sheet-item .as-check {
+  margin-left: auto;
+  opacity: 0.5;
+  font-size: 14px;
+  color: var(--green);
+}
+
+.action-sheet-item.as-danger {
+  color: var(--red);
+}
+
+.action-sheet-item[disabled] {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.action-sheet-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 8px;
+}
+
+.action-sheet-cancel {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  margin-top: 8px;
+  background: var(--surface0);
+  border: none;
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.action-sheet-cancel:active {
+  background: var(--surface1);
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+
+/* ─── Phase 4: Terminal Tab Strip ──────────────────────────── */
+
+.terminal-tab-strip {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .terminal-tab-strip {
+    display: flex;
+    gap: 0;
+    background: var(--crust);
+    border-bottom: 1px solid var(--surface0);
+    overflow-x: auto;
+    flex-shrink: 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .terminal-tab-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .terminal-tab-strip[hidden] {
+    display: none !important;
+  }
+
+  .terminal-tab-strip:empty {
+    display: none;
+  }
+
+  .terminal-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    min-height: 44px;
+    white-space: nowrap;
+    font-size: 12px;
+    font-family: inherit;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--overlay0);
+    background: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
+  }
+
+  .terminal-tab.active {
+    color: var(--green);
+    border-bottom-color: var(--green);
+  }
+
+  .terminal-tab:active {
+    background: var(--surface0);
+  }
+
+  .terminal-tab-add {
+    color: var(--overlay1);
+    font-size: 16px;
+    padding: 10px 14px;
+  }
+
+  .terminal-tab-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: none;
+    border: none;
+    color: var(--overlay0);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+  }
+
+  .terminal-tab.active .terminal-tab-close {
+    opacity: 0.6;
+  }
+
+  .terminal-tab-close:active {
+    background: var(--surface1);
+    opacity: 1;
+  }
+
+  /* Single visible pane on mobile */
+  .terminal-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: unset !important;
+    grid-template-rows: unset !important;
+    gap: 0 !important;
+  }
+
+  .terminal-pane {
+    display: none !important;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .terminal-pane.mobile-active {
+    display: flex !important;
+  }
+
+  /* Hide empty pane drop targets on mobile */
+  .terminal-pane-empty {
+    display: none !important;
+  }
+
+  /* Hide desktop pane headers on mobile (tabs replace them) */
+  .terminal-pane.mobile-active .terminal-pane-header {
+    display: none;
+  }
+}
+
+
+/* ─── Phase 5: Touch Gestures ──────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Session item swipe-to-reveal */
+  .session-item-wrapper {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .session-item-wrapper .session-item {
+    position: relative;
+    z-index: 1;
+    transition: transform 0.15s ease;
+    background: var(--bg-primary);
+  }
+
+  .session-item-swipe-actions {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    z-index: 0;
+  }
+
+  .swipe-action {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--crust);
+    border: none;
+    cursor: pointer;
+  }
+
+  .swipe-action svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .swipe-action-terminal {
+    background: var(--green);
+  }
+
+  .swipe-action-hide {
+    background: var(--red);
+  }
+}
+
+
+/* ─── Phase 6: Quick Switcher + Docs Polish ────────────────── */
+
+@media (max-width: 768px) {
+  /* Quick switcher: full-screen on mobile */
+  .quick-switcher {
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 0;
+    height: 100%;
+    max-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #quick-switcher-overlay {
+    padding: 0;
+  }
+
+  .qs-results {
+    flex: 1;
+    max-height: none;
+  }
+
+  .qs-footer {
+    display: none; /* Keyboard hints not useful on mobile */
+  }
+
+  .qs-search-input {
+    font-size: 16px !important;
+    padding: 14px 12px !important;
+  }
+
+  /* Docs raw editor full height + no zoom */
+  .docs-raw-editor {
+    font-size: 16px !important;
+    min-height: 200px;
+  }
+
+  /* Workspace items — larger touch target */
+  .workspace-item {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  /* Session items — larger touch target */
+  .session-item {
+    min-height: 52px;
+    padding: 12px 16px;
+  }
+
+  /* Project session items — larger touch */
+  .project-session-item {
+    min-height: 44px;
+    padding: 10px 12px 10px 28px;
+  }
+
+  /* Project accordion header */
+  .project-accordion-header {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+}

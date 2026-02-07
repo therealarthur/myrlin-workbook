@@ -124,12 +124,16 @@ class TerminalPane {
       });
 
       this._resizeObserver = new ResizeObserver(() => {
-        if (this.fitAddon) {
-          try { this.fitAddon.fit(); } catch (_) {}
-          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({ type: 'resize', cols: this.term.cols, rows: this.term.rows }));
+        // Debounce resize to prevent layout thrashing during mobile tab switches
+        clearTimeout(this._fitTimer);
+        this._fitTimer = setTimeout(() => {
+          if (this.fitAddon) {
+            try { this.fitAddon.fit(); } catch (_) {}
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+              this.ws.send(JSON.stringify({ type: 'resize', cols: this.term.cols, rows: this.term.rows }));
+            }
           }
-        }
+        }, 100);
       });
       this._resizeObserver.observe(container);
     } catch (err) {
@@ -241,6 +245,7 @@ class TerminalPane {
 
   dispose() {
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this._fitTimer);
     if (this._resizeObserver) this._resizeObserver.disconnect();
     if (this.ws) { this.ws.onclose = null; this.ws.close(); }
     if (this.term) this.term.dispose();
