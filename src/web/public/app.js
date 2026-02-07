@@ -4244,14 +4244,26 @@ class CWMApp {
       return;
     }
 
-    // Show loading skeletons
-    container.innerHTML = wsSessions.map(() =>
-      `<div class="ai-insight-skeleton">
-        <div class="ai-insight-skeleton-line"></div>
-        <div class="ai-insight-skeleton-line"></div>
-        <div class="ai-insight-skeleton-line"></div>
-      </div>`
-    ).join('');
+    // Show loading state — spinning refresh button + header + skeletons
+    const refreshBtn = this.els.docsAiRefresh;
+    if (refreshBtn) {
+      refreshBtn.classList.add('ai-loading');
+      refreshBtn.disabled = true;
+    }
+
+    container.innerHTML = `
+      <div class="ai-insights-loading-header">
+        <span class="ai-loading-spinner"></span>
+        Generating summaries for ${wsSessions.length} session${wsSessions.length !== 1 ? 's' : ''}...
+      </div>` +
+      wsSessions.map((s) =>
+        `<div class="ai-insight-skeleton">
+          <div class="ai-insight-skeleton-label">${this.escapeHtml(s.name || s.id.substring(0, 12))}</div>
+          <div class="ai-insight-skeleton-line"></div>
+          <div class="ai-insight-skeleton-line"></div>
+          <div class="ai-insight-skeleton-line"></div>
+        </div>`
+      ).join('');
 
     // Fetch summaries for each session
     const results = await Promise.allSettled(
@@ -4270,14 +4282,20 @@ class CWMApp {
       })
     );
 
+    // Stop loading state
+    if (refreshBtn) {
+      refreshBtn.classList.remove('ai-loading');
+      refreshBtn.disabled = false;
+    }
+
     // Render results
     container.innerHTML = results.map(r => {
       if (r.status === 'rejected' || r.value.error) {
         const s = r.value ? r.value.session : {};
-        return `<div class="ai-insight-card">
+        return `<div class="ai-insight-card ai-insight-error">
           <div class="ai-insight-header">
             <span class="ai-insight-name">${this.escapeHtml(s.name || 'Unknown')}</span>
-            <span class="ai-insight-badge">Error</span>
+            <span class="ai-insight-badge ai-badge-error">Error</span>
           </div>
           <div class="ai-insight-theme">${this.escapeHtml(r.value?.error || 'Failed to load')}</div>
         </div>`;
