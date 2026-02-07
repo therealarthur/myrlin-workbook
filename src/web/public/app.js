@@ -96,6 +96,7 @@ class CWMApp {
       token: localStorage.getItem('cwm_token') || null,
       workspaces: [],
       sessions: [],
+      allSessions: [],  // Always holds ALL sessions (for sidebar rendering)
       groups: [],
       projects: [],
       activeWorkspace: null,
@@ -694,18 +695,32 @@ class CWMApp {
   async loadSessions() {
     try {
       const mode = this.state.viewMode;
-      // If workspace mode but no workspace active, show empty or switch to all
+
+      // Always fetch ALL sessions for sidebar workspace rendering
+      const allData = await this.api('GET', '/api/sessions?mode=all');
+      this.state.allSessions = allData.sessions || [];
+
+      // If workspace mode but no workspace active, show empty
       if (mode === 'workspace' && !this.state.activeWorkspace) {
         this.state.sessions = [];
         this.renderSessions();
+        this.renderWorkspaces();
         return;
       }
-      let path = `/api/sessions?mode=${mode}`;
-      if (mode === 'workspace' && this.state.activeWorkspace) {
-        path += `&workspaceId=${this.state.activeWorkspace.id}`;
+
+      // Fetch mode-specific sessions for the main session list panel
+      if (mode === 'workspace' || mode === 'recent') {
+        let path = `/api/sessions?mode=${mode}`;
+        if (mode === 'workspace' && this.state.activeWorkspace) {
+          path += `&workspaceId=${this.state.activeWorkspace.id}`;
+        }
+        const data = await this.api('GET', path);
+        this.state.sessions = data.sessions || [];
+      } else {
+        // 'all' mode — reuse the full list we already fetched
+        this.state.sessions = this.state.allSessions;
       }
-      const data = await this.api('GET', path);
-      this.state.sessions = data.sessions || [];
+
       this.renderSessions();
       // Re-render workspace accordion to update session sub-items
       this.renderWorkspaces();
@@ -841,7 +856,9 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   async selectSession(id) {
-    const session = this.state.sessions.find(s => s.id === id) || null;
+    const session = this.state.sessions.find(s => s.id === id)
+      || (this.state.allSessions && this.state.allSessions.find(s => s.id === id))
+      || null;
     this.state.selectedSession = session;
     this.renderSessionDetail();
     this.renderSessions(); // update active state
@@ -988,13 +1005,16 @@ class CWMApp {
   }
 
   async moveSessionToWorkspace(sessionId, targetWorkspaceId) {
-    const session = this.state.sessions.find(s => s.id === sessionId);
+    const session = (this.state.allSessions || this.state.sessions).find(s => s.id === sessionId);
     const targetWs = this.state.workspaces.find(w => w.id === targetWorkspaceId);
     if (!session || !targetWs) return;
 
     try {
       await this.api('PUT', `/api/sessions/${sessionId}`, { workspaceId: targetWorkspaceId });
       session.workspaceId = targetWorkspaceId;
+      // Update allSessions too
+      const allSession = this.state.allSessions && this.state.allSessions.find(s => s.id === sessionId);
+      if (allSession && allSession !== session) allSession.workspaceId = targetWorkspaceId;
       this.renderWorkspaces();
       this.renderSessions();
       this.showToast(`Moved "${session.name}" to "${targetWs.name}"`, 'success');
@@ -1004,7 +1024,7 @@ class CWMApp {
   }
 
   async removeSessionFromWorkspace(sessionId) {
-    const session = this.state.sessions.find(s => s.id === sessionId);
+    const session = (this.state.allSessions || this.state.sessions).find(s => s.id === sessionId);
     if (!session) return;
 
     const confirmed = await this.showConfirmModal({
@@ -1018,6 +1038,9 @@ class CWMApp {
     try {
       await this.api('DELETE', `/api/sessions/${sessionId}`);
       this.state.sessions = this.state.sessions.filter(s => s.id !== sessionId);
+      if (this.state.allSessions) {
+        this.state.allSessions = this.state.allSessions.filter(s => s.id !== sessionId);
+      }
       if (this.state.selectedSession && this.state.selectedSession.id === sessionId) {
         this.deselectSession();
       }
@@ -1085,7 +1108,7 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   showContextMenu(sessionId, x, y) {
-    const session = this.state.sessions.find(s => s.id === sessionId);
+    const session = (this.state.allSessions || this.state.sessions).find(s => s.id === sessionId);
     if (!session) return;
 
     const isRunning = session.status === 'running' || session.status === 'idle';
@@ -2399,7 +2422,7 @@ class CWMApp {
     const renderWorkspaceItem = (ws) => {
       const isActive = this.state.activeWorkspace && this.state.activeWorkspace.id === ws.id;
       const color = colorMap[ws.color] || colorMap.mauve;
-      const allWsSessions = this.state.sessions.filter(s => s.workspaceId === ws.id);
+      const allWsSessions = (this.state.allSessions || this.state.sessions).filter(s => s.workspaceId === ws.id);
       const wsSessions = allWsSessions.filter(s => this.state.showHidden || !this.state.hiddenSessions.has(s.id));
       const hiddenCount = allWsSessions.length - wsSessions.length;
       const sessionCount = wsSessions.length;
@@ -2585,7 +2608,7 @@ class CWMApp {
           e.preventDefault();
           e.stopPropagation();
           const targetWsId = el.dataset.id;
-          const session = this.state.sessions.find(s => s.id === sessionId);
+          const session = (this.state.allSessions || this.state.sessions).find(s => s.id === sessionId);
           if (session && session.workspaceId !== targetWsId) {
             this.moveSessionToWorkspace(sessionId, targetWsId);
           }
@@ -2615,7 +2638,7 @@ class CWMApp {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         const sessionId = el.dataset.sessionId;
-        const session = this.state.sessions.find(s => s.id === sessionId);
+        const session = (this.state.allSessions || this.state.sessions).find(s => s.id === sessionId);
         if (!session) return;
 
         if (this.state.viewMode === 'terminal') {
@@ -3988,6 +4011,9 @@ class CWMApp {
             await this.api('PUT', `/api/sessions/${sessionId}`, { name: newName });
             const s = this.state.sessions.find(s => s.id === sessionId);
             if (s) s.name = newName;
+            // Also update in allSessions
+            const as = this.state.allSessions && this.state.allSessions.find(s => s.id === sessionId);
+            if (as && as !== s) as.name = newName;
           } else {
             // Project session — save to localStorage titles
             const titles = JSON.parse(localStorage.getItem('cwm_projectSessionTitles') || '{}');
