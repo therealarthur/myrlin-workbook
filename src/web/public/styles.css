@@ -2465,23 +2465,42 @@ textarea.input {
   background: rgba(203, 166, 247, 0.05);
 }
 
-/* Terminal pane resize handles */
-.terminal-pane-resize-h {
-  width: 6px;
-  cursor: col-resize;
-  background: transparent;
-  transition: background var(--transition-fast);
-  z-index: 5;
+/* Active terminal pane highlight */
+.terminal-pane-active {
+  box-shadow: inset 0 0 0 1px var(--mauve);
 }
-.terminal-pane-resize-v {
+.terminal-pane-active > .terminal-pane-header {
+  background: var(--surface0);
+  border-bottom-color: var(--mauve);
+  color: var(--text);
+}
+
+/* Terminal grid resize handles */
+.terminal-grid {
+  position: relative;
+}
+.terminal-resize-handle {
+  position: absolute;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.terminal-resize-col {
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+}
+.terminal-resize-row {
+  left: 0;
+  width: 100%;
   height: 6px;
   cursor: row-resize;
-  background: transparent;
-  transition: background var(--transition-fast);
-  z-index: 5;
 }
-.terminal-pane-resize-h:hover, .terminal-pane-resize-h.active,
-.terminal-pane-resize-v:hover, .terminal-pane-resize-v.active {
+.terminal-resize-handle:hover {
+  background: rgba(203, 166, 247, 0.4);
+}
+.terminal-resize-handle.active {
   background: var(--mauve);
 }
 

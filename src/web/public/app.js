@@ -115,6 +115,9 @@ class CWMApp {
 
     // ─── Terminal panes ──────────────────────────────────────────
     this.terminalPanes = [null, null, null, null];
+    this._activeTerminalSlot = null;
+    this._gridColSizes = [1, 1];  // fr ratios for column widths
+    this._gridRowSizes = [1, 1];  // fr ratios for row heights
 
     // ─── Quick Switcher state ──────────────────────────────────
     this.qsHighlightIndex = -1;
@@ -511,6 +514,7 @@ class CWMApp {
       if (valid) {
         this.showApp();
         this.initDragAndDrop();
+        this.initTerminalResize();
         this.initTerminalGroups();
         this.initNotesEditor();
         this.initAIInsights();
@@ -594,6 +598,7 @@ class CWMApp {
         localStorage.setItem('cwm_token', data.token);
         this.showApp();
         this.initDragAndDrop();
+        this.initTerminalResize();
         this.initTerminalGroups();
         this.initNotesEditor();
         this.initAIInsights();
@@ -3337,6 +3342,13 @@ class CWMApp {
         if (closeBtn) {
           closeBtn.addEventListener('click', () => this.closeTerminalPane(slotIdx));
         }
+
+        // Click-to-focus: clicking anywhere in a pane focuses its terminal
+        pane.addEventListener('mousedown', () => {
+          if (this.terminalPanes[slotIdx]) {
+            this.setActiveTerminalPane(slotIdx);
+          }
+        }, true); // capture phase — fires before xterm's handlers
       });
     }
   }
@@ -3381,6 +3393,9 @@ class CWMApp {
 
     this.updateTerminalGridLayout();
 
+    // Focus the newly opened terminal pane
+    requestAnimationFrame(() => this.setActiveTerminalPane(slotIdx));
+
     // Update mobile terminal tab strip
     if (this.isMobile) {
       this.updateTerminalTabs();
@@ -3402,6 +3417,7 @@ class CWMApp {
     if (!paneEl) return;
 
     // Reset to empty state
+    paneEl.classList.remove('terminal-pane-active');
     paneEl.classList.add('terminal-pane-empty');
     const titleEl = paneEl.querySelector('.terminal-pane-title');
     if (titleEl) titleEl.textContent = 'Drop a session here';
@@ -3409,6 +3425,15 @@ class CWMApp {
     if (closeBtn) closeBtn.hidden = true;
     const container = document.getElementById(`term-container-${slotIdx}`);
     if (container) container.innerHTML = '';
+
+    // If closing the active pane, focus another terminal
+    if (this._activeTerminalSlot === slotIdx) {
+      this._activeTerminalSlot = null;
+      const nextActive = this.terminalPanes.findIndex(p => p !== null);
+      if (nextActive !== -1) {
+        this.setActiveTerminalPane(nextActive);
+      }
+    }
 
     this.updateTerminalGridLayout();
 
@@ -3451,12 +3476,157 @@ class CWMApp {
       }
     }
 
+    // Apply dynamic grid sizes and position resize handles
+    this._applyGridSizes();
+
     // Refit visible terminal panes after layout change
     requestAnimationFrame(() => {
       this.terminalPanes.forEach(tp => {
         if (tp && tp.fitAddon) tp.fitAddon.fit();
       });
     });
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════
+     TERMINAL FOCUS & RESIZE
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Set the active terminal pane — blurs all others, focuses target, highlights it.
+   */
+  setActiveTerminalPane(slotIdx) {
+    // Blur all other terminals
+    this.terminalPanes.forEach((tp, i) => {
+      if (tp && i !== slotIdx) tp.blur();
+      const pane = document.getElementById(`term-pane-${i}`);
+      if (pane) pane.classList.remove('terminal-pane-active');
+    });
+
+    // Activate target
+    const pane = document.getElementById(`term-pane-${slotIdx}`);
+    if (pane) pane.classList.add('terminal-pane-active');
+
+    const tp = this.terminalPanes[slotIdx];
+    if (tp) tp.focus();
+
+    this._activeTerminalSlot = slotIdx;
+  }
+
+  /**
+   * Initialize resize handles for the terminal grid.
+   * Creates two overlay handles (column + row dividers) that can be dragged.
+   */
+  initTerminalResize() {
+    const grid = this.els.terminalGrid;
+    if (!grid || grid.dataset.resizeInit) return;
+    grid.dataset.resizeInit = 'true';
+
+    // Column resize handle (vertical bar between left/right columns)
+    this._colResizeHandle = document.createElement('div');
+    this._colResizeHandle.className = 'terminal-resize-handle terminal-resize-col';
+    this._colResizeHandle.hidden = true;
+    grid.appendChild(this._colResizeHandle);
+
+    // Row resize handle (horizontal bar between top/bottom rows)
+    this._rowResizeHandle = document.createElement('div');
+    this._rowResizeHandle.className = 'terminal-resize-handle terminal-resize-row';
+    this._rowResizeHandle.hidden = true;
+    grid.appendChild(this._rowResizeHandle);
+
+    this._setupResizeDrag(this._colResizeHandle, 'col');
+    this._setupResizeDrag(this._rowResizeHandle, 'row');
+  }
+
+  _setupResizeDrag(handle, direction) {
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const grid = this.els.terminalGrid;
+      const gridRect = grid.getBoundingClientRect();
+
+      // Create a full-screen overlay to capture mouse events during drag
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;cursor:${direction === 'col' ? 'col-resize' : 'row-resize'};`;
+      document.body.appendChild(overlay);
+
+      handle.classList.add('active');
+
+      const onMove = (e) => {
+        if (direction === 'col') {
+          const ratio = (e.clientX - gridRect.left) / gridRect.width;
+          const clamped = Math.max(0.15, Math.min(0.85, ratio));
+          this._gridColSizes = [clamped, 1 - clamped];
+        } else {
+          const ratio = (e.clientY - gridRect.top) / gridRect.height;
+          const clamped = Math.max(0.15, Math.min(0.85, ratio));
+          this._gridRowSizes = [clamped, 1 - clamped];
+        }
+        this._applyGridSizes();
+      };
+
+      const onUp = () => {
+        handle.classList.remove('active');
+        overlay.remove();
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        // Refit all terminals after resize completes
+        this.terminalPanes.forEach(tp => {
+          if (tp && tp.fitAddon) {
+            try { tp.fitAddon.fit(); } catch (_) {}
+            // Notify server of new dimensions
+            if (tp.ws && tp.ws.readyState === WebSocket.OPEN && tp.term) {
+              tp.ws.send(JSON.stringify({ type: 'resize', cols: tp.term.cols, rows: tp.term.rows }));
+            }
+          }
+        });
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  /**
+   * Apply dynamic grid column/row sizes and position resize handles.
+   */
+  _applyGridSizes() {
+    const grid = this.els.terminalGrid;
+    if (!grid) return;
+
+    const filledCount = this.terminalPanes.filter(p => p !== null).length;
+
+    if (filledCount <= 1) {
+      grid.style.gridTemplateColumns = '1fr';
+      grid.style.gridTemplateRows = '1fr';
+    } else if (filledCount === 2) {
+      grid.style.gridTemplateColumns = `${this._gridColSizes[0]}fr ${this._gridColSizes[1]}fr`;
+      grid.style.gridTemplateRows = '1fr';
+    } else {
+      grid.style.gridTemplateColumns = `${this._gridColSizes[0]}fr ${this._gridColSizes[1]}fr`;
+      grid.style.gridTemplateRows = `${this._gridRowSizes[0]}fr ${this._gridRowSizes[1]}fr`;
+    }
+
+    // Position and show/hide resize handles
+    if (this._colResizeHandle) {
+      const showCol = filledCount >= 2;
+      this._colResizeHandle.hidden = !showCol;
+      if (showCol) {
+        const totalFr = this._gridColSizes[0] + this._gridColSizes[1];
+        const pct = (this._gridColSizes[0] / totalFr) * 100;
+        this._colResizeHandle.style.left = `calc(${pct}% - 3px)`;
+      }
+    }
+    if (this._rowResizeHandle) {
+      const showRow = filledCount >= 3;
+      this._rowResizeHandle.hidden = !showRow;
+      if (showRow) {
+        const totalFr = this._gridRowSizes[0] + this._gridRowSizes[1];
+        const pct = (this._gridRowSizes[0] / totalFr) * 100;
+        this._rowResizeHandle.style.top = `calc(${pct}% - 3px)`;
+      }
+    }
   }
 
 

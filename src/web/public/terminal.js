@@ -243,6 +243,14 @@ class TerminalPane {
     };
   }
 
+  focus() {
+    if (this.term) this.term.focus();
+  }
+
+  blur() {
+    if (this.term) this.term.blur();
+  }
+
   dispose() {
     clearTimeout(this.reconnectTimer);
     clearTimeout(this._fitTimer);
