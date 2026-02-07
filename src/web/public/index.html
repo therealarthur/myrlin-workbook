@@ -11,6 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles-mobile.css">
 </head>
 <body>
 
@@ -324,6 +325,7 @@
 
         <!-- Terminal Grid (starts with 1 pane, auto-expands on drop) -->
         <div class="terminal-grid" id="terminal-grid" data-panes="1" hidden>
+          <div class="terminal-tab-strip" id="terminal-tab-strip" hidden></div>
           <div class="terminal-pane terminal-pane-empty" id="term-pane-0" data-slot="0">
             <div class="terminal-pane-header">
               <span class="terminal-pane-title">Drop a session here</span>
@@ -419,6 +421,51 @@
 
       </main>
     </div>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- MOBILE BOTTOM TAB BAR                       -->
+    <!-- ═══════════════════════════════════════════ -->
+    <nav class="mobile-tab-bar" id="mobile-tab-bar" hidden>
+      <button class="mobile-tab" data-view="workspace" aria-label="Workspaces">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="2" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+          <rect x="11" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+          <rect x="2" y="12" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+          <rect x="11" y="12" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+        </svg>
+        <span>Spaces</span>
+      </button>
+      <button class="mobile-tab" data-view="all" aria-label="All Sessions">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M3 5h14M3 10h14M3 15h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        <span>Sessions</span>
+      </button>
+      <button class="mobile-tab" data-view="terminal" aria-label="Terminal">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="2" y="3" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.4"/>
+          <path d="M5 8l3 2.5L5 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M11 13h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        <span>Terminal</span>
+      </button>
+      <button class="mobile-tab" data-view="docs" aria-label="Docs">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M5 2h7l4 4v12a1 1 0 01-1 1H5a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.4"/>
+          <path d="M12 2v4h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M7 10h6M7 13h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        <span>Docs</span>
+      </button>
+      <button class="mobile-tab" data-view="more" id="mobile-more-tab" aria-label="More">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="5" r="1.5" fill="currentColor"/>
+          <circle cx="10" cy="10" r="1.5" fill="currentColor"/>
+          <circle cx="10" cy="15" r="1.5" fill="currentColor"/>
+        </svg>
+        <span>More</span>
+      </button>
+    </nav>
   </div>
 
   <!-- ═══════════════════════════════════════════ -->
@@ -484,6 +531,18 @@
   <!-- ═══════════════════════════════════════════ -->
   <div class="context-menu" id="context-menu" hidden>
     <div class="context-menu-items" id="context-menu-items"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ACTION SHEET (Mobile context menu)          -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div class="action-sheet-overlay" id="action-sheet-overlay" hidden>
+    <div class="action-sheet" id="action-sheet">
+      <div class="action-sheet-handle"></div>
+      <div class="action-sheet-header" id="action-sheet-header"></div>
+      <div class="action-sheet-items" id="action-sheet-items"></div>
+      <button class="action-sheet-cancel" id="action-sheet-cancel">Cancel</button>
+    </div>
   </div>
 
   <script src="vendor/xterm/xterm.min.js"></script>
