@@ -269,6 +269,8 @@ class TerminalPane {
   /**
    * Initialize mobile input mode — called after terminal mounts.
    * Sets the terminal to scroll mode by default on mobile.
+   * Also installs a custom touch scroll handler since xterm.js's canvas
+   * intercepts all touch events and prevents native scroll on the viewport.
    */
   initMobileInputMode() {
     if (!this._isMobile() || !this.term) return;
@@ -293,6 +295,132 @@ class TerminalPane {
         this.setMobileScrollMode();
       }
     });
+
+    // ── Custom Touch Scroll Handler ──────────────────────────────
+    // xterm.js's .xterm-screen canvas sits on top of .xterm-viewport and
+    // intercepts all touch events, preventing native scroll. We capture
+    // touch events and programmatically scroll the terminal.
+    this._initTouchScroll(container);
+  }
+
+  /**
+   * Custom touch scroll for mobile. Translates touch drag gestures into
+   * terminal scrollLines() calls with momentum/inertia for smooth feel.
+   */
+  _initTouchScroll(container) {
+    let touchStartY = 0;
+    let touchLastY = 0;
+    let touchLastTime = 0;
+    let velocity = 0;
+    let momentumId = null;
+    let isScrolling = false;
+    let scrollAccumulator = 0;
+
+    // Get line height in pixels for scroll-to-lines conversion
+    const getLineHeight = () => {
+      // xterm renders at fontSize * lineHeight. Use actual rendered row height.
+      const cellHeight = this.term._core._renderService?.dimensions?.css?.cell?.height;
+      if (cellHeight && cellHeight > 0) return cellHeight;
+      // Fallback: estimate from font settings
+      return (this.term.options.fontSize || 13) * (this.term.options.lineHeight || 1.2);
+    };
+
+    const cancelMomentum = () => {
+      if (momentumId) {
+        cancelAnimationFrame(momentumId);
+        momentumId = null;
+      }
+    };
+
+    const applyMomentum = () => {
+      if (Math.abs(velocity) < 0.5) {
+        velocity = 0;
+        return;
+      }
+
+      const lineH = getLineHeight();
+      scrollAccumulator += velocity;
+
+      // Convert accumulated pixels to whole lines
+      const lines = Math.trunc(scrollAccumulator / lineH);
+      if (lines !== 0) {
+        this.term.scrollLines(-lines);
+        scrollAccumulator -= lines * lineH;
+      }
+
+      // Decelerate
+      velocity *= 0.92;
+
+      momentumId = requestAnimationFrame(applyMomentum);
+    };
+
+    container.addEventListener('touchstart', (e) => {
+      // Only handle scroll in scroll mode (not type mode)
+      if (this._mobileTypeMode) return;
+
+      cancelMomentum();
+      const touch = e.touches[0];
+      touchStartY = touch.clientY;
+      touchLastY = touch.clientY;
+      touchLastTime = Date.now();
+      velocity = 0;
+      scrollAccumulator = 0;
+      isScrolling = false;
+    }, { passive: true });
+
+    container.addEventListener('touchmove', (e) => {
+      if (this._mobileTypeMode) return;
+
+      const touch = e.touches[0];
+      const deltaY = touchLastY - touch.clientY;
+      const now = Date.now();
+      const dt = now - touchLastTime;
+
+      // Determine if this is a scroll gesture (vertical movement)
+      if (!isScrolling) {
+        const totalDeltaY = Math.abs(touchStartY - touch.clientY);
+        if (totalDeltaY > 5) {
+          isScrolling = true;
+        } else {
+          return;
+        }
+      }
+
+      // Prevent page scroll — we're handling it
+      e.preventDefault();
+
+      // Track velocity for momentum (pixels per frame at ~16ms)
+      if (dt > 0) {
+        velocity = deltaY * (16 / dt);
+      }
+
+      const lineH = getLineHeight();
+      scrollAccumulator += deltaY;
+
+      // Convert accumulated pixels to whole lines
+      const lines = Math.trunc(scrollAccumulator / lineH);
+      if (lines !== 0) {
+        this.term.scrollLines(lines);
+        scrollAccumulator -= lines * lineH;
+      }
+
+      touchLastY = touch.clientY;
+      touchLastTime = now;
+    }, { passive: false }); // passive: false so we can preventDefault
+
+    container.addEventListener('touchend', (e) => {
+      if (this._mobileTypeMode) return;
+      if (!isScrolling) return;
+
+      // Apply momentum scrolling
+      if (Math.abs(velocity) > 1) {
+        momentumId = requestAnimationFrame(applyMomentum);
+      }
+      isScrolling = false;
+    }, { passive: true });
+
+    // Store cleanup reference
+    this._touchScrollCleanup = () => cancelMomentum();
   }
 
   /**
@@ -336,6 +464,7 @@ class TerminalPane {
   dispose() {
     clearTimeout(this.reconnectTimer);
     clearTimeout(this._fitTimer);
+    if (this._touchScrollCleanup) this._touchScrollCleanup();
     if (this._resizeObserver) this._resizeObserver.disconnect();
     if (this.ws) { this.ws.onclose = null; this.ws.close(); }
     if (this.term) this.term.dispose();
