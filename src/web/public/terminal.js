@@ -263,7 +263,10 @@ class TerminalPane {
    * Type mode: textarea is writable, keyboard appears for input
    */
   _isMobile() {
-    return 'ontouchstart' in window || window.innerWidth <= 768;
+    // Use width-based check matching the CSS media query, NOT touch detection.
+    // Touch-enabled desktops (Windows laptops) have 'ontouchstart' but should
+    // NOT get mobile treatment — they have keyboards and wide screens.
+    return window.innerWidth <= 768;
   }
 
   /**
@@ -304,8 +307,10 @@ class TerminalPane {
   }
 
   /**
-   * Custom touch scroll for mobile. Translates touch drag gestures into
-   * terminal scrollLines() calls with momentum/inertia for smooth feel.
+   * Custom touch scroll for mobile. Directly manipulates the xterm viewport's
+   * scrollTop for pixel-smooth scrolling that feels like native scroll.
+   * xterm.js's .xterm-screen canvas sits on top of .xterm-viewport and
+   * intercepts touch events, so we handle them manually.
    */
   _initTouchScroll(container) {
     let touchStartY = 0;
@@ -314,16 +319,13 @@ class TerminalPane {
     let velocity = 0;
     let momentumId = null;
     let isScrolling = false;
-    let scrollAccumulator = 0;
 
-    // Get line height in pixels for scroll-to-lines conversion
-    const getLineHeight = () => {
-      // xterm renders at fontSize * lineHeight. Use actual rendered row height.
-      const cellHeight = this.term._core._renderService?.dimensions?.css?.cell?.height;
-      if (cellHeight && cellHeight > 0) return cellHeight;
-      // Fallback: estimate from font settings
-      return (this.term.options.fontSize || 13) * (this.term.options.lineHeight || 1.2);
-    };
+    // Get the xterm viewport element (the actual scrollable div)
+    const viewport = container.querySelector('.xterm-viewport');
+    if (!viewport) {
+      this._log('Touch scroll: .xterm-viewport not found');
+      return;
+    }
 
     const cancelMomentum = () => {
       if (momentumId) {
@@ -333,29 +335,21 @@ class TerminalPane {
     };
 
     const applyMomentum = () => {
-      if (Math.abs(velocity) < 0.5) {
+      if (Math.abs(velocity) < 0.3) {
         velocity = 0;
         return;
       }
 
-      const lineH = getLineHeight();
-      scrollAccumulator += velocity;
+      // Scroll the viewport directly — pixel-smooth, no line snapping
+      viewport.scrollTop += velocity;
 
-      // Convert accumulated pixels to whole lines
-      const lines = Math.trunc(scrollAccumulator / lineH);
-      if (lines !== 0) {
-        this.term.scrollLines(-lines);
-        scrollAccumulator -= lines * lineH;
-      }
-
-      // Decelerate
-      velocity *= 0.92;
+      // Decelerate — 0.95 gives a smooth, native-feeling coast
+      velocity *= 0.95;
 
       momentumId = requestAnimationFrame(applyMomentum);
     };
 
     container.addEventListener('touchstart', (e) => {
-      // Only handle scroll in scroll mode (not type mode)
       if (this._mobileTypeMode) return;
 
       cancelMomentum();
@@ -364,7 +358,6 @@ class TerminalPane {
       touchLastY = touch.clientY;
       touchLastTime = Date.now();
       velocity = 0;
-      scrollAccumulator = 0;
       isScrolling = false;
     }, { passive: true });
 
@@ -372,14 +365,13 @@ class TerminalPane {
       if (this._mobileTypeMode) return;
 
       const touch = e.touches[0];
-      const deltaY = touchLastY - touch.clientY;
+      const deltaY = touchLastY - touch.clientY; // positive = scroll down
       const now = Date.now();
-      const dt = now - touchLastTime;
+      const dt = Math.max(now - touchLastTime, 1);
 
-      // Determine if this is a scroll gesture (vertical movement)
+      // Determine if this is a scroll gesture (>5px vertical movement)
       if (!isScrolling) {
-        const totalDeltaY = Math.abs(touchStartY - touch.clientY);
-        if (totalDeltaY > 5) {
+        if (Math.abs(touchStartY - touch.clientY) > 5) {
           isScrolling = true;
         } else {
           return;
@@ -389,37 +381,27 @@ class TerminalPane {
       // Prevent page scroll — we're handling it
       e.preventDefault();
 
-      // Track velocity for momentum (pixels per frame at ~16ms)
-      if (dt > 0) {
-        velocity = deltaY * (16 / dt);
-      }
+      // Directly scroll the viewport — pixel smooth, no line quantization
+      viewport.scrollTop += deltaY;
 
-      const lineH = getLineHeight();
-      scrollAccumulator += deltaY;
-
-      // Convert accumulated pixels to whole lines
-      const lines = Math.trunc(scrollAccumulator / lineH);
-      if (lines !== 0) {
-        this.term.scrollLines(lines);
-        scrollAccumulator -= lines * lineH;
-      }
+      // Track velocity for momentum (pixels per 16ms frame)
+      velocity = deltaY * (16 / dt);
 
       touchLastY = touch.clientY;
       touchLastTime = now;
-    }, { passive: false }); // passive: false so we can preventDefault
+    }, { passive: false });
 
-    container.addEventListener('touchend', (e) => {
+    container.addEventListener('touchend', () => {
       if (this._mobileTypeMode) return;
       if (!isScrolling) return;
 
-      // Apply momentum scrolling
-      if (Math.abs(velocity) > 1) {
+      // Apply momentum scrolling with deceleration
+      if (Math.abs(velocity) > 0.5) {
         momentumId = requestAnimationFrame(applyMomentum);
       }
       isScrolling = false;
     }, { passive: true });
 
-    // Store cleanup reference
     this._touchScrollCleanup = () => cancelMomentum();
   }
 
