@@ -94,29 +94,41 @@ class TerminalPane {
 
       this._status('Connecting to session...', 'blue');
 
-      // Double-rAF: first rAF schedules work for after the browser paints,
-      // second rAF ensures the grid layout has been fully calculated.
+      // Connect WebSocket immediately — don't wait for fit.
+      // Input works as soon as WS opens. Resize is sent after fit.
+      this._log('Calling connect()...');
+      this.connect();
+
+      // Initialize mobile scroll/type mode after terminal is in DOM
+      this.initMobileInputMode();
+
+      // Double-rAF for fit: first rAF schedules work for after the browser
+      // paints, second rAF ensures the grid layout has been fully calculated.
       // Without this, fitAddon.fit() runs before the container has real
-      // dimensions (grid just transitioned from hidden → visible), causing
-      // the terminal to render as a tiny smushed block in the top-left.
+      // dimensions (grid just transitioned from hidden → visible).
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           try {
             this.fitAddon.fit();
             this._log('Fitted: ' + this.term.cols + 'x' + this.term.rows);
+            // Send correct dimensions to PTY after fit
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+              this.ws.send(JSON.stringify({ type: 'resize', cols: this.term.cols, rows: this.term.rows }));
+            }
           } catch (e) {
             this._log('fit() failed: ' + e.message);
           }
-          // Initialize mobile scroll/type mode separation
-          this.initMobileInputMode();
-          this._log('Calling connect()...');
-          this.connect();
 
           // Safety refit after 200ms — catches edge cases where the grid
           // is still settling (e.g., CSS transitions, slow layout)
           setTimeout(() => {
             if (this.fitAddon) {
-              try { this.fitAddon.fit(); } catch (_) {}
+              try {
+                this.fitAddon.fit();
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                  this.ws.send(JSON.stringify({ type: 'resize', cols: this.term.cols, rows: this.term.rows }));
+                }
+              } catch (_) {}
             }
           }, 200);
         });
