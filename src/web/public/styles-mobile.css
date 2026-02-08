@@ -540,20 +540,22 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
-    /* Isolate scroll: terminal scrolls internally, never propagates to page */
+    /* Isolate scroll: our custom touch handler manages scrolling */
     overscroll-behavior: contain;
-    touch-action: pan-y;
+    touch-action: none;
   }
 
   /* xterm viewport (the actual scrollable area inside xterm.js) */
   .terminal-pane.mobile-active .xterm-viewport {
     overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
+    /* Disable native touch scroll — our handler uses term.scrollLines() */
+    touch-action: none;
   }
 
-  /* xterm screen layer — prevent touch events from bubbling to page */
+  /* xterm screen layer — disable browser touch handling so our
+     custom touch scroll handler can manage scrolling directly */
   .terminal-pane.mobile-active .xterm-screen {
-    touch-action: pan-y;
+    touch-action: none;
   }
 
   /* Hide empty pane drop targets on mobile */
