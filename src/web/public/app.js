@@ -3536,12 +3536,15 @@ class CWMApp {
       });
     };
 
-    tp.mount();
-
+    // Apply grid layout FIRST so container dimensions are established,
+    // then mount the terminal so fitAddon.fit() gets real dimensions.
     this.updateTerminalGridLayout();
 
-    // Focus the newly opened terminal pane
-    requestAnimationFrame(() => this.setActiveTerminalPane(slotIdx));
+    // Use rAF to let the browser paint the grid before mounting terminal
+    requestAnimationFrame(() => {
+      tp.mount();
+      this.setActiveTerminalPane(slotIdx);
+    });
 
     // Update mobile terminal tab strip
     if (this.isMobile) {
@@ -3626,12 +3629,13 @@ class CWMApp {
     // Apply dynamic grid sizes and position resize handles
     this._applyGridSizes();
 
-    // Refit visible terminal panes after layout change
-    requestAnimationFrame(() => {
+    // Refit visible terminal panes after layout change.
+    // Double-rAF ensures browser has fully laid out the grid before fitting.
+    requestAnimationFrame(() => { requestAnimationFrame(() => {
       this.terminalPanes.forEach(tp => {
-        if (tp && tp.fitAddon) tp.fitAddon.fit();
+        if (tp && tp.fitAddon) try { tp.fitAddon.fit(); } catch (_) {}
       });
-    });
+    }); });
   }
 
 

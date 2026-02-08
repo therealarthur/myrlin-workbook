@@ -94,17 +94,32 @@ class TerminalPane {
 
       this._status('Connecting to session...', 'blue');
 
+      // Double-rAF: first rAF schedules work for after the browser paints,
+      // second rAF ensures the grid layout has been fully calculated.
+      // Without this, fitAddon.fit() runs before the container has real
+      // dimensions (grid just transitioned from hidden → visible), causing
+      // the terminal to render as a tiny smushed block in the top-left.
       requestAnimationFrame(() => {
-        try {
-          this.fitAddon.fit();
-          this._log('Fitted: ' + this.term.cols + 'x' + this.term.rows);
-        } catch (e) {
-          this._log('fit() failed: ' + e.message);
-        }
-        // Initialize mobile scroll/type mode separation
-        this.initMobileInputMode();
-        this._log('Calling connect()...');
-        this.connect();
+        requestAnimationFrame(() => {
+          try {
+            this.fitAddon.fit();
+            this._log('Fitted: ' + this.term.cols + 'x' + this.term.rows);
+          } catch (e) {
+            this._log('fit() failed: ' + e.message);
+          }
+          // Initialize mobile scroll/type mode separation
+          this.initMobileInputMode();
+          this._log('Calling connect()...');
+          this.connect();
+
+          // Safety refit after 200ms — catches edge cases where the grid
+          // is still settling (e.g., CSS transitions, slow layout)
+          setTimeout(() => {
+            if (this.fitAddon) {
+              try { this.fitAddon.fit(); } catch (_) {}
+            }
+          }, 200);
+        });
       });
 
       // Intercept Shift+Enter to send newline instead of carriage return
