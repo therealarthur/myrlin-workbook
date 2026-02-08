@@ -43,23 +43,58 @@ function assertNotNull(val, msg) {
 }
 
 // ──────────────────────────────────────────────────────
-// Clean state before tests
+// Clean state before tests — PRESERVES production state
 const fs = require('fs');
 const stateDir = path.join(__dirname, '..', 'state');
 const stateFile = path.join(stateDir, 'workspaces.json');
 const backupFile = path.join(stateDir, 'workspaces.backup.json');
+const backupsDir = path.join(stateDir, 'backups');
+
+// Save production state files before tests so they can be restored after
+const savedStateFile = stateFile + '.test-save';
+const savedBackupFile = backupFile + '.test-save';
+if (fs.existsSync(stateFile)) fs.copyFileSync(stateFile, savedStateFile);
+if (fs.existsSync(backupFile)) fs.copyFileSync(backupFile, savedBackupFile);
 
 /**
- * Clean state files and reset module cache so each test gets a fresh Store
+ * Clean state files and reset module cache so each test gets a fresh Store.
+ * Also cleans timestamped backups so tests don't pollute production backups.
  */
 function cleanState() {
   if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
   if (fs.existsSync(backupFile)) fs.unlinkSync(backupFile);
+  // Clean timestamped backups from tests
+  if (fs.existsSync(backupsDir)) {
+    for (const f of fs.readdirSync(backupsDir)) {
+      try { fs.unlinkSync(path.join(backupsDir, f)); } catch (_) {}
+    }
+  }
   // Reset the singleton by clearing module cache
   delete require.cache[require.resolve('../src/state/store')];
 }
 
-// Initial clean
+/**
+ * Restore production state files after tests complete.
+ */
+function restoreState() {
+  // Clean test artifacts first
+  if (fs.existsSync(stateFile)) try { fs.unlinkSync(stateFile); } catch (_) {}
+  if (fs.existsSync(backupFile)) try { fs.unlinkSync(backupFile); } catch (_) {}
+  if (fs.existsSync(backupsDir)) {
+    for (const f of fs.readdirSync(backupsDir)) {
+      try { fs.unlinkSync(path.join(backupsDir, f)); } catch (_) {}
+    }
+  }
+  // Restore originals
+  if (fs.existsSync(savedStateFile)) {
+    fs.renameSync(savedStateFile, stateFile);
+  }
+  if (fs.existsSync(savedBackupFile)) {
+    fs.renameSync(savedBackupFile, backupFile);
+  }
+}
+
+// Clean for first test
 cleanState();
 
 // Must require AFTER cleaning state
@@ -392,8 +427,7 @@ console.log('\n  ' + '─'.repeat(42));
 console.log(`  \x1b[1mResults:\x1b[0m ${passed} passed, ${failed} failed, ${passed + failed} total`);
 console.log('  ' + '─'.repeat(42) + '\n');
 
-// Clean up test state
-if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
-if (fs.existsSync(backupFile)) fs.unlinkSync(backupFile);
+// Restore production state files that were saved before tests
+restoreState();
 
 process.exit(failed > 0 ? 1 : 0);

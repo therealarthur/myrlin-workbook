@@ -11,8 +11,10 @@ const { EventEmitter } = require('events');
 const docsManager = require('./docs-manager');
 
 const STATE_DIR = path.join(__dirname, '..', '..', 'state');
+const BACKUP_DIR = path.join(STATE_DIR, 'backups');
 const STATE_FILE = path.join(STATE_DIR, 'workspaces.json');
 const BACKUP_FILE = path.join(STATE_DIR, 'workspaces.backup.json');
+const MAX_TIMESTAMPED_BACKUPS = 10; // Keep last N timestamped backups
 
 // Default state shape
 const MAX_RECENT = 10;
@@ -49,6 +51,8 @@ class Store extends EventEmitter {
       fs.mkdirSync(STATE_DIR, { recursive: true });
     }
     docsManager.ensureDocsDir();
+    // Create a timestamped backup BEFORE loading (preserves last known good state)
+    this.createTimestampedBackup();
     this._state = this._load();
     return this;
   }
@@ -57,46 +61,105 @@ class Store extends EventEmitter {
    * Load state from disk
    */
   _load() {
-    try {
-      if (fs.existsSync(STATE_FILE)) {
-        const raw = fs.readFileSync(STATE_FILE, 'utf-8');
-        const parsed = JSON.parse(raw);
-        // Merge with defaults to handle schema upgrades
-        return {
-          ...DEFAULT_STATE,
-          ...parsed,
-          settings: { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) },
-          workspaceGroups: parsed.workspaceGroups || {},
-          workspaceOrder: parsed.workspaceOrder || [],
-        };
-      }
-    } catch (err) {
-      // Try backup
-      try {
-        if (fs.existsSync(BACKUP_FILE)) {
-          const raw = fs.readFileSync(BACKUP_FILE, 'utf-8');
-          return { ...DEFAULT_STATE, ...JSON.parse(raw) };
+    // Try primary state file
+    const loaded = this._tryLoadFile(STATE_FILE);
+    if (loaded) return loaded;
+
+    // Try rolling backup
+    console.warn('[Store] Primary state file missing or corrupt, trying backup...');
+    const backup = this._tryLoadFile(BACKUP_FILE);
+    if (backup) {
+      console.warn('[Store] Recovered from workspaces.backup.json');
+      return backup;
+    }
+
+    // Try timestamped backups (newest first)
+    if (fs.existsSync(BACKUP_DIR)) {
+      const backups = fs.readdirSync(BACKUP_DIR)
+        .filter(f => f.startsWith('workspaces-') && f.endsWith('.json'))
+        .sort()
+        .reverse();
+      for (const file of backups) {
+        const recovered = this._tryLoadFile(path.join(BACKUP_DIR, file));
+        if (recovered) {
+          console.warn('[Store] Recovered from timestamped backup:', file);
+          return recovered;
         }
-      } catch (_) {
-        // Fall through to default
       }
     }
+
+    console.warn('[Store] No state files found, starting with defaults');
     return { ...DEFAULT_STATE };
   }
 
   /**
-   * Save state to disk (with backup)
+   * Try to load and parse a state file. Returns merged state or null.
+   */
+  _tryLoadFile(filePath) {
+    try {
+      if (!fs.existsSync(filePath)) return null;
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      if (!raw.trim()) return null; // Empty file
+      const parsed = JSON.parse(raw);
+      if (!parsed.workspaces) return null; // Invalid structure
+      return {
+        ...DEFAULT_STATE,
+        ...parsed,
+        settings: { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) },
+        workspaceGroups: parsed.workspaceGroups || {},
+        workspaceOrder: parsed.workspaceOrder || [],
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Save state to disk (with backup).
+   * Uses write-to-temp-then-rename for atomic writes on crash.
    */
   save() {
     try {
-      // Backup current file first
+      // Backup current file before overwriting
       if (fs.existsSync(STATE_FILE)) {
         fs.copyFileSync(STATE_FILE, BACKUP_FILE);
       }
-      fs.writeFileSync(STATE_FILE, JSON.stringify(this._state, null, 2), 'utf-8');
+      // Atomic write: write to temp file, then rename over the target.
+      // If the process is killed mid-write, the temp file is lost but
+      // the original STATE_FILE (or BACKUP_FILE) survives intact.
+      const tmpFile = STATE_FILE + '.tmp';
+      fs.writeFileSync(tmpFile, JSON.stringify(this._state, null, 2), 'utf-8');
+      fs.renameSync(tmpFile, STATE_FILE);
       this._dirty = false;
     } catch (err) {
       this.emit('error', { type: 'save_failed', error: err.message });
+    }
+  }
+
+  /**
+   * Create a timestamped backup. Called on server startup to preserve
+   * state before any mutations. Keeps up to MAX_TIMESTAMPED_BACKUPS files.
+   */
+  createTimestampedBackup() {
+    try {
+      if (!fs.existsSync(STATE_FILE)) return;
+      if (!fs.existsSync(BACKUP_DIR)) {
+        fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      }
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupFile = path.join(BACKUP_DIR, `workspaces-${ts}.json`);
+      fs.copyFileSync(STATE_FILE, backupFile);
+
+      // Prune old backups, keep only the most recent N
+      const backups = fs.readdirSync(BACKUP_DIR)
+        .filter(f => f.startsWith('workspaces-') && f.endsWith('.json'))
+        .sort();
+      while (backups.length > MAX_TIMESTAMPED_BACKUPS) {
+        const oldest = backups.shift();
+        try { fs.unlinkSync(path.join(BACKUP_DIR, oldest)); } catch (_) {}
+      }
+    } catch (err) {
+      console.error('[Store] Failed to create timestamped backup:', err.message);
     }
   }
 
