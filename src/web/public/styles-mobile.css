@@ -98,10 +98,16 @@
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Header compact on mobile */
+  /* Header compact on mobile — fixed height, no wrapping.
+     Bottom tab bar handles view switching so header tabs are redundant. */
   .app-header {
     padding: 8px 12px;
-    height: 50px;
+    height: 50px !important;
+    min-height: 50px;
+    max-height: 50px;
+    flex-wrap: nowrap !important;
+    overflow: hidden;
+    flex-shrink: 0;
   }
 
   /* Sidebar should scroll internally */
@@ -466,6 +472,45 @@
     opacity: 1;
   }
 
+  /* ── Mobile Terminal Layout: Fill Available Viewport ──────── */
+
+  /*
+   * Mobile terminal strategy:
+   * 1. Terminal fills ALL available space between header and bottom tab bar
+   * 2. Page scroll is DISABLED when terminal is visible (body.terminal-active)
+   * 3. Only xterm's internal viewport handles scrolling (scrollback buffer)
+   * 4. overscroll-behavior prevents scroll chaining to parent
+   * 5. dvh units ensure correct sizing with dynamic browser chrome
+   */
+
+  /* Lock ALL page scroll when terminal is visible.
+     Only xterm.js internal viewport should scroll (scrollback buffer).
+     Using overflow:hidden on html+body prevents iOS Safari rubber-banding. */
+  html.terminal-active,
+  body.terminal-active {
+    overflow: hidden !important;
+    overscroll-behavior: none;
+    /* Prevent iOS Safari bounce scroll */
+    -webkit-overflow-scrolling: auto;
+  }
+
+  body.terminal-active .app {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  /* Main content must not scroll when terminal is active */
+  body.terminal-active .main-content {
+    overflow: hidden !important;
+  }
+
+  /* App body fills remaining space precisely */
+  body.terminal-active .app-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   /* Single visible pane on mobile */
   .terminal-grid {
     display: flex !important;
@@ -473,16 +518,42 @@
     grid-template-columns: unset !important;
     grid-template-rows: unset !important;
     gap: 0 !important;
+    /* Prevent terminal grid from overflowing */
+    overflow: hidden;
   }
 
   .terminal-pane {
     display: none !important;
     flex: 1;
     min-height: 0;
+    /* Prevent scroll chaining from terminal to page */
+    overflow: hidden;
   }
 
   .terminal-pane.mobile-active {
     display: flex !important;
+    flex-direction: column;
+  }
+
+  /* Terminal container must fill pane and contain xterm scroll */
+  .terminal-pane.mobile-active .terminal-container {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    /* Isolate scroll: terminal scrolls internally, never propagates to page */
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+
+  /* xterm viewport (the actual scrollable area inside xterm.js) */
+  .terminal-pane.mobile-active .xterm-viewport {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* xterm screen layer — prevent touch events from bubbling to page */
+  .terminal-pane.mobile-active .xterm-screen {
+    touch-action: pan-y;
   }
 
   /* Hide empty pane drop targets on mobile */
@@ -508,12 +579,17 @@
     display: flex;
     gap: 4px;
     padding: 6px 8px;
-    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    /* No safe-area padding here — .app-body already accounts for bottom tab bar */
     background: var(--mantle);
     border-top: 1px solid var(--surface0);
     flex-shrink: 0;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .terminal-mobile-toolbar::-webkit-scrollbar {
+    display: none;
   }
 
   .terminal-mobile-toolbar button {

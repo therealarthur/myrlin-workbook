@@ -375,6 +375,7 @@ textarea.input {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--crust);
   position: relative;
   overflow: hidden;
@@ -502,6 +503,7 @@ textarea.input {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh; /* Dynamic viewport height — adjusts for mobile browser chrome */
 }
 
 /* ─── Header ────────────────────────────────────────────────── */
@@ -1837,25 +1839,8 @@ textarea.input {
     max-width: 100%;
   }
 
-  /* Mobile terminal: single pane at a time, tab strip to switch */
-  .terminal-grid {
-    grid-template-columns: 1fr !important;
-    grid-template-rows: 1fr !important;
-    display: flex !important;
-    flex-direction: column;
-  }
-
-  .terminal-grid .terminal-pane {
-    display: none;
-    flex: 1;
-    min-height: 0;
-  }
-
-  .terminal-grid .terminal-pane.mobile-active {
-    display: flex;
-  }
-
-  /* Hide resize handles on mobile */
+  /* Mobile terminal — detailed rules in styles-mobile.css (Phase 4).
+     Keep minimal overrides here for base layout. */
   .terminal-resize-handle { display: none; }
 
   /* Larger sidebar section resize handle for touch */

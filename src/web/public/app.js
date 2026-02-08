@@ -478,6 +478,25 @@ class CWMApp {
       this.initTouchGestures();
     }
 
+    // ─── Mobile: VisualViewport resize (soft keyboard) ───────
+    // When the mobile keyboard opens/closes, the visual viewport shrinks/grows.
+    // Refit terminal panes so they fill the available space without cutoff.
+    if (window.visualViewport) {
+      let vpResizeTimer = null;
+      window.visualViewport.addEventListener('resize', () => {
+        clearTimeout(vpResizeTimer);
+        vpResizeTimer = setTimeout(() => {
+          if (this.state.viewMode === 'terminal') {
+            this.terminalPanes.forEach(tp => {
+              if (tp && tp.fitAddon) {
+                try { tp.fitAddon.fit(); } catch (_) {}
+              }
+            });
+          }
+        }, 150);
+      });
+    }
+
     // ─── Mobile: Terminal Toolbar ──────────────────────────────
     document.querySelectorAll('.terminal-mobile-toolbar button').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1784,6 +1803,16 @@ class CWMApp {
     if (this.els.terminalGroupsBar) {
       this.els.terminalGroupsBar.hidden = !isTerminal;
     }
+    // On mobile: lock page scroll when terminal is visible, unlock otherwise.
+    // Terminal uses xterm.js internal scrolling; page scroll causes conflicts.
+    // Applied to both <html> and <body> for cross-browser iOS Safari support.
+    if (isTerminal) {
+      document.documentElement.classList.add('terminal-active');
+      document.body.classList.add('terminal-active');
+    } else {
+      document.documentElement.classList.remove('terminal-active');
+      document.body.classList.remove('terminal-active');
+    }
     if (this.els.docsPanel) {
       this.els.docsPanel.hidden = !isDocs;
     }
@@ -1801,6 +1830,14 @@ class CWMApp {
       if (this.isMobile) {
         this.updateTerminalTabs();
       }
+      // Refit all terminal panes after view switch (viewport size may differ)
+      requestAnimationFrame(() => {
+        this.terminalPanes.forEach(tp => {
+          if (tp && tp.fitAddon) {
+            try { tp.fitAddon.fit(); } catch (_) {}
+          }
+        });
+      });
     } else {
       // Update panel title
       const titles = { workspace: 'Sessions', all: 'All Sessions', recent: 'Recent Sessions' };
@@ -3609,6 +3646,18 @@ class CWMApp {
 
     this._setupResizeDrag(this._colResizeHandle, 'col');
     this._setupResizeDrag(this._rowResizeHandle, 'row');
+
+    // ── Mobile touch scroll isolation ──
+    // iOS Safari doesn't fully support CSS overscroll-behavior.
+    // Prevent terminal touchmove events from scrolling the page.
+    // xterm.js handles its own scrolling internally via .xterm-viewport.
+    grid.addEventListener('touchmove', (e) => {
+      // Only intercept when terminal is the active view on mobile
+      if (!document.body.classList.contains('terminal-active')) return;
+      // Allow the touch event for xterm's internal scroll handling,
+      // but stop it from propagating to the page/body scroll.
+      e.stopPropagation();
+    }, { passive: true });
   }
 
   _setupResizeDrag(handle, direction) {
