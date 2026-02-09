@@ -56,6 +56,7 @@ class TerminalPane {
         fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
         lineHeight: 1.2,
         scrollback: 5000,
+        rightClickSelectsWord: false,
         theme: {
           background: '#1e1e2e',
           foreground: '#cdd6f4',
@@ -149,6 +150,18 @@ class TerminalPane {
       this.term.onData((data) => {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'input', data }));
+        }
+      });
+
+      // Explicit paste handler — catches Ctrl+V / Cmd+V and clipboard paste events.
+      // xterm.js built-in paste can be unreliable with bracketed paste mode,
+      // so we intercept and send directly via WebSocket.
+      container.addEventListener('paste', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const text = (e.clipboardData || window.clipboardData).getData('text');
+        if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: 'input', data: text }));
         }
       });
 
@@ -273,11 +286,44 @@ class TerminalPane {
   }
 
   focus() {
-    if (this.term) this.term.focus();
+    if (this.term) {
+      this.term.focus();
+      // Also explicitly focus the hidden textarea — xterm.js's focus()
+      // sometimes doesn't propagate in multi-instance setups
+      const container = document.getElementById(this.containerId);
+      if (container) {
+        const textarea = container.querySelector('.xterm-helper-textarea');
+        if (textarea) textarea.focus({ preventScroll: true });
+      }
+    }
   }
 
   blur() {
     if (this.term) this.term.blur();
+  }
+
+  /**
+   * Paste text from clipboard into the terminal via WebSocket.
+   * Works on both desktop and mobile regardless of pointer-events state.
+   */
+  async pasteFromClipboard() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'input', data: text }));
+      }
+    } catch (err) {
+      this._log('Clipboard paste failed: ' + err.message);
+    }
+  }
+
+  /**
+   * Send a raw command string to the PTY (e.g., "reset\r").
+   */
+  sendCommand(cmd) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'input', data: cmd }));
+    }
   }
 
   /**

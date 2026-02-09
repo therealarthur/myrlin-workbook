@@ -786,9 +786,100 @@ function decodeClaudePath(encoded) {
 // ──────────────────────────────────────────────────────────
 
 /**
+ * Generate a concise session title from user messages.
+ * Uses the first message for topic and recent messages for current focus.
+ * Produces a short, descriptive title (max ~45 chars).
+ */
+function generateSessionTitle(firstMessage, recentMessages) {
+  // Helper: strip common conversational prefixes
+  function stripPrefixes(text) {
+    return text
+      .replace(/^(hey|hi|hello|ok|okay|so|well|alright|please|pls|now)\b[,.]?\s*/i, '')
+      .replace(/^(can you|could you|would you|will you|i need you to|i want you to|i'd like you to|help me|i need to|i want to|let's|lets)\s+/i, '')
+      .replace(/^(go ahead and|make sure to|make sure|try to|please)\s+/i, '')
+      .trim();
+  }
+
+  // Helper: extract the core action phrase from a message
+  function extractCoreTopic(text) {
+    let cleaned = stripPrefixes(text);
+    // Remove trailing punctuation
+    cleaned = cleaned.replace(/[.!?]+$/, '').trim();
+    // If still starts with common filler, strip again
+    cleaned = stripPrefixes(cleaned);
+    return cleaned;
+  }
+
+  // Helper: smart truncate at word boundary, title case
+  function truncateTitle(text, maxLen) {
+    if (text.length <= maxLen) return text;
+    let truncated = text.substring(0, maxLen);
+    // Cut at last word boundary
+    const lastSpace = truncated.lastIndexOf(' ');
+    if (lastSpace > maxLen * 0.5) {
+      truncated = truncated.substring(0, lastSpace);
+    }
+    return truncated;
+  }
+
+  // Helper: capitalize first letter
+  function capitalize(str) {
+    if (!str) return str;
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  // Extract topic from first message
+  let topic = '';
+  if (firstMessage) {
+    topic = extractCoreTopic(firstMessage);
+    // Take first sentence if multi-sentence
+    const sentenceEnd = topic.search(/[.!?]\s/);
+    if (sentenceEnd > 10 && sentenceEnd < topic.length - 5) {
+      topic = topic.substring(0, sentenceEnd);
+    }
+  }
+
+  // Extract recent focus from last message
+  let recentFocus = '';
+  if (recentMessages.length > 0) {
+    const lastMsg = recentMessages[recentMessages.length - 1];
+    recentFocus = extractCoreTopic(lastMsg);
+    const sentenceEnd = recentFocus.search(/[.!?]\s/);
+    if (sentenceEnd > 10 && sentenceEnd < recentFocus.length - 5) {
+      recentFocus = recentFocus.substring(0, sentenceEnd);
+    }
+  }
+
+  let title = '';
+
+  // If only one message or first and recent are similar, use topic
+  if (!recentFocus || recentFocus === topic || recentMessages.length <= 1) {
+    title = topic || recentFocus || 'Untitled Session';
+  } else {
+    // Combine: use recent focus as primary, topic provides context
+    // Check if recent focus is very short (like "yes" or "do it") — use topic instead
+    if (recentFocus.length < 15) {
+      title = topic;
+    } else {
+      title = recentFocus;
+    }
+  }
+
+  // Final cleanup and truncation
+  title = capitalize(truncateTitle(title, 45));
+
+  // If title is too generic or empty, try harder
+  if (!title || title.length < 4) {
+    title = capitalize(truncateTitle(topic || firstMessage || 'Untitled Session', 45));
+  }
+
+  return title;
+}
+
+/**
  * POST /api/sessions/:id/auto-title
  * Reads the Claude session's .jsonl file and generates a title
- * from the first user message or conversation content.
+ * from the conversation content. Produces a concise, descriptive title.
  */
 app.post('/api/sessions/:id/auto-title', requireAuth, (req, res) => {
   const store = getStore();
@@ -877,29 +968,29 @@ app.post('/api/sessions/:id/auto-title', requireAuth, (req, res) => {
       if (text) recentUserMessages.unshift(text);
     }
 
-    if (recentUserMessages.length > 0) {
-      // Use the most recent substantial user message as the title
-      // Pick the last one (most recent) — it best represents current work
-      const recentText = recentUserMessages[recentUserMessages.length - 1];
-      title = recentText;
-    } else {
-      // Fallback: use first user message from head
-      const headContent = headBuf.toString('utf-8', 0, headBytesRead);
-      const headLines = headContent.split('\n').filter(l => l.trim());
-      for (const line of headLines) {
-        const text = extractUserText(line);
-        if (text) { title = text; break; }
-      }
+    // Also extract first user message from head for topic context
+    const headContent = headBuf.toString('utf-8', 0, headBytesRead);
+    const headLines = headContent.split('\n').filter(l => l.trim());
+    let firstUserMessage = '';
+    for (const line of headLines) {
+      const text = extractUserText(line);
+      if (text) { firstUserMessage = text; break; }
     }
 
-    if (!title) {
+    // Collect all available user messages for context
+    const allMessages = [];
+    if (firstUserMessage) allMessages.push(firstUserMessage);
+    for (const msg of recentUserMessages) {
+      if (msg !== firstUserMessage) allMessages.push(msg);
+    }
+
+    if (allMessages.length === 0) {
       return res.status(404).json({ error: 'No user message found in session' });
     }
 
-    // Clean and truncate to make a title (~60 chars at word boundary)
-    if (title.length > 60) {
-      title = title.substring(0, 60).replace(/\s+\S*$/, '') + '...';
-    }
+    // ── Generate a concise title from session content ──
+    // Combine messages to understand the session topic
+    title = generateSessionTitle(firstUserMessage, recentUserMessages);
 
     // Update the session name if it's a store session
     if (session) {
@@ -1052,6 +1143,195 @@ app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to read session: ' + err.message });
+  }
+});
+
+
+// ──────────────────────────────────────────────────────────
+//  SEARCH CONVERSATIONS
+// ──────────────────────────────────────────────────────────
+
+/**
+ * POST /api/search-conversations
+ * Searches across all Claude session JSONL files for conversations matching the query.
+ * Reads user messages from each session and matches against search terms.
+ * Body: { query: "string" }
+ * Returns: { results: [{ sessionId, projectPath, projectName, preview, modified, size }] }
+ */
+app.post('/api/search-conversations', requireAuth, async (req, res) => {
+  const { query } = req.body;
+  if (!query || typeof query !== 'string' || query.trim().length < 2) {
+    return res.status(400).json({ error: 'Query must be at least 2 characters' });
+  }
+
+  const searchTerms = query.toLowerCase().trim().split(/\s+/);
+  const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
+
+  if (!fs.existsSync(claudeProjectsDir)) {
+    return res.json({ results: [] });
+  }
+
+  const results = [];
+  const MAX_RESULTS = 50;
+  const SAMPLE_SIZE = 20 * 1024; // Read 20KB from head and tail of each file
+
+  try {
+    const projectDirs = fs.readdirSync(claudeProjectsDir, { withFileTypes: true })
+      .filter(d => d.isDirectory());
+
+    for (const dir of projectDirs) {
+      if (results.length >= MAX_RESULTS) break;
+
+      const projectDir = path.join(claudeProjectsDir, dir.name);
+      const realPath = decodeClaudePath(dir.name);
+      const projectName = realPath.split('\\').pop() || realPath.split('/').pop() || dir.name;
+
+      let jsonlFiles;
+      try {
+        jsonlFiles = fs.readdirSync(projectDir).filter(f => f.endsWith('.jsonl'));
+      } catch (_) { continue; }
+
+      for (const file of jsonlFiles) {
+        if (results.length >= MAX_RESULTS) break;
+
+        const filePath = path.join(projectDir, file);
+        const sessionId = file.replace('.jsonl', '');
+        let stat;
+        try { stat = fs.statSync(filePath); } catch (_) { continue; }
+
+        // Read head and tail samples
+        const fileSize = stat.size;
+        if (fileSize === 0) continue;
+
+        let content = '';
+        try {
+          const fd = fs.openSync(filePath, 'r');
+
+          // Head sample
+          const headSize = Math.min(SAMPLE_SIZE, fileSize);
+          const headBuf = Buffer.alloc(headSize);
+          fs.readSync(fd, headBuf, 0, headSize, 0);
+          content = headBuf.toString('utf-8');
+
+          // Tail sample (if file is larger than head)
+          if (fileSize > SAMPLE_SIZE * 2) {
+            const tailSize = Math.min(SAMPLE_SIZE, fileSize);
+            const tailBuf = Buffer.alloc(tailSize);
+            fs.readSync(fd, tailBuf, 0, tailSize, fileSize - tailSize);
+            content += '\n' + tailBuf.toString('utf-8');
+          }
+
+          fs.closeSync(fd);
+        } catch (_) { continue; }
+
+        // Extract user messages
+        const lines = content.split('\n').filter(l => l.trim());
+        const userTexts = [];
+
+        for (const line of lines) {
+          try {
+            const msg = JSON.parse(line);
+            const inner = msg.message || msg;
+            const isUser = msg.type === 'user' || msg.type === 'human' || inner.role === 'user';
+            if (!isUser) continue;
+
+            const c = inner.content;
+            let text = '';
+            if (typeof c === 'string') text = c;
+            else if (Array.isArray(c)) {
+              const tb = c.find(b => b.type === 'text' && b.text);
+              if (tb) text = tb.text;
+            }
+            if (text && text.length >= 5 && !text.startsWith('<system-reminder')) {
+              userTexts.push(text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim());
+            }
+          } catch (_) {}
+        }
+
+        if (userTexts.length === 0) continue;
+
+        // Check if any user message matches ALL search terms
+        const allText = userTexts.join(' ').toLowerCase();
+        const matches = searchTerms.every(term => allText.includes(term));
+        if (!matches) continue;
+
+        // Find the best matching message for preview
+        let bestPreview = '';
+        let bestScore = 0;
+        for (const text of userTexts) {
+          const lower = text.toLowerCase();
+          const score = searchTerms.filter(t => lower.includes(t)).length;
+          if (score > bestScore) {
+            bestScore = score;
+            bestPreview = text;
+          }
+        }
+
+        // Truncate preview
+        if (bestPreview.length > 200) {
+          bestPreview = bestPreview.substring(0, 200).replace(/\s+\S*$/, '') + '...';
+        }
+
+        // First user message as topic hint
+        let topic = userTexts[0] || '';
+        if (topic.length > 100) {
+          topic = topic.substring(0, 100).replace(/\s+\S*$/, '') + '...';
+        }
+
+        results.push({
+          sessionId,
+          projectPath: realPath,
+          projectEncoded: dir.name,
+          projectName,
+          topic,
+          preview: bestPreview,
+          modified: stat.mtime,
+          size: stat.size,
+          messageCount: userTexts.length,
+        });
+      }
+    }
+
+    // Sort by modification time (most recent first)
+    results.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+
+    return res.json({ results });
+  } catch (err) {
+    return res.status(500).json({ error: 'Search failed: ' + err.message });
+  }
+});
+
+
+// ──────────────────────────────────────────────────────────
+//  PTY Session Control
+// ──────────────────────────────────────────────────────────
+
+/**
+ * POST /api/pty/:sessionId/kill
+ * Kills the PTY process for a session. The session can then be restarted
+ * by reconnecting (dropping it into a terminal pane again).
+ */
+app.post('/api/pty/:sessionId/kill', requireAuth, (req, res) => {
+  const ptyMgr = getPtyManager();
+  if (!ptyMgr) {
+    return res.status(503).json({ error: 'PTY manager not available' });
+  }
+
+  const sessionId = decodeURIComponent(req.params.sessionId);
+  const session = ptyMgr.getSession(sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: 'No active PTY session found' });
+  }
+
+  const pid = session.pid;
+  const killed = ptyMgr.killSession(sessionId);
+
+  if (killed) {
+    console.log(`[API] Killed PTY session ${sessionId} (PID: ${pid})`);
+    return res.json({ success: true, pid });
+  } else {
+    return res.status(500).json({ error: 'Failed to kill session' });
   }
 });
 

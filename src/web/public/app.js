@@ -110,6 +110,8 @@ class CWMApp {
       docsRawMode: false,
       hiddenSessions: new Set(JSON.parse(localStorage.getItem('cwm_hiddenSessions') || '[]')),
       hiddenProjectSessions: new Set(JSON.parse(localStorage.getItem('cwm_hiddenProjectSessions') || '[]')),
+      hiddenProjects: new Set(JSON.parse(localStorage.getItem('cwm_hiddenProjects') || '[]')),
+      projectSearchQuery: '',
       showHidden: false,
     };
 
@@ -244,6 +246,7 @@ class CWMApp {
       // Projects
       projectsList: document.getElementById('projects-list'),
       projectsToggle: document.getElementById('projects-toggle'),
+      projectsSearchInput: document.getElementById('projects-search-input'),
 
       // Terminal Grid
       terminalGrid: document.getElementById('terminal-grid'),
@@ -323,6 +326,20 @@ class CWMApp {
     // Projects toggle
     if (this.els.projectsToggle) {
       this.els.projectsToggle.addEventListener('click', () => this.toggleProjectsPanel());
+    }
+
+    // Projects search/filter
+    if (this.els.projectsSearchInput) {
+      this.els.projectsSearchInput.addEventListener('input', (e) => {
+        this.state.projectSearchQuery = e.target.value.trim().toLowerCase();
+        this.renderProjects();
+      });
+    }
+
+    // Find a Conversation button
+    const findConvoBtn = document.getElementById('find-conversation-btn');
+    if (findConvoBtn) {
+      findConvoBtn.addEventListener('click', () => this.openFindConversation());
     }
 
     // Toggle hidden sessions
@@ -1142,6 +1159,7 @@ class CWMApp {
     if (this.els.toggleHiddenLabel) this.els.toggleHiddenLabel.textContent = this.state.showHidden ? 'Hide hidden' : 'Show hidden';
     this.renderWorkspaces();
     this.renderSessions();
+    this.renderProjects();
   }
 
   async startSession(id) {
@@ -1415,15 +1433,75 @@ class CWMApp {
     this._renderContextItems(projectName, items, x, y);
   }
 
+  showProjectContextMenu(encodedName, displayName, projectPath, x, y) {
+    const items = [];
+    const isHidden = this.state.hiddenProjects.has(encodedName);
+
+    // Hide/unhide entire project
+    if (isHidden) {
+      items.push({ label: 'Unhide Project', icon: '&#128065;', action: () => {
+        this.state.hiddenProjects.delete(encodedName);
+        localStorage.setItem('cwm_hiddenProjects', JSON.stringify([...this.state.hiddenProjects]));
+        this.renderProjects();
+        this.showToast(`"${displayName}" unhidden`, 'info');
+      }});
+    } else {
+      items.push({ label: 'Hide Project', icon: '&#128065;', action: () => {
+        this.state.hiddenProjects.add(encodedName);
+        localStorage.setItem('cwm_hiddenProjects', JSON.stringify([...this.state.hiddenProjects]));
+        this.renderProjects();
+        this.showToast(`"${displayName}" hidden`, 'info');
+      }});
+    }
+
+    items.push({ type: 'sep' });
+
+    // Copy path
+    if (projectPath) {
+      items.push({ label: 'Copy Path', icon: '&#128193;', action: () => {
+        navigator.clipboard.writeText(projectPath);
+        this.showToast('Path copied', 'success');
+      }});
+    }
+
+    // Copy encoded name
+    items.push({ label: 'Copy Encoded Name', icon: '&#128203;', action: () => {
+      navigator.clipboard.writeText(encodedName);
+      this.showToast('Encoded name copied', 'success');
+    }});
+
+    this._renderContextItems(displayName, items, x, y);
+  }
+
   async toggleBypass(sessionId) {
     const session = this.state.sessions.find(s => s.id === sessionId);
     if (!session) return;
 
     const newVal = !session.bypassPermissions;
     try {
+      // Update the flag in the store
       const data = await this.api('PUT', `/api/sessions/${sessionId}`, { bypassPermissions: newVal });
       const updated = data.session || data;
       this.showToast(`Bypass permissions ${newVal ? 'enabled' : 'disabled'}`, newVal ? 'warning' : 'info');
+
+      // If there's a running PTY for this session, kill it so it respawns with the new flag
+      const paneIdx = this.terminalPanes.findIndex(tp => tp && tp.sessionId === sessionId);
+      if (paneIdx !== -1) {
+        try {
+          await this.api('POST', `/api/pty/${encodeURIComponent(sessionId)}/kill`);
+          const tp = this.terminalPanes[paneIdx];
+          const name = tp.sessionName;
+          const opts = tp.spawnOpts;
+          this.closeTerminalPane(paneIdx);
+          setTimeout(() => {
+            this.openTerminalInPane(paneIdx, sessionId, name, opts);
+            this.showToast(`Session restarted with bypass ${newVal ? 'on' : 'off'}`, 'info');
+          }, 500);
+        } catch (_) {
+          // PTY might not be running — flag is saved for next launch
+        }
+      }
+
       await this.loadSessions();
       if (this.state.selectedSession && this.state.selectedSession.id === sessionId) {
         this.state.selectedSession = updated;
@@ -2630,17 +2708,23 @@ class CWMApp {
         .map(id => workspaces.find(ws => ws.id === id))
         .filter(Boolean);
 
-      if (groupWorkspaces.length === 0) return;
+      // Show empty groups too so user can drag workspaces into them
+
+      const groupCount = groupWorkspaces.length;
+      const groupItemsHtml = groupCount > 0
+        ? groupWorkspaces.map(ws => renderWorkspaceItem(ws)).join('')
+        : '<div style="padding: 6px 16px; font-size: 11px; color: var(--overlay0);">Drag workspaces here</div>';
 
       html += `
         <div class="workspace-group" data-group-id="${group.id}">
           <div class="workspace-group-header" data-group-id="${group.id}">
-            <span class="group-chevron">&#9662;</span>
+            <span class="group-chevron open">&#9662;</span>
             <span class="group-color-dot" style="background: ${groupColor}"></span>
             <span>${this.escapeHtml(group.name)}</span>
+            <span style="margin-left:auto;font-size:10px;color:var(--overlay0);font-family:var(--font-mono)">${groupCount}</span>
           </div>
           <div class="workspace-group-items">
-            ${groupWorkspaces.map(ws => renderWorkspaceItem(ws)).join('')}
+            ${groupItemsHtml}
           </div>
         </div>`;
     });
@@ -2652,20 +2736,23 @@ class CWMApp {
       el.addEventListener('click', (e) => {
         if (e.target.closest('.ws-rename-btn') || e.target.closest('.ws-delete-btn')) return;
         const wsId = el.dataset.id;
-        this.selectWorkspace(wsId);
+        const isAlreadyActive = this.state.activeWorkspace && this.state.activeWorkspace.id === wsId;
 
-        // Toggle accordion body
-        const accordion = el.closest('.workspace-accordion');
-        if (accordion) {
-          const body = accordion.querySelector('.workspace-accordion-body');
-          const chevron = el.querySelector('.ws-chevron');
-          const isOpen = body && !body.hidden;
-          // Close all other accordions
+        if (isAlreadyActive) {
+          // Already the active workspace — just toggle its accordion open/closed
+          const accordion = el.closest('.workspace-accordion');
+          if (accordion) {
+            const body = accordion.querySelector('.workspace-accordion-body');
+            const chevron = el.querySelector('.ws-chevron');
+            if (body) body.hidden = !body.hidden;
+            if (chevron) chevron.classList.toggle('open', body && !body.hidden);
+          }
+        } else {
+          // Different workspace — select it (renderWorkspaces will open its accordion)
+          // Close all accordion bodies first for visual feedback
           list.querySelectorAll('.workspace-accordion-body').forEach(b => b.hidden = true);
           list.querySelectorAll('.ws-chevron').forEach(c => c.classList.remove('open'));
-          // Open this one (or close if it was already open)
-          if (body) body.hidden = isOpen;
-          if (chevron) chevron.classList.toggle('open', !isOpen);
+          this.selectWorkspace(wsId);
         }
       });
 
@@ -2762,6 +2849,58 @@ class CWMApp {
         const state = JSON.parse(localStorage.getItem('cwm_projectGroupState') || '{}');
         state[key] = !isCollapsed;
         localStorage.setItem('cwm_projectGroupState', JSON.stringify(state));
+      });
+    });
+
+    // Bind group header events (toggle collapse, context menu)
+    list.querySelectorAll('.workspace-group-header').forEach(header => {
+      // Click to collapse/expand
+      header.addEventListener('click', () => {
+        const group = header.closest('.workspace-group');
+        if (!group) return;
+        const items = group.querySelector('.workspace-group-items');
+        const chevron = header.querySelector('.group-chevron');
+        if (items) items.hidden = !items.hidden;
+        if (chevron) chevron.classList.toggle('open', items && !items.hidden);
+      });
+
+      // Right-click context menu
+      header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.showGroupContextMenu(header.dataset.groupId, e.clientX, e.clientY);
+      });
+
+      // Long-press for mobile
+      let groupLongPress = null;
+      header.addEventListener('touchstart', (e) => {
+        groupLongPress = setTimeout(() => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          this.showGroupContextMenu(header.dataset.groupId, touch.clientX, touch.clientY);
+        }, 500);
+      }, { passive: false });
+      header.addEventListener('touchend', () => clearTimeout(groupLongPress));
+      header.addEventListener('touchmove', () => clearTimeout(groupLongPress));
+
+      // Drop workspaces onto group header to move them into the group
+      header.addEventListener('dragover', (e) => {
+        if (e.dataTransfer.types.includes('cwm/workspace')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          header.classList.add('group-drop-target');
+        }
+      });
+      header.addEventListener('dragleave', () => {
+        header.classList.remove('group-drop-target');
+      });
+      header.addEventListener('drop', (e) => {
+        header.classList.remove('group-drop-target');
+        const workspaceId = e.dataTransfer.getData('cwm/workspace');
+        if (workspaceId) {
+          e.preventDefault();
+          this.moveWorkspaceToGroup(workspaceId, header.dataset.groupId);
+        }
       });
     });
 
@@ -2899,6 +3038,14 @@ class CWMApp {
         ...groupItems,
         { type: 'sep' },
       ] : []),
+      // If workspace is already in a group, offer to ungroup it
+      ...(() => {
+        const currentGroup = groups.find(g => (g.workspaceIds || []).includes(workspaceId));
+        if (currentGroup) {
+          return [{ label: `Remove from "${currentGroup.name}"`, icon: '&#8592;', action: () => this.removeWorkspaceFromGroup(workspaceId) }, { type: 'sep' }];
+        }
+        return [];
+      })(),
       { label: 'New Group...', icon: '&#43;', action: () => this.createGroup() },
     ];
 
@@ -2952,6 +3099,86 @@ class CWMApp {
     } catch (err) {
       this.showToast(err.message || 'Failed to move workspace', 'error');
     }
+  }
+
+  async removeWorkspaceFromGroup(workspaceId) {
+    // Find which group it's in and remove it
+    const groups = this.state.groups || [];
+    const group = groups.find(g => (g.workspaceIds || []).includes(workspaceId));
+    if (!group) return;
+
+    const newIds = (group.workspaceIds || []).filter(id => id !== workspaceId);
+    try {
+      await this.api('PUT', `/api/groups/${group.id}`, { workspaceIds: newIds });
+      this.showToast('Workspace removed from group', 'info');
+      await this.loadGroups();
+      this.renderWorkspaces();
+    } catch (err) {
+      this.showToast(err.message || 'Failed to remove workspace', 'error');
+    }
+  }
+
+  async deleteGroup(groupId) {
+    const groups = this.state.groups || [];
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+
+    const confirmed = await this.showConfirmModal({
+      title: 'Delete Group',
+      message: `Delete "${group.name}"? Workspaces inside will become ungrouped.`,
+      confirmText: 'Delete',
+      confirmClass: 'btn-danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      await this.api('DELETE', `/api/groups/${groupId}`);
+      this.showToast('Group deleted', 'info');
+      await this.loadGroups();
+      this.renderWorkspaces();
+    } catch (err) {
+      this.showToast(err.message || 'Failed to delete group', 'error');
+    }
+  }
+
+  async renameGroup(groupId) {
+    const groups = this.state.groups || [];
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+
+    const result = await this.showPromptModal({
+      title: 'Edit Group',
+      fields: [
+        { key: 'name', label: 'Group Name', value: group.name, required: true },
+        { key: 'color', label: 'Color', type: 'color', value: group.color },
+      ],
+      confirmText: 'Save',
+      confirmClass: 'btn-primary',
+    });
+    if (!result) return;
+
+    try {
+      await this.api('PUT', `/api/groups/${groupId}`, { name: result.name, color: result.color || group.color });
+      this.showToast('Group updated', 'success');
+      await this.loadGroups();
+      this.renderWorkspaces();
+    } catch (err) {
+      this.showToast(err.message || 'Failed to update group', 'error');
+    }
+  }
+
+  showGroupContextMenu(groupId, x, y) {
+    const groups = this.state.groups || [];
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+
+    const items = [
+      { label: 'Edit Group', icon: '&#9998;', action: () => this.renameGroup(groupId) },
+      { type: 'sep' },
+      { label: 'Delete Group', icon: '&#10005;', danger: true, action: () => this.deleteGroup(groupId) },
+    ];
+
+    this._renderContextItems(group.name, items, x, y);
   }
 
   renderSessions() {
@@ -3130,20 +3357,65 @@ class CWMApp {
     const list = this.els.projectsList;
     if (!list) return;
 
-    const projects = this.state.projects;
+    let projects = this.state.projects;
     if (projects.length === 0) {
       list.innerHTML = '<div style="padding: 12px; text-align: center; font-size: 12px; color: var(--overlay0);">No projects found</div>';
+      return;
+    }
+
+    // Filter out hidden projects (unless showHidden is on)
+    projects = projects.filter(p => {
+      const encoded = p.encodedName || '';
+      return this.state.showHidden || !this.state.hiddenProjects.has(encoded);
+    });
+
+    // Apply search filter
+    const query = this.state.projectSearchQuery;
+    if (query) {
+      projects = projects.filter(p => {
+        const name = p.realPath ? (p.realPath.split('\\').pop() || p.encodedName) : p.encodedName;
+        const encoded = p.encodedName || '';
+        const path = p.realPath || '';
+        // Match against project name, encoded name, or path
+        if (name.toLowerCase().includes(query) || encoded.toLowerCase().includes(query) || path.toLowerCase().includes(query)) return true;
+        // Match against any session ID/name within this project
+        const allSessions = p.sessions || [];
+        return allSessions.some(s => (s.name || '').toLowerCase().includes(query));
+      });
+    }
+
+    if (projects.length === 0) {
+      list.innerHTML = '<div style="padding: 12px; text-align: center; font-size: 12px; color: var(--overlay0);">' +
+        (query ? 'No matching projects' : 'All projects hidden') + '</div>';
       return;
     }
 
     list.innerHTML = projects.map(p => {
       const name = p.realPath ? (p.realPath.split('\\').pop() || p.encodedName) : p.encodedName;
       const encoded = p.encodedName || '';
+      const isProjectHidden = this.state.hiddenProjects.has(encoded);
       const missingClass = !p.dirExists ? ' missing' : '';
+      const hiddenClass = isProjectHidden ? ' project-hidden' : '';
       const sizeStr = p.totalSize ? this.formatSize(p.totalSize) : '';
       const allSessions = p.sessions || [];
       // Filter out hidden project sessions (unless showHidden is on)
-      const sessions = allSessions.filter(s => this.state.showHidden || !this.state.hiddenProjectSessions.has(s.name));
+      let sessions = allSessions.filter(s => this.state.showHidden || !this.state.hiddenProjectSessions.has(s.name));
+
+      // When search is active, also filter individual sessions by query
+      if (query) {
+        const projectNameLower = name.toLowerCase();
+        const encodedLower = encoded.toLowerCase();
+        const pathLower = (p.realPath || '').toLowerCase();
+        const projectMatches = projectNameLower.includes(query) || encodedLower.includes(query) || pathLower.includes(query);
+        // If the project itself doesn't match, only show sessions that match
+        if (!projectMatches) {
+          sessions = sessions.filter(s => {
+            const sName = (s.name || '').toLowerCase();
+            const sTitle = (this.getProjectSessionTitle(s.name) || '').toLowerCase();
+            return sName.includes(query) || sTitle.includes(query);
+          });
+        }
+      }
 
       // Build session sub-items
       const sessionItems = sessions.map(s => {
@@ -3152,14 +3424,18 @@ class CWMApp {
         const displayName = storedTitle || (sessName.length > 24 ? sessName.substring(0, 24) + '...' : sessName);
         const sessSize = s.size ? this.formatSize(s.size) : '';
         const sessTime = s.modified ? this.relativeTime(s.modified) : '';
-        return `<div class="project-session-item" draggable="true" data-session-name="${this.escapeHtml(sessName)}" data-project-path="${this.escapeHtml(p.realPath || '')}" data-project-encoded="${this.escapeHtml(encoded)}">
-          <span class="project-session-name" title="${this.escapeHtml(sessName)}">${this.escapeHtml(displayName)}</span>
+        // Tooltip: show title + session ID so user sees both on hover
+        const tooltip = storedTitle
+          ? `${storedTitle}\n\nSession: ${sessName}`
+          : sessName;
+        return `<div class="project-session-item" draggable="true" data-session-name="${this.escapeHtml(sessName)}" data-project-path="${this.escapeHtml(p.realPath || '')}" data-project-encoded="${this.escapeHtml(encoded)}" title="${this.escapeHtml(tooltip)}">
+          <span class="project-session-name">${this.escapeHtml(displayName)}</span>
           ${sessSize ? `<span class="project-session-size">${sessSize}</span>` : ''}
           ${sessTime ? `<span class="project-session-time">${sessTime}</span>` : ''}
         </div>`;
       }).join('');
 
-      return `<div class="project-accordion${missingClass}" data-encoded="${this.escapeHtml(encoded)}" data-path="${this.escapeHtml(p.realPath || '')}">
+      return `<div class="project-accordion${missingClass}${hiddenClass}" data-encoded="${this.escapeHtml(encoded)}" data-path="${this.escapeHtml(p.realPath || '')}">
         <div class="project-accordion-header" draggable="${p.dirExists ? 'true' : 'false'}">
           <span class="project-accordion-chevron">&#9654;</span>
           <span class="project-name" title="${this.escapeHtml(p.realPath || '')}">${this.escapeHtml(name)}</span>
@@ -3196,6 +3472,33 @@ class CWMApp {
         header.classList.add('dragging');
       });
       header.addEventListener('dragend', () => header.classList.remove('dragging'));
+
+      // Right-click context menu on project header
+      header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const accordion = header.closest('.project-accordion');
+        const encoded = accordion.dataset.encoded;
+        const path = accordion.dataset.path;
+        const projName = header.querySelector('.project-name').textContent;
+        this.showProjectContextMenu(encoded, projName, path, e.clientX, e.clientY);
+      });
+
+      // Long-press for mobile on project header
+      let headerLongPress = null;
+      header.addEventListener('touchstart', (e) => {
+        headerLongPress = setTimeout(() => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const accordion = header.closest('.project-accordion');
+          const encoded = accordion.dataset.encoded;
+          const path = accordion.dataset.path;
+          const projName = header.querySelector('.project-name').textContent;
+          this.showProjectContextMenu(encoded, projName, path, touch.clientX, touch.clientY);
+        }, 500);
+      }, { passive: false });
+      header.addEventListener('touchend', () => clearTimeout(headerLongPress));
+      header.addEventListener('touchmove', () => clearTimeout(headerLongPress));
     });
 
     // Bind drag + context menu on individual session items inside projects
@@ -3248,6 +3551,126 @@ class CWMApp {
         svg.style.transition = 'transform var(--transition-fast)';
       }
     }
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════
+     FIND A CONVERSATION
+     ═══════════════════════════════════════════════════════════ */
+
+  openFindConversation() {
+    const overlay = document.getElementById('find-convo-overlay');
+    const input = document.getElementById('find-convo-input');
+    const results = document.getElementById('find-convo-results');
+    const closeBtn = document.getElementById('find-convo-close');
+
+    if (!overlay || !input || !results) return;
+
+    overlay.hidden = false;
+    input.value = '';
+    results.innerHTML = '<div class="find-convo-empty">Enter keywords to search across all conversations</div>';
+    setTimeout(() => input.focus(), 50);
+
+    // Debounced search
+    let searchTimer = null;
+    const doSearch = () => {
+      const query = input.value.trim();
+      if (query.length < 2) {
+        results.innerHTML = '<div class="find-convo-empty">Enter at least 2 characters to search</div>';
+        return;
+      }
+      results.innerHTML = '<div class="find-convo-loading">Searching conversations...</div>';
+      this.api('POST', '/api/search-conversations', { query })
+        .then(data => {
+          const items = data.results || [];
+          if (items.length === 0) {
+            results.innerHTML = '<div class="find-convo-empty">No conversations matched your search</div>';
+            return;
+          }
+          results.innerHTML = items.map(r => `
+            <div class="find-convo-result" data-session-id="${this.escapeHtml(r.sessionId)}" data-project-path="${this.escapeHtml(r.projectPath)}" data-project-encoded="${this.escapeHtml(r.projectEncoded)}">
+              <div class="find-convo-result-header">
+                <span class="find-convo-result-project">${this.escapeHtml(r.projectName)}</span>
+                <span class="find-convo-result-meta">${this.formatSize(r.size)} &middot; ${this.relativeTime(r.modified)}</span>
+              </div>
+              <div class="find-convo-result-topic">${this.escapeHtml(r.topic)}</div>
+              <div class="find-convo-result-preview">${this.escapeHtml(r.preview)}</div>
+              <div class="find-convo-result-id">${r.sessionId}</div>
+            </div>
+          `).join('');
+
+          // Bind click on results
+          results.querySelectorAll('.find-convo-result').forEach(el => {
+            el.addEventListener('click', () => {
+              const sessionId = el.dataset.sessionId;
+              const projectPath = el.dataset.projectPath;
+              this.openConversationResult(sessionId, projectPath);
+              this.closeFindConversation();
+            });
+          });
+        })
+        .catch(err => {
+          results.innerHTML = `<div class="find-convo-empty" style="color: var(--red);">Search failed: ${this.escapeHtml(err.message || 'Unknown error')}</div>`;
+        });
+    };
+
+    // Remove old listener if any
+    if (this._findConvoInputHandler) {
+      input.removeEventListener('input', this._findConvoInputHandler);
+    }
+    this._findConvoInputHandler = () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(doSearch, 400);
+    };
+    input.addEventListener('input', this._findConvoInputHandler);
+
+    // Enter key triggers immediate search
+    if (this._findConvoKeyHandler) {
+      input.removeEventListener('keydown', this._findConvoKeyHandler);
+    }
+    this._findConvoKeyHandler = (e) => {
+      if (e.key === 'Enter') {
+        clearTimeout(searchTimer);
+        doSearch();
+      } else if (e.key === 'Escape') {
+        this.closeFindConversation();
+      }
+    };
+    input.addEventListener('keydown', this._findConvoKeyHandler);
+
+    // Close handlers
+    if (this._findConvoCloseHandler) {
+      closeBtn.removeEventListener('click', this._findConvoCloseHandler);
+      overlay.removeEventListener('click', this._findConvoCloseHandler);
+    }
+    this._findConvoCloseHandler = (e) => {
+      if (e.target === overlay || e.target === closeBtn || e.target.closest('#find-convo-close')) {
+        this.closeFindConversation();
+      }
+    };
+    closeBtn.addEventListener('click', this._findConvoCloseHandler);
+    overlay.addEventListener('click', this._findConvoCloseHandler);
+  }
+
+  closeFindConversation() {
+    const overlay = document.getElementById('find-convo-overlay');
+    if (overlay) overlay.hidden = true;
+  }
+
+  openConversationResult(sessionId, projectPath) {
+    // Open the session in a terminal pane — not added to any workspace
+    const emptySlot = this.terminalPanes.findIndex(p => p === null);
+    if (emptySlot === -1) {
+      this.showToast('All terminal panes full. Close one first.', 'warning');
+      return;
+    }
+    this.setViewMode('terminal');
+    this.openTerminalInPane(emptySlot, sessionId, sessionId, {
+      cwd: projectPath,
+      resumeSessionId: sessionId,
+      command: 'claude',
+    });
+    this.showToast('Opening conversation in terminal', 'info');
   }
 
 
@@ -3478,6 +3901,36 @@ class CWMApp {
         };
         pane.addEventListener('mousedown', focusPane, true); // capture phase
         pane.addEventListener('touchstart', focusPane, { passive: true, capture: true });
+
+        // focusin: when any child element (like xterm's textarea) gains focus,
+        // switch the active pane. This catches focus from click, tab, or programmatic focus.
+        pane.addEventListener('focusin', () => {
+          if (this._activeTerminalSlot !== slotIdx && this.terminalPanes[slotIdx]) {
+            this.setActiveTerminalPane(slotIdx);
+          }
+        });
+
+        // Right-click context menu on terminal pane
+        pane.addEventListener('contextmenu', (e) => {
+          const tp = this.terminalPanes[slotIdx];
+          if (!tp) return; // empty pane — let default menu show
+          e.preventDefault();
+          e.stopPropagation();
+          this.showTerminalContextMenu(slotIdx, e.clientX, e.clientY);
+        });
+
+        // Long-press for mobile terminal context menu
+        let termLongPress = null;
+        pane.addEventListener('touchstart', (e) => {
+          termLongPress = setTimeout(() => {
+            const tp = this.terminalPanes[slotIdx];
+            if (!tp) return;
+            const touch = e.touches[0];
+            this.showTerminalContextMenu(slotIdx, touch.clientX, touch.clientY);
+          }, 600);
+        }, { passive: true });
+        pane.addEventListener('touchend', () => clearTimeout(termLongPress));
+        pane.addEventListener('touchmove', () => clearTimeout(termLongPress));
       });
     }
   }
@@ -3542,6 +3995,63 @@ class CWMApp {
       this.updateTerminalTabs();
       this.switchTerminalTab(slotIdx);
     }
+  }
+
+  showTerminalContextMenu(slotIdx, x, y) {
+    const tp = this.terminalPanes[slotIdx];
+    if (!tp) return;
+
+    const items = [];
+
+    // Paste from clipboard
+    items.push({
+      label: 'Paste', icon: '&#128203;', action: () => {
+        tp.pasteFromClipboard();
+      },
+    });
+
+    items.push({ type: 'sep' });
+
+    // Fix Terminal — sends reset command
+    items.push({
+      label: 'Fix Terminal (reset)', icon: '&#8635;', action: () => {
+        tp.sendCommand('reset\r');
+        this.showToast('Sent reset to terminal', 'info');
+      },
+    });
+
+    // Kill & Restart — kills the PTY process so claude can be restarted
+    items.push({
+      label: 'Kill Session', icon: '&#9747;', danger: true, action: async () => {
+        try {
+          await this.api('POST', `/api/pty/${encodeURIComponent(tp.sessionId)}/kill`);
+          this.showToast('Session killed — drop again to restart', 'warning');
+          // Close the terminal pane since the process is dead
+          this.closeTerminalPane(slotIdx);
+        } catch (err) {
+          this.showToast(err.message || 'Failed to kill session', 'error');
+        }
+      },
+    });
+
+    items.push({ type: 'sep' });
+
+    // Copy session ID
+    items.push({
+      label: 'Copy Session ID', icon: '&#128203;', action: () => {
+        navigator.clipboard.writeText(tp.sessionId);
+        this.showToast('Session ID copied', 'success');
+      },
+    });
+
+    // Close pane
+    items.push({
+      label: 'Close Pane', icon: '&#10005;', action: () => {
+        this.closeTerminalPane(slotIdx);
+      },
+    });
+
+    this._renderContextItems(tp.sessionName || 'Terminal', items, x, y);
   }
 
   closeTerminalPane(slotIdx) {
@@ -3638,6 +4148,9 @@ class CWMApp {
    * Set the active terminal pane — blurs all others, focuses target, highlights it.
    */
   setActiveTerminalPane(slotIdx) {
+    // Set slot early to prevent focusin recursion
+    this._activeTerminalSlot = slotIdx;
+
     // Blur all other terminals
     this.terminalPanes.forEach((tp, i) => {
       if (tp && i !== slotIdx) tp.blur();
@@ -3651,8 +4164,6 @@ class CWMApp {
 
     const tp = this.terminalPanes[slotIdx];
     if (tp) tp.focus();
-
-    this._activeTerminalSlot = slotIdx;
   }
 
   /**
