@@ -961,6 +961,15 @@ class CWMApp {
       || (this.state.allSessions && this.state.allSessions.find(s => s.id === id))
       || null;
     this.state.selectedSession = session;
+
+    // If in a view mode that hides the detail panel, switch to a compatible mode
+    const hiddenModes = ['terminal', 'docs', 'resources'];
+    if (session && hiddenModes.includes(this.state.viewMode)) {
+      // Switch to workspace view if a workspace is active, otherwise 'all'
+      const targetMode = this.state.activeWorkspace ? 'workspace' : 'all';
+      this.setViewMode(targetMode);
+    }
+
     this.renderSessionDetail();
     this.renderSessions(); // update active state
 
@@ -1052,7 +1061,9 @@ class CWMApp {
   }
 
   async renameSession(id) {
-    const session = this.state.sessions.find(s => s.id === id);
+    const session = this.state.sessions.find(s => s.id === id)
+      || (this.state.allSessions && this.state.allSessions.find(s => s.id === id))
+      || null;
     if (!session) return;
 
     const result = await this.showPromptModal({
@@ -1083,7 +1094,9 @@ class CWMApp {
   }
 
   async deleteSession(id) {
-    const session = this.state.sessions.find(s => s.id === id);
+    const session = this.state.sessions.find(s => s.id === id)
+      || (this.state.allSessions && this.state.allSessions.find(s => s.id === id))
+      || null;
     if (!session) return;
 
     // Hide session — never delete. Persisted in localStorage.
@@ -2924,8 +2937,8 @@ class CWMApp {
             this.showToast('All terminal panes are full. Close one first.', 'warning');
           }
         } else {
-          this.state.selectedSession = session;
-          this.renderSessionDetail();
+          // Use selectSession for proper detail panel display, session list update, and mobile slide
+          this.selectSession(sessionId);
         }
       });
       // Right-click context menu on sidebar session items
@@ -3249,8 +3262,8 @@ class CWMApp {
 
   renderSessionDetail() {
     const session = this.state.selectedSession;
-    // Never show detail panel in terminal or docs view
-    if (!session || this.state.viewMode === 'terminal' || this.state.viewMode === 'docs') {
+    // Never show detail panel in terminal, docs, or resources view
+    if (!session || this.state.viewMode === 'terminal' || this.state.viewMode === 'docs' || this.state.viewMode === 'resources') {
       this.els.detailPanel.hidden = true;
       return;
     }
