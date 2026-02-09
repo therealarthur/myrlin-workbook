@@ -24,7 +24,7 @@ function login() {
       res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(body) }));
     });
     req.on('error', reject);
-    req.write(JSON.stringify({ password: 'L3x1ngt0n69thstreet!' }));
+    req.write(JSON.stringify({ password: process.env.CWM_PASSWORD || 'test-password' }));
     req.end();
   });
 }

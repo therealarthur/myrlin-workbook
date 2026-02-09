@@ -75,13 +75,13 @@ async function main() {
 
   // Seed demo data if empty
   if (store.getAllWorkspacesList().length === 0) {
-    const ws1 = store.createWorkspace({ name: 'SignalSentry', description: 'IoT sensor network' });
-    const ws2 = store.createWorkspace({ name: 'Pantex API', description: 'Backend services' });
+    const ws1 = store.createWorkspace({ name: 'Project Alpha', description: 'Frontend application' });
+    const ws2 = store.createWorkspace({ name: 'Backend API', description: 'Backend services' });
     const ws3 = store.createWorkspace({ name: 'Documentation', description: 'Docs & guides' });
-    store.createSession({ name: 'firmware-dev', workspaceId: ws1.id, workingDir: 'C:\\Projects\\signal-sentry', topic: 'ESP32 firmware' });
-    store.createSession({ name: 'ble-scanner', workspaceId: ws1.id, workingDir: 'C:\\Projects\\signal-sentry\\ble', topic: 'BLE scanning module' });
-    store.createSession({ name: 'api-routes', workspaceId: ws2.id, workingDir: 'C:\\Projects\\pantex-api', topic: 'REST endpoints' });
-    store.createSession({ name: 'db-migrations', workspaceId: ws2.id, workingDir: 'C:\\Projects\\pantex-api\\db', topic: 'Database schema' });
+    store.createSession({ name: 'ui-components', workspaceId: ws1.id, workingDir: 'C:\\Projects\\project-alpha', topic: 'React components' });
+    store.createSession({ name: 'state-mgmt', workspaceId: ws1.id, workingDir: 'C:\\Projects\\project-alpha\\state', topic: 'State management' });
+    store.createSession({ name: 'api-routes', workspaceId: ws2.id, workingDir: 'C:\\Projects\\backend-api', topic: 'REST endpoints' });
+    store.createSession({ name: 'db-migrations', workspaceId: ws2.id, workingDir: 'C:\\Projects\\backend-api\\db', topic: 'Database schema' });
     store.createSession({ name: 'readme-update', workspaceId: ws3.id, workingDir: 'C:\\Projects\\docs', topic: 'README overhaul' });
     store.createSession({ name: 'api-docs', workspaceId: ws3.id, workingDir: 'C:\\Projects\\docs\\api', topic: 'API reference' });
     store.save();
@@ -110,7 +110,7 @@ async function main() {
     hostname: '127.0.0.1', port: PORT,
     path: '/api/auth/login', method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-  }, JSON.stringify({ password: 'L3x1ngt0n69thstreet!' }));
+  }, JSON.stringify({ password: process.env.CWM_PASSWORD || 'test-password' }));
   console.log('  Login status:', loginRes.status);
   const loginData = JSON.parse(loginRes.body);
   console.log('  Token:', loginData.token ? loginData.token.substring(0, 16) + '...' : 'NONE');

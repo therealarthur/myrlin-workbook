@@ -1,8 +1,29 @@
+# Dependencies
 node_modules/
+
+# Runtime state & credentials (contains passwords, session data, PIDs)
 /state/
-*.log
+
+# Claude Code local settings (permissions, project-specific config)
+.claude/
+
+# Environment and secrets
 .env
+.env.*
+*.pem
+*.key
+
+# Logs
+*.log
+
+# OS files
 .DS_Store
 Thumbs.db
+nul
+
+# Generated output
 screenshots/
+dist/
+
+# Frontend backup snapshots
 src/web/public/.backup/

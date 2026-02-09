@@ -651,7 +651,7 @@ app.get('/api/discover', requireAuth, (req, res) => {
       if (!entry.isDirectory()) continue;
 
       const projectDir = path.join(claudeDir, entry.name);
-      // Decode directory name to real path: C--Users-Arthur-Desktop-foo → C:\Users\Arthur\Desktop\foo
+      // Decode directory name to real path: C--Users-Jane-Desktop-foo → C:\Users\Jane\Desktop\foo
       const realPath = decodeClaudePath(entry.name);
 
       // Count .jsonl session files and compute total size
@@ -720,10 +720,10 @@ app.get('/api/discover', requireAuth, (req, res) => {
  *   "-"    elsewhere   →  "\" OR literal "-"  (ambiguous — resolved via fs)
  *
  * Examples:
- *   C--Users-Arthur-Desktop-claude-workspace-manager
- *     → C:\Users\Arthur\Desktop\claude-workspace-manager
- *   C--Users-Arthur--claude
- *     → C:\Users\Arthur\.claude
+ *   C--Users-Jane-Desktop-my-project
+ *     → C:\Users\Jane\Desktop\my-project
+ *   C--Users-Jane--claude
+ *     → C:\Users\Jane\.claude
  */
 function decodeClaudePath(encoded) {
   const driveMatch = encoded.match(/^([A-Z])--(.*)/);
@@ -733,7 +733,7 @@ function decodeClaudePath(encoded) {
   const rest = driveMatch[2];
   if (!rest) return drive;
 
-  // Split on '--' to handle dot-prefixed dirs (Arthur--claude → Arthur\.claude)
+  // Split on '--' to handle dot-prefixed dirs (Jane--claude → Jane\.claude)
   const majorParts = rest.split('--');
   let resolved = drive;
 

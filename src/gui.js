@@ -27,11 +27,11 @@ if (process.argv.includes('--demo')) {
   // Only seed if there are no existing workspaces
   if (store.getAllWorkspacesList().length === 0) {
     const ws1 = store.createWorkspace({
-      name: 'SignalSentry',
-      description: 'IoT sensor network',
+      name: 'Project Alpha',
+      description: 'Frontend application',
     });
     const ws2 = store.createWorkspace({
-      name: 'Pantex API',
+      name: 'Backend API',
       description: 'Backend services',
     });
     const ws3 = store.createWorkspace({
@@ -40,27 +40,27 @@ if (process.argv.includes('--demo')) {
     });
 
     store.createSession({
-      name: 'firmware-dev',
+      name: 'ui-components',
       workspaceId: ws1.id,
-      workingDir: 'C:\\Projects\\signal-sentry',
-      topic: 'ESP32 firmware',
+      workingDir: 'C:\\Projects\\project-alpha',
+      topic: 'React components',
     });
     store.createSession({
-      name: 'ble-scanner',
+      name: 'state-mgmt',
       workspaceId: ws1.id,
-      workingDir: 'C:\\Projects\\signal-sentry\\ble',
-      topic: 'BLE scanning module',
+      workingDir: 'C:\\Projects\\project-alpha\\state',
+      topic: 'State management',
     });
     store.createSession({
       name: 'api-routes',
       workspaceId: ws2.id,
-      workingDir: 'C:\\Projects\\pantex-api',
+      workingDir: 'C:\\Projects\\backend-api',
       topic: 'REST endpoints',
     });
     store.createSession({
       name: 'db-migrations',
       workspaceId: ws2.id,
-      workingDir: 'C:\\Projects\\pantex-api\\db',
+      workingDir: 'C:\\Projects\\backend-api\\db',
       topic: 'Database schema',
     });
     store.createSession({

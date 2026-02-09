@@ -691,27 +691,27 @@ function generateQuickSwitcherHTML(store) {
  * Seed demo data
  */
 function seedDemoData(store) {
-  const ws1 = store.createWorkspace({ name: 'SignalSentry', description: 'ESP32 detection', color: 'cyan' });
-  const ws2 = store.createWorkspace({ name: 'Pantex API', description: 'Backend API', color: 'magenta' });
+  const ws1 = store.createWorkspace({ name: 'Project Alpha', description: 'Frontend app', color: 'cyan' });
+  const ws2 = store.createWorkspace({ name: 'Backend API', description: 'Backend API', color: 'magenta' });
   const ws3 = store.createWorkspace({ name: 'Documentation', description: 'Docs', color: 'yellow' });
 
-  const s1 = store.createSession({ name: 'firmware-dev', workspaceId: ws1.id, workingDir: 'C:\\Projects\\SignalSentry\\firmware', topic: 'BLE scanning', command: 'claude' });
+  const s1 = store.createSession({ name: 'ui-components', workspaceId: ws1.id, workingDir: 'C:\\Projects\\project-alpha\\src', topic: 'React components', command: 'claude' });
   store.updateSession(s1.id, { status: 'running', pid: 12340 });
   store.addSessionLog(s1.id, 'Session launched with PID 12340');
-  store.addSessionLog(s1.id, 'Working on BLE characteristic parsing');
+  store.addSessionLog(s1.id, 'Working on data table component');
 
-  const s2 = store.createSession({ name: 'rssi-analysis', workspaceId: ws1.id, workingDir: 'C:\\Projects\\SignalSentry\\analysis', topic: 'RSSI trending', command: 'claude' });
+  const s2 = store.createSession({ name: 'perf-analysis', workspaceId: ws1.id, workingDir: 'C:\\Projects\\project-alpha\\perf', topic: 'Performance tuning', command: 'claude' });
   store.updateSession(s2.id, { status: 'idle', pid: 12341 });
-  store.addSessionLog(s2.id, 'Analyzing RSSI decay curves');
+  store.addSessionLog(s2.id, 'Analyzing render performance');
 
-  const s3 = store.createSession({ name: 'test-runner', workspaceId: ws1.id, workingDir: 'C:\\Projects\\SignalSentry\\test', topic: 'Integration tests', command: 'claude' });
+  const s3 = store.createSession({ name: 'test-runner', workspaceId: ws1.id, workingDir: 'C:\\Projects\\project-alpha\\test', topic: 'Integration tests', command: 'claude' });
   store.updateSession(s3.id, { status: 'stopped' });
   store.addSessionLog(s3.id, 'Tests completed: 47/48 passed');
 
-  const s4 = store.createSession({ name: 'api-endpoints', workspaceId: ws2.id, workingDir: 'C:\\Projects\\Pantex\\api', topic: 'REST API', command: 'claude' });
+  const s4 = store.createSession({ name: 'api-endpoints', workspaceId: ws2.id, workingDir: 'C:\\Projects\\backend-api\\src', topic: 'REST API', command: 'claude' });
   store.updateSession(s4.id, { status: 'running', pid: 12345 });
 
-  const s5 = store.createSession({ name: 'db-migrations', workspaceId: ws2.id, workingDir: 'C:\\Projects\\Pantex\\db', topic: 'Database migrations', command: 'claude' });
+  const s5 = store.createSession({ name: 'db-migrations', workspaceId: ws2.id, workingDir: 'C:\\Projects\\backend-api\\db', topic: 'Database migrations', command: 'claude' });
   store.updateSession(s5.id, { status: 'error' });
   store.addSessionLog(s5.id, 'Migration failed: FK constraint violation');
 

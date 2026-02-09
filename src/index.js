@@ -78,14 +78,14 @@ function main() {
 function seedDemoData(store, notifications) {
   // Create workspaces
   const ws1 = store.createWorkspace({
-    name: 'SignalSentry',
-    description: 'ESP32 smartphone detection system',
+    name: 'Project Alpha',
+    description: 'Frontend application and components',
     color: 'cyan',
   });
 
   const ws2 = store.createWorkspace({
-    name: 'Pantex API',
-    description: 'Backend API for sensor data processing',
+    name: 'Backend API',
+    description: 'Backend API for data processing',
     color: 'magenta',
   });
 
@@ -95,53 +95,53 @@ function seedDemoData(store, notifications) {
     color: 'yellow',
   });
 
-  // Create sessions for SignalSentry
+  // Create sessions for Project Alpha
   const s1 = store.createSession({
-    name: 'firmware-dev',
+    name: 'ui-components',
     workspaceId: ws1.id,
-    workingDir: 'C:\\Projects\\SignalSentry\\firmware',
-    topic: 'BLE scanning and MAC fingerprinting',
+    workingDir: 'C:\\Projects\\project-alpha\\src',
+    topic: 'React component library',
     command: 'claude',
   });
   store.updateSession(s1.id, { status: 'running', pid: 12340 });
   store.addSessionLog(s1.id, 'Session launched with PID 12340');
-  store.addSessionLog(s1.id, 'Working on BLE characteristic parsing');
+  store.addSessionLog(s1.id, 'Working on data table component');
 
   const s2 = store.createSession({
-    name: 'rssi-analysis',
+    name: 'perf-analysis',
     workspaceId: ws1.id,
-    workingDir: 'C:\\Projects\\SignalSentry\\analysis',
-    topic: 'RSSI trending and distance estimation',
+    workingDir: 'C:\\Projects\\project-alpha\\perf',
+    topic: 'Performance profiling and optimization',
     command: 'claude',
   });
   store.updateSession(s2.id, { status: 'idle', pid: 12341 });
-  store.addSessionLog(s2.id, 'Analyzing RSSI decay curves');
+  store.addSessionLog(s2.id, 'Analyzing render performance');
 
   const s3 = store.createSession({
     name: 'test-runner',
     workspaceId: ws1.id,
-    workingDir: 'C:\\Projects\\SignalSentry\\test',
-    topic: 'Integration tests for sensor nodes',
+    workingDir: 'C:\\Projects\\project-alpha\\test',
+    topic: 'Integration tests for UI components',
     command: 'claude',
   });
   store.updateSession(s3.id, { status: 'stopped' });
   store.addSessionLog(s3.id, 'Tests completed: 47/48 passed');
 
-  // Create sessions for Pantex API
+  // Create sessions for Backend API
   const s4 = store.createSession({
     name: 'api-endpoints',
     workspaceId: ws2.id,
-    workingDir: 'C:\\Projects\\Pantex\\api',
-    topic: 'REST API for device management',
+    workingDir: 'C:\\Projects\\backend-api\\src',
+    topic: 'REST API for resource management',
     command: 'claude',
   });
   store.updateSession(s4.id, { status: 'running', pid: 12345 });
-  store.addSessionLog(s4.id, 'Implementing /api/v1/devices endpoint');
+  store.addSessionLog(s4.id, 'Implementing /api/v1/resources endpoint');
 
   const s5 = store.createSession({
     name: 'db-migrations',
     workspaceId: ws2.id,
-    workingDir: 'C:\\Projects\\Pantex\\db',
+    workingDir: 'C:\\Projects\\backend-api\\db',
     topic: 'Database schema and migrations',
     command: 'claude',
   });
@@ -158,7 +158,7 @@ function seedDemoData(store, notifications) {
   });
   store.updateSession(s6.id, { status: 'stopped' });
 
-  // Set SignalSentry as active
+  // Set Project Alpha as active
   store.setActiveWorkspace(ws1.id);
 
   // Add some startup notifications

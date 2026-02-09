@@ -1,8 +1,7 @@
 # Claude Workspace Manager
 
 ## CRITICAL SCOPE CONSTRAINT
-**You MUST only create, edit, and modify files within this directory:**
-`C:\Users\Arthur\Desktop\claude-workspace-manager\`
+**You MUST only create, edit, and modify files within this project directory.**
 
 **NEVER modify files outside this folder.** This includes:
 - Do NOT edit `~/.claude/settings.json` or any global config
