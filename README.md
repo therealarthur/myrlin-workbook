@@ -51,6 +51,18 @@ If you run more than a couple Claude Code sessions, you know the pain:
 
 This gives you a single dashboard to organize and run all of it.
 
+### Why not the existing tools?
+
+There are good tools out there — [Opcode](https://github.com/winfunc/opcode), [Claude Squad](https://github.com/smtg-ai/claude-squad), [CloudCLI](https://github.com/siteboon/claudecodeui), [Crystal](https://github.com/stravu/crystal), the official Claude Code desktop app. I tried them. Here's what pushed me to build this:
+
+- **Most require tmux** — Claude Squad, Agent Deck, ccswitch, Agent of Empires are all tmux-based. I'm on Windows. Not an option without WSL.
+- **Desktop apps aren't accessible remotely** — Opcode and Crystal are desktop-only. I wanted to check on sessions from my phone or another machine. This runs in a browser with optional Cloudflare tunnel access.
+- **Git worktrees aren't how I think** — Almost every competitor organizes around git worktrees. I organize around *projects* with multiple sessions, each with their own notes, goals, and context. Workspaces with attached docs is the mental model I wanted.
+- **No session discovery** — Most tools only manage sessions you create through them. This scans `~/.claude/projects/` and finds every session you've ever run, auto-titles them from the conversation content, and lets you import them.
+- **CloudCLI is closest** but it's more of a remote IDE (file explorer, code editor). I wanted a session *command center* — terminals, workspace docs, resource monitoring, not another editor.
+
+What those tools do better than this: Opcode has 20k stars and cost tracking. Claude Squad supports 5+ AI tools. Agent Deck has MCP socket pooling. Crystal has great git integration. This is alpha and Claude-only (for now). Just being honest.
+
 ---
 
 ## Features
@@ -205,8 +217,6 @@ PORT=8080 npm run gui
 - Pinned sessions
 - Light theme
 - Session cost estimation (token tracking)
-
-See [IDEAS.md](IDEAS.md) for more.
 
 ---
 

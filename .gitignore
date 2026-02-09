@@ -21,6 +21,13 @@ node_modules/
 Thumbs.db
 nul
 
+# Internal planning docs (not for public repo)
+IDEAS.md
+TODO.md
+TASK.md
+PLANNING.md
+reddit-launch-post.md
+
 # Generated output
 screenshots/
 dist/
