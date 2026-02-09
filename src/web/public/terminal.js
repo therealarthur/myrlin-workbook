@@ -95,30 +95,29 @@ class TerminalPane {
 
       this._status('Connecting to session...', 'blue');
 
-      // Connect WebSocket immediately — don't wait for fit.
-      // Input works as soon as WS opens. Resize is sent after fit.
-      this._log('Calling connect()...');
-      this.connect();
-
       // Initialize mobile scroll/type mode after terminal is in DOM
       this.initMobileInputMode();
 
-      // Double-rAF for fit: first rAF schedules work for after the browser
-      // paints, second rAF ensures the grid layout has been fully calculated.
-      // Without this, fitAddon.fit() runs before the container has real
-      // dimensions (grid just transitioned from hidden → visible).
+      // IMPORTANT: Fit BEFORE connecting WebSocket so we know the real
+      // terminal dimensions. The PTY spawns at whatever cols/rows we pass
+      // in the WS URL — if we connect before fit, the PTY starts at
+      // hardcoded 120x30, outputs formatted for 120 cols, then gets
+      // resized to the actual (smaller) dimensions. That mismatch garbles
+      // the display and forces users to type "reset".
+      //
+      // Double-rAF ensures the grid layout is fully calculated before fit.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           try {
             this.fitAddon.fit();
             this._log('Fitted: ' + this.term.cols + 'x' + this.term.rows);
-            // Send correct dimensions to PTY after fit
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-              this.ws.send(JSON.stringify({ type: 'resize', cols: this.term.cols, rows: this.term.rows }));
-            }
           } catch (e) {
             this._log('fit() failed: ' + e.message);
           }
+
+          // NOW connect with correct dimensions
+          this._log('Calling connect()...');
+          this.connect();
 
           // Safety refit after 200ms — catches edge cases where the grid
           // is still settling (e.g., CSS transitions, slow layout)
@@ -208,6 +207,10 @@ class TerminalPane {
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     let wsUrl = protocol + '//' + location.host + '/ws/terminal?token=' + encodeURIComponent(token) + '&sessionId=' + this.sessionId;
+    // Pass actual terminal dimensions so the PTY spawns at the right size
+    if (this.term) {
+      wsUrl += '&cols=' + this.term.cols + '&rows=' + this.term.rows;
+    }
     // Append optional spawn options as query params
     if (this.spawnOpts.cwd) wsUrl += '&cwd=' + encodeURIComponent(this.spawnOpts.cwd);
     if (this.spawnOpts.resumeSessionId) wsUrl += '&resumeSessionId=' + encodeURIComponent(this.spawnOpts.resumeSessionId);
