@@ -1338,9 +1338,11 @@ class CWMApp {
     items.push({ type: 'sep' });
 
     // Flags
+    const isAgentTeams = !!session.agentTeams;
     items.push(
       { label: 'Bypass Permissions', icon: '&#9888;', action: () => this.toggleBypass(sessionId), check: isBypassed },
       { label: 'Verbose', icon: '&#128483;', action: () => this.toggleVerbose(sessionId), check: isVerbose },
+      { label: 'Agent Teams', icon: '&#129302;', action: () => this.toggleAgentTeams(sessionId), check: isAgentTeams },
     );
 
     items.push({ type: 'sep' });
@@ -1603,6 +1605,63 @@ class CWMApp {
       const otherSession = (this.state.allSessions || []).find(s => s.id === sessionId && s !== session);
       if (otherSession) otherSession.verbose = newVal;
       this.showToast(`Verbose mode ${newVal ? 'enabled' : 'disabled'}`, 'info');
+
+      // If there's a running PTY, restart with new flag
+      const paneIdx = this.terminalPanes.findIndex(tp => tp && tp.sessionId === sessionId);
+      if (paneIdx !== -1) {
+        try {
+          await this.api('POST', `/api/pty/${encodeURIComponent(sessionId)}/kill`);
+          const tp = this.terminalPanes[paneIdx];
+          const name = tp.sessionName;
+          const opts = Object.assign({}, tp.spawnOpts, { verbose: newVal });
+          this.closeTerminalPane(paneIdx);
+          setTimeout(() => {
+            this.openTerminalInPane(paneIdx, sessionId, name, opts);
+            this.showToast(`Session restarted with verbose ${newVal ? 'on' : 'off'}`, 'info');
+          }, 500);
+        } catch (_) {}
+      }
+
+      await this.loadSessions();
+      if (this.state.selectedSession && this.state.selectedSession.id === sessionId) {
+        this.state.selectedSession = updated;
+        this.renderSessionDetail();
+      }
+    } catch (err) {
+      this.showToast(err.message || 'Failed to update session', 'error');
+    }
+  }
+
+  async toggleAgentTeams(sessionId) {
+    const session = this.state.sessions.find(s => s.id === sessionId)
+      || (this.state.allSessions && this.state.allSessions.find(s => s.id === sessionId));
+    if (!session) return;
+
+    const newVal = !session.agentTeams;
+    try {
+      const data = await this.api('PUT', `/api/sessions/${sessionId}`, { agentTeams: newVal });
+      const updated = data.session || data;
+      session.agentTeams = newVal;
+      const otherSession = (this.state.allSessions || []).find(s => s.id === sessionId && s !== session);
+      if (otherSession) otherSession.agentTeams = newVal;
+      this.showToast(`Agent teams ${newVal ? 'enabled' : 'disabled'}`, 'info');
+
+      // If there's a running PTY, restart with new flag
+      const paneIdx = this.terminalPanes.findIndex(tp => tp && tp.sessionId === sessionId);
+      if (paneIdx !== -1) {
+        try {
+          await this.api('POST', `/api/pty/${encodeURIComponent(sessionId)}/kill`);
+          const tp = this.terminalPanes[paneIdx];
+          const name = tp.sessionName;
+          const opts = Object.assign({}, tp.spawnOpts, { agentTeams: newVal });
+          this.closeTerminalPane(paneIdx);
+          setTimeout(() => {
+            this.openTerminalInPane(paneIdx, sessionId, name, opts);
+            this.showToast(`Session restarted with agent teams ${newVal ? 'on' : 'off'}`, 'info');
+          }, 500);
+        } catch (_) {}
+      }
+
       await this.loadSessions();
       if (this.state.selectedSession && this.state.selectedSession.id === sessionId) {
         this.state.selectedSession = updated;
@@ -4088,6 +4147,7 @@ class CWMApp {
               if (session.bypassPermissions) spawnOpts.bypassPermissions = true;
               if (session.verbose) spawnOpts.verbose = true;
               if (session.model) spawnOpts.model = session.model;
+              if (session.agentTeams) spawnOpts.agentTeams = true;
             }
             this.openTerminalInPane(slotIdx, sessionId, session ? session.name : 'Terminal', spawnOpts);
             return;

@@ -3632,6 +3632,49 @@ textarea.input {
 }
 
 /* ═══════════════════════════════════════════════════════════ */
+/* Terminal loading animation — subtle RGB border glow         */
+/* ═══════════════════════════════════════════════════════════ */
+
+@keyframes rgb-border-glow {
+  0%   { border-color: var(--mauve); box-shadow: inset 0 0 0 1px var(--mauve), 0 0 8px rgba(203, 166, 247, 0.15); }
+  33%  { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue), 0 0 8px rgba(137, 180, 250, 0.15); }
+  66%  { border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal), 0 0 8px rgba(148, 226, 213, 0.15); }
+  100% { border-color: var(--mauve); box-shadow: inset 0 0 0 1px var(--mauve), 0 0 8px rgba(203, 166, 247, 0.15); }
+}
+
+.terminal-pane-loading {
+  animation: rgb-border-glow 3s ease-in-out infinite;
+}
+
+.terminal-pane-loading .terminal-pane-title::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+  animation: rgb-border-glow 3s ease-in-out infinite;
+  background: var(--mauve);
+}
+
+@keyframes loading-dot-pulse {
+  0%, 100% { background: var(--mauve); }
+  33% { background: var(--blue); }
+  66% { background: var(--teal); }
+}
+
+.terminal-pane-loading .terminal-pane-title::after {
+  animation: loading-dot-pulse 3s ease-in-out infinite;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .terminal-pane-loading { animation: none; border-color: var(--mauve); }
+  .terminal-pane-loading .terminal-pane-title::after { animation: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════ */
 /* CATPPUCCIN LATTE (Light Theme)                              */
 /* ═══════════════════════════════════════════════════════════ */
 

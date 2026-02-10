@@ -68,7 +68,7 @@ class PtySessionManager {
    * @param {boolean} [options.bypassPermissions=false] - If true, adds --dangerously-skip-permissions
    * @returns {PtySession} The PTY session object
    */
-  spawnSession(sessionId, { command = 'claude', cwd, cols = 120, rows = 30, bypassPermissions = false, resumeSessionId = null, verbose = false, model = null } = {}) {
+  spawnSession(sessionId, { command = 'claude', cwd, cols = 120, rows = 30, bypassPermissions = false, resumeSessionId = null, verbose = false, model = null, agentTeams = false } = {}) {
     // Return existing session if already alive
     const existing = this.sessions.get(sessionId);
     if (existing && existing.alive) {
@@ -211,6 +211,7 @@ class PtySessionManager {
             bypassPermissions: storeSession.bypassPermissions || false,
             verbose: storeSession.verbose || false,
             model: storeSession.model || null,
+            agentTeams: storeSession.agentTeams || false,
             resumeSessionId: storeSession.resumeSessionId || null,
             ...spawnOpts,
           });

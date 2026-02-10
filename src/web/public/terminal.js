@@ -171,6 +171,10 @@ class TerminalPane {
       // Intercept Shift+Enter to send newline instead of carriage return
       // This lets Claude Code receive a "next line" signal rather than "submit"
       this.term.attachCustomKeyEventHandler((e) => {
+        // Let browser handle Ctrl+V / Cmd+V — triggers container paste listener
+        if (e.type === 'keydown' && (e.key === 'v' || e.key === 'V') && (e.ctrlKey || e.metaKey)) {
+          return false;
+        }
         if (e.type === 'keydown' && e.key === 'Enter' && e.shiftKey) {
           if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({ type: 'input', data: '\n' }));
@@ -257,15 +261,25 @@ class TerminalPane {
     if (this.spawnOpts.model) wsUrl += '&model=' + encodeURIComponent(this.spawnOpts.model);
     this._log('Opening WebSocket: ' + wsUrl.substring(0, 80) + '...');
 
+    // Add loading animation to the pane
+    const container = document.getElementById(this.containerId);
+    const paneEl = container ? container.closest('.terminal-pane') : null;
+    if (paneEl) paneEl.classList.add('terminal-pane-loading');
+
     try {
       this.ws = new WebSocket(wsUrl);
     } catch (err) {
       this._log('WebSocket constructor threw: ' + err.message);
       this._status('WebSocket failed: ' + err.message, 'red');
+      if (paneEl) paneEl.classList.remove('terminal-pane-loading');
       return;
     }
 
     this.ws.onopen = () => {
+      // Remove loading animation
+      const paneEl = document.getElementById(this.containerId)?.closest('.terminal-pane');
+      if (paneEl) paneEl.classList.remove('terminal-pane-loading');
+
       this.connected = true;
       this._reconnectAttempts = 0;
       this._log('WebSocket OPEN');
@@ -301,6 +315,10 @@ class TerminalPane {
     };
 
     this.ws.onclose = (event) => {
+      // Remove loading animation
+      const paneEl = document.getElementById(this.containerId)?.closest('.terminal-pane');
+      if (paneEl) paneEl.classList.remove('terminal-pane-loading');
+
       this.connected = false;
       this._log('WebSocket CLOSED code=' + event.code + ' reason=' + (event.reason || 'none'));
 
