@@ -1523,6 +1523,71 @@ function getProcessMemory(pid) {
   });
 }
 
+function getChildPids(pid) {
+  return new Promise((resolve) => {
+    const allPids = [pid];
+    if (process.platform === 'win32') {
+      execFile('wmic', ['process', 'where', `ParentProcessId=${pid}`, 'get', 'ProcessId', '/format:csv'], { timeout: 5000 }, (err, stdout) => {
+        if (!err && stdout) {
+          stdout.split('\n').forEach(line => {
+            const parts = line.trim().split(',');
+            const childPid = parseInt(parts[parts.length - 1], 10);
+            if (!isNaN(childPid) && childPid > 0 && childPid !== pid) {
+              allPids.push(childPid);
+            }
+          });
+        }
+        resolve(allPids);
+      });
+    } else {
+      execFile('pgrep', ['-P', String(pid)], { timeout: 5000 }, (err, stdout) => {
+        if (!err && stdout) {
+          stdout.trim().split('\n').forEach(line => {
+            const childPid = parseInt(line.trim(), 10);
+            if (!isNaN(childPid) && childPid > 0) allPids.push(childPid);
+          });
+        }
+        resolve(allPids);
+      });
+    }
+  });
+}
+
+function getProcessPorts(pid) {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      getChildPids(pid).then((allPids) => {
+        const pidList = allPids.join(',');
+        const psScript = `Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { @(${pidList}) -contains $_.OwningProcess } | Select-Object -ExpandProperty LocalPort`;
+        execFile('powershell', ['-NoProfile', '-Command', psScript], { timeout: 5000 }, (err, stdout) => {
+          if (err || !stdout.trim()) return resolve([]);
+          const ports = [...new Set(
+            stdout.trim().split('\n')
+              .map(p => parseInt(p.trim(), 10))
+              .filter(p => !isNaN(p) && p > 0)
+          )].sort((a, b) => a - b);
+          resolve(ports);
+        });
+      });
+    } else {
+      getChildPids(pid).then((allPids) => {
+        const pidArg = allPids.join(',');
+        execFile('lsof', ['-i', '-P', '-n', '-a', '-p', pidArg], { timeout: 5000 }, (err, stdout) => {
+          if (err || !stdout.trim()) return resolve([]);
+          const ports = [];
+          stdout.split('\n').forEach(line => {
+            if (line.includes('LISTEN')) {
+              const match = line.match(/:(\d+)\s/);
+              if (match) ports.push(parseInt(match[1], 10));
+            }
+          });
+          resolve([...new Set(ports)].sort((a, b) => a - b));
+        });
+      });
+    }
+  });
+}
+
 /**
  * GET /api/resources
  * Returns system resource usage and per-Claude-session resource consumption.
@@ -1548,15 +1613,19 @@ app.get('/api/resources', requireAuth, async (req, res) => {
     const allSessions = store.getAllSessionsList ? store.getAllSessionsList() : [];
     const runningSessions = allSessions.filter(s => s.status === 'running' && s.pid);
 
-    // Fetch per-session memory usage in parallel
+    // Fetch per-session memory usage and port discovery in parallel
     const claudeSessions = await Promise.all(
       runningSessions.map(async (s) => {
-        const memoryMB = await getProcessMemory(s.pid);
+        const [memoryMB, ports] = await Promise.all([
+          getProcessMemory(s.pid),
+          getProcessPorts(s.pid),
+        ]);
         return {
           sessionId: s.id,
           sessionName: s.name || s.id.substring(0, 12),
           pid: s.pid,
           memoryMB: memoryMB || 0,
+          ports: ports || [],
           status: s.status,
         };
       })
@@ -1571,6 +1640,257 @@ app.get('/api/resources', requireAuth, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to get resources: ' + err.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+//  GIT OPERATIONS
+// ──────────────────────────────────────────────────────────
+
+function gitExec(args, cwd) {
+  return new Promise((resolve, reject) => {
+    execFile('git', args, { cwd, timeout: 5000 }, (err, stdout, stderr) => {
+      if (err) {
+        const msg = (stderr || err.message || '').trim();
+        return reject(new Error(msg || 'git command failed'));
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+async function gitRepoRoot(dir) {
+  try {
+    const root = await gitExec(['rev-parse', '--show-toplevel'], dir);
+    return root.trim();
+  } catch {
+    return null;
+  }
+}
+
+app.get('/api/git/status', requireAuth, async (req, res) => {
+  const dir = req.query.dir;
+  if (!dir) return res.status(400).json({ error: 'dir query parameter required' });
+  try {
+    const root = await gitRepoRoot(dir);
+    if (!root) return res.json({ isGitRepo: false });
+    const branch = (await gitExec(['rev-parse', '--abbrev-ref', 'HEAD'], dir)).trim();
+    let dirty = false;
+    try {
+      const status = await gitExec(['status', '--porcelain'], dir);
+      dirty = status.trim().length > 0;
+    } catch {}
+    let remote = null;
+    try {
+      remote = (await gitExec(['rev-parse', '--abbrev-ref', '@{upstream}'], dir)).trim();
+    } catch {}
+    let ahead = 0, behind = 0;
+    if (remote) {
+      try {
+        const counts = (await gitExec(['rev-list', '--left-right', '--count', `HEAD...${remote}`], dir)).trim();
+        const [a, b] = counts.split('\t').map(Number);
+        ahead = a || 0;
+        behind = b || 0;
+      } catch {}
+    }
+    res.json({ isGitRepo: true, repoRoot: root, branch, dirty, remote, ahead, behind });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/git/branches', requireAuth, async (req, res) => {
+  const dir = req.query.dir;
+  if (!dir) return res.status(400).json({ error: 'dir query parameter required' });
+  try {
+    const root = await gitRepoRoot(dir);
+    if (!root) return res.status(400).json({ error: 'Not a git repository' });
+    const localRaw = await gitExec(['branch', '--format=%(refname:short)'], dir);
+    const local = localRaw.trim().split('\n').filter(Boolean);
+    let remote = [];
+    try {
+      const remoteRaw = await gitExec(['branch', '-r', '--format=%(refname:short)'], dir);
+      remote = remoteRaw.trim().split('\n').filter(Boolean);
+    } catch {}
+    const current = (await gitExec(['rev-parse', '--abbrev-ref', 'HEAD'], dir)).trim();
+    res.json({ local, remote, current });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/git/worktrees', requireAuth, async (req, res) => {
+  const dir = req.query.dir;
+  if (!dir) return res.status(400).json({ error: 'dir query parameter required' });
+  try {
+    const root = await gitRepoRoot(dir);
+    if (!root) return res.status(400).json({ error: 'Not a git repository' });
+    const raw = await gitExec(['worktree', 'list', '--porcelain'], root);
+    const worktrees = [];
+    let current = {};
+    raw.split('\n').forEach(line => {
+      if (line.startsWith('worktree ')) {
+        if (current.path) worktrees.push(current);
+        current = { path: line.substring(9).trim() };
+      } else if (line.startsWith('HEAD ')) {
+        current.head = line.substring(5).trim();
+      } else if (line.startsWith('branch ')) {
+        current.branch = line.substring(7).trim().replace('refs/heads/', '');
+      } else if (line === 'bare') {
+        current.bare = true;
+      } else if (line === 'detached') {
+        current.detached = true;
+      } else if (line.trim() === '') {
+        if (current.path) worktrees.push(current);
+        current = {};
+      }
+    });
+    if (current.path) worktrees.push(current);
+    res.json({ repoRoot: root, worktrees });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/git/worktrees', requireAuth, async (req, res) => {
+  const { repoDir, branch, path: wtPath } = req.body || {};
+  if (!repoDir) return res.status(400).json({ error: 'repoDir is required' });
+  if (!branch) return res.status(400).json({ error: 'branch is required' });
+  try {
+    const root = await gitRepoRoot(repoDir);
+    if (!root) return res.status(400).json({ error: 'Not a git repository' });
+    const repoName = path.basename(root);
+    const targetPath = wtPath || path.join(path.dirname(root), `${repoName}-wt`, branch.replace(/\//g, '-'));
+    let branchExists = false;
+    try {
+      await gitExec(['rev-parse', '--verify', branch], root);
+      branchExists = true;
+    } catch {}
+    const args = ['worktree', 'add'];
+    if (!branchExists) {
+      args.push('-b', branch);
+    }
+    args.push(targetPath);
+    if (branchExists) {
+      args.push(branch);
+    }
+    await gitExec(args, root);
+    res.status(201).json({ success: true, path: targetPath, branch, repoRoot: root });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/git/worktrees', requireAuth, async (req, res) => {
+  const { path: wtPath } = req.body || {};
+  if (!wtPath) return res.status(400).json({ error: 'path is required' });
+  try {
+    const root = await gitRepoRoot(wtPath);
+    if (!root) return res.status(400).json({ error: 'Not a git worktree' });
+    await gitExec(['worktree', 'remove', wtPath], root);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+//  TUNNEL MANAGEMENT (Cloudflare Quick Tunnels)
+// ──────────────────────────────────────────────────────────
+
+const _tunnels = new Map();
+let _tunnelIdCounter = 0;
+let _cloudflaredAvailable = null;
+
+function checkCloudflared() {
+  return new Promise((resolve) => {
+    execFile('cloudflared', ['--version'], { timeout: 5000 }, (err, stdout) => {
+      if (err) return resolve({ available: false, version: null });
+      const version = stdout.trim().split('\n')[0] || stdout.trim();
+      resolve({ available: true, version });
+    });
+  });
+}
+
+app.get('/api/tunnels', requireAuth, async (req, res) => {
+  if (_cloudflaredAvailable === null) {
+    const check = await checkCloudflared();
+    _cloudflaredAvailable = check.available;
+  }
+  const tunnels = [];
+  for (const [, t] of _tunnels) {
+    tunnels.push({ id: t.id, port: t.port, url: t.url, pid: t.pid, label: t.label, createdAt: t.createdAt });
+  }
+  res.json({ cloudflaredAvailable: _cloudflaredAvailable, tunnels });
+});
+
+app.post('/api/tunnels', requireAuth, async (req, res) => {
+  const { port, label } = req.body || {};
+  if (!port || typeof port !== 'number' || port < 1 || port > 65535) {
+    return res.status(400).json({ error: 'Valid port number (1-65535) is required' });
+  }
+  const check = await checkCloudflared();
+  if (!check.available) {
+    return res.status(400).json({ error: 'cloudflared is not installed. Install from https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/' });
+  }
+  for (const [, t] of _tunnels) {
+    if (t.port === port) {
+      return res.status(409).json({ error: `Port ${port} already has a tunnel: ${t.url}`, existing: { id: t.id, url: t.url } });
+    }
+  }
+  try {
+    const { spawn } = require('child_process');
+    const id = String(++_tunnelIdCounter);
+    const proc = spawn('cloudflared', ['tunnel', '--url', `http://localhost:${port}`], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+    });
+    const tunnel = { id, port, url: null, pid: proc.pid, process: proc, label: label || `Port ${port}`, createdAt: new Date().toISOString() };
+    _tunnels.set(id, tunnel);
+
+    let urlResolved = false;
+    const urlRegex = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
+    const parseUrl = (data) => {
+      if (urlResolved) return;
+      const match = data.toString().match(urlRegex);
+      if (match) { tunnel.url = match[0]; urlResolved = true; }
+    };
+    if (proc.stdout) proc.stdout.on('data', parseUrl);
+    if (proc.stderr) proc.stderr.on('data', parseUrl);
+
+    proc.on('exit', (code) => {
+      _tunnels.delete(id);
+      broadcastSSE('tunnel:closed', { id, port });
+    });
+    proc.on('error', () => { _tunnels.delete(id); });
+
+    // Wait up to 15s for URL
+    const startTime = Date.now();
+    while (!urlResolved && (Date.now() - startTime) < 15000) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    res.status(201).json({ id: tunnel.id, port: tunnel.port, url: tunnel.url, pid: tunnel.pid, label: tunnel.label, createdAt: tunnel.createdAt });
+    broadcastSSE('tunnel:opened', { id: tunnel.id, port: tunnel.port, url: tunnel.url });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to start tunnel: ' + err.message });
+  }
+});
+
+app.delete('/api/tunnels/:id', requireAuth, (req, res) => {
+  const tunnel = _tunnels.get(req.params.id);
+  if (!tunnel) return res.status(404).json({ error: 'Tunnel not found' });
+  try {
+    if (tunnel.process && !tunnel.process.killed) {
+      tunnel.process.kill('SIGTERM');
+      setTimeout(() => {
+        try { if (tunnel.process && !tunnel.process.killed) tunnel.process.kill('SIGKILL'); } catch {}
+      }, 2000);
+    }
+    _tunnels.delete(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to kill tunnel: ' + err.message });
   }
 });
 
@@ -1604,6 +1924,15 @@ function startServer(port = 3456) {
   const { attachPtyWebSocket } = require('./pty-server');
   const { ptyWss, ptyManager } = attachPtyWebSocket(server);
   _ptyManager = ptyManager;
+
+  // Cleanup tunnels on shutdown
+  const cleanupTunnels = () => {
+    for (const [, t] of _tunnels) {
+      try { if (t.process) t.process.kill(); } catch {}
+    }
+  };
+  process.on('SIGINT', cleanupTunnels);
+  process.on('SIGTERM', cleanupTunnels);
 
   return server;
 }

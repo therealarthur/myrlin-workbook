@@ -113,6 +113,8 @@ class CWMApp {
       hiddenProjects: new Set(JSON.parse(localStorage.getItem('cwm_hiddenProjects') || '[]')),
       projectSearchQuery: '',
       showHidden: false,
+      resourceData: null,
+      gitStatusCache: {},
     };
 
     // ─── Terminal panes ──────────────────────────────────────────
@@ -214,6 +216,8 @@ class CWMApp {
       detailTopic: document.getElementById('detail-topic'),
       detailCommand: document.getElementById('detail-command'),
       detailPid: document.getElementById('detail-pid'),
+      detailPorts: document.getElementById('detail-ports'),
+      detailBranch: document.getElementById('detail-branch'),
       detailCreated: document.getElementById('detail-created'),
       detailLastActive: document.getElementById('detail-last-active'),
       detailStartBtn: document.getElementById('detail-start-btn'),
@@ -1309,6 +1313,15 @@ class CWMApp {
         this.showToast('Session ID copied', 'success');
       }},
     );
+
+    // If the session has a working directory, add git worktree option
+    if (session.workingDir) {
+      items.push({
+        label: 'View Worktrees',
+        icon: '&#128268;',
+        action: () => this.showWorktreeList(session.workingDir)
+      });
+    }
 
     // Move to another workspace
     const otherWorkspaces = this.state.workspaces.filter(w => w.id !== session.workspaceId);
@@ -2585,6 +2598,10 @@ class CWMApp {
           this.loadDocs();
         }
         break;
+      case 'tunnel:opened':
+      case 'tunnel:closed':
+        if (this.state.viewMode === 'resources') this.fetchResources();
+        break;
       default:
         // Refresh all for unknown events
         this.loadAll();
@@ -3043,6 +3060,7 @@ class CWMApp {
         this.selectWorkspace(workspaceId);
         this.createSession();
       }},
+      { label: 'Create Worktree', icon: '&#128268;', action: () => this.createWorktree(workspaceId) },
       { type: 'sep' },
       { label: 'Edit', icon: '&#9998;', action: () => this.renameWorkspace(workspaceId) },
       { type: 'sep' },
@@ -3258,6 +3276,24 @@ class CWMApp {
       el.addEventListener('touchend', () => clearTimeout(longPressTimer));
       el.addEventListener('touchmove', () => clearTimeout(longPressTimer));
     });
+
+    // Async: patch in git branch badges
+    const sessionItems = list.querySelectorAll('.session-item[data-id]');
+    sessionItems.forEach(el => {
+      const sid = el.dataset.id;
+      const session = sessions.find(s => s.id === sid);
+      if (!session || !session.workingDir) return;
+      this.fetchGitStatus(session.workingDir).then(gitInfo => {
+        if (!gitInfo || !gitInfo.isGitRepo) return;
+        const nameEl = el.querySelector('.session-name');
+        if (!nameEl || nameEl.querySelector('.git-branch-badge')) return;
+        const badge = document.createElement('span');
+        badge.className = 'git-branch-badge' + (gitInfo.dirty ? ' dirty' : '');
+        badge.title = gitInfo.dirty ? 'Uncommitted changes' : 'Clean';
+        badge.textContent = gitInfo.branch + (gitInfo.dirty ? '*' : '');
+        nameEl.appendChild(badge);
+      });
+    });
   }
 
   renderSessionDetail() {
@@ -3301,6 +3337,30 @@ class CWMApp {
     if (session.verbose) cmdDisplay += ' --verbose';
     this.els.detailCommand.textContent = cmdDisplay;
     this.els.detailPid.textContent = session.pid || '--';
+
+    // Show ports from cached resource data
+    if (this.els.detailPorts) {
+      const resourceSession = (this.state.resourceData?.claudeSessions || []).find(rs => rs.sessionId === session.id);
+      const ports = resourceSession?.ports || [];
+      this.els.detailPorts.innerHTML = ports.length > 0
+        ? ports.map(p => '<a href="http://localhost:' + p + '" target="_blank" class="port-link">' + p + '</a>').join(', ')
+        : '--';
+    }
+
+    // Show git branch (async)
+    if (this.els.detailBranch) {
+      this.els.detailBranch.textContent = '--';
+      if (session.workingDir) {
+        this.fetchGitStatus(session.workingDir).then(gitInfo => {
+          if (!this.els.detailBranch) return;
+          if (!gitInfo || !gitInfo.isGitRepo) { this.els.detailBranch.textContent = '--'; return; }
+          let text = gitInfo.branch + (gitInfo.dirty ? ' (dirty)' : ' (clean)');
+          if (gitInfo.ahead > 0 || gitInfo.behind > 0) text += ' [+' + gitInfo.ahead + '/-' + gitInfo.behind + ']';
+          this.els.detailBranch.textContent = text;
+        });
+      }
+    }
+
     this.els.detailCreated.textContent = session.createdAt ? this.formatDateTime(session.createdAt) : '--';
     this.els.detailLastActive.textContent = session.lastActive ? this.relativeTime(session.lastActive) : '--';
 
@@ -5301,12 +5361,26 @@ class CWMApp {
     await this.fetchResources();
   }
 
+  async fetchGitStatus(dir) {
+    if (!dir) return null;
+    const cached = this.state.gitStatusCache[dir];
+    if (cached && Date.now() - cached.timestamp < 30000) return cached.data;
+    try {
+      const data = await this.api('GET', '/api/git/status?dir=' + encodeURIComponent(dir));
+      this.state.gitStatusCache[dir] = { data, timestamp: Date.now() };
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
   async fetchResources() {
     const body = this.els.resourcesBody;
     if (!body) return;
 
     try {
       const data = await this.api('GET', '/api/resources');
+      this.state.resourceData = data;
       this.renderResources(data);
     } catch (err) {
       body.innerHTML = `<div class="resources-empty">Failed to load resources: ${this.escapeHtml(err.message)}</div>`;
@@ -5367,13 +5441,14 @@ class CWMApp {
       html += '<div class="resources-empty">No running Claude sessions</div>';
     } else {
       html += `<table class="claude-session-table">
-        <thead><tr><th>Session</th><th>PID</th><th>Memory</th><th>Status</th></tr></thead>
+        <thead><tr><th>Session</th><th>PID</th><th>Memory</th><th>Ports</th><th>Status</th></tr></thead>
         <tbody>`;
       claudeSessions.forEach(s => {
         html += `<tr>
           <td class="session-name-cell">${this.escapeHtml(s.sessionName || s.sessionId)}</td>
           <td class="pid-cell">${s.pid || '--'}</td>
           <td class="mem-cell">${s.memoryMB ? Math.round(s.memoryMB) + ' MB' : '--'}</td>
+          <td class="ports-cell">${(s.ports && s.ports.length > 0) ? s.ports.map(p => '<a href="http://localhost:' + p + '" target="_blank" rel="noopener" class="port-link">' + p + '</a><button class="btn btn-ghost btn-sm expose-port-btn" data-port="' + p + '" title="Expose via tunnel">&#8599;</button>').join(' ') : '<span style="color:var(--overlay0)">--</span>'}</td>
           <td>${s.status || '--'}</td>
         </tr>`;
       });
@@ -5381,7 +5456,134 @@ class CWMApp {
     }
 
     html += '</div>';
+
+    // Tunnels section (populated async)
+    html += '<div id="resources-tunnels" class="resources-tunnel-section"></div>';
+
     body.innerHTML = html;
+
+    // Bind expose port buttons
+    body.querySelectorAll('.expose-port-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const port = parseInt(btn.dataset.port, 10);
+        try {
+          const data = await this.api('POST', '/api/tunnels', { port });
+          this.showToast(data.url ? 'Tunnel: ' + data.url : 'Tunnel starting...', 'success');
+          this.fetchResources();
+        } catch (err) {
+          this.showToast(err.message || 'Failed to create tunnel', 'error');
+        }
+      });
+    });
+
+    // Load tunnels section
+    this.api('GET', '/api/tunnels').then(tunnelData => {
+      const tunnelContainer = document.getElementById('resources-tunnels');
+      if (tunnelContainer) this.renderTunnels(tunnelData, tunnelContainer);
+    }).catch(() => {});
+  }
+
+  renderTunnels(data, container) {
+    const tunnels = data.tunnels || [];
+    const available = data.cloudflaredAvailable;
+    let html = '<div class="resources-section-title">Tunnels <span class="total-badge">' + (available ? tunnels.length + ' active' : 'cloudflared not installed') + '</span></div>';
+    if (!available) {
+      html += '<div class="resources-empty"><p>cloudflared is not installed.</p><a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/" target="_blank" class="port-link" style="font-size:13px;">Install cloudflared</a></div>';
+    } else if (tunnels.length === 0) {
+      html += '<div class="resources-empty">No active tunnels. Click "Expose" on a port above to start one.</div>';
+    } else {
+      html += '<table class="claude-session-table"><thead><tr><th>Label</th><th>Port</th><th>Public URL</th><th></th></tr></thead><tbody>';
+      tunnels.forEach(t => {
+        html += '<tr><td>' + this.escapeHtml(t.label) + '</td><td class="pid-cell">' + t.port + '</td><td>';
+        if (t.url) {
+          html += '<a href="' + this.escapeHtml(t.url) + '" target="_blank" class="port-link">' + this.escapeHtml(t.url) + '</a>';
+          html += ' <button class="btn btn-ghost btn-sm copy-tunnel-url" data-url="' + this.escapeHtml(t.url) + '" title="Copy URL" style="padding:2px 6px;font-size:11px;">Copy</button>';
+        } else {
+          html += '<span style="color:var(--overlay0)">Connecting...</span>';
+        }
+        html += '</td><td><button class="btn btn-ghost btn-sm close-tunnel-btn" data-tunnel-id="' + t.id + '" style="color:var(--red);">Close</button></td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    container.innerHTML = html;
+
+    // Bind close buttons
+    container.querySelectorAll('.close-tunnel-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try {
+          await this.api('DELETE', '/api/tunnels/' + btn.dataset.tunnelId);
+          this.showToast('Tunnel closed', 'success');
+          this.fetchResources();
+        } catch (err) {
+          this.showToast(err.message || 'Failed to close tunnel', 'error');
+        }
+      });
+    });
+
+    // Bind copy buttons
+    container.querySelectorAll('.copy-tunnel-url').forEach(btn => {
+      btn.addEventListener('click', () => {
+        navigator.clipboard.writeText(btn.dataset.url);
+        this.showToast('URL copied', 'success');
+      });
+    });
+  }
+
+  async showWorktreeList(dir) {
+    try {
+      const data = await this.api('GET', '/api/git/worktrees?dir=' + encodeURIComponent(dir));
+      if (!data.worktrees || data.worktrees.length === 0) {
+        this.showToast('No worktrees found', 'info');
+        return;
+      }
+      let msg = data.worktrees.map(wt =>
+        (wt.branch || 'detached') + '  →  ' + wt.path
+      ).join('\n');
+      await this.showConfirmModal({
+        title: 'Git Worktrees (' + data.worktrees.length + ')',
+        message: msg,
+        confirmText: 'OK',
+      });
+    } catch (err) {
+      this.showToast(err.message || 'Failed to list worktrees', 'error');
+    }
+  }
+
+  async createWorktree(workspaceId) {
+    const result = await this.showPromptModal({
+      title: 'Create Git Worktree',
+      fields: [
+        { key: 'repoDir', label: 'Repository Path', placeholder: 'C:\\path\\to\\repo', required: true },
+        { key: 'branch', label: 'Branch Name', placeholder: 'feat/my-feature', required: true },
+        { key: 'path', label: 'Worktree Path (optional)', placeholder: 'Leave blank for default' },
+      ],
+      confirmText: 'Create Worktree',
+    });
+    if (!result) return;
+    try {
+      const data = await this.api('POST', '/api/git/worktrees', {
+        repoDir: result.repoDir,
+        branch: result.branch,
+        path: result.path || undefined,
+      });
+      this.showToast('Worktree created at ' + data.path, 'success');
+      const createSession = await this.showConfirmModal({
+        title: 'Create Session?',
+        message: 'Create a session in the new worktree at ' + data.path + '?',
+        confirmText: 'Create Session',
+      });
+      if (createSession) {
+        await this.api('POST', '/api/sessions', {
+          name: result.branch + ' worktree',
+          workspaceId,
+          workingDir: data.path,
+          command: 'claude',
+        });
+        await this.loadSessions();
+      }
+    } catch (err) {
+      this.showToast(err.message || 'Failed to create worktree', 'error');
+    }
   }
 }
 

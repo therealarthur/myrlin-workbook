@@ -3437,3 +3437,74 @@ textarea.input {
 .view-tab.active[data-mode="resources"] {
   color: var(--peach);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   PORT LINKS & GIT BADGES
+   ═══════════════════════════════════════════════════════════ */
+
+.port-link {
+  color: var(--blue);
+  text-decoration: none;
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(137, 180, 250, 0.08);
+  transition: background 150ms ease;
+}
+.port-link:hover {
+  background: rgba(137, 180, 250, 0.18);
+  text-decoration: underline;
+}
+
+.ports-cell {
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12px;
+}
+
+.git-branch-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(166, 227, 161, 0.1);
+  color: var(--green);
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  margin-left: 6px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.git-branch-badge.dirty {
+  background: rgba(249, 226, 175, 0.1);
+  color: var(--yellow);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TUNNEL MANAGEMENT
+   ═══════════════════════════════════════════════════════════ */
+
+.resources-tunnel-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--surface0);
+}
+
+.expose-port-btn {
+  font-size: 10px !important;
+  padding: 1px 5px !important;
+  color: var(--blue);
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+.expose-port-btn:hover {
+  opacity: 1;
+}
+
+.copy-tunnel-url {
+  font-size: 11px !important;
+  padding: 2px 6px !important;
+  margin-left: 4px;
+}
