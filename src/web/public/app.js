@@ -1504,7 +1504,8 @@ class CWMApp {
   }
 
   async toggleBypass(sessionId) {
-    const session = this.state.sessions.find(s => s.id === sessionId);
+    const session = this.state.sessions.find(s => s.id === sessionId)
+      || (this.state.allSessions && this.state.allSessions.find(s => s.id === sessionId));
     if (!session) return;
 
     const newVal = !session.bypassPermissions;
@@ -1512,6 +1513,13 @@ class CWMApp {
       // Update the flag in the store
       const data = await this.api('PUT', `/api/sessions/${sessionId}`, { bypassPermissions: newVal });
       const updated = data.session || data;
+
+      // Immediately update local state so subsequent reads see the new value
+      session.bypassPermissions = newVal;
+      // Also update in the other array if present
+      const otherSession = (this.state.allSessions || []).find(s => s.id === sessionId && s !== session);
+      if (otherSession) otherSession.bypassPermissions = newVal;
+
       this.showToast(`Bypass permissions ${newVal ? 'enabled' : 'disabled'}`, newVal ? 'warning' : 'info');
 
       // If there's a running PTY for this session, kill it so it respawns with the new flag
@@ -1521,7 +1529,8 @@ class CWMApp {
           await this.api('POST', `/api/pty/${encodeURIComponent(sessionId)}/kill`);
           const tp = this.terminalPanes[paneIdx];
           const name = tp.sessionName;
-          const opts = tp.spawnOpts;
+          // Build fresh spawnOpts with the UPDATED bypass value
+          const opts = Object.assign({}, tp.spawnOpts, { bypassPermissions: newVal });
           this.closeTerminalPane(paneIdx);
           setTimeout(() => {
             this.openTerminalInPane(paneIdx, sessionId, name, opts);
@@ -1543,13 +1552,18 @@ class CWMApp {
   }
 
   async toggleVerbose(sessionId) {
-    const session = this.state.sessions.find(s => s.id === sessionId);
+    const session = this.state.sessions.find(s => s.id === sessionId)
+      || (this.state.allSessions && this.state.allSessions.find(s => s.id === sessionId));
     if (!session) return;
 
     const newVal = !session.verbose;
     try {
       const data = await this.api('PUT', `/api/sessions/${sessionId}`, { verbose: newVal });
       const updated = data.session || data;
+      // Immediately update local state
+      session.verbose = newVal;
+      const otherSession = (this.state.allSessions || []).find(s => s.id === sessionId && s !== session);
+      if (otherSession) otherSession.verbose = newVal;
       this.showToast(`Verbose mode ${newVal ? 'enabled' : 'disabled'}`, 'info');
       await this.loadSessions();
       if (this.state.selectedSession && this.state.selectedSession.id === sessionId) {
@@ -1731,6 +1745,12 @@ class CWMApp {
     try {
       const data = await this.api('PUT', `/api/sessions/${sessionId}`, { model: model || null });
       const updated = data.session || data;
+      // Immediately update local state
+      const session = this.state.sessions.find(s => s.id === sessionId)
+        || (this.state.allSessions && this.state.allSessions.find(s => s.id === sessionId));
+      if (session) session.model = model || null;
+      const otherSession = (this.state.allSessions || []).find(s => s.id === sessionId && s !== session);
+      if (otherSession) otherSession.model = model || null;
       const modelName = model ? (model.includes('opus') ? 'Opus' : model.includes('sonnet') ? 'Sonnet' : model.includes('haiku') ? 'Haiku' : model) : 'Default';
       this.showToast(`Model set to ${modelName}`, 'info');
       await this.loadSessions();
