@@ -1982,6 +1982,163 @@ app.get('/api/sessions/:id/export-context', requireAuth, (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────────
+//  SUBAGENT TRACKING
+// ──────────────────────────────────────────────────────────
+
+/** In-memory subagent cache: keyed by sessionId, stores { mtimeMs, timestamp, result } */
+const _subagentCache = new Map();
+const SUBAGENT_CACHE_TTL_RUNNING = 30000;  // 30 seconds for running sessions
+const SUBAGENT_CACHE_TTL_STOPPED = 300000; // 5 minutes for stopped sessions
+
+/**
+ * Parse a JSONL file and extract subagent (Task tool) usage information.
+ * Scans for assistant messages containing tool_use blocks with name === 'Task',
+ * then matches them against tool_result entries to determine completion status.
+ * @param {string} jsonlPath - Absolute path to the .jsonl file
+ * @returns {object} Subagent data with agents array and summary
+ */
+function parseSubagents(jsonlPath) {
+  const content = fs.readFileSync(jsonlPath, 'utf-8');
+  const lines = content.split('\n').filter(l => l.trim());
+
+  // Maps: toolUseId -> subagent spawn data
+  const spawns = new Map();
+  // Maps: toolUseId -> tool_result data
+  const completions = new Map();
+
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line);
+
+      // Check for subagent spawns: assistant messages with Task tool_use blocks
+      if (entry.type === 'assistant' && entry.message && Array.isArray(entry.message.content)) {
+        for (const block of entry.message.content) {
+          if (block.type === 'tool_use' && block.name === 'Task' && block.id) {
+            const input = block.input || {};
+            spawns.set(block.id, {
+              id: block.id,
+              description: input.description || '(no description)',
+              subagentType: input.subagent_type || 'general-purpose',
+              background: !!input.run_in_background,
+              spawnedAt: entry.timestamp || null,
+            });
+          }
+        }
+      }
+
+      // Check for subagent completions: tool_result entries matching a spawn
+      if (entry.type === 'tool_result' && entry.tool_use_id) {
+        completions.set(entry.tool_use_id, {
+          completedAt: entry.timestamp || null,
+          content: typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content || ''),
+        });
+      }
+    } catch (_) {
+      // Skip malformed lines
+    }
+  }
+
+  // Build the subagents array
+  const subagents = [];
+  const byType = {};
+
+  for (const [toolUseId, spawn] of spawns) {
+    const completion = completions.get(toolUseId);
+    const status = completion ? 'completed' : 'running';
+    const resultSnippet = completion
+      ? (completion.content.length > 200 ? completion.content.substring(0, 200) : completion.content)
+      : null;
+
+    subagents.push({
+      id: spawn.id,
+      description: spawn.description,
+      subagentType: spawn.subagentType,
+      background: spawn.background,
+      status,
+      spawnedAt: spawn.spawnedAt,
+      completedAt: completion ? completion.completedAt : null,
+      resultSnippet,
+    });
+
+    // Count by type for the summary
+    byType[spawn.subagentType] = (byType[spawn.subagentType] || 0) + 1;
+  }
+
+  const running = subagents.filter(s => s.status === 'running').length;
+  const completed = subagents.filter(s => s.status === 'completed').length;
+
+  return {
+    subagents,
+    summary: {
+      total: subagents.length,
+      running,
+      completed,
+      byType,
+    },
+  };
+}
+
+/**
+ * GET /api/sessions/:id/subagents
+ * Reads the session's JSONL file and extracts subagent (Task tool) usage.
+ * Results are cached: 30 seconds for running sessions, 5 minutes for stopped.
+ * Protected by auth.
+ */
+app.get('/api/sessions/:id/subagents', requireAuth, (req, res) => {
+  const store = getStore();
+  const session = store.getSession(req.params.id);
+
+  const resumeSessionId = (session && session.resumeSessionId) || req.params.id;
+  if (!resumeSessionId) {
+    return res.json({
+      sessionId: req.params.id,
+      subagents: [],
+      summary: { total: 0, running: 0, completed: 0, byType: {} },
+    });
+  }
+
+  const jsonlPath = findJsonlFile(resumeSessionId);
+  if (!jsonlPath) {
+    return res.json({
+      sessionId: req.params.id,
+      resumeSessionId,
+      subagents: [],
+      summary: { total: 0, running: 0, completed: 0, byType: {} },
+    });
+  }
+
+  try {
+    // Determine cache TTL based on session status
+    const isRunning = session && session.status === 'running';
+    const cacheTtl = isRunning ? SUBAGENT_CACHE_TTL_RUNNING : SUBAGENT_CACHE_TTL_STOPPED;
+
+    // Check cache: keyed by resumeSessionId, validated by file mtime and TTL
+    const stat = fs.statSync(jsonlPath);
+    const mtimeMs = stat.mtimeMs;
+    const cached = _subagentCache.get(resumeSessionId);
+    const now = Date.now();
+
+    if (cached && cached.mtimeMs === mtimeMs && (now - cached.timestamp) < cacheTtl) {
+      return res.json(cached.result);
+    }
+
+    const subagentData = parseSubagents(jsonlPath);
+    const result = {
+      sessionId: req.params.id,
+      resumeSessionId,
+      ...subagentData,
+    };
+
+    // Store in cache
+    _subagentCache.set(resumeSessionId, { mtimeMs, timestamp: now, result });
+
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to parse subagents: ' + err.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
 //  SESSION TEMPLATES
 // ──────────────────────────────────────────────────────────
 

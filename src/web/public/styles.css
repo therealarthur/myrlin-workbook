@@ -439,6 +439,15 @@ textarea.input {
   font-family: 'JetBrains Mono', monospace;
 }
 
+.session-badge-agents {
+  background: rgba(203, 166, 247, 0.15);
+  color: var(--mauve);
+}
+.session-badge-agents::before {
+  content: '\1F916 ';
+  font-size: 9px;
+}
+
 
 /* ═══════════════════════════════════════════════════════════════
    LOGIN SCREEN
@@ -1438,6 +1447,89 @@ textarea.input {
 .token-bar-input { background: var(--blue); }
 .token-bar-output { background: var(--peach); }
 .token-bar-cache { background: var(--green); }
+
+/* ─── Subagent Tracking ───────────────────────────────── */
+
+.subagent-section {
+  padding: 8px 16px;
+  border-top: 1px solid var(--surface0);
+}
+
+.subagent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.subagent-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--subtext0);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.subagent-count {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--mauve);
+  background: rgba(203, 166, 247, 0.1);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.subagent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.subagent-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.subagent-dot-running {
+  background: var(--green);
+  box-shadow: 0 0 4px rgba(166, 227, 161, 0.5);
+  animation: subagent-pulse 2s infinite;
+}
+
+.subagent-dot-completed {
+  background: var(--surface2);
+}
+
+.subagent-name {
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-type {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--subtext0);
+  background: var(--surface0);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.subagent-status {
+  font-size: 10px;
+  color: var(--subtext0);
+}
+
+@keyframes subagent-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(166, 227, 161, 0.3); }
+  50% { box-shadow: 0 0 10px rgba(166, 227, 161, 0.6); }
+}
 
 /* ─── Session Template Styles ───────────────────────────────── */
 

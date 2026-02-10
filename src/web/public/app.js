@@ -326,6 +326,11 @@ class CWMApp {
       // Resources
       resourcesPanel: document.getElementById('resources-panel'),
       resourcesBody: document.getElementById('resources-body'),
+
+      // Subagent tracking
+      detailSubagents: document.getElementById('detail-subagents'),
+      detailSubagentCount: document.getElementById('detail-subagent-count'),
+      detailSubagentList: document.getElementById('detail-subagent-list'),
     };
   }
 
@@ -2918,6 +2923,15 @@ class CWMApp {
             </div>`;
           return;
         }
+        if (f.type === 'checkbox') {
+          const checked = f.value ? 'checked' : '';
+          bodyHtml += `
+            <div class="input-group" style="flex-direction:row;align-items:center;gap:8px">
+              <input type="checkbox" id="modal-field-${f.key}" ${checked} style="width:16px;height:16px;accent-color:var(--mauve);cursor:pointer">
+              <label class="input-label" for="modal-field-${f.key}" style="margin:0;cursor:pointer">${f.label}</label>
+            </div>`;
+          return;
+        }
         if (f.type === 'select') {
           bodyHtml += `
             <div class="input-group">
@@ -2972,6 +2986,9 @@ class CWMApp {
           if (f.type === 'color') {
             const selected = this.els.modalBody.querySelector(`#modal-field-${f.key} .color-swatch.selected`);
             result[f.key] = selected ? selected.dataset.color : 'mauve';
+          } else if (f.type === 'checkbox') {
+            const el = document.getElementById(`modal-field-${f.key}`);
+            if (el) result[f.key] = el.checked;
           } else {
             const el = document.getElementById(`modal-field-${f.key}`);
             if (el) result[f.key] = el.value;
@@ -3234,6 +3251,11 @@ class CWMApp {
         const cachedCost = this._getSessionCostCached(s.id);
         if (cachedCost !== null && cachedCost !== undefined) {
           badges += `<span class="session-badge session-badge-cost">$${Number(cachedCost).toFixed(2)}</span>`;
+        }
+        // Subagent badge (from cached data)
+        const cachedSubagents = this._getSubagentsCached(s.id);
+        if (cachedSubagents !== null && cachedSubagents > 0) {
+          badges += `<span class="session-badge session-badge-agents">${cachedSubagents}</span>`;
         }
 
         return `<div class="ws-session-item${isHidden ? ' ws-session-hidden' : ''}" data-session-id="${s.id}" draggable="true" title="${this.escapeHtml(s.workingDir || '')}">
@@ -3675,6 +3697,7 @@ class CWMApp {
         this.selectWorkspace(workspaceId);
         this.createSession();
       }},
+      { label: 'New Feature Session', icon: '&#9733;', action: () => this.startFeatureSession(workspaceId) },
       { label: 'Create Worktree', icon: '&#128268;', action: () => this.createWorktree(workspaceId) },
       { type: 'sep' },
       { label: 'Edit', icon: '&#9998;', action: () => this.renameWorkspace(workspaceId) },
@@ -3990,6 +4013,9 @@ class CWMApp {
 
     // Cost tracking — fetch async
     this.loadSessionCost(session.id);
+
+    // Subagent tracking — fetch async
+    this.loadSessionSubagents(session.id);
   }
 
   async loadSessionCost(sessionId) {
@@ -4040,6 +4066,46 @@ class CWMApp {
       // Cost tracking is best-effort — don't show errors
       this.els.detailCost.hidden = true;
     }
+  }
+
+  async loadSessionSubagents(sessionId) {
+    if (!this.els.detailSubagents) return;
+    try {
+      const data = await this.api('GET', `/api/sessions/${sessionId}/subagents`);
+      if (!data || !data.subagents || data.subagents.length === 0) {
+        this.els.detailSubagents.hidden = true;
+        return;
+      }
+      this.els.detailSubagents.hidden = false;
+      this.els.detailSubagentCount.textContent = `${data.summary.running} running / ${data.summary.total} total`;
+
+      // Cache for badge display in session list
+      if (!this._subagentCache) this._subagentCache = {};
+      this._subagentCache[sessionId] = { running: data.summary.running, ts: Date.now() };
+
+      // Render subagent list (show last 10 max, most recent first)
+      const agents = data.subagents.slice(-10).reverse();
+      this.els.detailSubagentList.innerHTML = agents.map(a => {
+        const dotClass = a.status === 'running' ? 'subagent-dot-running' : 'subagent-dot-completed';
+        const desc = this.escapeHtml(a.description || 'Unnamed subagent');
+        const type = this.escapeHtml(a.subagentType || 'unknown');
+        return `<div class="subagent-item">
+          <span class="subagent-dot ${dotClass}"></span>
+          <span class="subagent-name" title="${desc}">${desc}</span>
+          <span class="subagent-type">${type}</span>
+        </div>`;
+      }).join('');
+    } catch (_) {
+      // Subagent tracking is best-effort — hide section if API unavailable
+      this.els.detailSubagents.hidden = true;
+    }
+  }
+
+  _getSubagentsCached(sessionId) {
+    if (!this._subagentCache) this._subagentCache = {};
+    const entry = this._subagentCache[sessionId];
+    if (entry && (Date.now() - entry.ts < 300000)) return entry.running;
+    return null;
   }
 
   renderLogs(logs) {
@@ -6630,6 +6696,68 @@ class CWMApp {
       }
     } catch (err) {
       this.showToast(err.message || 'Failed to create worktree', 'error');
+    }
+  }
+
+  async startFeatureSession(workspaceId) {
+    const ws = this.state.workspaces.find(w => w.id === workspaceId);
+    if (!ws) return;
+
+    // Get the working directory from the first session in this workspace, or ask
+    const wsSessions = (this.state.allSessions || this.state.sessions).filter(s => s.workspaceId === workspaceId);
+    const defaultDir = wsSessions.length > 0 ? wsSessions[0].workingDir : '';
+
+    const result = await this.showPromptModal({
+      title: 'New Feature Session',
+      fields: [
+        { key: 'featureName', label: 'Feature Name', placeholder: 'auth-flow, dark-mode, etc.', required: true },
+        { key: 'repoDir', label: 'Repository Path', value: defaultDir, required: true },
+        { key: 'baseBranch', label: 'Base Branch', value: 'main', required: true },
+        { key: 'useWorktree', label: 'Create Worktree (recommended)', type: 'checkbox', value: true },
+      ],
+      confirmText: 'Create Feature Session',
+    });
+
+    if (!result) return;
+
+    // Sanitize feature name for branch
+    const branchName = 'feat/' + result.featureName.replace(/[^a-zA-Z0-9_/-]/g, '-').toLowerCase();
+
+    try {
+      let sessionDir = result.repoDir;
+
+      if (result.useWorktree) {
+        // Create worktree with the new branch (the API creates the branch automatically)
+        const wtData = await this.api('POST', '/api/git/worktrees', {
+          repoDir: result.repoDir,
+          branch: branchName,
+        });
+        sessionDir = wtData.path;
+        this.showToast('Created worktree: ' + branchName, 'success');
+      }
+      // If useWorktree is unchecked, just create the session in the existing repo dir
+
+      // Create session in the workspace
+      const sessionData = await this.api('POST', '/api/sessions', {
+        name: result.featureName,
+        workspaceId,
+        workingDir: sessionDir,
+        command: 'claude',
+        topic: 'Feature: ' + result.featureName,
+      });
+
+      await this.loadSessions();
+
+      // Open in terminal
+      const emptySlot = this.terminalPanes.findIndex(p => p === null);
+      if (emptySlot !== -1) {
+        this.setViewMode('terminal');
+        this.openTerminalInPane(emptySlot, sessionData.session.id, result.featureName, { cwd: sessionDir });
+      }
+
+      this.showToast('Feature session started: ' + result.featureName, 'success');
+    } catch (err) {
+      this.showToast(err.message || 'Failed to create feature session', 'error');
     }
   }
 
