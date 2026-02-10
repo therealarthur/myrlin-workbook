@@ -10,7 +10,11 @@
     "demo": "node src/demo.js",
     "gui": "node src/gui.js",
     "gui:demo": "node src/gui.js --demo",
-    "test": "node test/run.js"
+    "test": "node test/run.js",
+    "marketing": "node scripts/marketing/capture.js && node scripts/marketing/gifify.js && node scripts/marketing/composite.js",
+    "marketing:screenshots": "node scripts/marketing/capture.js --screenshots-only && node scripts/marketing/composite.js",
+    "marketing:gifs": "node scripts/marketing/capture.js --gifs-only && node scripts/marketing/gifify.js",
+    "marketing:setup": "npx playwright install chromium"
   },
   "keywords": [
     "claude",
@@ -31,6 +35,9 @@
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "ffmpeg-static": "^5.3.0",
+    "sharp": "^0.34.5",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0",
     "xterm-addon-web-links": "^0.9.0"

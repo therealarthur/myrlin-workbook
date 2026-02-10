@@ -93,9 +93,12 @@ console.log('Press Ctrl+C to stop.');
 backupFrontend();
 
 // ─── Open Browser (Windows) ────────────────────────────────
+// Skip auto-open when running headless (e.g., marketing capture pipeline)
 
-const { exec } = require('child_process');
-exec(`start http://localhost:${port}`);
+if (!process.env.CWM_NO_OPEN) {
+  const { exec } = require('child_process');
+  exec(`start http://localhost:${port}`);
+}
 
 // ─── Graceful Shutdown ─────────────────────────────────────
 

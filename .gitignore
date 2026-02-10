@@ -34,5 +34,10 @@ reddit-launch-post.md
 screenshots/
 dist/
 
+# Marketing pipeline (generated output)
+marketing/raw/
+marketing/screenshots/
+marketing/gifs/
+
 # Frontend backup snapshots
 src/web/public/.backup/
