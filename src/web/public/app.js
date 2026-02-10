@@ -331,6 +331,7 @@ class CWMApp {
       // Resources
       resourcesPanel: document.getElementById('resources-panel'),
       resourcesBody: document.getElementById('resources-body'),
+      resourcesRefreshBtn: document.getElementById('resources-refresh-btn'),
 
       // Subagent tracking
       detailSubagents: document.getElementById('detail-subagents'),
@@ -551,6 +552,11 @@ class CWMApp {
     // Board add button
     if (this.els.boardAddBtn) {
       this.els.boardAddBtn.addEventListener('click', () => this.createFeature());
+    }
+
+    // Resources refresh
+    if (this.els.resourcesRefreshBtn) {
+      this.els.resourcesRefreshBtn.addEventListener('click', () => this.refreshResources());
     }
 
     // Update button
@@ -6652,6 +6658,15 @@ class CWMApp {
     await this.fetchResources();
   }
 
+  async refreshResources() {
+    const btn = this.els.resourcesRefreshBtn;
+    if (btn) btn.classList.add('refreshing');
+    await this.fetchResources();
+    if (btn) {
+      setTimeout(() => btn.classList.remove('refreshing'), 600);
+    }
+  }
+
   async fetchGitStatus(dir) {
     if (!dir) return null;
     const cached = this.state.gitStatusCache[dir];
@@ -6732,15 +6747,29 @@ class CWMApp {
       html += '<div class="resources-empty">No running Claude sessions</div>';
     } else {
       html += `<table class="claude-session-table">
-        <thead><tr><th>Session</th><th>PID</th><th>Memory</th><th>Ports</th><th>Status</th></tr></thead>
+        <thead><tr><th>Session</th><th>PID</th><th>CPU</th><th>Memory</th><th>Ports</th><th style="text-align:right">Actions</th></tr></thead>
         <tbody>`;
       claudeSessions.forEach(s => {
+        const cpuVal = s.cpuPercent != null ? s.cpuPercent : null;
+        const cpuClass = cpuVal == null ? '' : cpuVal > 75 ? 'cpu-high' : cpuVal > 25 ? 'cpu-medium' : 'cpu-low';
+        const cpuText = cpuVal != null ? cpuVal.toFixed(1) + '%' : '--';
+
         html += `<tr>
-          <td class="session-name-cell">${this.escapeHtml(s.sessionName || s.sessionId)}</td>
+          <td class="session-name-cell">
+            ${this.escapeHtml(s.sessionName || s.sessionId)}
+            ${s.workspaceName ? '<span class="resource-workspace-label">' + this.escapeHtml(s.workspaceName) + '</span>' : ''}
+          </td>
           <td class="pid-cell">${s.pid || '--'}</td>
+          <td class="cpu-cell ${cpuClass}">${cpuText}</td>
           <td class="mem-cell">${s.memoryMB ? Math.round(s.memoryMB) + ' MB' : '--'}</td>
           <td class="ports-cell">${(s.ports && s.ports.length > 0) ? s.ports.map(p => '<a href="http://localhost:' + p + '" target="_blank" rel="noopener" class="port-link">' + p + '</a><button class="btn btn-ghost btn-sm expose-port-btn" data-port="' + p + '" title="Expose via tunnel">&#8599;</button>').join(' ') : '<span style="color:var(--overlay0)">--</span>'}</td>
-          <td>${s.status || '--'}</td>
+          <td>
+            <div class="resource-actions">
+              <button class="resource-action-btn action-restart" data-session-id="${s.sessionId}" data-action="restart" title="Restart session">Restart</button>
+              <button class="resource-action-btn action-stop" data-session-id="${s.sessionId}" data-action="stop" title="Stop session">Stop</button>
+              <button class="resource-action-btn action-kill" data-pid="${s.pid}" data-action="kill" title="Force kill process">Kill</button>
+            </div>
+          </td>
         </tr>`;
       });
       html += '</tbody></table>';
@@ -6748,10 +6777,103 @@ class CWMApp {
 
     html += '</div>';
 
+    // Stopped sessions section (collapsible)
+    const allSessions = [...(this.state.sessions || []), ...(this.state.allSessions || [])];
+    const stoppedSessions = allSessions.filter(s => s.status === 'stopped' || s.status === 'crashed' || s.status === 'error');
+    // Deduplicate by ID
+    const seenIds = new Set(claudeSessions.map(s => s.sessionId));
+    const uniqueStopped = stoppedSessions.filter(s => !seenIds.has(s.id) && !seenIds.add(s.id));
+
+    if (uniqueStopped.length > 0) {
+      html += `<div class="resources-stopped-section">
+        <button class="resources-stopped-toggle" id="stopped-sessions-toggle">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Stopped Sessions (${uniqueStopped.length})
+        </button>
+        <div id="stopped-sessions-list" hidden>
+          <table class="claude-session-table" style="margin-top:8px">
+            <thead><tr><th>Session</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+            <tbody>`;
+      uniqueStopped.slice(0, 20).forEach(s => {
+        const statusColor = s.status === 'error' || s.status === 'crashed' ? 'var(--red)' : 'var(--overlay0)';
+        html += `<tr>
+          <td class="session-name-cell">${this.escapeHtml(s.name || s.id.substring(0, 12))}</td>
+          <td style="color:${statusColor}">${s.status || 'stopped'}</td>
+          <td>
+            <div class="resource-actions">
+              <button class="resource-action-btn action-start" data-session-id="${s.id}" data-action="start" title="Start session">Start</button>
+            </div>
+          </td>
+        </tr>`;
+      });
+      html += '</tbody></table></div></div>';
+    }
+
     // Tunnels section (populated async)
     html += '<div id="resources-tunnels" class="resources-tunnel-section"></div>';
 
     body.innerHTML = html;
+
+    // Bind session action buttons (stop/restart/kill/start)
+    body.querySelectorAll('.resource-action-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const action = btn.dataset.action;
+        const sessionId = btn.dataset.sessionId;
+        const pid = btn.dataset.pid ? parseInt(btn.dataset.pid, 10) : null;
+
+        if (action === 'kill' && pid) {
+          // Show confirmation for kill
+          const confirmed = await this.showConfirmModal({
+            title: 'Kill Process',
+            message: `Force kill PID ${pid}? This will terminate the process immediately without cleanup.`,
+            confirmText: 'Kill',
+            confirmClass: 'btn-danger',
+          });
+          if (!confirmed) return;
+          try {
+            await this.api('POST', '/api/resources/kill-process', { pid });
+            this.showToast(`Killed PID ${pid}`, 'success');
+            setTimeout(() => this.fetchResources(), 1000);
+          } catch (err) {
+            this.showToast(err.message || 'Failed to kill process', 'error');
+          }
+        } else if (action === 'stop' && sessionId) {
+          try {
+            await this.api('POST', `/api/sessions/${sessionId}/stop`);
+            this.showToast('Session stopped', 'success');
+            setTimeout(() => this.fetchResources(), 1000);
+          } catch (err) {
+            this.showToast(err.message || 'Failed to stop session', 'error');
+          }
+        } else if (action === 'restart' && sessionId) {
+          try {
+            await this.api('POST', `/api/sessions/${sessionId}/restart`);
+            this.showToast('Session restarting...', 'success');
+            setTimeout(() => this.fetchResources(), 2000);
+          } catch (err) {
+            this.showToast(err.message || 'Failed to restart session', 'error');
+          }
+        } else if (action === 'start' && sessionId) {
+          try {
+            await this.api('POST', `/api/sessions/${sessionId}/start`);
+            this.showToast('Session starting...', 'success');
+            setTimeout(() => this.fetchResources(), 2000);
+          } catch (err) {
+            this.showToast(err.message || 'Failed to start session', 'error');
+          }
+        }
+      });
+    });
+
+    // Bind stopped sessions toggle
+    const stoppedToggle = document.getElementById('stopped-sessions-toggle');
+    const stoppedList = document.getElementById('stopped-sessions-list');
+    if (stoppedToggle && stoppedList) {
+      stoppedToggle.addEventListener('click', () => {
+        stoppedList.hidden = !stoppedList.hidden;
+        stoppedToggle.classList.toggle('expanded');
+      });
+    }
 
     // Bind expose port buttons
     body.querySelectorAll('.expose-port-btn').forEach(btn => {

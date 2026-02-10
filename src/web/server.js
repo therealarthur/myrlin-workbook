@@ -2732,6 +2732,60 @@ function getProcessPorts(pid) {
   });
 }
 
+// Track per-process CPU times for delta calculation
+const _prevProcessCpuTimes = {};
+
+function getProcessStats(pid) {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      // Single WMIC call gets memory + CPU times
+      execFile('wmic', ['process', 'where', `ProcessId=${pid}`, 'get', 'WorkingSetSize,KernelModeTime,UserModeTime', '/format:csv'],
+        { timeout: 5000 }, (err, stdout) => {
+          if (err || !stdout.trim()) return resolve({ memoryMB: null, cpuPercent: null });
+          const lines = stdout.trim().split('\n').filter(l => l.trim() && !l.startsWith('Node'));
+          if (lines.length === 0) return resolve({ memoryMB: null, cpuPercent: null });
+          const parts = lines[lines.length - 1].trim().split(',');
+          // CSV order: Node, KernelModeTime, UserModeTime, WorkingSetSize
+          if (parts.length < 4) return resolve({ memoryMB: null, cpuPercent: null });
+          const kernelTime = parseInt(parts[1], 10) || 0; // 100-nanosecond intervals
+          const userTime = parseInt(parts[2], 10) || 0;
+          const workingSet = parseInt(parts[3], 10) || 0;
+          const memoryMB = Math.round(workingSet / 1024 / 1024 * 10) / 10;
+
+          // Calculate CPU% from time delta
+          const totalCpuTime = kernelTime + userTime;
+          const now = Date.now();
+          const prev = _prevProcessCpuTimes[pid];
+          let cpuPercent = null;
+          if (prev) {
+            const timeDelta = (now - prev.timestamp) * 10000; // ms to 100-ns intervals
+            if (timeDelta > 0) {
+              const cpuDelta = totalCpuTime - prev.totalCpuTime;
+              cpuPercent = Math.round((cpuDelta / timeDelta) * 100 * 10) / 10;
+              if (cpuPercent < 0) cpuPercent = 0;
+              if (cpuPercent > 100 * os.cpus().length) cpuPercent = null; // Sanity check
+            }
+          }
+          _prevProcessCpuTimes[pid] = { totalCpuTime, timestamp: now };
+
+          resolve({ memoryMB, cpuPercent });
+        });
+    } else {
+      // Linux/macOS: use ps to get both RSS and %CPU
+      execFile('ps', ['-o', 'rss=,pcpu=', '-p', String(pid)], { timeout: 5000 }, (err, stdout) => {
+        if (err || !stdout.trim()) return resolve({ memoryMB: null, cpuPercent: null });
+        const parts = stdout.trim().split(/\s+/);
+        const rss = parseInt(parts[0], 10);
+        const cpu = parseFloat(parts[1]);
+        resolve({
+          memoryMB: !isNaN(rss) ? Math.round(rss / 1024 * 10) / 10 : null,
+          cpuPercent: !isNaN(cpu) ? cpu : null,
+        });
+      });
+    }
+  });
+}
+
 /**
  * GET /api/resources
  * Returns system resource usage and per-Claude-session resource consumption.
@@ -2757,18 +2811,24 @@ app.get('/api/resources', requireAuth, async (req, res) => {
     const allSessions = store.getAllSessionsList ? store.getAllSessionsList() : [];
     const runningSessions = allSessions.filter(s => s.status === 'running' && s.pid);
 
-    // Fetch per-session memory usage and port discovery in parallel
+    // Fetch per-session memory, CPU, and port discovery in parallel
     const claudeSessions = await Promise.all(
       runningSessions.map(async (s) => {
-        const [memoryMB, ports] = await Promise.all([
-          getProcessMemory(s.pid),
+        const [stats, ports] = await Promise.all([
+          getProcessStats(s.pid),
           getProcessPorts(s.pid),
         ]);
+        // Find workspace name for this session
+        const workspaces = store.getState().workspaces || [];
+        const workspace = workspaces.find(w => w.id === s.workspaceId);
         return {
           sessionId: s.id,
           sessionName: s.name || s.id.substring(0, 12),
+          workspaceName: workspace ? workspace.name : null,
+          workingDir: s.workingDir || null,
           pid: s.pid,
-          memoryMB: memoryMB || 0,
+          memoryMB: stats.memoryMB || 0,
+          cpuPercent: stats.cpuPercent,
           ports: ports || [],
           status: s.status,
         };
@@ -2776,14 +2836,34 @@ app.get('/api/resources', requireAuth, async (req, res) => {
     );
 
     const totalClaudeMemoryMB = claudeSessions.reduce((sum, s) => sum + (s.memoryMB || 0), 0);
+    const totalClaudeCpuPercent = claudeSessions.reduce((sum, s) => sum + (s.cpuPercent || 0), 0);
 
     res.json({
       system,
       claudeSessions,
       totalClaudeMemoryMB: Math.round(totalClaudeMemoryMB * 10) / 10,
+      totalClaudeCpuPercent: Math.round(totalClaudeCpuPercent * 10) / 10,
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to get resources: ' + err.message });
+  }
+});
+
+/**
+ * POST /api/resources/kill-process
+ * Sends SIGTERM to a process by PID. For advanced users who want to kill
+ * a child process from the Resources view.
+ */
+app.post('/api/resources/kill-process', requireAuth, (req, res) => {
+  const { pid } = req.body;
+  if (!pid || typeof pid !== 'number') {
+    return res.status(400).json({ error: 'pid is required and must be a number' });
+  }
+  try {
+    process.kill(pid, 'SIGTERM');
+    res.json({ success: true, message: `Sent SIGTERM to PID ${pid}` });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to kill PID ${pid}: ${err.message}` });
   }
 });
 

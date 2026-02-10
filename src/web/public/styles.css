@@ -4047,6 +4047,126 @@ textarea.input {
   font-size: 12px;
 }
 
+.resources-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resources-refresh-btn {
+  padding: 4px 6px !important;
+  color: var(--overlay1);
+  transition: color 150ms ease, transform 150ms ease;
+}
+.resources-refresh-btn:hover {
+  color: var(--text);
+}
+.resources-refresh-btn.refreshing svg {
+  animation: spin 0.8s linear infinite;
+}
+
+/* Session action buttons in resources table */
+.resource-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.resource-action-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+
+.resource-action-btn:hover {
+  background: var(--surface1);
+}
+
+.resource-action-btn.action-stop {
+  color: var(--yellow);
+}
+.resource-action-btn.action-stop:hover {
+  border-color: var(--yellow);
+  background: rgba(249, 226, 175, 0.1);
+}
+
+.resource-action-btn.action-restart {
+  color: var(--blue);
+}
+.resource-action-btn.action-restart:hover {
+  border-color: var(--blue);
+  background: rgba(137, 180, 250, 0.1);
+}
+
+.resource-action-btn.action-kill {
+  color: var(--red);
+}
+.resource-action-btn.action-kill:hover {
+  border-color: var(--red);
+  background: rgba(243, 139, 168, 0.1);
+}
+
+.resource-action-btn.action-start {
+  color: var(--green);
+}
+.resource-action-btn.action-start:hover {
+  border-color: var(--green);
+  background: rgba(166, 227, 161, 0.1);
+}
+
+/* CPU cell styling */
+.cpu-cell {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.cpu-high { color: var(--red); }
+.cpu-medium { color: var(--yellow); }
+.cpu-low { color: var(--green); }
+
+/* Workspace label */
+.resource-workspace-label {
+  font-size: 10px;
+  color: var(--overlay0);
+  display: block;
+  margin-top: 1px;
+}
+
+/* Stopped sessions section */
+.resources-stopped-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--surface0);
+}
+
+.resources-stopped-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--overlay1);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 150ms ease;
+}
+.resources-stopped-toggle:hover {
+  color: var(--text);
+}
+.resources-stopped-toggle svg {
+  transition: transform 150ms ease;
+}
+.resources-stopped-toggle.expanded svg {
+  transform: rotate(90deg);
+}
+
 /* Resources view tab active color */
 .view-tab.active[data-mode="resources"] {
   color: var(--peach);
