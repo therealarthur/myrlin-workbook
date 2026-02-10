@@ -626,6 +626,13 @@ class Store extends EventEmitter {
     return result;
   }
 
+  addWorkspaceRule(workspaceId, text) {
+    const ws = this._state.workspaces[workspaceId];
+    if (!ws) return;
+    docsManager.appendRule(workspaceId, ws.name, text);
+    this.emit('docs:updated', { workspaceId });
+  }
+
   // ─── Settings ────────────────────────────────────────────
 
   updateSettings(updates) {

@@ -196,6 +196,63 @@
 
 ---
 
+### Prompt 15: RGB Loading Animation + Agent Teams
+**User asked:**
+> "when a terminal is loading in the terminal section, put a fun little rgb loading animation (tasteful). use agent teams if you can. also make sure when right clicking a session to set the settings, you can also enable/disable agent teams"
+
+**Actions taken:**
+- Created `feat/terminal-ux` branch
+- 3 parallel agents: terminal.js (Ctrl+V + loading animation), app.js (agent teams + verbose restart), pty-manager.js (agentTeams flag)
+- Ctrl+V fix: return `false` from xterm customKeyEventHandler for Ctrl+V/Cmd+V
+- RGB animation: subtle mauve→blue→teal border glow cycle, pulsing dot on title, `prefers-reduced-motion` respected
+- Agent teams: new context menu toggle, stored per-session, PTY restart on change
+- Verbose: added restart-on-change (matching bypass behavior)
+- Committed `c54682d`, merged to dev, pushed
+
+---
+
+### Prompt 16: Auto-Restart on Settings Change
+**User asked:**
+> "make it so that when a setting is set/changed with right click, the session (if its running) is restarted with those new permissions."
+
+**Actions taken:**
+- Already implemented in Prompt 15's agent work (toggleVerbose and toggleAgentTeams both restart PTY)
+- toggleBypass already had this behavior
+
+---
+
+### Prompt 17: Workspace Rules
+**User asked:**
+> "in the docs section add rules where you can add rules for your workspace that all sessions MUST follow — how might we implement that?"
+
+**Actions taken:**
+- Created task #78
+- Designed Rules section: storage in docs-manager, ## Rules markdown section, API endpoints, UI tab
+- Auto-injection: send rules as first PTY input after connection
+- Launched 2 parallel agents (backend + frontend) on `feat/workspace-rules` branch
+
+---
+
+### Prompt 18: Sound/Notification for Terminal Completion
+**User asked:**
+> "add a sound/notification for tabs and windows so that we know attention is needed in a terminal. maybe highlight the terminal as well if there're several terminals in a tab. should happen when claude is done thinking about or doing something."
+
+**Actions taken:**
+- Created task #80
+- Design: monitor PTY output for Claude's idle prompt pattern (e.g., `❯` or `$`), play notification sound via Web Audio API, flash pane border green, highlight inactive tab group badge
+
+---
+
+### Prompt 19: Document All Prompts
+**User asked:**
+> "make sure to document all responses to my prompts for review later. even the previous ones."
+
+**Actions taken:**
+- Created SESSION_LOG.md with all prompts from both sessions
+- Comprehensive log of every user request and actions taken
+
+---
+
 ## Feature Design Notes
 
 ### Workspace Rules — How It Works
@@ -251,14 +308,17 @@ When a Claude session is launched in a workspace that has rules:
 - [x] Screenshots in README
 - [x] Organized 28+ tasks in backlog
 
-### In Progress (agents running)
-- [ ] RGB terminal loading animation (#73)
-- [ ] Agent teams toggle (#74)
-- [ ] Auto-restart on settings change (#75)
-- [ ] Ctrl+V paste fix (#76)
+### Completed (latest batch)
+- [x] RGB terminal loading animation (#73)
+- [x] Agent teams toggle (#74)
+- [x] Auto-restart on settings change (#75)
+- [x] Ctrl+V paste fix (#76)
+
+### In Progress
+- [ ] Workspace Rules in docs (#78)
 
 ### Pending
-- [ ] Workspace Rules in docs (#78)
+- [ ] Sound/notification when Claude finishes in terminal (#80)
 - [ ] v0.1.0 release tag (#46)
 - [ ] Favicon with Myrlin hat (#50)
 - [ ] Logo spacing fix (#51)

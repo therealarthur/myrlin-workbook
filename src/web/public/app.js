@@ -288,6 +288,8 @@ class CWMApp {
       docsTasksCount: document.getElementById('docs-tasks-count'),
       docsRoadmapList: document.getElementById('docs-roadmap-list'),
       docsRoadmapCount: document.getElementById('docs-roadmap-count'),
+      docsRulesList: document.getElementById('docs-rules-list'),
+      docsRulesCount: document.getElementById('docs-rules-count'),
       docsAiInsights: document.getElementById('docs-ai-insights'),
       docsAiRefresh: document.getElementById('docs-ai-refresh'),
 
@@ -5046,10 +5048,12 @@ class CWMApp {
       if (this.els.docsGoalsList) this.els.docsGoalsList.innerHTML = '<div class="docs-empty">No goals yet. Click + to add one.</div>';
       if (this.els.docsTasksList) this.els.docsTasksList.innerHTML = '<div class="docs-empty">No tasks yet. Click + to add one.</div>';
       if (this.els.docsRoadmapList) this.els.docsRoadmapList.innerHTML = '<div class="docs-empty">No milestones yet. Click + to add one.</div>';
+      if (this.els.docsRulesList) this.els.docsRulesList.innerHTML = '<div class="docs-empty">No rules yet. Click + to add one.</div>';
       if (this.els.docsNotesCount) this.els.docsNotesCount.textContent = '0';
       if (this.els.docsGoalsCount) this.els.docsGoalsCount.textContent = '0';
       if (this.els.docsTasksCount) this.els.docsTasksCount.textContent = '0';
       if (this.els.docsRoadmapCount) this.els.docsRoadmapCount.textContent = '0';
+      if (this.els.docsRulesCount) this.els.docsRulesCount.textContent = '0';
       if (this.els.docsRawEditor) this.els.docsRawEditor.value = '';
       return;
     }
@@ -5059,6 +5063,7 @@ class CWMApp {
     if (this.els.docsGoalsCount) this.els.docsGoalsCount.textContent = (docs.goals || []).length;
     if (this.els.docsTasksCount) this.els.docsTasksCount.textContent = (docs.tasks || []).length;
     if (this.els.docsRoadmapCount) this.els.docsRoadmapCount.textContent = (docs.roadmap || []).length;
+    if (this.els.docsRulesCount) this.els.docsRulesCount.textContent = (docs.rules || []).length;
 
     // Notes
     if (this.els.docsNotesList) {
@@ -5117,6 +5122,19 @@ class CWMApp {
         : '<div class="docs-empty">No milestones yet. Click + to add one.</div>';
     }
 
+    // Rules
+    if (this.els.docsRulesList) {
+      const rules = docs.rules || [];
+      this.els.docsRulesList.innerHTML = rules.length > 0
+        ? rules.map((r, i) => `
+          <div class="docs-item docs-rule-item" data-index="${i}">
+            <span class="docs-rule-icon">&#9888;</span>
+            <span class="docs-item-text">${this.escapeHtml(r.text)}</span>
+            <button class="docs-item-delete btn btn-ghost btn-icon btn-sm" data-section="rules" data-index="${i}" title="Remove">&times;</button>
+          </div>`).join('')
+        : '<div class="docs-empty">No rules yet. Click + to add one.</div>';
+    }
+
     // Bind checkbox change events
     if (this.els.docsPanel) {
       this.els.docsPanel.querySelectorAll('.docs-checkbox input').forEach(cb => {
@@ -5146,6 +5164,7 @@ class CWMApp {
           if (parent) {
             if (parent.id.includes('goals')) section = 'goals';
             else if (parent.id.includes('tasks')) section = 'tasks';
+            else if (parent.id.includes('rules')) section = 'rules';
           }
           const text = e.target.textContent;
           this.showNotesEditor(section, index, text);

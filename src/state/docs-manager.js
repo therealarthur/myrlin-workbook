@@ -44,9 +44,10 @@ function parseDocs(raw) {
   const goals = [];
   const tasks = [];
   const roadmap = [];
+  const rules = [];
   let preamble = '';
 
-  let currentSection = null; // 'notes' | 'goals' | 'tasks' | 'roadmap' | null
+  let currentSection = null; // 'notes' | 'goals' | 'tasks' | 'roadmap' | 'rules' | null
 
   const lines = raw.split('\n');
   for (const line of lines) {
@@ -67,6 +68,10 @@ function parseDocs(raw) {
     }
     if (/^## Roadmap\s*$/i.test(trimmed)) {
       currentSection = 'roadmap';
+      continue;
+    }
+    if (/^## Rules\s*$/i.test(trimmed)) {
+      currentSection = 'rules';
       continue;
     }
     // Any other ## header ends the current section
@@ -108,12 +113,14 @@ function parseDocs(raw) {
       if (statusMatch) {
         roadmap.push({ text: statusMatch[2], status: statusMatch[1] });
       }
+    } else if (currentSection === 'rules' && trimmed.startsWith('- ')) {
+      rules.push({ text: trimmed.substring(2) });
     }
     // Unknown lines in sections are silently skipped in parsed output
     // but preserved in the raw content
   }
 
-  return { notes, goals, tasks, roadmap, preamble };
+  return { notes, goals, tasks, roadmap, rules, preamble };
 }
 
 /**
@@ -125,7 +132,7 @@ function parseDocs(raw) {
  * @param {Array} [roadmap=[]] - Roadmap items with { text, status } (planned|active|done)
  * @returns {string}
  */
-function buildMarkdown(title, notes, goals, tasks, roadmap = []) {
+function buildMarkdown(title, notes, goals, tasks, roadmap = [], rules = []) {
   const lines = [];
 
   lines.push(`# Workspace: ${title}`);
@@ -175,6 +182,16 @@ function buildMarkdown(title, notes, goals, tasks, roadmap = []) {
     lines.push('');
   }
 
+  lines.push('## Rules');
+  if (rules.length === 0) {
+    lines.push('');
+  } else {
+    for (const r of rules) {
+      lines.push(`- ${r.text}`);
+    }
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 
@@ -196,6 +213,7 @@ function readDocs(workspaceId) {
     goals: parsed.goals,
     tasks: parsed.tasks,
     roadmap: parsed.roadmap,
+    rules: parsed.rules,
   };
 }
 
@@ -220,9 +238,9 @@ function readOrCreate(workspaceId, workspaceName) {
   const existing = readDocs(workspaceId);
   if (existing) return existing;
   // Create with empty sections
-  const raw = buildMarkdown(workspaceName || 'Untitled', [], [], [], []);
+  const raw = buildMarkdown(workspaceName || 'Untitled', [], [], [], [], []);
   writeDocs(workspaceId, raw);
-  return { raw, notes: [], goals: [], tasks: [], roadmap: [] };
+  return { raw, notes: [], goals: [], tasks: [], roadmap: [], rules: [] };
 }
 
 /**
@@ -236,7 +254,7 @@ function appendNote(workspaceId, workspaceName, text) {
   const now = new Date();
   const timestamp = now.toISOString().slice(0, 16).replace('T', ' ');
   docs.notes.push({ timestamp, text });
-  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || []);
+  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || [], docs.rules || []);
   writeDocs(workspaceId, raw);
 }
 
@@ -250,7 +268,7 @@ function appendNote(workspaceId, workspaceName, text) {
 function appendGoal(workspaceId, workspaceName, text, done = false) {
   const docs = readOrCreate(workspaceId, workspaceName);
   docs.goals.push({ text, done });
-  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || []);
+  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || [], docs.rules || []);
   writeDocs(workspaceId, raw);
 }
 
@@ -264,7 +282,7 @@ function appendGoal(workspaceId, workspaceName, text, done = false) {
 function appendTask(workspaceId, workspaceName, text, done = false) {
   const docs = readOrCreate(workspaceId, workspaceName);
   docs.tasks.push({ text, done });
-  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || []);
+  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || [], docs.rules || []);
   writeDocs(workspaceId, raw);
 }
 
@@ -281,7 +299,7 @@ function toggleItem(workspaceId, workspaceName, section, index) {
   const items = docs[section];
   if (!items || index < 0 || index >= items.length) return false;
   items[index].done = !items[index].done;
-  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || []);
+  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || [], docs.rules || []);
   writeDocs(workspaceId, raw);
   return true;
 }
@@ -299,9 +317,23 @@ function removeItem(workspaceId, workspaceName, section, index) {
   const items = docs[section];
   if (!items || index < 0 || index >= items.length) return false;
   items.splice(index, 1);
-  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || []);
+  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || [], docs.rules || []);
   writeDocs(workspaceId, raw);
   return true;
+}
+
+/**
+ * Append a rule to a workspace's docs.
+ * @param {string} workspaceId
+ * @param {string} workspaceName
+ * @param {string} text
+ */
+function appendRule(workspaceId, workspaceName, text) {
+  const docs = readOrCreate(workspaceId, workspaceName);
+  docs.rules = docs.rules || [];
+  docs.rules.push({ text });
+  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || [], docs.rules);
+  writeDocs(workspaceId, raw);
 }
 
 /**
@@ -315,7 +347,7 @@ function appendRoadmapItem(workspaceId, workspaceName, text, status = 'planned')
   const docs = readOrCreate(workspaceId, workspaceName);
   docs.roadmap = docs.roadmap || [];
   docs.roadmap.push({ text, status });
-  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap);
+  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap, docs.rules || []);
   writeDocs(workspaceId, raw);
 }
 
@@ -333,9 +365,23 @@ function cycleRoadmapStatus(workspaceId, workspaceName, index) {
   const current = docs.roadmap[index].status;
   const cycle = { planned: 'active', active: 'done', done: 'planned' };
   docs.roadmap[index].status = cycle[current] || 'planned';
-  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap);
+  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap, docs.rules || []);
   writeDocs(workspaceId, raw);
   return true;
+}
+
+/**
+ * Append a rule to a workspace's docs.
+ * @param {string} workspaceId
+ * @param {string} workspaceName
+ * @param {string} text
+ */
+function appendRule(workspaceId, workspaceName, text) {
+  const docs = readOrCreate(workspaceId, workspaceName);
+  docs.rules = docs.rules || [];
+  docs.rules.push({ text });
+  const raw = buildMarkdown(workspaceName || 'Untitled', docs.notes, docs.goals, docs.tasks, docs.roadmap || [], docs.rules);
+  writeDocs(workspaceId, raw);
 }
 
 /**
@@ -366,6 +412,7 @@ module.exports = {
   appendTask,
   appendRoadmapItem,
   cycleRoadmapStatus,
+  appendRule,
   toggleItem,
   removeItem,
   deleteDocs,

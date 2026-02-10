@@ -230,7 +230,7 @@ app.get('/api/workspaces/:id/docs', requireAuth, (req, res) => {
 
   const docs = store.getWorkspaceDocs(req.params.id);
   if (!docs) {
-    return res.json({ raw: null, notes: [], goals: [], tasks: [], roadmap: [] });
+    return res.json({ raw: null, notes: [], goals: [], tasks: [], roadmap: [], rules: [] });
   }
   return res.json(docs);
 });
@@ -324,6 +324,24 @@ app.post('/api/workspaces/:id/docs/roadmap', requireAuth, (req, res) => {
 });
 
 /**
+ * POST /api/workspaces/:id/docs/rules
+ * Body: { text }
+ * Adds a rule item.
+ */
+app.post('/api/workspaces/:id/docs/rules', requireAuth, (req, res) => {
+  const store = getStore();
+  const ws = store.getWorkspace(req.params.id);
+  if (!ws) return res.status(404).json({ error: 'Workspace not found.' });
+
+  const { text } = req.body || {};
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'text is required.' });
+  }
+  store.addWorkspaceRule(req.params.id, text.trim());
+  return res.status(201).json({ success: true });
+});
+
+/**
  * PUT /api/workspaces/:id/docs/:section/:index
  * Toggle done state of a goal or task, or cycle roadmap status.
  */
@@ -360,8 +378,8 @@ app.delete('/api/workspaces/:id/docs/:section/:index', requireAuth, (req, res) =
   if (!ws) return res.status(404).json({ error: 'Workspace not found.' });
 
   const { section, index } = req.params;
-  if (!['notes', 'goals', 'tasks', 'roadmap'].includes(section)) {
-    return res.status(400).json({ error: 'Section must be "notes", "goals", "tasks", or "roadmap".' });
+  if (!['notes', 'goals', 'tasks', 'roadmap', 'rules'].includes(section)) {
+    return res.status(400).json({ error: 'Section must be "notes", "goals", "tasks", "roadmap", or "rules".' });
   }
   const idx = parseInt(index, 10);
   if (isNaN(idx) || idx < 0) {
