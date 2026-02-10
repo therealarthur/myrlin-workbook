@@ -178,6 +178,7 @@ class CWMApp {
       loginPassword: document.getElementById('login-password'),
       loginError: document.getElementById('login-error'),
       loginBtn: document.getElementById('login-btn'),
+      passwordToggleBtn: document.getElementById('password-toggle-btn'),
 
       // App
       app: document.getElementById('app'),
@@ -196,6 +197,8 @@ class CWMApp {
       openSwitcherBtn: document.getElementById('open-switcher-btn'),
       logoutBtn: document.getElementById('logout-btn'),
       themeToggleBtn: document.getElementById('theme-toggle-btn'),
+      scaleDownBtn: document.getElementById('scale-down-btn'),
+      scaleUpBtn: document.getElementById('scale-up-btn'),
 
       // Sessions
       sessionPanelTitle: document.getElementById('session-panel-title'),
@@ -322,9 +325,22 @@ class CWMApp {
     this.els.logoutBtn.addEventListener('click', () => this.logout());
     document.getElementById('restart-all-btn').addEventListener('click', () => this.restartAllSessions());
 
+    // Password visibility toggle
+    if (this.els.passwordToggleBtn) {
+      this.els.passwordToggleBtn.addEventListener('click', () => this.togglePasswordVisibility());
+    }
+
     // Theme toggle
     if (this.els.themeToggleBtn) {
       this.els.themeToggleBtn.addEventListener('click', () => this.toggleTheme());
+    }
+
+    // UI Scale controls
+    if (this.els.scaleDownBtn) {
+      this.els.scaleDownBtn.addEventListener('click', () => this.scaleUI('down'));
+    }
+    if (this.els.scaleUpBtn) {
+      this.els.scaleUpBtn.addEventListener('click', () => this.scaleUI('up'));
     }
 
     // Sidebar toggle (mobile)
@@ -1703,6 +1719,68 @@ class CWMApp {
       }
     });
   }
+
+
+  /* ═══════════════════════════════════════════════════════════
+     PASSWORD VISIBILITY TOGGLE
+     ═══════════════════════════════════════════════════════════ */
+
+  togglePasswordVisibility() {
+    const input = this.els.loginPassword;
+    const btn = this.els.passwordToggleBtn;
+    if (!input || !btn) return;
+
+    const isPassword = input.type === 'password';
+    input.type = isPassword ? 'text' : 'password';
+
+    // Toggle icon visibility
+    const showIcon = btn.querySelector('.pw-icon-show');
+    const hideIcon = btn.querySelector('.pw-icon-hide');
+    if (showIcon) showIcon.style.display = isPassword ? 'none' : '';
+    if (hideIcon) hideIcon.style.display = isPassword ? '' : 'none';
+
+    // Keep focus on the password input for quick typing
+    input.focus();
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════
+     UI SCALE CONTROLS
+     ═══════════════════════════════════════════════════════════ */
+
+  scaleUI(direction) {
+    const presets = [0.85, 0.9, 1.0, 1.1, 1.2];
+    const current = parseFloat(localStorage.getItem('cwm_ui_scale')) || 1.0;
+
+    // Find the nearest preset index
+    let idx = presets.indexOf(current);
+    if (idx === -1) {
+      // Find closest preset
+      idx = presets.reduce((closest, val, i) =>
+        Math.abs(val - current) < Math.abs(presets[closest] - current) ? i : closest
+      , 0);
+    }
+
+    if (direction === 'up' && idx < presets.length - 1) {
+      idx++;
+    } else if (direction === 'down' && idx > 0) {
+      idx--;
+    } else {
+      return; // Already at limit
+    }
+
+    const newScale = presets[idx];
+    localStorage.setItem('cwm_ui_scale', newScale);
+    document.documentElement.style.setProperty('--ui-scale', newScale);
+
+    // Refit all terminal panes after a brief delay for zoom to take effect
+    setTimeout(() => {
+      this.terminalPanes.forEach(tp => {
+        if (tp && tp.fit) tp.fit();
+      });
+    }, 100);
+  }
+
 
   /**
    * Show a summary modal for a session with overall theme, recent tasking,
@@ -5085,7 +5163,10 @@ class CWMApp {
     input.focus();
     input.select();
 
+    let committed = false;
     const commit = async () => {
+      if (committed) return;
+      committed = true;
       const newName = input.value.trim();
       if (newName && newName !== currentName) {
         try {
@@ -5115,10 +5196,28 @@ class CWMApp {
       }
     };
 
-    input.addEventListener('blur', commit);
+    // Track mousedown inside input — if user started a click/drag inside,
+    // don't close on blur when they release outside the input
+    let mouseDownInside = false;
+    input.addEventListener('mousedown', () => { mouseDownInside = true; });
+    document.addEventListener('mouseup', () => {
+      if (mouseDownInside) {
+        mouseDownInside = false;
+        setTimeout(() => { if (!committed) input.focus(); }, 0);
+      }
+    }, { once: false, capture: true });
+
+    input.addEventListener('blur', () => {
+      if (mouseDownInside) return;
+      setTimeout(() => {
+        if (!committed && document.activeElement !== input) {
+          commit();
+        }
+      }, 100);
+    });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-      if (e.key === 'Escape') { input.value = currentName; input.blur(); }
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { input.value = currentName; commit(); }
     });
   }
 
@@ -5179,10 +5278,28 @@ class CWMApp {
       }
     };
 
-    input.addEventListener('blur', commit);
+    // Track mousedown inside input — if user started a click/drag inside,
+    // don't close on blur when they release outside the input
+    let mouseDownInside = false;
+    input.addEventListener('mousedown', () => { mouseDownInside = true; });
+    document.addEventListener('mouseup', () => {
+      if (mouseDownInside) {
+        mouseDownInside = false;
+        setTimeout(() => { if (!committed) input.focus(); }, 0);
+      }
+    }, { once: false, capture: true });
+
+    input.addEventListener('blur', () => {
+      if (mouseDownInside) return;
+      setTimeout(() => {
+        if (!committed && document.activeElement !== input) {
+          commit();
+        }
+      }, 100);
+    });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-      if (e.key === 'Escape') { input.value = currentName; input.blur(); }
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { input.value = currentName; commit(); }
     });
   }
 
@@ -5358,7 +5475,10 @@ class CWMApp {
     input.focus();
     input.select();
 
+    let committed = false;
     const commit = () => {
+      if (committed) return;
+      committed = true;
       const newName = input.value.trim() || currentName;
       nameEl.textContent = newName;
       const group = this._tabGroups.find(g => g.id === groupId);
@@ -5366,10 +5486,28 @@ class CWMApp {
       this.saveTerminalLayout();
     };
 
-    input.addEventListener('blur', commit);
+    // Track mousedown inside input — if user started a click/drag inside,
+    // don't close on blur when they release outside the input
+    let mouseDownInside = false;
+    input.addEventListener('mousedown', () => { mouseDownInside = true; });
+    document.addEventListener('mouseup', () => {
+      if (mouseDownInside) {
+        mouseDownInside = false;
+        setTimeout(() => { if (!committed) input.focus(); }, 0);
+      }
+    }, { once: false, capture: true });
+
+    input.addEventListener('blur', () => {
+      if (mouseDownInside) return;
+      setTimeout(() => {
+        if (!committed && document.activeElement !== input) {
+          commit();
+        }
+      }, 100);
+    });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-      if (e.key === 'Escape') { input.value = currentName; input.blur(); }
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { input.value = currentName; commit(); }
     });
   }
 

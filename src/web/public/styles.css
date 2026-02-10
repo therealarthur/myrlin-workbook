@@ -58,6 +58,9 @@
   --text-muted: var(--overlay1);
   --accent: var(--mauve);
 
+  /* UI Scale (overridden by localStorage-based inline style) */
+  --ui-scale: 1;
+
   /* Dimensions */
   --sidebar-width: 280px;
   --header-height: 80px;
@@ -296,6 +299,41 @@ h1, h2, h3, h4 {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(203, 166, 247, 0.15);
+}
+
+/* Password input with toggle — extra padding-right for the eye icon */
+.input.input-has-toggle {
+  padding-right: 40px;
+}
+
+/* Password show/hide toggle button */
+.password-toggle-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--overlay1);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  z-index: 1;
+}
+
+.password-toggle-btn:hover {
+  color: var(--text-primary);
+  background: rgba(69, 71, 90, 0.4);
+}
+
+.password-toggle-btn:active {
+  transform: translateY(-50%) scale(0.92);
 }
 
 textarea.input {
@@ -3637,6 +3675,50 @@ textarea.input {
 /* Theme toggle icon visibility */
 :root[data-theme="latte"] .theme-icon-moon { display: none; }
 :root[data-theme="latte"] .theme-icon-sun { display: block !important; }
+
+/* ═══════════════════════════════════════════════════════════ */
+/* UI Scale Controls                                           */
+/* ═══════════════════════════════════════════════════════════ */
+
+html {
+  zoom: var(--ui-scale, 1);
+}
+
+.scale-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.scale-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-sm);
+}
+
+.scale-btn:hover {
+  color: var(--text-primary);
+  background: var(--surface0);
+}
+
+.scale-btn-label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.scale-btn-label sup {
+  font-size: 9px;
+  font-weight: 700;
+  position: relative;
+  top: -3px;
+}
+
 
 /* Latte-specific overrides for hardcoded rgba values in Mocha */
 :root[data-theme="latte"] ::selection {

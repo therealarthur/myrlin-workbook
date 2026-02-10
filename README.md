@@ -4,8 +4,7 @@ Manage multiple Claude Code sessions from one browser tab. Workspaces, embedded 
 
 > Currently supports Claude Code. Other AI coding tools on the [roadmap](#roadmap).
 
-<!-- TODO: Screenshot of the main terminal view with 2-3 panes active -->
-<!-- ![Myrlin Workbook](screenshots/hero.png) -->
+![Terminal view with multiple Claude Code sessions](docs/images/terminal-overview.png)
 
 ## Quick Start
 
@@ -68,6 +67,9 @@ What those tools do better than this: Opcode has 20k stars and cost tracking. Cl
 ## Features
 
 ### Workspaces & Sessions
+
+![App overview — workspaces, sessions, and terminal grid](docs/images/app-overview.png)
+
 - Named workspaces with color coding
 - Group workspaces under umbrella folders
 - Drag-and-drop sessions into terminal panes
@@ -76,6 +78,9 @@ What those tools do better than this: Opcode has 20k stars and cost tracking. Cl
 - Auto-recovery on startup (detects orphaned sessions, restores state)
 
 ### Embedded Terminals
+
+![Right-click context menu with session options](docs/images/context-menu.png)
+
 - 4-pane terminal grid (xterm.js + node-pty + WebSocket)
 - Tab groups — named sets of terminal panes ("Research", "Debug"), switchable and persistent
 - PTY sessions survive page refresh
@@ -191,7 +196,7 @@ PORT=8080 npm run gui
 
 ### Theme
 
-[Catppuccin Mocha](https://github.com/catppuccin/catppuccin). Colors are CSS custom properties in `styles.css` — swap the palette to change flavors.
+[Catppuccin Mocha](https://github.com/catppuccin/catppuccin) (dark) and Latte (light). Toggle with the moon/sun button in the top-right header. Choice persists in localStorage.
 
 ---
 
@@ -215,7 +220,7 @@ PORT=8080 npm run gui
 - Session search / filtering
 - Export/import workspaces
 - Pinned sessions
-- Light theme
+- ~~Light theme~~ shipped (Catppuccin Latte)
 - Session cost estimation (token tracking)
 
 ---
