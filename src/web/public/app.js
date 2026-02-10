@@ -197,6 +197,7 @@ class CWMApp {
       openSwitcherBtn: document.getElementById('open-switcher-btn'),
       logoutBtn: document.getElementById('logout-btn'),
       themeToggleBtn: document.getElementById('theme-toggle-btn'),
+      themeDropdown: document.getElementById('theme-dropdown'),
       scaleDownBtn: document.getElementById('scale-down-btn'),
       scaleUpBtn: document.getElementById('scale-up-btn'),
 
@@ -224,6 +225,10 @@ class CWMApp {
       detailBranch: document.getElementById('detail-branch'),
       detailCreated: document.getElementById('detail-created'),
       detailLastActive: document.getElementById('detail-last-active'),
+      detailCost: document.getElementById('detail-cost'),
+      detailCostTotal: document.getElementById('detail-cost-total'),
+      detailCostBreakdown: document.getElementById('detail-cost-breakdown'),
+      detailTokenBar: document.getElementById('detail-token-bar'),
       detailStartBtn: document.getElementById('detail-start-btn'),
       detailStopBtn: document.getElementById('detail-stop-btn'),
       detailRestartBtn: document.getElementById('detail-restart-btn'),
@@ -333,9 +338,25 @@ class CWMApp {
       this.els.passwordToggleBtn.addEventListener('click', () => this.togglePasswordVisibility());
     }
 
-    // Theme toggle
+    // Theme picker dropdown
     if (this.els.themeToggleBtn) {
-      this.els.themeToggleBtn.addEventListener('click', () => this.toggleTheme());
+      this.els.themeToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dd = this.els.themeDropdown;
+        if (dd) dd.hidden = !dd.hidden;
+      });
+    }
+    if (this.els.themeDropdown) {
+      this.els.themeDropdown.querySelectorAll('.theme-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+          this.setTheme(btn.dataset.theme);
+          this.els.themeDropdown.hidden = true;
+        });
+      });
+      // Close dropdown when clicking outside
+      document.addEventListener('click', () => {
+        if (this.els.themeDropdown) this.els.themeDropdown.hidden = true;
+      });
     }
 
     // UI Scale controls
@@ -1078,6 +1099,13 @@ class CWMApp {
   }
 
   async createSession() {
+    // Load templates for quick-launch chips
+    let templates = [];
+    try {
+      const tData = await this.api('GET', '/api/templates');
+      templates = tData.templates || tData || [];
+    } catch (_) {}
+
     const fields = [
       { key: 'name', label: 'Name', placeholder: 'feature-auth', required: true },
       { key: 'topic', label: 'Topic', placeholder: 'Working on authentication flow' },
@@ -1107,6 +1135,27 @@ class CWMApp {
       fields,
       confirmText: 'Create',
       confirmClass: 'btn-primary',
+      // Show template chips above the form if templates exist
+      headerHtml: templates.length > 0 ? `
+        <div class="template-list">${templates.map(t => `
+          <button class="template-chip" data-template-id="${t.id}" title="${t.workingDir || ''}${t.model ? ' · ' + t.model : ''}${t.bypassPermissions ? ' · bypass' : ''}">
+            <span class="template-chip-icon">&#9889;</span>${this.escapeHtml(t.name)}
+          </button>`).join('')}
+        </div>` : '',
+      onHeaderClick: (e) => {
+        const chip = e.target.closest('.template-chip');
+        if (!chip) return;
+        const tpl = templates.find(t => t.id === chip.dataset.templateId);
+        if (!tpl) return;
+        // Fill form fields from template
+        const nameInput = document.getElementById('modal-field-name');
+        const dirInput = document.getElementById('modal-field-workingDir');
+        const cmdInput = document.getElementById('modal-field-command');
+        if (nameInput && !nameInput.value) nameInput.value = tpl.name;
+        if (dirInput && tpl.workingDir) dirInput.value = tpl.workingDir;
+        if (cmdInput && tpl.command && tpl.command !== 'claude') cmdInput.value = tpl.command;
+        this.showToast(`Template "${tpl.name}" applied`, 'success');
+      },
     });
 
     if (!result) return;
@@ -1119,6 +1168,33 @@ class CWMApp {
       await this.loadStats();
     } catch (err) {
       this.showToast(err.message || 'Failed to create session', 'error');
+    }
+  }
+
+  async saveSessionAsTemplate(session) {
+    const result = await this.showPromptModal({
+      title: 'Save as Template',
+      fields: [
+        { key: 'name', label: 'Template Name', placeholder: session.name || 'My Template', required: true, value: session.name || '' },
+      ],
+      confirmText: 'Save',
+      confirmClass: 'btn-primary',
+    });
+    if (!result) return;
+
+    try {
+      await this.api('POST', '/api/templates', {
+        name: result.name,
+        command: session.command || 'claude',
+        workingDir: session.workingDir || '',
+        bypassPermissions: !!session.bypassPermissions,
+        verbose: !!session.verbose,
+        model: session.model || null,
+        agentTeams: !!session.agentTeams,
+      });
+      this.showToast(`Template "${result.name}" saved`, 'success');
+    } catch (err) {
+      this.showToast(err.message || 'Failed to save template', 'error');
     }
   }
 
@@ -1417,6 +1493,7 @@ class CWMApp {
         this.showToast('Session ID copied', 'success');
       }},
       { label: 'Start with Context', icon: '&#128218;', action: () => this.startSessionWithContext(sessionId) },
+      { label: 'Save as Template', icon: '&#128190;', action: () => this.saveSessionAsTemplate(session) },
     );
 
     // If the session has a working directory, add git worktree option
@@ -1836,14 +1913,19 @@ class CWMApp {
      THEME TOGGLE
      ═══════════════════════════════════════════════════════════ */
 
-  toggleTheme() {
-    const isLatte = document.documentElement.dataset.theme === 'latte';
-    if (isLatte) {
+  setTheme(themeName) {
+    if (themeName === 'mocha') {
       delete document.documentElement.dataset.theme;
-      localStorage.setItem('cwm_theme', 'mocha');
     } else {
-      document.documentElement.dataset.theme = 'latte';
-      localStorage.setItem('cwm_theme', 'latte');
+      document.documentElement.dataset.theme = themeName;
+    }
+    localStorage.setItem('cwm_theme', themeName);
+
+    // Update active state in dropdown
+    if (this.els.themeDropdown) {
+      this.els.themeDropdown.querySelectorAll('.theme-option').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === themeName);
+      });
     }
 
     // Update all open xterm.js terminal themes
@@ -1852,6 +1934,14 @@ class CWMApp {
         tp.term.options.theme = TerminalPane.getCurrentTheme();
       }
     });
+  }
+
+  // Legacy alias for any remaining callers
+  toggleTheme() {
+    const current = document.documentElement.dataset.theme || 'mocha';
+    const themes = ['mocha', 'macchiato', 'frappe', 'latte'];
+    const next = themes[(themes.indexOf(current) + 1) % themes.length];
+    this.setTheme(next);
   }
 
 
@@ -2764,7 +2854,7 @@ class CWMApp {
     });
   }
 
-  showPromptModal({ title, fields, confirmText = 'Confirm', confirmClass = 'btn-primary' }) {
+  showPromptModal({ title, fields, confirmText = 'Confirm', confirmClass = 'btn-primary', headerHtml = '', onHeaderClick = null }) {
     return new Promise((resolve) => {
       this.modalResolve = resolve;
       this.els.modalTitle.textContent = title;
@@ -2832,10 +2922,15 @@ class CWMApp {
           </div>`;
       });
 
-      this.els.modalBody.innerHTML = bodyHtml;
+      this.els.modalBody.innerHTML = (headerHtml || '') + bodyHtml;
       this.els.modalConfirmBtn.textContent = confirmText;
       this.els.modalConfirmBtn.className = `btn ${confirmClass}`;
       this.els.modalCancelBtn.textContent = 'Cancel';
+
+      // Header click handler (for template chips, etc.)
+      if (onHeaderClick) {
+        this.els.modalBody.addEventListener('click', onHeaderClick);
+      }
 
       // Color picker behavior
       const colorPickers = this.els.modalBody.querySelectorAll('.color-picker');
@@ -3837,6 +3932,59 @@ class CWMApp {
 
     // Logs
     this.renderLogs(session.logs || []);
+
+    // Cost tracking — fetch async
+    this.loadSessionCost(session.id);
+  }
+
+  async loadSessionCost(sessionId) {
+    if (!this.els.detailCost) return;
+    try {
+      const data = await this.api('GET', `/api/sessions/${sessionId}/cost`);
+      if (!data || !data.cost || data.cost.total === 0) {
+        this.els.detailCost.hidden = true;
+        return;
+      }
+      this.els.detailCost.hidden = false;
+      this.els.detailCostTotal.textContent = '$' + data.cost.total.toFixed(2);
+
+      // Breakdown grid
+      const items = [
+        { label: 'Input', value: '$' + data.cost.input.toFixed(3) },
+        { label: 'Output', value: '$' + data.cost.output.toFixed(3) },
+        { label: 'Cache Write', value: '$' + data.cost.cacheWrite.toFixed(3) },
+        { label: 'Cache Read', value: '$' + data.cost.cacheRead.toFixed(3) },
+      ];
+      this.els.detailCostBreakdown.innerHTML = items.map(i =>
+        `<div class="cost-item"><span>${i.label}</span><span class="cost-item-value">${i.value}</span></div>`
+      ).join('');
+
+      // Token bar (proportional widths)
+      const total = (data.tokens.input || 0) + (data.tokens.output || 0) + (data.tokens.cacheRead || 0) + (data.tokens.cacheWrite || 0);
+      if (total > 0) {
+        const inputPct = ((data.tokens.input + data.tokens.cacheWrite) / total * 100).toFixed(1);
+        const outputPct = (data.tokens.output / total * 100).toFixed(1);
+        this.els.detailTokenBar.innerHTML = `
+          <div class="token-bar-fill token-bar-input" style="width:${inputPct}%;display:inline-block"></div>
+          <div class="token-bar-fill token-bar-output" style="width:${outputPct}%;display:inline-block"></div>
+          <div class="token-bar-fill token-bar-cache" style="width:${(100 - parseFloat(inputPct) - parseFloat(outputPct)).toFixed(1)}%;display:inline-block"></div>
+        `;
+      }
+
+      // Add message count + model info below cost
+      if (data.messageCount) {
+        const modelInfo = data.modelBreakdown ? Object.keys(data.modelBreakdown).map(m => {
+          const short = m.includes('opus') ? 'Opus' : m.includes('sonnet') ? 'Sonnet' : m.includes('haiku') ? 'Haiku' : m;
+          return short;
+        }).join(', ') : '';
+        const infoHtml = `<div style="font-size:11px;color:var(--subtext0);margin-top:6px">${data.messageCount} messages${modelInfo ? ' · ' + modelInfo : ''}</div>`;
+        // Append after breakdown
+        this.els.detailCostBreakdown.insertAdjacentHTML('afterend', infoHtml);
+      }
+    } catch (err) {
+      // Cost tracking is best-effort — don't show errors
+      this.els.detailCost.hidden = true;
+    }
   }
 
   renderLogs(logs) {

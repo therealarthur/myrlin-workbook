@@ -1387,6 +1387,365 @@ app.post('/api/search-conversations', requireAuth, async (req, res) => {
 
 
 // ──────────────────────────────────────────────────────────
+//  COST TRACKING
+// ──────────────────────────────────────────────────────────
+
+/** Token pricing per million tokens, by model */
+const TOKEN_PRICING = {
+  'claude-opus-4-6': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.50 },
+  'claude-opus-4-5-20251101': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.50 },
+  'claude-sonnet-4-5-20250929': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
+  'claude-haiku-4-5-20251001': { input: 0.80, output: 4, cacheWrite: 1.00, cacheRead: 0.08 },
+};
+const DEFAULT_PRICING = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 };
+
+/** In-memory cost cache: keyed by sessionId, stores { mtime, result } */
+const _costCache = new Map();
+const COST_CACHE_TTL = 60000; // 60 seconds
+
+/**
+ * Find a JSONL file for a given Claude session UUID by scanning
+ * all project directories under ~/.claude/projects/.
+ * @param {string} claudeSessionId - The Claude session UUID
+ * @returns {string|null} Full path to the .jsonl file, or null if not found
+ */
+function findJsonlFile(claudeSessionId) {
+  const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
+  if (!fs.existsSync(claudeProjectsDir)) return null;
+
+  try {
+    const projectDirs = fs.readdirSync(claudeProjectsDir, { withFileTypes: true })
+      .filter(d => d.isDirectory());
+
+    for (const dir of projectDirs) {
+      const candidate = path.join(claudeProjectsDir, dir.name, claudeSessionId + '.jsonl');
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+/**
+ * Parse a JSONL file and calculate token usage and estimated cost.
+ * Aggregates usage across all assistant messages, grouped by model.
+ * @param {string} jsonlPath - Absolute path to the .jsonl file
+ * @returns {object} Token and cost breakdown
+ */
+function calculateSessionCost(jsonlPath) {
+  const content = fs.readFileSync(jsonlPath, 'utf-8');
+  const lines = content.split('\n').filter(l => l.trim());
+
+  const totals = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+  const modelBreakdown = {};
+  let messageCount = 0;
+  let firstMessage = null;
+  let lastMessage = null;
+
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line);
+      if (entry.type !== 'assistant') continue;
+
+      const msg = entry.message;
+      if (!msg || !msg.usage) continue;
+
+      messageCount++;
+      const ts = entry.timestamp || null;
+      if (ts && (!firstMessage || ts < firstMessage)) firstMessage = ts;
+      if (ts && (!lastMessage || ts > lastMessage)) lastMessage = ts;
+
+      const usage = msg.usage;
+      const model = msg.model || 'unknown';
+      const inputTokens = usage.input_tokens || 0;
+      const outputTokens = usage.output_tokens || 0;
+      const cacheWriteTokens = usage.cache_creation_input_tokens || 0;
+      const cacheReadTokens = usage.cache_read_input_tokens || 0;
+
+      totals.input += inputTokens;
+      totals.output += outputTokens;
+      totals.cacheWrite += cacheWriteTokens;
+      totals.cacheRead += cacheReadTokens;
+
+      // Per-model breakdown
+      if (!modelBreakdown[model]) {
+        modelBreakdown[model] = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0 };
+      }
+      modelBreakdown[model].input += inputTokens;
+      modelBreakdown[model].output += outputTokens;
+      modelBreakdown[model].cacheWrite += cacheWriteTokens;
+      modelBreakdown[model].cacheRead += cacheReadTokens;
+
+      // Calculate per-message cost and add to model total
+      const pricing = TOKEN_PRICING[model] || DEFAULT_PRICING;
+      const msgCost =
+        (inputTokens / 1_000_000) * pricing.input +
+        (outputTokens / 1_000_000) * pricing.output +
+        (cacheWriteTokens / 1_000_000) * pricing.cacheWrite +
+        (cacheReadTokens / 1_000_000) * pricing.cacheRead;
+      modelBreakdown[model].cost = Math.round((modelBreakdown[model].cost + msgCost) * 1_000_000) / 1_000_000;
+    } catch (_) {
+      // Skip malformed lines
+    }
+  }
+
+  // Calculate total costs using weighted model pricing
+  const cost = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 };
+  for (const [model, breakdown] of Object.entries(modelBreakdown)) {
+    const pricing = TOKEN_PRICING[model] || DEFAULT_PRICING;
+    cost.input += (breakdown.input / 1_000_000) * pricing.input;
+    cost.output += (breakdown.output / 1_000_000) * pricing.output;
+    cost.cacheWrite += (breakdown.cacheWrite / 1_000_000) * pricing.cacheWrite;
+    cost.cacheRead += (breakdown.cacheRead / 1_000_000) * pricing.cacheRead;
+  }
+  // Round cost values to 6 decimal places to avoid floating point noise
+  cost.input = Math.round(cost.input * 1_000_000) / 1_000_000;
+  cost.output = Math.round(cost.output * 1_000_000) / 1_000_000;
+  cost.cacheWrite = Math.round(cost.cacheWrite * 1_000_000) / 1_000_000;
+  cost.cacheRead = Math.round(cost.cacheRead * 1_000_000) / 1_000_000;
+  cost.total = Math.round((cost.input + cost.output + cost.cacheWrite + cost.cacheRead) * 1_000_000) / 1_000_000;
+
+  return {
+    tokens: {
+      input: totals.input,
+      output: totals.output,
+      cacheWrite: totals.cacheWrite,
+      cacheRead: totals.cacheRead,
+      total: totals.input + totals.output + totals.cacheWrite + totals.cacheRead,
+    },
+    cost,
+    modelBreakdown,
+    messageCount,
+    firstMessage,
+    lastMessage,
+  };
+}
+
+/**
+ * GET /api/sessions/:id/cost
+ * Reads the session's JSONL file and calculates token usage and estimated cost.
+ * Results are cached for 60 seconds, invalidated when the file mtime changes.
+ */
+app.get('/api/sessions/:id/cost', requireAuth, (req, res) => {
+  const store = getStore();
+  const session = store.getSession(req.params.id);
+
+  const resumeSessionId = (session && session.resumeSessionId) || req.params.id;
+  if (!resumeSessionId) {
+    return res.json({
+      sessionId: req.params.id,
+      resumeSessionId: null,
+      tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 },
+      cost: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 },
+      modelBreakdown: {},
+      messageCount: 0,
+      firstMessage: null,
+      lastMessage: null,
+    });
+  }
+
+  const jsonlPath = findJsonlFile(resumeSessionId);
+  if (!jsonlPath) {
+    return res.json({
+      sessionId: req.params.id,
+      resumeSessionId,
+      tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 },
+      cost: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 },
+      modelBreakdown: {},
+      messageCount: 0,
+      firstMessage: null,
+      lastMessage: null,
+    });
+  }
+
+  try {
+    // Check cache: keyed by resumeSessionId, validated by file mtime
+    const stat = fs.statSync(jsonlPath);
+    const mtimeMs = stat.mtimeMs;
+    const cached = _costCache.get(resumeSessionId);
+    const now = Date.now();
+
+    if (cached && cached.mtimeMs === mtimeMs && (now - cached.timestamp) < COST_CACHE_TTL) {
+      return res.json(cached.result);
+    }
+
+    const costData = calculateSessionCost(jsonlPath);
+    const result = {
+      sessionId: req.params.id,
+      resumeSessionId,
+      ...costData,
+    };
+
+    // Store in cache
+    _costCache.set(resumeSessionId, { mtimeMs, timestamp: now, result });
+
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to calculate cost: ' + err.message });
+  }
+});
+
+/**
+ * GET /api/workspaces/:id/cost
+ * Aggregates token usage and cost across all sessions in a workspace.
+ */
+app.get('/api/workspaces/:id/cost', requireAuth, (req, res) => {
+  const store = getStore();
+  const workspace = store.getWorkspace(req.params.id);
+
+  if (!workspace) {
+    return res.status(404).json({ error: 'Workspace not found.' });
+  }
+
+  const sessions = store.getWorkspaceSessions(req.params.id);
+  const totals = {
+    tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 },
+    cost: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 },
+    modelBreakdown: {},
+    messageCount: 0,
+    firstMessage: null,
+    lastMessage: null,
+    sessionCount: sessions.length,
+    sessionsWithData: 0,
+  };
+
+  for (const session of sessions) {
+    const resumeSessionId = session.resumeSessionId;
+    if (!resumeSessionId) continue;
+
+    const jsonlPath = findJsonlFile(resumeSessionId);
+    if (!jsonlPath) continue;
+
+    try {
+      // Check cache for individual session cost
+      const stat = fs.statSync(jsonlPath);
+      const mtimeMs = stat.mtimeMs;
+      const cached = _costCache.get(resumeSessionId);
+      const now = Date.now();
+      let costData;
+
+      if (cached && cached.mtimeMs === mtimeMs && (now - cached.timestamp) < COST_CACHE_TTL) {
+        costData = cached.result;
+      } else {
+        costData = calculateSessionCost(jsonlPath);
+        const result = { sessionId: session.id, resumeSessionId, ...costData };
+        _costCache.set(resumeSessionId, { mtimeMs, timestamp: now, result });
+      }
+
+      totals.tokens.input += costData.tokens.input;
+      totals.tokens.output += costData.tokens.output;
+      totals.tokens.cacheWrite += costData.tokens.cacheWrite;
+      totals.tokens.cacheRead += costData.tokens.cacheRead;
+      totals.tokens.total += costData.tokens.total;
+
+      totals.cost.input += costData.cost.input;
+      totals.cost.output += costData.cost.output;
+      totals.cost.cacheWrite += costData.cost.cacheWrite;
+      totals.cost.cacheRead += costData.cost.cacheRead;
+      totals.cost.total += costData.cost.total;
+
+      totals.messageCount += costData.messageCount;
+      totals.sessionsWithData++;
+
+      if (costData.firstMessage && (!totals.firstMessage || costData.firstMessage < totals.firstMessage)) {
+        totals.firstMessage = costData.firstMessage;
+      }
+      if (costData.lastMessage && (!totals.lastMessage || costData.lastMessage > totals.lastMessage)) {
+        totals.lastMessage = costData.lastMessage;
+      }
+
+      // Merge model breakdowns
+      for (const [model, breakdown] of Object.entries(costData.modelBreakdown)) {
+        if (!totals.modelBreakdown[model]) {
+          totals.modelBreakdown[model] = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0 };
+        }
+        totals.modelBreakdown[model].input += breakdown.input;
+        totals.modelBreakdown[model].output += breakdown.output;
+        totals.modelBreakdown[model].cacheWrite += breakdown.cacheWrite;
+        totals.modelBreakdown[model].cacheRead += breakdown.cacheRead;
+        totals.modelBreakdown[model].cost += breakdown.cost;
+      }
+    } catch (_) {
+      // Skip sessions whose JSONL files can't be read
+    }
+  }
+
+  // Round aggregated cost values
+  totals.cost.input = Math.round(totals.cost.input * 1_000_000) / 1_000_000;
+  totals.cost.output = Math.round(totals.cost.output * 1_000_000) / 1_000_000;
+  totals.cost.cacheWrite = Math.round(totals.cost.cacheWrite * 1_000_000) / 1_000_000;
+  totals.cost.cacheRead = Math.round(totals.cost.cacheRead * 1_000_000) / 1_000_000;
+  totals.cost.total = Math.round(totals.cost.total * 1_000_000) / 1_000_000;
+  for (const model of Object.keys(totals.modelBreakdown)) {
+    totals.modelBreakdown[model].cost = Math.round(totals.modelBreakdown[model].cost * 1_000_000) / 1_000_000;
+  }
+
+  return res.json({
+    workspaceId: req.params.id,
+    workspaceName: workspace.name,
+    ...totals,
+  });
+});
+
+// ──────────────────────────────────────────────────────────
+//  SESSION TEMPLATES
+// ──────────────────────────────────────────────────────────
+
+/**
+ * GET /api/templates
+ * Returns all session templates.
+ */
+app.get('/api/templates', requireAuth, (req, res) => {
+  const store = getStore();
+  return res.json({ templates: store.listTemplates() });
+});
+
+/**
+ * POST /api/templates
+ * Body: { name, command?, workingDir?, bypassPermissions?, verbose?, model?, agentTeams? }
+ * Creates a new session template.
+ */
+app.post('/api/templates', requireAuth, (req, res) => {
+  const { name, command, workingDir, bypassPermissions, verbose, model, agentTeams } = req.body || {};
+
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({ error: 'Template name is required.' });
+  }
+  if (name.trim().length > 200) {
+    return res.status(400).json({ error: 'Template name must be 200 characters or fewer.' });
+  }
+
+  const store = getStore();
+  const template = store.createTemplate({
+    name: name.trim(),
+    command: command || 'claude',
+    workingDir: workingDir || '',
+    bypassPermissions: bypassPermissions || false,
+    verbose: verbose || false,
+    model: model || '',
+    agentTeams: agentTeams || false,
+  });
+
+  return res.status(201).json({ template });
+});
+
+/**
+ * DELETE /api/templates/:id
+ * Deletes a session template.
+ */
+app.delete('/api/templates/:id', requireAuth, (req, res) => {
+  const store = getStore();
+  const deleted = store.deleteTemplate(req.params.id);
+
+  if (!deleted) {
+    return res.status(404).json({ error: 'Template not found.' });
+  }
+
+  return res.json({ success: true });
+});
+
+// ──────────────────────────────────────────────────────────
 //  PTY Session Control
 // ──────────────────────────────────────────────────────────
 
@@ -1504,6 +1863,8 @@ function attachStoreEvents() {
     'group:deleted',
     'workspaces:reordered',
     'docs:updated',
+    'template:created',
+    'template:deleted',
   ];
 
   for (const eventName of events) {

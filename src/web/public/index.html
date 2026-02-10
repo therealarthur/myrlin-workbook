@@ -17,7 +17,7 @@
   <script>
     (function() {
       var t = localStorage.getItem('cwm_theme');
-      if (t === 'latte') document.documentElement.dataset.theme = 'latte';
+      if (['latte','frappe','macchiato'].includes(t)) document.documentElement.dataset.theme = t;
       var s = parseFloat(localStorage.getItem('cwm_ui_scale'));
       if (s && s >= 0.85 && s <= 1.2) {
         document.documentElement.style.setProperty('--ui-scale', s);
@@ -143,15 +143,20 @@
       </div>
 
       <div class="header-right">
-        <button class="btn btn-ghost btn-icon theme-toggle" id="theme-toggle-btn" title="Toggle theme">
-          <svg class="theme-icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M14 8.5a6.5 6.5 0 01-8.5 6.2A6.5 6.5 0 017.7 1.5 5 5 0 0014 8.5z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <svg class="theme-icon-sun" width="16" height="16" viewBox="0 0 16 16" fill="none" style="display:none">
-            <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.3"/>
-            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-          </svg>
-        </button>
+        <div class="theme-picker" id="theme-picker">
+          <button class="btn btn-ghost btn-icon" id="theme-toggle-btn" title="Change theme">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M8 2a6 6 0 000 12V2z" fill="currentColor" opacity="0.3"/>
+            </svg>
+          </button>
+          <div class="theme-dropdown" id="theme-dropdown" hidden>
+            <button class="theme-option" data-theme="mocha"><span class="theme-swatch" style="background:#1e1e2e"></span>Mocha</button>
+            <button class="theme-option" data-theme="macchiato"><span class="theme-swatch" style="background:#24273a"></span>Macchiato</button>
+            <button class="theme-option" data-theme="frappe"><span class="theme-swatch" style="background:#303446"></span>Frapp&eacute;</button>
+            <button class="theme-option" data-theme="latte"><span class="theme-swatch" style="background:#eff1f5;border:1px solid #ccd0da"></span>Latte</button>
+          </div>
+        </div>
         <div class="scale-controls" id="scale-controls">
           <button class="btn btn-ghost btn-icon btn-sm scale-btn" id="scale-down-btn" title="Decrease UI size">
             <span class="scale-btn-label">A<sup>-</sup></span>
@@ -360,6 +365,21 @@
               <div class="meta-row">
                 <span class="meta-label">Last Active</span>
                 <span class="meta-value" id="detail-last-active"></span>
+              </div>
+            </div>
+
+            <!-- Cost tracking -->
+            <div class="cost-summary" id="detail-cost" hidden>
+              <div class="cost-total-label">Estimated Cost</div>
+              <div class="cost-total" id="detail-cost-total">$0.00</div>
+              <div class="cost-breakdown" id="detail-cost-breakdown"></div>
+              <div class="token-bar" id="detail-token-bar">
+                <div class="token-bar-fill token-bar-input" id="detail-token-input" style="width:0"></div>
+              </div>
+              <div style="display:flex;gap:12px;font-size:10px;color:var(--subtext0);margin-top:2px">
+                <span><span style="color:var(--blue)">&#9679;</span> Input</span>
+                <span><span style="color:var(--peach)">&#9679;</span> Output</span>
+                <span><span style="color:var(--green)">&#9679;</span> Cache</span>
               </div>
             </div>
 

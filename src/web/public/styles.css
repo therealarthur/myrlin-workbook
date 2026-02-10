@@ -1337,6 +1337,105 @@ textarea.input {
   color: var(--overlay0);
 }
 
+/* ─── Cost Tracking Display ─────────────────────────────────── */
+
+.cost-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--mantle);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--surface0);
+}
+
+.cost-total {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.cost-total-label {
+  font-size: 11px;
+  color: var(--subtext0);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cost-breakdown {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.cost-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--subtext1);
+  padding: 4px 8px;
+  background: var(--surface0);
+  border-radius: var(--radius-sm);
+}
+
+.cost-item-value {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.token-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface1);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.token-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.token-bar-input { background: var(--blue); }
+.token-bar-output { background: var(--peach); }
+.token-bar-cache { background: var(--green); }
+
+/* ─── Session Template Styles ───────────────────────────────── */
+
+.template-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--subtext1);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.template-chip:hover {
+  background: var(--surface1);
+  color: var(--text);
+  border-color: var(--mauve);
+}
+
+.template-chip-icon {
+  font-size: 14px;
+}
+
+.template-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+}
+
 
 /* ═══════════════════════════════════════════════════════════════
    MODALS
@@ -3869,6 +3968,58 @@ html {
   top: -3px;
 }
 
+/* Theme picker dropdown */
+.theme-picker {
+  position: relative;
+}
+
+.theme-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--mantle);
+  border: 1px solid var(--surface0);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  min-width: 140px;
+  padding: 4px;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  color: var(--subtext1);
+  font-size: 12px;
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.theme-option:hover {
+  background: var(--surface0);
+  color: var(--text);
+}
+
+.theme-option.active {
+  color: var(--mauve);
+  font-weight: 600;
+}
+
+.theme-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 
 /* Latte-specific overrides for hardcoded rgba values in Mocha */
 :root[data-theme="latte"] ::selection {
@@ -3887,4 +4038,134 @@ html {
 
 :root[data-theme="latte"] .terminal-resize-handle:hover {
   background: rgba(136, 57, 239, 0.4);
+}
+
+
+/* ═══════════════════════════════════════════════════════════ */
+/* CATPPUCCIN FRAPPE (Medium-Dark Theme)                       */
+/* ═══════════════════════════════════════════════════════════ */
+
+:root[data-theme="frappe"] {
+  /* Catppuccin Frappe palette */
+  --base: #303446;
+  --mantle: #292c3c;
+  --crust: #232634;
+  --surface0: #414559;
+  --surface1: #51576d;
+  --surface2: #626880;
+  --overlay0: #737994;
+  --overlay1: #838ba7;
+  --text: #c6d0f5;
+  --subtext0: #a5adce;
+  --subtext1: #b5bfe2;
+  --mauve: #ca9ee6;
+  --blue: #8caaee;
+  --green: #a6d189;
+  --yellow: #e5c890;
+  --red: #e78284;
+  --peach: #ef9f76;
+  --teal: #81c8be;
+  --sky: #99d1db;
+  --pink: #f4b8e4;
+  --lavender: #babbf1;
+  --flamingo: #eebebe;
+  --rosewater: #f2d5cf;
+  --sapphire: #85c1dc;
+
+  /* Semantic overrides */
+  --border-subtle: rgba(98, 104, 128, 0.5);
+
+  /* Shadows — dark theme */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.25);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.3);
+  --shadow-xl: 0 16px 50px rgba(0,0,0,0.35);
+}
+
+/* Frappe theme icon visibility (dark theme — show moon, hide sun) */
+:root[data-theme="frappe"] .theme-icon-moon { display: inline; }
+:root[data-theme="frappe"] .theme-icon-sun { display: none; }
+
+/* Frappe-specific overrides for hardcoded rgba values */
+:root[data-theme="frappe"] ::selection {
+  background: rgba(202, 158, 230, 0.25);
+  color: var(--text);
+}
+
+:root[data-theme="frappe"] .stat-dot-running {
+  background: var(--green);
+  box-shadow: 0 0 4px rgba(166, 209, 137, 0.5);
+}
+
+:root[data-theme="frappe"] .terminal-pane-empty.drag-over .terminal-container {
+  background: rgba(202, 158, 230, 0.05);
+}
+
+:root[data-theme="frappe"] .terminal-resize-handle:hover {
+  background: rgba(202, 158, 230, 0.4);
+}
+
+
+/* ═══════════════════════════════════════════════════════════ */
+/* CATPPUCCIN MACCHIATO (Dark-Warm Theme)                      */
+/* ═══════════════════════════════════════════════════════════ */
+
+:root[data-theme="macchiato"] {
+  /* Catppuccin Macchiato palette */
+  --base: #24273a;
+  --mantle: #1e2030;
+  --crust: #181926;
+  --surface0: #363a4f;
+  --surface1: #494d64;
+  --surface2: #5b6078;
+  --overlay0: #6e738d;
+  --overlay1: #8087a2;
+  --text: #cad3f5;
+  --subtext0: #a5adcb;
+  --subtext1: #b8c0e0;
+  --mauve: #c6a0f6;
+  --blue: #8aadf4;
+  --green: #a6da95;
+  --yellow: #eed49f;
+  --red: #ed8796;
+  --peach: #f5a97f;
+  --teal: #8bd5ca;
+  --sky: #91d7e3;
+  --pink: #f5bde6;
+  --lavender: #b7bdf8;
+  --flamingo: #f0c6c6;
+  --rosewater: #f4dbd6;
+  --sapphire: #7dc4e4;
+
+  /* Semantic overrides */
+  --border-subtle: rgba(91, 96, 120, 0.5);
+
+  /* Shadows — dark theme */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.25);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.3);
+  --shadow-xl: 0 16px 50px rgba(0,0,0,0.35);
+}
+
+/* Macchiato theme icon visibility (dark theme — show moon, hide sun) */
+:root[data-theme="macchiato"] .theme-icon-moon { display: inline; }
+:root[data-theme="macchiato"] .theme-icon-sun { display: none; }
+
+/* Macchiato-specific overrides for hardcoded rgba values */
+:root[data-theme="macchiato"] ::selection {
+  background: rgba(198, 160, 246, 0.25);
+  color: var(--text);
+}
+
+:root[data-theme="macchiato"] .stat-dot-running {
+  background: var(--green);
+  box-shadow: 0 0 4px rgba(166, 218, 149, 0.5);
+}
+
+:root[data-theme="macchiato"] .terminal-pane-empty.drag-over .terminal-container {
+  background: rgba(198, 160, 246, 0.05);
+}
+
+:root[data-theme="macchiato"] .terminal-resize-handle:hover {
+  background: rgba(198, 160, 246, 0.4);
 }

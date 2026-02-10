@@ -27,6 +27,7 @@ const DEFAULT_STATE = {
   recentSessions: [], // Last N session IDs, most recent last
   workspaceGroups: {},    // { groupId: { id, name, color, workspaceIds: [], order: 0 } }
   workspaceOrder: [],     // mixed array of workspace IDs and group IDs for sidebar ordering
+  templates: {},          // { templateId: { id, name, command, workingDir, ... } }
   settings: {
     autoRecover: true,
     notificationLevel: 'all', // 'all' | 'errors' | 'none'
@@ -108,6 +109,7 @@ class Store extends EventEmitter {
         settings: { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) },
         workspaceGroups: parsed.workspaceGroups || {},
         workspaceOrder: parsed.workspaceOrder || [],
+        templates: parsed.templates || {},
       };
     } catch (_) {
       return null;
@@ -631,6 +633,65 @@ class Store extends EventEmitter {
     if (!ws) return;
     docsManager.appendRule(workspaceId, ws.name, text);
     this.emit('docs:updated', { workspaceId });
+  }
+
+  // ─── Session Templates ──────────────────────────────────
+
+  /**
+   * Create a new session template.
+   * @param {{ name: string, command?: string, workingDir?: string, bypassPermissions?: boolean, verbose?: boolean, model?: string, agentTeams?: boolean }} params
+   * @returns {object} The created template
+   */
+  createTemplate({ name, command = 'claude', workingDir = '', bypassPermissions = false, verbose = false, model = '', agentTeams = false }) {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const template = {
+      id,
+      name,
+      command,
+      workingDir,
+      bypassPermissions,
+      verbose,
+      model,
+      agentTeams,
+      createdAt: now,
+    };
+    this._state.templates[id] = template;
+    this.save();
+    this.emit('template:created', template);
+    return template;
+  }
+
+  /**
+   * List all session templates.
+   * @returns {object[]} Array of template objects sorted by creation date (newest first)
+   */
+  listTemplates() {
+    return Object.values(this._state.templates).sort((a, b) =>
+      new Date(b.createdAt) - new Date(a.createdAt)
+    );
+  }
+
+  /**
+   * Get a single template by ID.
+   * @param {string} id - Template ID
+   * @returns {object|null} The template or null if not found
+   */
+  getTemplate(id) {
+    return this._state.templates[id] || null;
+  }
+
+  /**
+   * Delete a template by ID.
+   * @param {string} id - Template ID
+   * @returns {boolean} True if deleted, false if not found
+   */
+  deleteTemplate(id) {
+    if (!this._state.templates[id]) return false;
+    delete this._state.templates[id];
+    this.save();
+    this.emit('template:deleted', { id });
+    return true;
   }
 
   // ─── Settings ────────────────────────────────────────────

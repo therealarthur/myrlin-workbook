@@ -54,10 +54,64 @@ class TerminalPane {
     brightWhite: '#bcc0cc',
   };
 
+  static THEME_FRAPPE = {
+    background: '#303446',
+    foreground: '#c6d0f5',
+    cursor: '#f2d5cf',
+    cursorAccent: '#303446',
+    selectionBackground: 'rgba(202, 158, 230, 0.3)',
+    selectionForeground: '#c6d0f5',
+    black: '#51576d',
+    red: '#e78284',
+    green: '#a6d189',
+    yellow: '#e5c890',
+    blue: '#8caaee',
+    magenta: '#ca9ee6',
+    cyan: '#81c8be',
+    white: '#b5bfe2',
+    brightBlack: '#626880',
+    brightRed: '#e78284',
+    brightGreen: '#a6d189',
+    brightYellow: '#e5c890',
+    brightBlue: '#8caaee',
+    brightMagenta: '#ca9ee6',
+    brightCyan: '#81c8be',
+    brightWhite: '#c6d0f5',
+  };
+
+  static THEME_MACCHIATO = {
+    background: '#24273a',
+    foreground: '#cad3f5',
+    cursor: '#f4dbd6',
+    cursorAccent: '#24273a',
+    selectionBackground: 'rgba(198, 160, 246, 0.3)',
+    selectionForeground: '#cad3f5',
+    black: '#494d64',
+    red: '#ed8796',
+    green: '#a6da95',
+    yellow: '#eed49f',
+    blue: '#8aadf4',
+    magenta: '#c6a0f6',
+    cyan: '#8bd5ca',
+    white: '#b8c0e0',
+    brightBlack: '#5b6078',
+    brightRed: '#ed8796',
+    brightGreen: '#a6da95',
+    brightYellow: '#eed49f',
+    brightBlue: '#8aadf4',
+    brightMagenta: '#c6a0f6',
+    brightCyan: '#8bd5ca',
+    brightWhite: '#cad3f5',
+  };
+
   static getCurrentTheme() {
-    return document.documentElement.dataset.theme === 'latte'
-      ? TerminalPane.THEME_LATTE
-      : TerminalPane.THEME_MOCHA;
+    const t = document.documentElement.dataset.theme;
+    switch (t) {
+      case 'latte': return TerminalPane.THEME_LATTE;
+      case 'frappe': return TerminalPane.THEME_FRAPPE;
+      case 'macchiato': return TerminalPane.THEME_MACCHIATO;
+      default: return TerminalPane.THEME_MOCHA;
+    }
   }
 
   constructor(containerId, sessionId, sessionName, spawnOpts) {
