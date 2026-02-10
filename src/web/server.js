@@ -790,8 +790,8 @@ function decodeClaudePath(encoded) {
  * Uses the first message for topic and recent messages for current focus.
  * Produces a short, descriptive title (max ~45 chars).
  */
-function generateSessionTitle(firstMessage, recentMessages) {
-  // Helper: strip common conversational prefixes
+function generateSessionTitle(firstMessage, firstAssistantResponse, recentUserMessages, recentAssistantMessages) {
+  // Helper: strip common conversational prefixes from user messages
   function stripPrefixes(text) {
     return text
       .replace(/^(hey|hi|hello|ok|okay|so|well|alright|please|pls|now)\b[,.]?\s*/i, '')
@@ -800,77 +800,115 @@ function generateSessionTitle(firstMessage, recentMessages) {
       .trim();
   }
 
-  // Helper: extract the core action phrase from a message
-  function extractCoreTopic(text) {
-    let cleaned = stripPrefixes(text);
-    // Remove trailing punctuation
-    cleaned = cleaned.replace(/[.!?]+$/, '').trim();
-    // If still starts with common filler, strip again
-    cleaned = stripPrefixes(cleaned);
-    return cleaned;
-  }
-
-  // Helper: smart truncate at word boundary, title case
+  // Helper: smart truncate at word boundary
   function truncateTitle(text, maxLen) {
     if (text.length <= maxLen) return text;
     let truncated = text.substring(0, maxLen);
-    // Cut at last word boundary
     const lastSpace = truncated.lastIndexOf(' ');
-    if (lastSpace > maxLen * 0.5) {
-      truncated = truncated.substring(0, lastSpace);
-    }
+    if (lastSpace > maxLen * 0.5) truncated = truncated.substring(0, lastSpace);
     return truncated;
   }
 
-  // Helper: capitalize first letter
   function capitalize(str) {
     if (!str) return str;
     return str.charAt(0).toUpperCase() + str.slice(1);
   }
 
-  // Extract topic from first message
-  let topic = '';
-  if (firstMessage) {
-    topic = extractCoreTopic(firstMessage);
-    // Take first sentence if multi-sentence
-    const sentenceEnd = topic.search(/[.!?]\s/);
-    if (sentenceEnd > 10 && sentenceEnd < topic.length - 5) {
-      topic = topic.substring(0, sentenceEnd);
-    }
+  // Extract a descriptive phrase from assistant response
+  // Assistants often start with "I'll...", "Let me...", "Here's...", or describe the task directly
+  function extractAssistantTopic(text) {
+    if (!text) return '';
+    // Take first 2 sentences max
+    const sentences = text.match(/[^.!?\n]+[.!?]?/g) || [text];
+    let combined = sentences.slice(0, 2).join(' ').trim();
+
+    // Strip common assistant preambles
+    combined = combined
+      .replace(/^(sure|okay|alright|of course|absolutely|great|perfect|no problem|got it|understood)[,!.]?\s*/i, '')
+      .replace(/^(let me|i'll|i will|i'm going to|i am going to)\s+/i, '')
+      .replace(/^(here's|here is)\s+(a|an|the|my|your)\s+/i, '')
+      .replace(/^(i can|i'd be happy to|happy to)\s+/i, '')
+      .trim();
+
+    return combined.replace(/[.!?]+$/, '').trim();
   }
 
-  // Extract recent focus from last message
-  let recentFocus = '';
-  if (recentMessages.length > 0) {
-    const lastMsg = recentMessages[recentMessages.length - 1];
-    recentFocus = extractCoreTopic(lastMsg);
-    const sentenceEnd = recentFocus.search(/[.!?]\s/);
-    if (sentenceEnd > 10 && sentenceEnd < recentFocus.length - 5) {
-      recentFocus = recentFocus.substring(0, sentenceEnd);
+  // Extract action/topic from user message
+  function extractUserTopic(text) {
+    if (!text) return '';
+    let cleaned = stripPrefixes(text);
+    cleaned = cleaned.replace(/[.!?]+$/, '').trim();
+    cleaned = stripPrefixes(cleaned);
+    // Take first sentence if multi-sentence
+    const sentenceEnd = cleaned.search(/[.!?]\s/);
+    if (sentenceEnd > 10 && sentenceEnd < cleaned.length - 5) {
+      cleaned = cleaned.substring(0, sentenceEnd);
     }
+    return cleaned;
   }
+
+  // Check if a string is too vague/short to be a good title
+  function isTooVague(text) {
+    if (!text || text.length < 10) return true;
+    const vaguePatterns = /^(yes|no|do it|go ahead|looks good|that works|fix it|sure|thanks|thank you|LGTM|ship it|perfect|great|good|nice|cool|fine|done|next|continue|proceed|ready|approved)/i;
+    return vaguePatterns.test(text);
+  }
+
+  // ── Strategy: Build title from best available source ──
+  // Priority: assistant summary > user first message > recent assistant > recent user
+  // Assistants describe the WORK, users describe the REQUEST — work descriptions make better titles
 
   let title = '';
 
-  // If only one message or first and recent are similar, use topic
-  if (!recentFocus || recentFocus === topic || recentMessages.length <= 1) {
-    title = topic || recentFocus || 'Untitled Session';
-  } else {
-    // Combine: use recent focus as primary, topic provides context
-    // Check if recent focus is very short (like "yes" or "do it") — use topic instead
-    if (recentFocus.length < 15) {
-      title = topic;
-    } else {
-      title = recentFocus;
-    }
+  // 1. Try assistant's first response (often the best summary of what the session does)
+  const assistantTopic = extractAssistantTopic(firstAssistantResponse);
+  const userTopic = extractUserTopic(firstMessage);
+
+  // 2. Try recent assistant messages for sessions that have evolved
+  let recentAssistantTopic = '';
+  if (recentAssistantMessages && recentAssistantMessages.length > 0) {
+    // Use the most recent assistant message
+    recentAssistantTopic = extractAssistantTopic(recentAssistantMessages[recentAssistantMessages.length - 1]);
+  }
+
+  // 3. Recent user messages as fallback
+  let recentUserTopic = '';
+  if (recentUserMessages && recentUserMessages.length > 0) {
+    const lastUser = recentUserMessages[recentUserMessages.length - 1];
+    recentUserTopic = extractUserTopic(lastUser);
+  }
+
+  // Pick the best title source:
+  // If user's first message is a clear task description, prefer it
+  if (userTopic && !isTooVague(userTopic) && userTopic.length >= 15 && userTopic.length <= 60) {
+    title = userTopic;
+  }
+  // If assistant summarized the work well, prefer that
+  else if (assistantTopic && !isTooVague(assistantTopic) && assistantTopic.length >= 10) {
+    title = assistantTopic;
+  }
+  // Fall back to user topic even if short
+  else if (userTopic && !isTooVague(userTopic)) {
+    title = userTopic;
+  }
+  // Try recent assistant
+  else if (recentAssistantTopic && !isTooVague(recentAssistantTopic)) {
+    title = recentAssistantTopic;
+  }
+  // Try recent user
+  else if (recentUserTopic && !isTooVague(recentUserTopic)) {
+    title = recentUserTopic;
+  }
+  // Last resort: raw first message
+  else {
+    title = userTopic || firstMessage || 'Untitled Session';
   }
 
   // Final cleanup and truncation
-  title = capitalize(truncateTitle(title, 45));
+  title = capitalize(truncateTitle(title, 50));
 
-  // If title is too generic or empty, try harder
   if (!title || title.length < 4) {
-    title = capitalize(truncateTitle(topic || firstMessage || 'Untitled Session', 45));
+    title = capitalize(truncateTitle(firstMessage || 'Untitled Session', 50));
   }
 
   return title;
@@ -915,26 +953,27 @@ app.post('/api/sessions/:id/auto-title', requireAuth, (req, res) => {
   }
 
   try {
-    // Helper to extract text from a JSONL user message
-    function extractUserText(line) {
+    // Helper to extract text from a JSONL message (user or assistant)
+    function extractMessageText(line) {
       try {
         const msg = JSON.parse(line);
         const inner = msg.message || msg;
-        const isUser = msg.type === 'user' || msg.type === 'human' || inner.role === 'user';
-        if (!isUser) return null;
+        const role = msg.type || inner.role;
+        const isUser = role === 'user' || role === 'human';
+        const isAssistant = role === 'assistant';
+        if (!isUser && !isAssistant) return null;
         const c = inner.content;
         let text = '';
         if (typeof c === 'string') {
           text = c;
         } else if (Array.isArray(c)) {
-          const textBlock = c.find(b => b.type === 'text' && b.text);
-          if (textBlock) text = textBlock.text;
+          const textBlocks = c.filter(b => b.type === 'text' && b.text);
+          text = textBlocks.map(b => b.text).join(' ');
         }
         // Skip system-generated messages, tool results, very short messages
         if (!text || text.length < 5) return null;
-        // Skip messages that look like tool results or system prompts
         if (text.startsWith('<') && text.includes('system-reminder')) return null;
-        return text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+        return { role: isUser ? 'user' : 'assistant', text: text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() };
       } catch (_) { return null; }
     }
 
@@ -942,55 +981,59 @@ app.post('/api/sessions/:id/auto-title', requireAuth, (req, res) => {
     const fileSize = stat.size;
     let title = '';
 
-    // Strategy: Read the TAIL of the file to get recent activity.
-    // Use the last ~30KB for recent messages, which better reflects current work.
-    const tailSize = Math.min(30 * 1024, fileSize);
+    // Strategy: Read head (first exchange) + tail (recent activity) for full context.
+    const headSize = Math.min(30 * 1024, fileSize);
+    const headBuf = Buffer.alloc(headSize);
+    const fd = fs.openSync(jsonlPath, 'r');
+    const headBytesRead = fs.readSync(fd, headBuf, 0, headSize, 0);
+
+    const tailSize = Math.min(50 * 1024, fileSize);
     const tailOffset = Math.max(0, fileSize - tailSize);
     const tailBuf = Buffer.alloc(tailSize);
-    const fd = fs.openSync(jsonlPath, 'r');
     const tailBytesRead = fs.readSync(fd, tailBuf, 0, tailSize, tailOffset);
-
-    // Also read first 10KB to get the initial user message as fallback
-    const headSize = Math.min(10 * 1024, fileSize);
-    const headBuf = Buffer.alloc(headSize);
-    const headBytesRead = fs.readSync(fd, headBuf, 0, headSize, 0);
     fs.closeSync(fd);
 
-    // Extract recent user messages from tail
-    const tailContent = tailBuf.toString('utf-8', 0, tailBytesRead);
-    const tailLines = tailContent.split('\n').filter(l => l.trim());
-    // Skip the first line of tail — it's likely a partial line from offset
-    if (tailOffset > 0 && tailLines.length > 0) tailLines.shift();
-
-    const recentUserMessages = [];
-    for (let i = tailLines.length - 1; i >= 0 && recentUserMessages.length < 3; i--) {
-      const text = extractUserText(tailLines[i]);
-      if (text) recentUserMessages.unshift(text);
-    }
-
-    // Also extract first user message from head for topic context
+    // Parse head messages (first user message + first assistant response)
     const headContent = headBuf.toString('utf-8', 0, headBytesRead);
     const headLines = headContent.split('\n').filter(l => l.trim());
     let firstUserMessage = '';
+    let firstAssistantResponse = '';
     for (const line of headLines) {
-      const text = extractUserText(line);
-      if (text) { firstUserMessage = text; break; }
+      const parsed = extractMessageText(line);
+      if (!parsed) continue;
+      if (parsed.role === 'user' && !firstUserMessage) {
+        firstUserMessage = parsed.text;
+      } else if (parsed.role === 'assistant' && !firstAssistantResponse && firstUserMessage) {
+        firstAssistantResponse = parsed.text.substring(0, 500);
+      }
+      if (firstUserMessage && firstAssistantResponse) break;
     }
 
-    // Collect all available user messages for context
-    const allMessages = [];
-    if (firstUserMessage) allMessages.push(firstUserMessage);
-    for (const msg of recentUserMessages) {
-      if (msg !== firstUserMessage) allMessages.push(msg);
+    // Parse tail messages (recent exchanges for current focus)
+    const tailContent = tailBuf.toString('utf-8', 0, tailBytesRead);
+    const tailLines = tailContent.split('\n').filter(l => l.trim());
+    if (tailOffset > 0 && tailLines.length > 0) tailLines.shift();
+
+    const recentUserMessages = [];
+    const recentAssistantMessages = [];
+    for (let i = tailLines.length - 1; i >= 0; i--) {
+      if (recentUserMessages.length >= 3 && recentAssistantMessages.length >= 3) break;
+      const parsed = extractMessageText(tailLines[i]);
+      if (!parsed) continue;
+      if (parsed.role === 'user' && recentUserMessages.length < 3) {
+        recentUserMessages.unshift(parsed.text);
+      } else if (parsed.role === 'assistant' && recentAssistantMessages.length < 3) {
+        recentAssistantMessages.unshift(parsed.text.substring(0, 500));
+      }
     }
 
-    if (allMessages.length === 0) {
+    if (!firstUserMessage && recentUserMessages.length === 0) {
       return res.status(404).json({ error: 'No user message found in session' });
     }
 
     // ── Generate a concise title from session content ──
-    // Combine messages to understand the session topic
-    title = generateSessionTitle(firstUserMessage, recentUserMessages);
+    // Pass both user and assistant messages for better context
+    title = generateSessionTitle(firstUserMessage, firstAssistantResponse, recentUserMessages, recentAssistantMessages);
 
     // Update the session name if it's a store session
     if (session) {
