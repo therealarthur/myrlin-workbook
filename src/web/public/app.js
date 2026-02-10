@@ -1086,8 +1086,12 @@ class CWMApp {
     try {
       const data = await this.api('PUT', `/api/sessions/${id}`, result);
       const updated = data.session || data;
+      // Sync title to project sessions if this session links to a Claude UUID
+      const claudeId = (updated && updated.resumeSessionId) || (session && session.resumeSessionId);
+      if (claudeId && result.name) this.syncSessionTitle(claudeId, result.name);
       this.showToast('Session updated', 'success');
       await this.loadSessions();
+      this.renderProjects();
       if (this.state.selectedSession && this.state.selectedSession.id === id) {
         this.state.selectedSession = updated;
         this.renderSessionDetail();
@@ -1562,9 +1566,13 @@ class CWMApp {
       this.showToast('Generating title...', 'info');
       const data = await this.api('POST', `/api/sessions/${sessionId}/auto-title`);
       if (data && data.title) {
+        // Sync title to project sessions via Claude UUID
+        const claudeId = data.claudeSessionId || (this.state.sessions.find(s => s.id === sessionId) || {}).resumeSessionId;
+        if (claudeId) this.syncSessionTitle(claudeId, data.title);
         this.showToast(`Titled: "${data.title}"`, 'success');
         await this.loadSessions();
         this.renderWorkspaces();
+        this.renderProjects();
         if (this.state.selectedSession && this.state.selectedSession.id === sessionId) {
           this.state.selectedSession = this.state.sessions.find(s => s.id === sessionId);
           this.renderSessionDetail();
@@ -1584,12 +1592,11 @@ class CWMApp {
       this.showToast('Generating title...', 'info');
       const data = await this.api('POST', `/api/sessions/${claudeSessionId}/auto-title`, { claudeSessionId });
       if (data && data.title) {
-        // Store title mapping in localStorage
-        const titles = JSON.parse(localStorage.getItem('cwm_projectSessionTitles') || '{}');
-        titles[claudeSessionId] = data.title;
-        localStorage.setItem('cwm_projectSessionTitles', JSON.stringify(titles));
+        // Sync title across project sessions AND any linked workspace sessions
+        this.syncSessionTitle(claudeSessionId, data.title);
         this.showToast(`Titled: "${data.title}"`, 'success');
         this.renderProjects();
+        this.renderWorkspaces();
       }
     } catch (err) {
       this.showToast(err.message || 'Failed to auto-title', 'error');
@@ -1598,10 +1605,45 @@ class CWMApp {
 
   /**
    * Get a stored project session title (from localStorage), or null.
+   * Also checks workspace sessions that link to this Claude session UUID.
    */
   getProjectSessionTitle(claudeSessionId) {
+    // Check localStorage first
     const titles = JSON.parse(localStorage.getItem('cwm_projectSessionTitles') || '{}');
-    return titles[claudeSessionId] || null;
+    if (titles[claudeSessionId]) return titles[claudeSessionId];
+    // Fall back: check if any workspace session with this resumeSessionId has a name
+    const allSessions = this.state.allSessions || this.state.sessions || [];
+    const linked = allSessions.find(s => s.resumeSessionId === claudeSessionId && s.name);
+    return linked ? linked.name : null;
+  }
+
+  /**
+   * Sync a title across both localStorage project titles and any linked workspace sessions.
+   * Call this whenever a title is set from ANY source.
+   * @param {string} claudeSessionId - The Claude session UUID
+   * @param {string} title - The new title
+   */
+  syncSessionTitle(claudeSessionId, title) {
+    if (!claudeSessionId || !title) return;
+    // 1. Update localStorage project titles
+    const titles = JSON.parse(localStorage.getItem('cwm_projectSessionTitles') || '{}');
+    titles[claudeSessionId] = title;
+    localStorage.setItem('cwm_projectSessionTitles', JSON.stringify(titles));
+    // 2. Update any workspace sessions that link to this Claude UUID
+    const allSessions = this.state.allSessions || [];
+    for (const s of allSessions) {
+      if (s.resumeSessionId === claudeSessionId && s.name !== title) {
+        s.name = title;
+        // Fire-and-forget API update
+        this.api('PUT', `/api/sessions/${s.id}`, { name: title }).catch(() => {});
+      }
+    }
+    // Also check this.state.sessions (may be a different filtered array)
+    for (const s of (this.state.sessions || [])) {
+      if (s.resumeSessionId === claudeSessionId && s.name !== title) {
+        s.name = title;
+      }
+    }
   }
 
   /**
@@ -4945,11 +4987,12 @@ class CWMApp {
             // Also update in allSessions
             const as = this.state.allSessions && this.state.allSessions.find(s => s.id === sessionId);
             if (as && as !== s) as.name = newName;
+            // Sync to project sessions via Claude UUID
+            const claudeId = (s && s.resumeSessionId) || (as && as.resumeSessionId);
+            if (claudeId) this.syncSessionTitle(claudeId, newName);
           } else {
-            // Project session — save to localStorage titles
-            const titles = JSON.parse(localStorage.getItem('cwm_projectSessionTitles') || '{}');
-            titles[sessionId] = newName;
-            localStorage.setItem('cwm_projectSessionTitles', JSON.stringify(titles));
+            // Project session — sync everywhere (localStorage + any linked workspace sessions)
+            this.syncSessionTitle(sessionId, newName);
           }
           nameEl.textContent = newName;
           nameEl.classList.add('rename-flash');
