@@ -1405,6 +1405,92 @@ textarea.input {
   color: var(--overlay0);
 }
 
+/* ─── Workspace Analytics ─────────────────────────────────── */
+
+.detail-analytics {
+  padding: 12px 16px;
+  border-top: 1px solid var(--surface0);
+}
+
+.detail-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.analytics-card {
+  background: var(--surface0);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.analytics-card-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--overlay1);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.analytics-card-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+.analytics-card-value.cost-value {
+  color: var(--green);
+}
+
+.analytics-top-sessions {
+  margin-top: 12px;
+}
+
+.analytics-top-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--overlay1);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.analytics-top-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.analytics-top-name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.analytics-top-cost {
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
 /* ─── Cost Tracking Display ─────────────────────────────────── */
 
 .cost-summary {
@@ -3374,6 +3460,51 @@ textarea.input {
 .terminal-pane:not(.terminal-pane-empty) .terminal-pane-title {
   cursor: text;
 }
+
+/* Activity indicator — shows real-time Claude Code activity (Reading, Writing, etc.) */
+.terminal-pane-activity {
+  font-size: 11px;
+  color: var(--overlay1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+  transition: opacity 150ms ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 1;
+}
+
+.terminal-pane-activity:empty {
+  display: none;
+}
+
+.terminal-pane-activity .activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.activity-dot-thinking { background: var(--mauve); animation: activityPulse 1.5s ease-in-out infinite; }
+.activity-dot-reading { background: var(--blue); }
+.activity-dot-writing { background: var(--green); }
+.activity-dot-running { background: var(--peach); animation: activityPulse 1.5s ease-in-out infinite; }
+.activity-dot-searching { background: var(--yellow); }
+.activity-dot-delegating { background: var(--teal); }
+.activity-dot-idle { background: var(--overlay0); }
+
+@keyframes activityPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Respect reduced motion for activity pulse */
+@media (prefers-reduced-motion: reduce) {
+  .activity-dot-thinking, .activity-dot-running { animation: none; }
+}
+
 .terminal-pane-close { width: 20px; height: 20px; padding: 0; }
 .terminal-container { flex: 1; overflow: hidden; }
 .terminal-pane-empty .terminal-container {

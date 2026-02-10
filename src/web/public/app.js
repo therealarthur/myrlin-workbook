@@ -338,6 +338,11 @@ class CWMApp {
       detailSubagentCount: document.getElementById('detail-subagent-count'),
       detailSubagentList: document.getElementById('detail-subagent-list'),
 
+      // Workspace Analytics
+      detailAnalytics: document.getElementById('detail-analytics'),
+      analyticsGrid: document.getElementById('analytics-grid'),
+      analyticsTopSessions: document.getElementById('analytics-top-sessions'),
+
       // Update
       updateBtn: document.getElementById('update-btn'),
       updateBadge: document.getElementById('update-badge'),
@@ -605,6 +610,20 @@ class CWMApp {
     // level because the event bubbles from the terminal container.
     document.addEventListener('terminal-idle', (e) => {
       this.onTerminalIdle(e.detail);
+    });
+
+    // ─── Terminal Activity Feed ──────────────────────────────────
+    // Real-time activity indicator on each pane header (Reading, Writing, etc.)
+    // The 'terminal-activity' event bubbles from the terminal container.
+    document.addEventListener('terminal-activity', (e) => {
+      const { sessionId, activity } = e.detail;
+      // Find which slot has this session
+      for (let i = 0; i < 4; i++) {
+        if (this.terminalPanes[i] && this.terminalPanes[i].sessionId === sessionId) {
+          this.updatePaneActivity(i, activity);
+          break;
+        }
+      }
     });
 
     // ─── Mobile: Bottom Tab Bar ─────────────────────────────
@@ -4187,6 +4206,13 @@ class CWMApp {
 
     // Subagent tracking — fetch async
     this.loadSessionSubagents(session.id);
+
+    // Workspace analytics — show when session belongs to a workspace
+    if (session.workspaceId) {
+      this.loadWorkspaceAnalytics(session.workspaceId);
+    } else if (this.els.detailAnalytics) {
+      this.els.detailAnalytics.hidden = true;
+    }
   }
 
   async loadSessionCost(sessionId) {
@@ -4269,6 +4295,91 @@ class CWMApp {
     } catch (_) {
       // Subagent tracking is best-effort — hide section if API unavailable
       this.els.detailSubagents.hidden = true;
+    }
+  }
+
+  /**
+   * Load and display workspace-level analytics in the detail panel.
+   * Only shown when a session belonging to a workspace is selected,
+   * giving contextual workspace metrics alongside session details.
+   */
+  async loadWorkspaceAnalytics(workspaceId) {
+    if (!this.els.detailAnalytics) return;
+    try {
+      const data = await this.api('GET', `/api/workspaces/${workspaceId}/analytics`);
+      this.renderWorkspaceAnalytics(data);
+      this.els.detailAnalytics.hidden = false;
+    } catch (_) {
+      this.els.detailAnalytics.hidden = true;
+    }
+  }
+
+  /**
+   * Render workspace analytics cards (session counts, cost, tokens,
+   * last activity) and a top-sessions-by-cost list.
+   */
+  renderWorkspaceAnalytics(data) {
+    if (!this.els.analyticsGrid) return;
+
+    const formatCost = (c) => c < 0.01 ? '<$0.01' : '$' + c.toFixed(2);
+    const formatTokens = (t) => {
+      if (t >= 1000000) return (t / 1000000).toFixed(1) + 'M';
+      if (t >= 1000) return (t / 1000).toFixed(0) + 'K';
+      return t.toString();
+    };
+    const formatTime = (ts) => {
+      if (!ts) return '--';
+      const d = new Date(ts);
+      const now = new Date();
+      const diff = now - d;
+      if (diff < 60000) return 'just now';
+      if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+      if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+      return Math.floor(diff / 86400000) + 'd ago';
+    };
+
+    let gridHtml = `
+      <div class="analytics-card">
+        <div class="analytics-card-label">Sessions</div>
+        <div class="analytics-card-value">${data.totalSessions}</div>
+      </div>
+      <div class="analytics-card">
+        <div class="analytics-card-label">Running</div>
+        <div class="analytics-card-value" style="color:var(--green)">${data.runningSessions}</div>
+      </div>`;
+
+    if (data.costAvailable) {
+      gridHtml += `
+      <div class="analytics-card">
+        <div class="analytics-card-label">Total Cost</div>
+        <div class="analytics-card-value cost-value">${formatCost(data.totalCost)}</div>
+      </div>
+      <div class="analytics-card">
+        <div class="analytics-card-label">Tokens Used</div>
+        <div class="analytics-card-value">${formatTokens(data.totalInputTokens + data.totalOutputTokens)}</div>
+      </div>`;
+    }
+
+    gridHtml += `
+      <div class="analytics-card">
+        <div class="analytics-card-label">Last Active</div>
+        <div class="analytics-card-value" style="font-size:14px">${formatTime(data.lastActivity)}</div>
+      </div>`;
+
+    this.els.analyticsGrid.innerHTML = gridHtml;
+
+    // Top sessions by cost
+    if (data.topSessions && data.topSessions.length > 0 && data.costAvailable) {
+      let topHtml = '<div class="analytics-top-title">Top Sessions by Cost</div>';
+      data.topSessions.forEach(s => {
+        topHtml += `<div class="analytics-top-item">
+          <span class="analytics-top-name">${this.escapeHtml(s.name)}</span>
+          <span class="analytics-top-cost">${formatCost(s.cost)}</span>
+        </div>`;
+      });
+      this.els.analyticsTopSessions.innerHTML = topHtml;
+    } else {
+      this.els.analyticsTopSessions.innerHTML = '';
     }
   }
 
@@ -5025,11 +5136,45 @@ class CWMApp {
       this.setActiveTerminalPane(slotIdx);
     });
 
+    // Clear activity indicator for the new pane
+    const activityEl = document.getElementById(`term-activity-${slotIdx}`);
+    if (activityEl) activityEl.innerHTML = '';
+
     // Update mobile terminal tab strip
     if (this.isMobile) {
       this.updateTerminalTabs();
       this.switchTerminalTab(slotIdx);
     }
+  }
+
+  /**
+   * Update the activity indicator on a terminal pane header.
+   * Called when 'terminal-activity' events fire from TerminalPane.
+   */
+  updatePaneActivity(slotIdx, activity) {
+    const el = document.getElementById(`term-activity-${slotIdx}`);
+    if (!el) return;
+
+    if (!activity) {
+      el.innerHTML = '';
+      return;
+    }
+
+    const labels = {
+      thinking: 'Thinking',
+      reading: 'Reading',
+      writing: 'Writing',
+      running: 'Running',
+      searching: 'Searching',
+      delegating: 'Delegating',
+      idle: 'Idle',
+    };
+
+    const label = labels[activity.type] || activity.type;
+    const detail = activity.detail ? ': ' + this.escapeHtml(activity.detail) : '';
+    const dotClass = 'activity-dot-' + activity.type;
+
+    el.innerHTML = `<span class="activity-dot ${dotClass}"></span>${label}${detail}`;
   }
 
   showTerminalContextMenu(slotIdx, x, y) {
@@ -5122,6 +5267,8 @@ class CWMApp {
     if (titleEl) titleEl.textContent = 'Drop a session here';
     const closeBtn = paneEl.querySelector('.terminal-pane-close');
     if (closeBtn) closeBtn.hidden = true;
+    const activityEl = document.getElementById(`term-activity-${slotIdx}`);
+    if (activityEl) activityEl.innerHTML = '';
     const container = document.getElementById(`term-container-${slotIdx}`);
     if (container) container.innerHTML = '';
 

@@ -1723,6 +1723,98 @@ app.get('/api/workspaces/:id/cost', requireAuth, (req, res) => {
   });
 });
 
+/**
+ * GET /api/workspaces/:id/analytics
+ * Aggregates per-workspace metrics: session counts by status, cost/token
+ * totals (reusing the cost cache where available), and top sessions by cost.
+ */
+app.get('/api/workspaces/:id/analytics', requireAuth, (req, res) => {
+  try {
+    const store = getStore();
+    const workspace = store.getWorkspace(req.params.id);
+    if (!workspace) return res.status(404).json({ error: 'Workspace not found.' });
+
+    const sessions = store.getWorkspaceSessions(req.params.id);
+    const running = sessions.filter(s => s.status === 'running').length;
+    const stopped = sessions.filter(s => s.status === 'stopped' || !s.status).length;
+    const crashed = sessions.filter(s => s.status === 'crashed' || s.status === 'error').length;
+
+    // Find most recent activity
+    let lastActivity = workspace.createdAt;
+    sessions.forEach(s => {
+      if (s.lastActive && s.lastActive > lastActivity) lastActivity = s.lastActive;
+    });
+
+    // Calculate time span (first session created to last activity)
+    let firstCreated = workspace.createdAt;
+    sessions.forEach(s => {
+      if (s.createdAt && s.createdAt < firstCreated) firstCreated = s.createdAt;
+    });
+
+    // Aggregate cost data from sessions, reusing cache where available
+    let totalCost = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let costAvailable = false;
+    const sessionCosts = [];
+
+    for (const s of sessions.slice(0, 20)) {
+      const resumeSessionId = s.resumeSessionId;
+      if (!resumeSessionId) continue;
+
+      const jsonlPath = findJsonlFile(resumeSessionId);
+      if (!jsonlPath) continue;
+
+      try {
+        const stat = fs.statSync(jsonlPath);
+        const mtimeMs = stat.mtimeMs;
+        const cached = _costCache.get(resumeSessionId);
+        const now = Date.now();
+        let costData;
+
+        if (cached && cached.mtimeMs === mtimeMs && (now - cached.timestamp) < COST_CACHE_TTL) {
+          costData = cached.result;
+        } else {
+          // Only process files under 10MB to avoid blocking
+          if (stat.size >= 10 * 1024 * 1024) continue;
+          costData = calculateSessionCost(jsonlPath);
+          const result = { sessionId: s.id, resumeSessionId, ...costData };
+          _costCache.set(resumeSessionId, { mtimeMs, timestamp: now, result });
+        }
+
+        const sessionTotal = costData.cost ? costData.cost.total : 0;
+        totalCost += sessionTotal;
+        totalInputTokens += costData.tokens ? costData.tokens.input : 0;
+        totalOutputTokens += costData.tokens ? costData.tokens.output : 0;
+        sessionCosts.push({ name: s.name || s.id.substring(0, 12), cost: sessionTotal });
+        costAvailable = true;
+      } catch (_) {
+        // Skip sessions whose JSONL files can't be read
+      }
+    }
+
+    // Sort sessions by cost descending, keep top 5
+    sessionCosts.sort((a, b) => b.cost - a.cost);
+
+    res.json({
+      totalSessions: sessions.length,
+      runningSessions: running,
+      stoppedSessions: stopped,
+      crashedSessions: crashed,
+      lastActivity,
+      firstCreated,
+      costAvailable,
+      totalCost: Math.round(totalCost * 1000) / 1000,
+      totalInputTokens,
+      totalOutputTokens,
+      avgSessionCost: sessions.length > 0 ? Math.round((totalCost / sessions.length) * 1000) / 1000 : 0,
+      topSessions: sessionCosts.slice(0, 5),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get analytics: ' + err.message });
+  }
+});
+
 // ──────────────────────────────────────────────────────────
 //  SESSION CONTEXT EXPORT / HANDOFF
 // ──────────────────────────────────────────────────────────

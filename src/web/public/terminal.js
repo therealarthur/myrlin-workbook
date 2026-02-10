@@ -131,6 +131,9 @@ class TerminalPane {
     this._isWorking = false;
     this._lastOutputTime = 0;
     this._idleCheckTimer = null;
+    // Activity detection: real-time parsing of Claude Code output patterns
+    this._currentActivity = null; // { type: 'thinking'|'reading'|'writing'|'running'|'searching'|'idle', detail: '...' }
+    this._activityBuffer = '';    // Rolling buffer for pattern matching (last ~500 chars)
   }
 
   _log(msg) {
@@ -365,6 +368,7 @@ class TerminalPane {
             return;
           } else if (msg.type === 'output') {
             this.term.write(msg.data);
+            this._detectActivity(msg.data);
             this._trackActivityForCompletion();
             return;
           }
@@ -372,6 +376,8 @@ class TerminalPane {
       }
       this.term.write(data);
 
+      // Detect activity from raw terminal output
+      this._detectActivity(data);
       // Track activity for completion detection
       this._trackActivityForCompletion();
     };
@@ -682,6 +688,65 @@ class TerminalPane {
   }
 
   /* ═══════════════════════════════════════════════════════════
+     ACTIVITY DETECTION
+     Parses terminal output in real-time for Claude Code patterns
+     and dispatches 'terminal-activity' events so the app layer
+     can display what each pane is currently doing.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Detect Claude Code activity from raw terminal output.
+   * Matches tool-use headers (Read, Write, Bash, etc.) and updates
+   * the current activity state, dispatching a custom event on change.
+   */
+  _detectActivity(data) {
+    // Append to rolling buffer (strip ANSI escape codes for matching)
+    const clean = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+    this._activityBuffer += clean;
+    if (this._activityBuffer.length > 500) {
+      this._activityBuffer = this._activityBuffer.slice(-500);
+    }
+
+    let newActivity = null;
+
+    // Pattern matching — check most specific patterns first
+    // Claude Code tool use headers look like: "⏺ Read(file_path)" or "⏺ Write(file_path)" or "⏺ Bash(command)"
+    const toolMatch = this._activityBuffer.match(/⏺\s*(Read|Write|Edit|Bash|Glob|Grep|Task|WebFetch|WebSearch)\(([^)]*)\)\s*$/m);
+    if (toolMatch) {
+      const tool = toolMatch[1];
+      const arg = toolMatch[2].trim().replace(/^["']|["']$/g, '');
+      const shortArg = arg.length > 40 ? '...' + arg.slice(-37) : arg;
+
+      if (tool === 'Read') newActivity = { type: 'reading', detail: shortArg };
+      else if (tool === 'Write' || tool === 'Edit') newActivity = { type: 'writing', detail: shortArg };
+      else if (tool === 'Bash') newActivity = { type: 'running', detail: shortArg };
+      else if (tool === 'Glob' || tool === 'Grep') newActivity = { type: 'searching', detail: shortArg };
+      else if (tool === 'Task') newActivity = { type: 'delegating', detail: 'Spawning subagent' };
+      else if (tool === 'WebFetch' || tool === 'WebSearch') newActivity = { type: 'searching', detail: 'Web search' };
+    }
+
+    // Thinking/streaming indicator — Claude outputs text without tool headers
+    if (!newActivity && /\S/.test(clean) && clean.length > 10) {
+      // If we see substantial text without tool headers, Claude is thinking/responding
+      if (!this._currentActivity || this._currentActivity.type === 'idle') {
+        newActivity = { type: 'thinking', detail: 'Generating response' };
+      }
+    }
+
+    if (newActivity && (!this._currentActivity || this._currentActivity.type !== newActivity.type || this._currentActivity.detail !== newActivity.detail)) {
+      this._currentActivity = newActivity;
+      // Dispatch custom event for the app layer
+      const container = document.getElementById(this.containerId);
+      if (container) {
+        container.dispatchEvent(new CustomEvent('terminal-activity', {
+          bubbles: true,
+          detail: { sessionId: this.sessionId, activity: newActivity }
+        }));
+      }
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════
      COMPLETION DETECTION
      Detects when Claude transitions from "working" (producing output)
      to "idle" (showing a prompt, ready for input). Uses a debounced
@@ -726,6 +791,17 @@ class TerminalPane {
     // Also match "Human:" which appears in Claude's conversation UI
     if (/[❯$>]\s*$/.test(lineText) || /^(Human:|Type.*message)/.test(lineText)) {
       this._isWorking = false;
+
+      // Update activity to idle when prompt is detected
+      this._currentActivity = { type: 'idle', detail: 'Waiting for input' };
+      this._activityBuffer = '';
+      const idleContainer = document.getElementById(this.containerId);
+      if (idleContainer) {
+        idleContainer.dispatchEvent(new CustomEvent('terminal-activity', {
+          bubbles: true,
+          detail: { sessionId: this.sessionId, activity: this._currentActivity }
+        }));
+      }
 
       // Dispatch custom event for the app to handle
       const container = document.getElementById(this.containerId);
