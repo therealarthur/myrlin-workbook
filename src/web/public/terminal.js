@@ -51,7 +51,7 @@ class TerminalPane {
     try {
       this.term = new Terminal({
         cursorBlink: true,
-        cursorStyle: 'bar',
+        cursorStyle: 'underline',
         fontSize: 13,
         fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
         lineHeight: 1.2,
