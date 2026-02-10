@@ -4,7 +4,7 @@ Manage multiple Claude Code sessions from one browser tab. Workspaces, embedded 
 
 > Currently supports Claude Code. Other AI coding tools on the [roadmap](#roadmap).
 
-![Terminal view with multiple Claude Code sessions](docs/images/terminal-overview.png)
+![Terminal grid with 4 Claude Code sessions running simultaneously](docs/images/terminal-grid.png)
 
 ## Quick Start
 
@@ -68,7 +68,7 @@ What those tools do better than this: Opcode has 20k stars and cost tracking. Cl
 
 ### Workspaces & Sessions
 
-![App overview — workspaces, sessions, and terminal grid](docs/images/app-overview.png)
+![Workspace dashboard with sessions grouped by project](docs/images/hero-dashboard.png)
 
 - Named workspaces with color coding
 - Group workspaces under umbrella folders
@@ -79,13 +79,23 @@ What those tools do better than this: Opcode has 20k stars and cost tracking. Cl
 
 ### Embedded Terminals
 
-![Right-click context menu with session options](docs/images/context-menu.png)
-
 - 4-pane terminal grid (xterm.js + node-pty + WebSocket)
 - Tab groups — named sets of terminal panes ("Research", "Debug"), switchable and persistent
 - PTY sessions survive page refresh
 - Scrollback replay on reconnect
 - Model selection (Opus, Sonnet, Haiku) and session resume (`--resume`)
+- Right-click context menu with Copy, Stop, Restart, Model selection
+
+### Per-Workspace Docs & Feature Board
+
+![Docs panel with Notes, Goals, Tasks, Roadmap, and Rules](docs/images/docs-panel.png)
+
+- Notes, Goals, Tasks, Rules, and Roadmap sections per workspace
+- Kanban-style feature board (Planned → Active → Review → Done)
+- Markdown editor with formatting toolbar
+- AI Insights tab — auto-generated summaries of workspace sessions
+
+![Feature tracking Kanban board](docs/images/kanban-board.png)
 
 ### Project Discovery
 - Scans `~/.claude/projects/` and finds all your existing Claude sessions
@@ -93,15 +103,16 @@ What those tools do better than this: Opcode has 20k stars and cost tracking. Cl
 - Session summaries (parses JSONL to extract what each session was working on)
 - Import sessions into workspaces with one click
 
-### Per-Workspace Docs
-- Notes, Goals, and Tasks sections per workspace
-- Markdown editor with formatting toolbar
-- AI Insights tab — auto-generated summaries of workspace sessions
-
 ### Resource Monitoring
 - System overview (CPU, RAM, uptime)
-- Per-session memory tracking
-- See which Claude sessions are eating resources
+- Per-session CPU and memory tracking with process control
+- Stop, restart, or kill sessions directly from the Resources tab
+
+### Themes
+
+![All 4 Catppuccin themes — Mocha, Macchiato, Frappe, and Latte](docs/images/theme-showcase.png)
+
+4 Catppuccin themes: Mocha (dark), Macchiato, Frappe, and Latte (light). Toggle from the header.
 
 ### Mobile
 - Responsive layout with bottom tab bar
@@ -216,12 +227,14 @@ PORT=8080 npm run gui
 ## Roadmap
 
 - Multi-provider support (Codex, Cursor, Aider)
-- Session templates (save and reuse configs)
-- Session search / filtering
+- ~~Session templates~~ shipped
+- ~~Session search~~ shipped
+- ~~Light theme~~ shipped (4 Catppuccin themes)
+- ~~Cost tracking~~ shipped (per-session token + cost breakdown)
+- ~~Feature board~~ shipped (Kanban per workspace)
 - Export/import workspaces
 - Pinned sessions
-- ~~Light theme~~ shipped (Catppuccin Latte)
-- Session cost estimation (token tracking)
+- Push notifications for session events
 
 ---
 

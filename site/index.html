@@ -239,87 +239,6 @@
       display: block;
     }
 
-    /* Placeholder for screenshot */
-    .screenshot-placeholder {
-      width: 100%;
-      aspect-ratio: 16/9;
-      background: var(--mantle);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--overlay0);
-      font-size: 14px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .screenshot-placeholder::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(135deg, rgba(203, 166, 247, 0.03) 0%, transparent 50%, rgba(137, 180, 250, 0.03) 100%);
-    }
-
-    /* Mock terminal grid inside the placeholder */
-    .mock-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: 1fr 1fr;
-      gap: 2px;
-      width: 90%;
-      height: 85%;
-      position: relative;
-      z-index: 1;
-    }
-
-    .mock-pane {
-      background: var(--crust);
-      border-radius: 6px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .mock-pane-header {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      background: var(--mantle);
-      border-bottom: 1px solid var(--surface0);
-      font-size: 11px;
-      font-weight: 600;
-    }
-
-    .mock-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-    }
-
-    .mock-dot-green { background: var(--green); box-shadow: 0 0 4px rgba(166, 227, 161, 0.4); }
-    .mock-dot-yellow { background: var(--yellow); }
-    .mock-dot-blue { background: var(--blue); }
-    .mock-dot-mauve { background: var(--mauve); }
-
-    .mock-pane-body {
-      flex: 1;
-      padding: 8px 10px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      line-height: 1.5;
-      color: var(--subtext0);
-    }
-
-    .mock-pane-body .cmd { color: var(--green); }
-    .mock-pane-body .path { color: var(--blue); }
-    .mock-pane-body .output { color: var(--overlay1); }
-    .mock-pane-body .highlight { color: var(--mauve); }
-
-    .mock-pane-active {
-      box-shadow: inset 0 0 0 1px var(--mauve);
-    }
-
     /* ═══════════════════════════════════════════════════════
        PAIN POINTS
        ═══════════════════════════════════════════════════════ */
@@ -594,58 +513,7 @@
       </div>
 
       <div class="hero-screenshot">
-        <div class="screenshot-placeholder">
-          <div class="mock-grid">
-            <div class="mock-pane mock-pane-active">
-              <div class="mock-pane-header">
-                <span class="mock-dot mock-dot-green"></span>
-                auth-flow
-              </div>
-              <div class="mock-pane-body">
-                <div><span class="cmd">$</span> <span class="path">claude</span> --model opus</div>
-                <div><span class="output">Building login form with OAuth...</span></div>
-                <div><span class="highlight">Editing src/auth/login.ts</span></div>
-                <div><span class="output">Added Google + GitHub providers</span></div>
-                <div><span class="highlight">Running tests... 14/14 passed</span></div>
-              </div>
-            </div>
-            <div class="mock-pane">
-              <div class="mock-pane-header">
-                <span class="mock-dot mock-dot-green"></span>
-                api-refactor
-              </div>
-              <div class="mock-pane-body">
-                <div><span class="cmd">$</span> <span class="path">claude</span></div>
-                <div><span class="output">Migrating REST to tRPC...</span></div>
-                <div><span class="highlight">3 subagents running</span></div>
-                <div><span class="output">Modified 12 files</span></div>
-              </div>
-            </div>
-            <div class="mock-pane">
-              <div class="mock-pane-header">
-                <span class="mock-dot mock-dot-yellow"></span>
-                dark-mode
-              </div>
-              <div class="mock-pane-body">
-                <div><span class="cmd">$</span> <span class="path">claude</span> --verbose</div>
-                <div><span class="output">Waiting for input...</span></div>
-                <div style="color:var(--overlay0)">Cost: $2.14 &middot; 45min</div>
-              </div>
-            </div>
-            <div class="mock-pane">
-              <div class="mock-pane-header">
-                <span class="mock-dot mock-dot-blue"></span>
-                docs-update
-              </div>
-              <div class="mock-pane-body">
-                <div><span class="cmd">$</span> <span class="path">claude</span></div>
-                <div><span class="output">Updating API documentation...</span></div>
-                <div><span class="highlight">Edit README.md</span></div>
-                <div><span class="output">Added 3 new sections</span></div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <img src="images/terminal-grid.png" alt="Terminal grid with 4 Claude Code sessions running simultaneously" loading="lazy">
       </div>
     </div>
   </section>
@@ -733,6 +601,22 @@
         <div class="feature-item">
           <h4><span class="fi">🎨</span> 4 Themes</h4>
           <p>Catppuccin Mocha, Macchiato, Frapp&eacute;, and Latte. Dark and light. Terminal colors match.</p>
+        </div>
+      </div>
+
+      <!-- Feature screenshots -->
+      <div style="margin-top: 64px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="hero-screenshot" style="border-radius: 10px;">
+          <img src="images/docs-panel.png" alt="Per-workspace docs with Notes, Goals, Tasks, Rules, and Roadmap" loading="lazy">
+        </div>
+        <div class="hero-screenshot" style="border-radius: 10px;">
+          <img src="images/kanban-board.png" alt="Feature tracking Kanban board per workspace" loading="lazy">
+        </div>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <div class="hero-screenshot" style="border-radius: 10px;">
+          <img src="images/theme-showcase.png" alt="All 4 Catppuccin themes — Mocha, Macchiato, Frappe, and Latte" loading="lazy">
         </div>
       </div>
     </div>

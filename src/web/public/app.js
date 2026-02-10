@@ -6418,6 +6418,17 @@ class CWMApp {
       this._activeGroupId = 'tg_default';
     }
     this.renderTerminalGroupTabs();
+
+    // Restore panes for the active group on initial load
+    // Without this, the layout loads but panes show "Drop a session here"
+    const group = this._tabGroups.find(g => g.id === this._activeGroupId);
+    if (group && group.panes && group.panes.length > 0) {
+      group.panes.forEach(p => {
+        if (p.sessionId) {
+          this.openTerminalInPane(p.slot, p.sessionId, p.sessionName || 'Terminal', p.spawnOpts || {});
+        }
+      });
+    }
   }
 
   renderTerminalGroupTabs() {
