@@ -560,10 +560,45 @@ app.post('/api/sessions', requireAuth, (req, res) => {
  */
 app.put('/api/sessions/:id', requireAuth, (req, res) => {
   const store = getStore();
+
+  // Capture previous status before applying updates so we can detect
+  // running->stopped transitions for auto-summary generation.
+  const existingSession = store.getSession(req.params.id);
+  const previousStatus = existingSession ? existingSession.status : null;
+
   const session = store.updateSession(req.params.id, req.body);
 
   if (!session) {
     return res.status(404).json({ error: 'Session not found.' });
+  }
+
+  // Auto-generate summary when a session transitions from running to stopped
+  // and the workspace has autoSummary enabled (defaults to true).
+  const updates = req.body || {};
+  if (updates.status === 'stopped' && previousStatus === 'running') {
+    const ws = session.workspaceId ? store.getWorkspace(session.workspaceId) : null;
+    const autoSummaryEnabled = ws ? (ws.autoSummary !== false) : false;
+
+    if (autoSummaryEnabled) {
+      // Generate summary in background so we don't block the response
+      setImmediate(() => {
+        try {
+          const resumeSessionId = session.resumeSessionId || req.params.id;
+          const jsonlPath = findJsonlFile(resumeSessionId);
+          if (jsonlPath) {
+            const summaryText = generateSessionSummary(jsonlPath);
+            const fullSummary = `**${session.name}**: ${summaryText}`;
+            if (session.workspaceId) {
+              store.addWorkspaceNote(session.workspaceId, fullSummary);
+              // Broadcast update to SSE clients so the UI refreshes docs
+              broadcastSSE('docs:updated', { workspaceId: session.workspaceId });
+            }
+          }
+        } catch (_) {
+          // Best-effort — don't crash on summary failure
+        }
+      });
+    }
   }
 
   return res.json({ session });
@@ -2135,6 +2170,134 @@ app.get('/api/sessions/:id/subagents', requireAuth, (req, res) => {
     return res.json(result);
   } catch (err) {
     return res.status(500).json({ error: 'Failed to parse subagents: ' + err.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+//  AUTO-DOCS: SESSION SUMMARIZER
+// ──────────────────────────────────────────────────────────
+
+/**
+ * Generate a short summary of a session from its JSONL data.
+ * Extracts first user request and last assistant response,
+ * then produces a concise summary line with files modified and tools used.
+ * @param {string} jsonlPath - Path to the JSONL file
+ * @returns {string} Summary text
+ */
+function generateSessionSummary(jsonlPath) {
+  const content = fs.readFileSync(jsonlPath, 'utf-8');
+  const lines = content.split('\n').filter(l => l.trim());
+
+  let firstUserMsg = null;
+  let lastAssistantMsg = null;
+  let toolsUsed = new Set();
+  let filesModified = new Set();
+
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line);
+
+      // Extract first user message (the "task")
+      if (entry.type === 'user' || (entry.message && entry.message.role === 'user')) {
+        const msg = entry.message || entry;
+        const c = msg.content;
+        let text = '';
+        if (typeof c === 'string') text = c;
+        else if (Array.isArray(c)) {
+          text = c.filter(b => b.type === 'text').map(b => b.text).join(' ');
+        }
+        if (text && text.length > 5 && !text.startsWith('<system-reminder')) {
+          if (!firstUserMsg) firstUserMsg = text.substring(0, 200);
+        }
+      }
+
+      // Extract last assistant message and track tool usage
+      if (entry.type === 'assistant' && entry.message) {
+        const c = entry.message.content;
+        if (Array.isArray(c)) {
+          for (const block of c) {
+            if (block.type === 'text' && block.text && block.text.length > 10) {
+              lastAssistantMsg = block.text.substring(0, 300);
+            }
+            if (block.type === 'tool_use') {
+              toolsUsed.add(block.name);
+              // Track file modifications from Edit and Write tools
+              if (block.name === 'Edit' || block.name === 'Write') {
+                const fp = block.input && (block.input.file_path || block.input.path);
+                if (fp) {
+                  // Extract just filename for brevity
+                  const parts = fp.replace(/\\/g, '/').split('/');
+                  filesModified.add(parts[parts.length - 1]);
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Build summary from extracted data
+  const parts = [];
+
+  if (firstUserMsg) {
+    // Truncate to first sentence or 100 chars for readability
+    let task = firstUserMsg.replace(/[\r\n]+/g, ' ').trim();
+    const sentenceEnd = task.search(/[.!?]\s/);
+    if (sentenceEnd > 0 && sentenceEnd < 100) task = task.substring(0, sentenceEnd + 1);
+    else if (task.length > 100) task = task.substring(0, 100) + '...';
+    parts.push(task);
+  }
+
+  if (filesModified.size > 0) {
+    const fileList = Array.from(filesModified).slice(0, 5);
+    parts.push('Files: ' + fileList.join(', '));
+  }
+
+  if (toolsUsed.size > 0) {
+    // Filter out read-only tools for a cleaner summary
+    const tools = Array.from(toolsUsed).filter(t => t !== 'Read' && t !== 'Glob' && t !== 'Grep');
+    if (tools.length > 0) {
+      parts.push('Tools: ' + tools.slice(0, 4).join(', '));
+    }
+  }
+
+  return parts.join(' | ') || 'Session completed (no summary available)';
+}
+
+/**
+ * POST /api/sessions/:id/summarize
+ * Manually generate a summary of a session from its JSONL data.
+ * Appends the summary as a timestamped note to the session's workspace docs.
+ * Returns the generated summary text.
+ */
+app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
+  const store = getStore();
+  const session = store.getSession(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  const resumeSessionId = session.resumeSessionId || req.params.id;
+  const jsonlPath = findJsonlFile(resumeSessionId);
+
+  if (!jsonlPath) {
+    return res.json({ summary: null, message: 'No JSONL data found' });
+  }
+
+  try {
+    const summaryText = generateSessionSummary(jsonlPath);
+    const fullSummary = `**${session.name}**: ${summaryText}`;
+
+    // Auto-append to workspace docs if session has a workspace
+    if (session.workspaceId) {
+      const ws = store.getWorkspace(session.workspaceId);
+      if (ws) {
+        store.addWorkspaceNote(session.workspaceId, fullSummary);
+      }
+    }
+
+    return res.json({ summary: fullSummary, sessionId: req.params.id });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to generate summary: ' + err.message });
   }
 });
 

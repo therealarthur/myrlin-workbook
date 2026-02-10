@@ -1010,6 +1010,29 @@ textarea.input {
   padding: 0 0 4px 0;
 }
 
+/* ─── Nested Workspace Tree ──────────────────────────── */
+.ws-children {
+  padding-left: 0;
+}
+
+.ws-item-child {
+  padding-left: 28px !important;
+}
+
+.ws-item-child .workspace-name::before {
+  content: '\2514\00a0';
+  color: var(--surface2);
+  font-size: 11px;
+}
+
+.ws-item-child.workspace-accordion {
+  margin-bottom: 0;
+}
+
+.ws-item-child .workspace-accordion-body {
+  padding-left: 12px;
+}
+
 .ws-session-item {
   display: flex;
   align-items: center;

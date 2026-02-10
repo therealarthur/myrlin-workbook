@@ -221,6 +221,7 @@ class Store extends EventEmitter {
       sessions: [],
       createdAt: now,
       lastActive: now,
+      autoSummary: true,  // Auto-generate session summaries on stop
     };
     this._state.workspaces[id] = workspace;
     // Auto-activate if first workspace

@@ -1520,6 +1520,7 @@ class CWMApp {
       { label: 'Start with Context', icon: '&#128218;', action: () => this.startSessionWithContext(sessionId) },
       { label: 'Save as Template', icon: '&#128190;', action: () => this.saveSessionAsTemplate(session) },
       { label: 'Export Context', icon: '&#128230;', action: () => this.exportSessionContext(sessionId) },
+      { label: 'Summarize to Docs', icon: '&#128221;', action: () => this.summarizeSessionToDocs(sessionId) },
     );
 
     // If the session has a working directory, add git worktree option
@@ -3195,7 +3196,16 @@ class CWMApp {
       rosewater: '#f5e0dc',
     };
 
-    const renderWorkspaceItem = (ws) => {
+    // Build child workspace map for nested rendering (1 level deep only)
+    const childMap = {};
+    workspaces.forEach(ws => {
+      if (ws.parentId) {
+        if (!childMap[ws.parentId]) childMap[ws.parentId] = [];
+        childMap[ws.parentId].push(ws);
+      }
+    });
+
+    const renderWorkspaceItem = (ws, isChild = false) => {
       const isActive = this.state.activeWorkspace && this.state.activeWorkspace.id === ws.id;
       const color = colorMap[ws.color] || colorMap.mauve;
       const allWsSessions = (this.state.allSessions || this.state.sessions).filter(s => s.workspaceId === ws.id);
@@ -3297,9 +3307,15 @@ class CWMApp {
         }).join('');
       }
 
+      // Build child workspaces HTML (only for non-child items, 1 level deep)
+      const childrenHtml = !isChild ? (childMap[ws.id] || []).map(child => renderWorkspaceItem(child, true)).join('') : '';
+      const childWrapperHtml = childrenHtml ? `<div class="ws-children" data-parent="${ws.id}">${childrenHtml}</div>` : '';
+
+      const childClass = isChild ? ' ws-item-child' : '';
+
       return `
-        <div class="workspace-accordion" data-id="${ws.id}">
-          <div class="workspace-item${isActive ? ' active' : ''}" data-id="${ws.id}" draggable="true">
+        <div class="workspace-accordion${childClass}" data-id="${ws.id}">
+          <div class="workspace-item${isActive ? ' active' : ''}${childClass}" data-id="${ws.id}" draggable="true">
             <span class="ws-chevron${isActive ? ' open' : ''}">&#9654;</span>
             <div class="workspace-color-dot" style="background: ${color}"></div>
             <div class="workspace-info">
@@ -3322,18 +3338,20 @@ class CWMApp {
           <div class="workspace-accordion-body"${isActive ? '' : ' hidden'}>
             ${sessionItems || '<div class="ws-session-empty">No sessions</div>'}
           </div>
-        </div>`;
+        </div>${childWrapperHtml}`;
     };
 
     // Split workspaces into grouped and ungrouped
+    // Child workspaces (those with parentId) are rendered under their parent, not separately
     const groups = this.state.groups || [];
     const groupedIds = new Set();
     groups.forEach(g => (g.workspaceIds || []).forEach(id => groupedIds.add(id)));
-    const ungrouped = workspaces.filter(ws => !groupedIds.has(ws.id));
+    const childIds = new Set(workspaces.filter(ws => ws.parentId).map(ws => ws.id));
+    const ungrouped = workspaces.filter(ws => !groupedIds.has(ws.id) && !childIds.has(ws.id));
 
     let html = '';
 
-    // Render ungrouped workspaces first
+    // Render ungrouped top-level workspaces first (children render nested via renderWorkspaceItem)
     html += ungrouped.map(ws => renderWorkspaceItem(ws)).join('');
 
     // Render groups
@@ -3341,7 +3359,8 @@ class CWMApp {
       const groupColor = colorMap[group.color] || colorMap.mauve;
       const groupWorkspaces = (group.workspaceIds || [])
         .map(id => workspaces.find(ws => ws.id === id))
-        .filter(Boolean);
+        .filter(Boolean)
+        .filter(ws => !ws.parentId); // Child workspaces render under their parent, not separately in groups
 
       // Show empty groups too so user can drag workspaces into them
 
@@ -3701,6 +3720,18 @@ class CWMApp {
       { label: 'Create Worktree', icon: '&#128268;', action: () => this.createWorktree(workspaceId) },
       { type: 'sep' },
       { label: 'Edit', icon: '&#9998;', action: () => this.renameWorkspace(workspaceId) },
+      { label: ws.autoSummary !== false ? 'Auto-Docs \u2713' : 'Auto-Docs',
+        icon: '&#128221;',
+        action: async () => {
+          const newVal = ws.autoSummary === false ? true : false;
+          await this.api('PUT', `/api/workspaces/${workspaceId}`, { autoSummary: newVal });
+          await this.loadWorkspaces();
+          this.showToast(`Auto-docs ${newVal ? 'enabled' : 'disabled'}`, 'info');
+        }
+      },
+      { type: 'sep' },
+      { label: 'Set Parent...', icon: '&#128193;', action: () => this.setWorkspaceParent(workspaceId) },
+      ...(ws.parentId ? [{ label: 'Remove Parent', icon: '&#8592;', action: () => this.removeWorkspaceParent(workspaceId) }] : []),
       { type: 'sep' },
       ...(groupItems.length > 0 ? [
         { label: 'Move to Group', icon: '&#8594;', disabled: true },
@@ -3784,6 +3815,85 @@ class CWMApp {
       this.renderWorkspaces();
     } catch (err) {
       this.showToast(err.message || 'Failed to remove workspace', 'error');
+    }
+  }
+
+  /**
+   * Set a parent workspace for nesting (1 level deep only).
+   * Shows a prompt to pick from available top-level workspaces.
+   */
+  async setWorkspaceParent(workspaceId) {
+    const ws = this.state.workspaces.find(w => w.id === workspaceId);
+    if (!ws) return;
+
+    // Only allow setting parent to top-level workspaces (no parentId)
+    // and exclude self and current parent
+    const others = this.state.workspaces.filter(w =>
+      w.id !== workspaceId &&
+      w.id !== ws.parentId &&
+      !w.parentId // Don't allow nested children (only 1 level deep)
+    );
+
+    if (others.length === 0) {
+      this.showToast('No available parent workspaces', 'info');
+      return;
+    }
+
+    const options = others.map(w => ({ value: w.id, label: w.name }));
+    const result = await this.showPromptModal({
+      title: 'Set Parent Workspace',
+      fields: [
+        { key: 'parentId', label: 'Parent Workspace', type: 'select', options, required: true },
+      ],
+      confirmText: 'Set Parent',
+    });
+
+    if (result && result.parentId) {
+      try {
+        await this.api('PUT', `/api/workspaces/${workspaceId}`, { parentId: result.parentId });
+        await this.loadWorkspaces();
+        this.renderWorkspaces();
+        const parentWs = others.find(w => w.id === result.parentId);
+        this.showToast(`Moved under ${parentWs ? parentWs.name : 'parent'}`, 'success');
+      } catch (err) {
+        this.showToast(err.message || 'Failed to set parent', 'error');
+      }
+    }
+  }
+
+  /**
+   * Remove parent from a child workspace, making it top-level again.
+   */
+  async removeWorkspaceParent(workspaceId) {
+    try {
+      await this.api('PUT', `/api/workspaces/${workspaceId}`, { parentId: null });
+      await this.loadWorkspaces();
+      this.renderWorkspaces();
+      this.showToast('Workspace is now top-level', 'success');
+    } catch (err) {
+      this.showToast(err.message || 'Failed to remove parent', 'error');
+    }
+  }
+
+  /**
+   * Summarize a session and add the summary to its workspace docs.
+   * Unlike summarizeSession() which shows a modal, this directly adds to docs.
+   */
+  async summarizeSessionToDocs(sessionId) {
+    try {
+      this.showToast('Summarizing session...', 'info');
+      const data = await this.api('POST', `/api/sessions/${sessionId}/summarize`);
+      if (data && data.summary) {
+        this.showToast('Summary added to workspace docs', 'success');
+        // Refresh docs if currently in docs view
+        if (this.state.viewMode === 'docs') {
+          this.loadDocs();
+        }
+      } else {
+        this.showToast('No summary data available', 'info');
+      }
+    } catch (err) {
+      this.showToast(err.message || 'Failed to summarize', 'error');
     }
   }
 
