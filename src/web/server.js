@@ -3203,14 +3203,58 @@ app.post('/api/update', requireAuth, async (req, res) => {
       sendStep('version', 'done', 'Version check skipped');
     }
 
-    // Step 4: Signal restart
-    sendStep('restart', 'running', 'Restarting server in 2 seconds...');
+    // Step 4: Auto-restart — write a restart script, close server, spawn it, then exit
+    sendStep('restart', 'running', 'Restarting server...');
     res.end();
 
-    // Graceful restart after response is sent
     setTimeout(() => {
-      process.exit(0); // Process manager (pm2/systemd) or user will restart
-    }, 2000);
+      const { spawn } = require('child_process');
+      const path = require('path');
+      const fs = require('fs');
+      const projectRoot = path.join(__dirname, '..', '..');
+      const guiPath = path.join(__dirname, '..', 'gui.js');
+
+      // Write a tiny restart script that waits for the port to free up, then starts
+      const restartScript = path.join(projectRoot, 'state', '_restart.js');
+      const port = parseInt(process.env.PORT, 10) || 3456;
+      fs.writeFileSync(restartScript, `
+        const { spawn } = require('child_process');
+        const net = require('net');
+        const path = require('path');
+        const port = ${port};
+        // Poll until the port is free (old server exited)
+        function waitForPort() {
+          const s = net.createServer();
+          s.once('error', () => setTimeout(waitForPort, 200));
+          s.once('listening', () => {
+            s.close(() => {
+              // Port is free — start the GUI server
+              const child = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'gui.js')], {
+                detached: true,
+                stdio: 'ignore',
+                env: Object.assign({}, process.env, { CWM_NO_OPEN: '1' }),
+                cwd: path.join(__dirname, '..'),
+              });
+              child.unref();
+              process.exit(0);
+            });
+          });
+          s.listen(port);
+        }
+        waitForPort();
+      `.trim());
+
+      // Spawn the restart script detached so it survives our exit
+      const child = spawn(process.execPath, [restartScript], {
+        detached: true,
+        stdio: 'ignore',
+        cwd: projectRoot,
+      });
+      child.unref();
+
+      // Now exit — the restart script will wait for the port and re-launch
+      process.exit(0);
+    }, 1500);
 
   } catch (err) {
     sendStep('error', 'error', err.message);

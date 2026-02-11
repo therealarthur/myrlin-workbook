@@ -56,7 +56,7 @@ There are good tools out there — [Opcode](https://github.com/winfunc/opcode), 
 
 - **Most require tmux** — Claude Squad, Agent Deck, ccswitch, Agent of Empires are all tmux-based. I'm on Windows. Not an option without WSL.
 - **Desktop apps aren't accessible remotely** — Opcode and Crystal are desktop-only. I wanted to check on sessions from my phone or another machine. This runs in a browser with optional Cloudflare tunnel access.
-- **Git worktrees aren't how I think** — Almost every competitor organizes around git worktrees. I organize around *projects* with multiple sessions, each with their own notes, goals, and context. Workspaces with attached docs is the mental model I wanted.
+- **Worktrees-only isn't enough** — Most competitors organize *exclusively* around git worktrees. I wanted workspaces with attached docs, notes, goals, and kanban boards as the primary mental model — but with worktree support built in for when you need it. Myrlin gives you both: workspace-first organization + "New Feature Session" one-click branch/worktree/session flow when you want git isolation.
 - **No session discovery** — Most tools only manage sessions you create through them. This scans `~/.claude/projects/` and finds every session you've ever run, auto-titles them from the conversation content, and lets you import them.
 - **CloudCLI is closest** but it's more of a remote IDE (file explorer, code editor). I wanted a session *command center* — terminals, workspace docs, resource monitoring, not another editor.
 
@@ -103,7 +103,19 @@ What those tools do better than this: Opcode has 20k stars and cost tracking. Cl
 - Session summaries (parses JSONL to extract what each session was working on)
 - Import sessions into workspaces with one click
 
-### Resource Monitoring
+### Git & Worktree Management
+
+- Full git status per workspace — current branch, dirty/clean, ahead/behind remote
+- Branch listing and worktree CRUD via API (`GET/POST/DELETE /api/git/worktrees`, `GET /api/git/branches`)
+- **"New Feature Session"** — right-click a workspace → creates a branch + worktree + Claude session in one click
+- Worktree-aware session launching — sessions opened in a worktree directory use that worktree's branch automatically
+- Branch badges on session rows show which branch each session is working on
+
+### Port Detection & Resource Monitoring
+
+- Automatic port detection for running sessions via `getProcessPorts()` — uses PowerShell `Get-NetTCPConnection` on Windows, `lsof` on Unix
+- Crawls child process trees to find ports opened by Claude and any tools it spawns
+- Ports shown in the Resources tab alongside CPU and memory per session
 - System overview (CPU, RAM, uptime)
 - Per-session CPU and memory tracking with process control
 - Stop, restart, or kill sessions directly from the Resources tab
@@ -120,7 +132,7 @@ What those tools do better than this: Opcode has 20k stars and cost tracking. Cl
 
 ---
 
-## Remote Access
+## Remote Access & Reverse Proxy
 
 You can expose your local instance with a Cloudflare tunnel:
 
@@ -132,9 +144,11 @@ npm run gui
 cloudflared tunnel --url http://localhost:3456
 ```
 
-Cloudflared gives you a public URL. Open it from any device, log in with your password.
+Cloudflared gives you a public URL. Open it from any device, log in with your password. All WebSocket terminal connections, SSE streams, and REST API calls route through the tunnel — full functionality from anywhere.
 
-For a stable URL, see the [Cloudflare tunnel docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) on named tunnels.
+For a stable URL (e.g., `yourname.myrlin.dev`), see the [Cloudflare tunnel docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) on named tunnels.
+
+Combined with automatic port detection, you can see which ports your Claude sessions have opened (dev servers, databases, etc.) directly from the Resources tab — useful for knowing what's running remotely.
 
 ---
 
@@ -232,6 +246,8 @@ PORT=8080 npm run gui
 - ~~Light theme~~ shipped (4 Catppuccin themes)
 - ~~Cost tracking~~ shipped (per-session token + cost breakdown)
 - ~~Feature board~~ shipped (Kanban per workspace)
+- ~~Git worktree management~~ shipped (branch CRUD, "New Feature Session" flow)
+- ~~Port detection~~ shipped (auto-discover ports from running sessions)
 - Export/import workspaces
 - Pinned sessions
 - Push notifications for session events

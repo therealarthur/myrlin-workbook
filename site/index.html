@@ -7,6 +7,9 @@
   <meta name="description" content="Open source workspace manager for Claude Code. Terminal grid, cost tracking, session search, and more. Free forever.">
   <meta name="theme-color" content="#1e1e2e">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎩</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     /* ═══════════════════════════════════════════════════════
        CATPPUCCIN MOCHA PALETTE
@@ -49,7 +52,7 @@
     }
 
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: var(--base);
       color: var(--text);
       line-height: 1.6;
@@ -57,14 +60,66 @@
     }
 
     ::selection {
-      background: rgba(203, 166, 247, 0.2);
+      background: var(--mauve);
+      color: var(--crust);
     }
 
-    a { color: var(--mauve); text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    a { color: var(--mauve); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: var(--lavender); text-decoration: none; }
 
     code, .mono {
       font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       ANIMATIONS
+       ═══════════════════════════════════════════════════════ */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      25%      { transform: translateY(-6px) rotate(-2deg); }
+      75%      { transform: translateY(-3px) rotate(1deg); }
+    }
+
+    @keyframes gradientShift {
+      0%, 100% { background-position: 0% 50%; }
+      50%      { background-position: 100% 50%; }
+    }
+
+    @keyframes shimmer {
+      0%   { opacity: 0.5; }
+      50%  { opacity: 1; }
+      100% { opacity: 0.5; }
+    }
+
+    @keyframes hatTip {
+      0%, 80%, 100% { transform: rotate(0deg); }
+      85%           { transform: rotate(-12deg) translateY(-4px); }
+      92%           { transform: rotate(3deg); }
+    }
+
+    .anim-1  { animation: fadeInUp 0.7s ease-out 0.05s both; }
+    .anim-2  { animation: fadeInUp 0.7s ease-out 0.15s both; }
+    .anim-3  { animation: fadeInUp 0.7s ease-out 0.25s both; }
+    .anim-4  { animation: fadeInUp 0.7s ease-out 0.35s both; }
+    .anim-5  { animation: fadeInUp 0.7s ease-out 0.45s both; }
+    .anim-6  { animation: fadeInUp 0.7s ease-out 0.55s both; }
+    .anim-7  { animation: fadeInUp 0.7s ease-out 0.65s both; }
+    .anim-8  { animation: fadeInUp 0.7s ease-out 0.75s both; }
+    .anim-9  { animation: fadeInUp 0.7s ease-out 0.85s both; }
+    .anim-10 { animation: fadeInUp 0.7s ease-out 0.95s both; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
     }
 
     /* ═══════════════════════════════════════════════════════
@@ -89,10 +144,10 @@
       left: 0;
       right: 0;
       z-index: 100;
-      background: rgba(30, 30, 46, 0.85);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--surface0);
+      background: rgba(30, 30, 46, 0.8);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(49, 50, 68, 0.5);
       padding: 0 24px;
     }
 
@@ -108,14 +163,24 @@
     .nav-logo {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       font-size: 18px;
       font-weight: 700;
       color: var(--text);
       letter-spacing: -0.3px;
+      cursor: default;
     }
 
-    .nav-logo span { font-size: 22px; }
+    .nav-hat {
+      font-size: 28px;
+      display: inline-block;
+      transition: transform 0.3s ease;
+      filter: drop-shadow(0 0 8px rgba(203, 166, 247, 0.3));
+    }
+
+    .nav-logo:hover .nav-hat {
+      animation: hatTip 0.6s ease;
+    }
 
     .nav-links {
       display: flex;
@@ -127,12 +192,11 @@
       color: var(--subtext0);
       font-size: 14px;
       font-weight: 500;
-      transition: color 0.15s;
+      transition: color 0.2s;
     }
 
     .nav-links a:hover {
       color: var(--text);
-      text-decoration: none;
     }
 
     .nav-gh {
@@ -140,15 +204,22 @@
       align-items: center;
       gap: 6px;
       padding: 6px 14px;
-      background: var(--surface0);
-      border-radius: 6px;
+      background: rgba(49, 50, 68, 0.6);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(69, 71, 90, 0.4);
+      border-radius: 8px;
       color: var(--text) !important;
       font-size: 13px;
       font-weight: 500;
-      transition: background 0.15s;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    .nav-gh:hover { background: var(--surface1); }
+    .nav-gh:hover {
+      background: rgba(69, 71, 90, 0.6);
+      border-color: var(--mauve);
+      box-shadow: 0 4px 16px rgba(203, 166, 247, 0.1);
+      transform: translateY(-1px);
+    }
 
     .nav-gh svg { width: 16px; height: 16px; fill: var(--text); }
 
@@ -159,67 +230,116 @@
       padding-top: 140px;
       padding-bottom: 60px;
       text-align: center;
+      position: relative;
+    }
+
+    /* Subtle radial glow behind hero */
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(203, 166, 247, 0.06) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .hero-hat {
+      font-size: 96px;
+      display: inline-block;
+      margin-bottom: 20px;
+      animation: float 5s ease-in-out infinite;
+      filter: drop-shadow(0 8px 32px rgba(203, 166, 247, 0.25));
+      cursor: default;
+      transition: filter 0.3s;
+    }
+
+    .hero-hat:hover {
+      filter: drop-shadow(0 8px 40px rgba(203, 166, 247, 0.5));
     }
 
     .hero-tag {
       display: inline-block;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--mauve);
-      background: rgba(203, 166, 247, 0.1);
-      padding: 4px 12px;
+      background: rgba(203, 166, 247, 0.08);
+      border: 1px solid rgba(203, 166, 247, 0.15);
+      padding: 5px 14px;
       border-radius: 20px;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.8px;
       text-transform: uppercase;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
     }
 
     .hero h1 {
-      font-size: clamp(36px, 5vw, 56px);
+      font-size: clamp(38px, 5.5vw, 60px);
       font-weight: 800;
-      line-height: 1.1;
-      letter-spacing: -1.5px;
-      margin-bottom: 16px;
+      line-height: 1.05;
+      letter-spacing: -2px;
+      margin-bottom: 20px;
     }
 
-    .hero h1 .accent { color: var(--mauve); }
+    .hero h1 .gradient-text {
+      background: linear-gradient(135deg, var(--mauve) 0%, var(--blue) 40%, var(--teal) 70%, var(--mauve) 100%);
+      background-size: 200% 200%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: gradientShift 6s ease infinite;
+    }
 
-    .hero p {
+    .hero .tagline {
       font-size: 18px;
       color: var(--subtext0);
-      max-width: 560px;
-      margin: 0 auto 32px;
-      line-height: 1.5;
+      max-width: 540px;
+      margin: 0 auto 12px;
+      line-height: 1.6;
+    }
+
+    .hero .sub-tagline {
+      font-size: 14px;
+      color: var(--overlay1);
+      margin-bottom: 36px;
+      font-style: italic;
     }
 
     .install-box {
       display: inline-flex;
       align-items: center;
       gap: 12px;
-      background: var(--mantle);
-      border: 1px solid var(--surface0);
-      border-radius: 8px;
-      padding: 12px 20px;
+      background: rgba(24, 24, 37, 0.7);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(49, 50, 68, 0.6);
+      border-radius: 10px;
+      padding: 14px 22px;
       margin-bottom: 48px;
       cursor: pointer;
-      transition: border-color 0.15s;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .install-box:hover {
       border-color: var(--mauve);
+      box-shadow: 0 8px 32px rgba(203, 166, 247, 0.12);
+      transform: translateY(-2px);
     }
 
     .install-box code {
       font-size: 15px;
       color: var(--green);
+      font-weight: 500;
     }
 
     .install-box .copy-hint {
       font-size: 11px;
       color: var(--overlay0);
       padding: 2px 8px;
-      background: var(--surface0);
+      background: rgba(49, 50, 68, 0.6);
       border-radius: 4px;
+      transition: color 0.2s;
     }
 
     .install-box.copied .copy-hint { color: var(--green); }
@@ -228,10 +348,22 @@
     .hero-screenshot {
       max-width: 1000px;
       margin: 0 auto;
-      border-radius: 12px;
+      border-radius: 14px;
       overflow: hidden;
-      border: 1px solid var(--surface0);
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(203, 166, 247, 0.05);
+      border: 1px solid rgba(49, 50, 68, 0.6);
+      box-shadow:
+        0 32px 80px rgba(0, 0, 0, 0.5),
+        0 0 0 1px rgba(203, 166, 247, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .hero-screenshot:hover {
+      box-shadow:
+        0 40px 100px rgba(0, 0, 0, 0.6),
+        0 0 0 1px rgba(203, 166, 247, 0.08),
+        0 0 60px rgba(203, 166, 247, 0.05);
+      transform: translateY(-4px);
     }
 
     .hero-screenshot img {
@@ -245,21 +377,28 @@
     .pain-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 20px;
+      gap: 16px;
     }
 
     .pain-card {
-      background: var(--mantle);
-      border: 1px solid var(--surface0);
-      border-radius: 10px;
+      background: rgba(24, 24, 37, 0.6);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(49, 50, 68, 0.4);
+      border-radius: 12px;
       padding: 24px;
-      transition: border-color 0.2s, transform 0.2s;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .pain-card:hover {
       border-color: var(--surface1);
-      transform: translateY(-2px);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
     }
+
+    .pain-card:nth-child(1):hover { border-color: var(--blue); box-shadow: 0 12px 40px rgba(137, 180, 250, 0.08); }
+    .pain-card:nth-child(2):hover { border-color: var(--green); box-shadow: 0 12px 40px rgba(166, 227, 161, 0.08); }
+    .pain-card:nth-child(3):hover { border-color: var(--peach); box-shadow: 0 12px 40px rgba(250, 179, 135, 0.08); }
+    .pain-card:nth-child(4):hover { border-color: var(--red); box-shadow: 0 12px 40px rgba(243, 139, 168, 0.08); }
 
     .pain-card h3 {
       font-size: 16px;
@@ -275,8 +414,8 @@
     }
 
     .pain-icon {
-      font-size: 24px;
-      margin-bottom: 12px;
+      font-size: 28px;
+      margin-bottom: 14px;
       display: block;
     }
 
@@ -284,11 +423,11 @@
        FEATURES
        ═══════════════════════════════════════════════════════ */
     .section-label {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--mauve);
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 1.5px;
       margin-bottom: 8px;
     }
 
@@ -304,41 +443,65 @@
       color: var(--subtext0);
       max-width: 520px;
       margin-bottom: 48px;
+      line-height: 1.6;
     }
 
     .feature-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
+      gap: 14px;
     }
 
     .feature-item {
-      padding: 20px;
-      border-radius: 8px;
-      background: var(--mantle);
-      border: 1px solid transparent;
-      transition: border-color 0.15s;
+      padding: 22px;
+      border-radius: 12px;
+      background: rgba(24, 24, 37, 0.5);
+      border: 1px solid rgba(49, 50, 68, 0.3);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .feature-item:hover {
-      border-color: var(--surface0);
+      border-color: var(--surface1);
+      transform: translateY(-3px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
     }
+
+    /* Per-feature hover accent colors */
+    .feature-item:nth-child(1):hover  { border-color: var(--blue); }     /* Terminal Grid */
+    .feature-item:nth-child(2):hover  { border-color: var(--peach); }    /* Workspaces */
+    .feature-item:nth-child(3):hover  { border-color: var(--green); }    /* Cost Tracking */
+    .feature-item:nth-child(4):hover  { border-color: var(--yellow); }   /* Search */
+    .feature-item:nth-child(5):hover  { border-color: var(--teal); }     /* Subagent */
+    .feature-item:nth-child(6):hover  { border-color: var(--red); }      /* Conflict */
+    .feature-item:nth-child(7):hover  { border-color: var(--flamingo); } /* Templates */
+    .feature-item:nth-child(8):hover  { border-color: var(--sky); }      /* Context Export */
+    .feature-item:nth-child(9):hover  { border-color: var(--lavender); } /* Auto-Docs */
+    .feature-item:nth-child(10):hover { border-color: var(--pink); }     /* Feature Board */
+    .feature-item:nth-child(11):hover { border-color: var(--green); }    /* Git */
+    .feature-item:nth-child(12):hover { border-color: var(--mauve); }    /* Themes */
 
     .feature-item h4 {
       font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 4px;
+      font-weight: 700;
+      margin-bottom: 6px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
-    .feature-item h4 .fi { font-size: 16px; }
+    .feature-item h4 .fi {
+      font-size: 18px;
+      transition: transform 0.25s ease;
+    }
+
+    .feature-item:hover h4 .fi {
+      transform: scale(1.15);
+    }
 
     .feature-item p {
       font-size: 13px;
       color: var(--subtext0);
-      line-height: 1.4;
+      line-height: 1.5;
     }
 
     .free-badge {
@@ -353,19 +516,64 @@
       letter-spacing: 0.3px;
     }
 
+    /* Feature screenshot grid */
+    .feature-screenshots {
+      margin-top: 64px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .feature-screenshots-full {
+      margin-top: 20px;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       STATS BAR
+       ═══════════════════════════════════════════════════════ */
+    .stats-bar {
+      display: flex;
+      justify-content: center;
+      gap: 48px;
+      padding: 48px 0;
+      border-top: 1px solid rgba(49, 50, 68, 0.3);
+      border-bottom: 1px solid rgba(49, 50, 68, 0.3);
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      background: linear-gradient(135deg, var(--text) 0%, var(--mauve) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .stat-label {
+      font-size: 13px;
+      color: var(--overlay1);
+      margin-top: 4px;
+      font-weight: 500;
+    }
+
     /* ═══════════════════════════════════════════════════════
        TEAMS
        ═══════════════════════════════════════════════════════ */
     .teams-section {
-      background: var(--mantle);
-      border-top: 1px solid var(--surface0);
-      border-bottom: 1px solid var(--surface0);
+      background: rgba(24, 24, 37, 0.4);
+      border-top: 1px solid rgba(49, 50, 68, 0.3);
+      border-bottom: 1px solid rgba(49, 50, 68, 0.3);
     }
 
     .teams-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 40px;
+      gap: 48px;
       align-items: center;
     }
 
@@ -379,7 +587,7 @@
       color: var(--subtext1);
       display: flex;
       align-items: flex-start;
-      gap: 10px;
+      gap: 12px;
     }
 
     .teams-features li::before {
@@ -389,13 +597,27 @@
       height: 6px;
       background: var(--mauve);
       border-radius: 50%;
-      margin-top: 8px;
+      margin-top: 9px;
       flex-shrink: 0;
+      box-shadow: 0 0 8px rgba(203, 166, 247, 0.3);
     }
 
     .teams-features li strong {
       color: var(--text);
       font-weight: 600;
+    }
+
+    .waitlist-card {
+      background: rgba(30, 30, 46, 0.6);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(49, 50, 68, 0.5);
+      border-radius: 14px;
+      padding: 32px;
+      transition: border-color 0.3s;
+    }
+
+    .waitlist-card:hover {
+      border-color: rgba(203, 166, 247, 0.2);
     }
 
     .waitlist-form {
@@ -407,17 +629,21 @@
     .waitlist-form input {
       flex: 1;
       padding: 10px 14px;
-      background: var(--base);
-      border: 1px solid var(--surface0);
-      border-radius: 6px;
+      background: rgba(30, 30, 46, 0.8);
+      border: 1px solid rgba(49, 50, 68, 0.6);
+      border-radius: 8px;
       color: var(--text);
       font-size: 14px;
+      font-family: inherit;
       outline: none;
-      transition: border-color 0.15s;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
 
     .waitlist-form input::placeholder { color: var(--overlay0); }
-    .waitlist-form input:focus { border-color: var(--mauve); }
+    .waitlist-form input:focus {
+      border-color: var(--mauve);
+      box-shadow: 0 0 0 3px rgba(203, 166, 247, 0.1);
+    }
 
     .btn {
       display: inline-flex;
@@ -427,41 +653,82 @@
       background: var(--mauve);
       color: var(--crust);
       border: none;
-      border-radius: 6px;
+      border-radius: 8px;
       font-size: 14px;
       font-weight: 600;
+      font-family: inherit;
       cursor: pointer;
-      transition: opacity 0.15s;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    .btn:hover { opacity: 0.9; }
+    .btn:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(203, 166, 247, 0.2);
+    }
 
     .coming-soon-tag {
       display: inline-block;
       font-size: 11px;
       font-weight: 600;
       color: var(--yellow);
-      background: rgba(249, 226, 175, 0.1);
+      background: rgba(249, 226, 175, 0.08);
+      border: 1px solid rgba(249, 226, 175, 0.15);
       padding: 3px 10px;
       border-radius: 4px;
       margin-bottom: 12px;
+      letter-spacing: 0.5px;
     }
 
     /* ═══════════════════════════════════════════════════════
        FOOTER
        ═══════════════════════════════════════════════════════ */
     footer {
-      padding: 40px 0;
+      padding: 48px 0;
       text-align: center;
-      border-top: 1px solid var(--surface0);
+      border-top: 1px solid rgba(49, 50, 68, 0.3);
+    }
+
+    .footer-hat {
+      font-size: 36px;
+      display: block;
+      margin-bottom: 12px;
+      opacity: 0.6;
+      transition: opacity 0.2s;
+    }
+
+    .footer-hat:hover {
+      opacity: 1;
     }
 
     footer p {
       font-size: 13px;
       color: var(--overlay0);
+      line-height: 2;
     }
 
-    footer a { color: var(--subtext0); }
+    footer a {
+      color: var(--subtext0);
+      transition: color 0.2s;
+    }
+
+    footer a:hover { color: var(--mauve); }
+
+    .footer-quip {
+      font-size: 12px;
+      color: var(--overlay0);
+      font-style: italic;
+      margin-top: 12px;
+      opacity: 0.7;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       FOCUS STYLES
+       ═══════════════════════════════════════════════════════ */
+    :focus-visible {
+      outline: 2px solid var(--mauve);
+      outline-offset: 3px;
+    }
 
     /* ═══════════════════════════════════════════════════════
        RESPONSIVE
@@ -469,15 +736,20 @@
     @media (max-width: 768px) {
       section { padding: 48px 0; }
       .hero { padding-top: 100px; }
+      .hero-hat { font-size: 72px; }
       .feature-grid { grid-template-columns: 1fr 1fr; }
+      .feature-screenshots { grid-template-columns: 1fr; }
       .teams-grid { grid-template-columns: 1fr; gap: 32px; }
       .nav-links a:not(.nav-gh) { display: none; }
       .waitlist-form { flex-direction: column; }
+      .stats-bar { gap: 24px; flex-wrap: wrap; }
+      .stat-value { font-size: 24px; }
     }
 
     @media (max-width: 480px) {
       .feature-grid { grid-template-columns: 1fr; }
       .pain-grid { grid-template-columns: 1fr; }
+      .hero-hat { font-size: 56px; }
     }
   </style>
 </head>
@@ -487,10 +759,11 @@
   <nav>
     <div class="nav-inner">
       <div class="nav-logo">
-        <span>🎩</span> Myrlin
+        <span class="nav-hat">🎩</span> Myrlin
       </div>
       <div class="nav-links">
         <a href="#features">Features</a>
+        <a href="docs/">Docs</a>
         <a href="#teams">Teams</a>
         <a href="https://github.com/therealarthur/myrlin-workbook" class="nav-gh">
           <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -503,119 +776,141 @@
   <!-- HERO -->
   <section class="hero">
     <div class="container">
-      <div class="hero-tag">Open Source &middot; MIT License</div>
-      <h1>Manage your Claude Code sessions<br><span class="accent">like you manage your code.</span></h1>
-      <p>Terminal grid, cost tracking, session search, and workspace organization for developers running multiple Claude Code sessions.</p>
+      <div class="hero-hat anim-1" title="*tips hat*">🎩</div>
+      <div class="hero-tag anim-2">Open Source &middot; AGPL-3.0</div>
+      <h1 class="anim-3">Your Claude sessions are a mess.<br><span class="gradient-text">We fixed that.</span></h1>
+      <p class="tagline anim-4">Terminal grid, cost tracking, worktree management, and workspace docs &mdash; for developers who run more Claude Code sessions than they can keep track of.</p>
+      <p class="sub-tagline anim-4">Yes, all of it is free. No, we're not going to rug-pull you.</p>
 
-      <div class="install-box" onclick="copyInstall(this)">
-        <code>npm install -g myrlin</code>
+      <div class="install-box anim-5" onclick="copyInstall(this)" tabindex="0" role="button" aria-label="Copy install command">
+        <code>git clone https://github.com/therealarthur/myrlin-workbook.git</code>
         <span class="copy-hint">Click to copy</span>
       </div>
 
-      <div class="hero-screenshot">
-        <img src="images/terminal-grid.png" alt="Terminal grid with 4 Claude Code sessions running simultaneously" loading="lazy">
+      <div class="hero-screenshot anim-6">
+        <img src="images/terminal-grid.png" alt="Terminal grid with 4 Claude Code sessions running simultaneously" loading="eager">
       </div>
     </div>
   </section>
 
   <!-- PAIN POINTS -->
-  <section id="why">
+  <section id="why" class="anim-7">
     <div class="container">
       <div class="pain-grid">
         <div class="pain-card">
           <span class="pain-icon">🗂</span>
           <h3>Lost in tabs?</h3>
-          <p>Drag sessions into a terminal grid. Four panes, resizable, with live status. See everything at once.</p>
+          <p>Drag sessions into a terminal grid. Four panes, resizable, with live status. See everything at once. Your future self sends thanks.</p>
         </div>
         <div class="pain-card">
-          <span class="pain-icon">💰</span>
-          <h3>What did that cost?</h3>
-          <p>Per-session cost tracking with model-aware pricing. Cache-aware. Know exactly what each feature costs to build.</p>
+          <span class="pain-icon">💸</span>
+          <h3>"What did that cost?"</h3>
+          <p>Per-session cost tracking with model-aware pricing. Cache-aware token breakdown. Know exactly what each feature costs before your manager asks.</p>
         </div>
         <div class="pain-card">
           <span class="pain-icon">🔍</span>
-          <h3>Where was that conversation?</h3>
-          <p>Full-text search across every session you've ever run. Find that solution from two weeks ago in seconds.</p>
+          <h3>"Where was that conversation?"</h3>
+          <p>Full-text search across every session you've ever run. That solution from two weeks ago? Found in seconds, not "let me just scroll through 40 tabs."</p>
         </div>
         <div class="pain-card">
-          <span class="pain-icon">⚠️</span>
+          <span class="pain-icon">💥</span>
           <h3>Agents stepping on each other?</h3>
-          <p>Conflict detection warns when two sessions are editing the same files. Avoid merge nightmares before they happen.</p>
+          <p>Conflict detection warns when two sessions touch the same files. Avoid the merge nightmare before it happens. You're welcome.</p>
         </div>
       </div>
     </div>
   </section>
 
+  <!-- STATS BAR -->
+  <div class="stats-bar anim-8">
+    <div class="stat">
+      <div class="stat-value">12+</div>
+      <div class="stat-label">Core features</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">4</div>
+      <div class="stat-label">Catppuccin themes</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">0</div>
+      <div class="stat-label">Features behind paywall</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">$0</div>
+      <div class="stat-label">Forever</div>
+    </div>
+  </div>
+
   <!-- FEATURES -->
-  <section id="features">
+  <section id="features" class="anim-8">
     <div class="container">
-      <div class="section-label">Everything free. Forever.</div>
+      <div class="section-label">Everything included. No upsells.</div>
       <div class="section-title">Built for how you actually work.</div>
-      <div class="section-subtitle">Every feature below ships with the open source version. No trials, no limits, no "upgrade to unlock."</div>
+      <div class="section-subtitle">Every feature below ships with the open source version. No trials, no "upgrade to unlock," no dark patterns. Just tools that respect your time.</div>
 
       <div class="feature-grid">
         <div class="feature-item">
           <h4><span class="fi">⬛</span> Terminal Grid</h4>
-          <p>4-pane grid with drag-and-drop. Resize handles. Click to focus. Drag sessions from the sidebar.</p>
+          <p>4-pane grid with drag-and-drop. Resize handles. Tab groups for different contexts. Drag sessions straight from the sidebar.</p>
         </div>
         <div class="feature-item">
           <h4><span class="fi">📁</span> Workspaces</h4>
-          <p>Group sessions by project. Nested hierarchy. Auto-organize. Switch context in one click.</p>
+          <p>Group sessions by project. Nested hierarchy. Notes, goals, tasks, and rules per workspace. Switch context in one click.</p>
         </div>
         <div class="feature-item">
           <h4><span class="fi">💵</span> Cost Tracking</h4>
-          <p>Per-session, per-workspace. Model-aware pricing. Token breakdown with cache write/read split.</p>
+          <p>Per-session, per-workspace. Model-aware pricing (Opus/Sonnet/Haiku). Token breakdown with cache write/read split.</p>
         </div>
         <div class="feature-item">
           <h4><span class="fi">🔎</span> Session Search</h4>
-          <p>Full-text search across all Claude Code history. Ctrl+Shift+F. Highlighted snippets with timestamps.</p>
+          <p>Full-text search across all Claude Code history. Ctrl+Shift+F. Highlighted snippets with timestamps. Finds what you forgot you did.</p>
         </div>
         <div class="feature-item">
           <h4><span class="fi">🤖</span> Subagent Tracking</h4>
-          <p>See spawned subagents per session. Running vs completed. Agent types and descriptions.</p>
+          <p>See spawned subagents per session. Running vs completed. Agent types and descriptions. Know what Claude is actually doing.</p>
         </div>
         <div class="feature-item">
           <h4><span class="fi">⚡</span> Conflict Detection</h4>
-          <p>Cross-session file monitoring. Warns when multiple Claude sessions edit the same files.</p>
+          <p>Cross-session file monitoring. Warns when multiple Claude sessions edit the same files. Prevents the 3am merge panic.</p>
         </div>
         <div class="feature-item">
           <h4><span class="fi">📋</span> Templates</h4>
-          <p>Save session configs as templates. One-click launch with pre-set model, flags, and working directory.</p>
+          <p>Save session configs as templates. One-click launch with pre-set model, flags, and working directory. Stop re-typing the same setup.</p>
         </div>
         <div class="feature-item">
           <h4><span class="fi">📤</span> Context Export</h4>
-          <p>Session ran out of context? Export a structured summary and continue in a new session seamlessly.</p>
+          <p>Session ran out of context? Export a structured summary and continue in a new session. Seamless handoff, no copy-paste archaeology.</p>
         </div>
         <div class="feature-item">
           <h4><span class="fi">📝</span> Auto-Docs</h4>
-          <p>Sessions auto-summarize to workspace notes when they stop. Build a changelog without trying.</p>
+          <p>Sessions auto-summarize to workspace notes when they stop. AI-generated insights. Build a changelog without even trying.</p>
         </div>
         <div class="feature-item">
           <h4><span class="fi">📊</span> Feature Board</h4>
-          <p>Kanban board per workspace. Track features across sessions. Drag between Planned, Active, Review, Done.</p>
+          <p>Kanban board per workspace. Track features across sessions. Drag between Planned, Active, Review, and Done columns.</p>
         </div>
         <div class="feature-item">
-          <h4><span class="fi">🌿</span> Git Integration</h4>
-          <p>Branch badges, worktree creation, "New Feature Session" flow. Branch + worktree + Claude in one click.</p>
+          <h4><span class="fi">🌿</span> Git & Worktrees</h4>
+          <p>Branch badges, worktree creation, "New Feature Session" flow. Branch + worktree + Claude session in one click. Automatic port detection.</p>
         </div>
         <div class="feature-item">
           <h4><span class="fi">🎨</span> 4 Themes</h4>
-          <p>Catppuccin Mocha, Macchiato, Frapp&eacute;, and Latte. Dark and light. Terminal colors match.</p>
+          <p>Catppuccin Mocha, Macchiato, Frapp&eacute;, and Latte. Dark and light. Terminal colors match your preference.</p>
         </div>
       </div>
 
       <!-- Feature screenshots -->
-      <div style="margin-top: 64px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-        <div class="hero-screenshot" style="border-radius: 10px;">
+      <div class="feature-screenshots anim-9">
+        <div class="hero-screenshot" style="border-radius: 12px;">
           <img src="images/docs-panel.png" alt="Per-workspace docs with Notes, Goals, Tasks, Rules, and Roadmap" loading="lazy">
         </div>
-        <div class="hero-screenshot" style="border-radius: 10px;">
+        <div class="hero-screenshot" style="border-radius: 12px;">
           <img src="images/kanban-board.png" alt="Feature tracking Kanban board per workspace" loading="lazy">
         </div>
       </div>
 
-      <div style="margin-top: 20px;">
-        <div class="hero-screenshot" style="border-radius: 10px;">
+      <div class="feature-screenshots-full anim-10">
+        <div class="hero-screenshot" style="border-radius: 12px;">
           <img src="images/theme-showcase.png" alt="All 4 Catppuccin themes — Mocha, Macchiato, Frappe, and Latte" loading="lazy">
         </div>
       </div>
@@ -623,26 +918,26 @@
   </section>
 
   <!-- TEAMS -->
-  <section class="teams-section" id="teams">
+  <section class="teams-section anim-10" id="teams">
     <div class="container">
       <div class="teams-grid">
         <div>
           <div class="coming-soon-tag">Coming Soon</div>
           <div class="section-title">When one dev with Claude<br>isn't enough.</div>
-          <p style="color: var(--subtext0); font-size: 15px; margin-bottom: 8px;">
-            Everything local stays free. Teams adds the infrastructure that costs us money to run.
+          <p style="color: var(--subtext0); font-size: 15px; margin-bottom: 8px; line-height: 1.6;">
+            Everything local stays free. Teams adds the infrastructure that costs us money to run. Honest pricing, no games.
           </p>
           <ul class="teams-features">
-            <li><strong>Managed hosting</strong> — yourteam.myrlin.dev with TLS. Always on, no port forwarding.</li>
-            <li><strong>Multi-user sync</strong> — See who's working on what. Real-time presence across sessions.</li>
-            <li><strong>Shared workspaces</strong> — Hand off sessions between teammates without copy-paste.</li>
-            <li><strong>Cloud backups</strong> — Session history persisted. Never lose a conversation.</li>
+            <li><strong>Managed hosting</strong> &mdash; yourteam.myrlin.dev with TLS. Always on, no port forwarding.</li>
+            <li><strong>Multi-user sync</strong> &mdash; See who's working on what. Real-time presence across sessions.</li>
+            <li><strong>Shared workspaces</strong> &mdash; Hand off sessions between teammates without copy-paste.</li>
+            <li><strong>Cloud backups</strong> &mdash; Session history persisted. Never lose a conversation.</li>
           </ul>
         </div>
         <div>
-          <div style="background: var(--base); border: 1px solid var(--surface0); border-radius: 12px; padding: 32px;">
+          <div class="waitlist-card">
             <h3 style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">Join the waitlist</h3>
-            <p style="font-size: 14px; color: var(--subtext0); margin-bottom: 20px;">We'll let you know when Teams is ready. No spam, just one email.</p>
+            <p style="font-size: 14px; color: var(--subtext0); margin-bottom: 20px;">We'll let you know when Teams is ready. No spam, just one email. Pinky promise.</p>
             <form class="waitlist-form" onsubmit="handleWaitlist(event)">
               <input type="email" placeholder="you@company.com" required>
               <button type="submit" class="btn">Notify me</button>
@@ -657,21 +952,23 @@
   <!-- FOOTER -->
   <footer>
     <div class="container">
+      <span class="footer-hat" title="Good day to you too">🎩</span>
       <p>
         <a href="https://github.com/therealarthur/myrlin-workbook">GitHub</a>
         &nbsp;&middot;&nbsp;
         <a href="https://github.com/therealarthur/myrlin-workbook/issues">Issues</a>
         &nbsp;&middot;&nbsp;
-        MIT License
+        AGPL-3.0
         &nbsp;&middot;&nbsp;
         Built with Claude Code
       </p>
+      <p class="footer-quip" id="footer-quip"></p>
     </div>
   </footer>
 
   <script>
     function copyInstall(el) {
-      navigator.clipboard.writeText('npm install -g myrlin').then(() => {
+      navigator.clipboard.writeText('git clone https://github.com/therealarthur/myrlin-workbook.git && cd myrlin-workbook && npm install && npm run gui').then(() => {
         el.classList.add('copied');
         el.querySelector('.copy-hint').textContent = 'Copied!';
         setTimeout(() => {
@@ -685,11 +982,27 @@
       e.preventDefault();
       const input = e.target.querySelector('input');
       const msg = document.getElementById('waitlist-msg');
-      // TODO: send to actual endpoint
-      msg.textContent = 'Thanks! We\'ll be in touch.';
+      msg.textContent = 'Thanks! We\'ll be in touch. 🎩';
       msg.style.display = 'block';
       input.value = '';
     }
+
+    // Random footer quip
+    const quips = [
+      'No hats were harmed in the making of this software.',
+      'Built by a human, assisted by the AI it manages. Poetic, isn\'t it?',
+      'The hat is a metaphor. For what? We\'re still figuring that out.',
+      'Fun fact: this entire tool was built using the tool it manages.',
+      'Open source because your sessions are your business, not ours.',
+      'Sponsored by caffeine and "just one more feature."',
+      'If you\'re reading this, you probably have too many Claude sessions open.',
+    ];
+    document.getElementById('footer-quip').textContent = quips[Math.floor(Math.random() * quips.length)];
+
+    // Enter key on install box
+    document.querySelector('.install-box').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copyInstall(e.currentTarget); }
+    });
   </script>
 
 </body>

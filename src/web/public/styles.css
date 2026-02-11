@@ -2489,27 +2489,33 @@ textarea.input {
   position: fixed;
   z-index: 10000;
   min-width: 180px;
-  max-height: calc(100vh - 16px);
-  overflow-y: auto;
+  /* overflow must be visible so submenus (position: absolute, left: 100%)
+     aren't clipped — scrolling is on the inner .context-menu-items instead */
+  overflow: visible;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 4px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   animation: ctx-in 0.12s ease-out;
+}
+
+.context-menu > .context-menu-items {
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--surface2) transparent;
 }
 
-.context-menu::-webkit-scrollbar {
+.context-menu > .context-menu-items::-webkit-scrollbar {
   width: 6px;
 }
 
-.context-menu::-webkit-scrollbar-track {
+.context-menu > .context-menu-items::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.context-menu::-webkit-scrollbar-thumb {
+.context-menu > .context-menu-items::-webkit-scrollbar-thumb {
   background: var(--surface2);
   border-radius: 3px;
 }
@@ -2627,10 +2633,10 @@ textarea.input {
 
 .ctx-submenu {
   display: none;
-  position: absolute;
-  left: 100%;
-  top: -4px;
-  min-width: 140px;
+  /* Use fixed positioning so submenus escape all ancestor overflow contexts.
+     Actual top/left values are computed in JS when submenu opens. */
+  position: fixed;
+  min-width: 160px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -2639,16 +2645,9 @@ textarea.input {
   z-index: 10001;
 }
 
-.ctx-item-wrapper:hover > .ctx-submenu {
+.ctx-submenu.ctx-submenu-visible {
   display: block;
   animation: ctx-in 0.1s ease-out;
-}
-
-/* Flip submenu to the left if it would overflow viewport — handled by JS,
-   but also provide a CSS class for it */
-.ctx-submenu.ctx-submenu-left {
-  left: auto;
-  right: 100%;
 }
 
 /* ─── Discover Sessions ───────────────────────────────────── */
@@ -4519,6 +4518,16 @@ textarea.input {
 @media (prefers-reduced-motion: reduce) {
   .terminal-pane-done { animation: none; box-shadow: inset 0 0 0 2px var(--green); }
   .terminal-group-tab.tab-notify::after { animation: none; }
+}
+
+/* Tab group drag-and-drop reorder */
+.terminal-group-tab.tab-dragging {
+  opacity: 0.4;
+  outline: 1px dashed var(--overlay0);
+}
+.terminal-group-tab.tab-drag-over {
+  background: var(--surface1);
+  box-shadow: inset 0 0 0 1px var(--mauve);
 }
 
 /* ═══════════════════════════════════════════════════════════ */

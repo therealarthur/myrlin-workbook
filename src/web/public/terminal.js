@@ -232,34 +232,23 @@ class TerminalPane {
       // Intercept Shift+Enter to send newline instead of carriage return
       // This lets Claude Code receive a "next line" signal rather than "submit"
       this.term.attachCustomKeyEventHandler((e) => {
-        // Let browser handle Ctrl+V / Cmd+V — triggers container paste listener
-        if (e.type === 'keydown' && (e.key === 'v' || e.key === 'V') && (e.ctrlKey || e.metaKey)) {
-          return false;
-        }
+        // Ctrl+V / Cmd+V: let xterm.js handle paste natively.
+        // xterm.js v5 correctly supports bracketed paste mode (\x1b[200~ ... \x1b[201~).
+        // Previously we returned false here and had a separate container paste listener,
+        // but that caused double-paste: xterm.js's textarea caught the paste event AND
+        // our container handler also fired, sending the text twice to the PTY.
         if (e.type === 'keydown' && e.key === 'Enter' && e.shiftKey) {
           if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({ type: 'input', data: '\n' }));
           }
           return false; // prevent xterm default Enter handling
         }
-        return true; // let xterm handle everything else
+        return true; // let xterm handle everything else (including Ctrl+V paste)
       });
 
       this.term.onData((data) => {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'input', data }));
-        }
-      });
-
-      // Explicit paste handler — catches Ctrl+V / Cmd+V and clipboard paste events.
-      // xterm.js built-in paste can be unreliable with bracketed paste mode,
-      // so we intercept and send directly via WebSocket.
-      container.addEventListener('paste', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const text = (e.clipboardData || window.clipboardData).getData('text');
-        if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({ type: 'input', data: text }));
         }
       });
 

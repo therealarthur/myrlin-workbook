@@ -486,7 +486,11 @@ class CWMApp {
     });
 
     // Context Menu — dismiss on click outside or Escape
-    document.addEventListener('click', () => this.hideContextMenu());
+    document.addEventListener('click', (e) => {
+      // Don't dismiss if clicking inside the context menu (submenus need to stay open)
+      if (this.els.contextMenu && this.els.contextMenu.contains(e.target)) return;
+      this.hideContextMenu();
+    });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.hideContextMenu();
     });
@@ -1576,13 +1580,18 @@ class CWMApp {
 
     items.push({ type: 'sep' });
 
-    // Flags
+    // Flags / Permissions (submenu)
     const isAgentTeams = !!session.agentTeams;
-    items.push(
-      { label: 'Bypass Permissions', icon: '&#9888;', action: () => this.toggleBypass(sessionId), check: isBypassed, danger: isBypassed },
-      { label: 'Verbose', icon: '&#128483;', action: () => this.toggleVerbose(sessionId), check: isVerbose },
-      { label: 'Agent Teams', icon: '&#129302;', action: () => this.toggleAgentTeams(sessionId), check: isAgentTeams },
-    );
+    const activeFlags = [isBypassed && 'Bypass', isVerbose && 'Verbose', isAgentTeams && 'Teams'].filter(Boolean);
+    const flagsHint = activeFlags.length ? activeFlags.join(', ') : 'None';
+    items.push({
+      label: 'Flags / Permissions', icon: '&#9873;', hint: flagsHint,
+      submenu: [
+        { label: 'Bypass Permissions', action: () => this.toggleBypass(sessionId), check: isBypassed, danger: isBypassed },
+        { label: 'Verbose', action: () => this.toggleVerbose(sessionId), check: isVerbose },
+        { label: 'Agent Teams', action: () => this.toggleAgentTeams(sessionId), check: isAgentTeams },
+      ],
+    });
 
     items.push({ type: 'sep' });
 
@@ -1639,6 +1648,10 @@ class CWMApp {
   }
 
   hideContextMenu() {
+    // Hide any open submenus first
+    this.els.contextMenu.querySelectorAll('.ctx-submenu-visible').forEach(s => {
+      s.classList.remove('ctx-submenu-visible');
+    });
     this.els.contextMenu.hidden = true;
   }
 
@@ -2061,11 +2074,11 @@ class CWMApp {
     const isPassword = input.type === 'password';
     input.type = isPassword ? 'text' : 'password';
 
-    // Toggle icon visibility
+    // Toggle icon visibility using hidden attribute
     const showIcon = btn.querySelector('.pw-icon-show');
     const hideIcon = btn.querySelector('.pw-icon-hide');
-    if (showIcon) showIcon.style.display = isPassword ? 'none' : '';
-    if (hideIcon) hideIcon.style.display = isPassword ? '' : 'none';
+    if (showIcon) showIcon.hidden = isPassword;
+    if (hideIcon) hideIcon.hidden = !isPassword;
 
     // Keep focus on the password input for quick typing
     input.focus();
@@ -5278,6 +5291,22 @@ class CWMApp {
       },
     });
 
+    items.push({ type: 'sep' });
+
+    // Inspect — open browser DevTools console
+    items.push({
+      label: 'Inspect', icon: '&#128269;', action: () => {
+        // Try to open DevTools programmatically (only works in Electron/NW.js)
+        // For regular browsers, show a hint about the keyboard shortcut
+        if (window.__TAURI__ || (window.process && window.process.versions && window.process.versions.electron)) {
+          // Electron / Tauri — can open devtools directly
+          try { require('electron').remote.getCurrentWindow().webContents.openDevTools(); } catch (_) {}
+        } else {
+          this.showToast('Press F12 or Ctrl+Shift+I to open DevTools', 'info');
+        }
+      },
+    });
+
     this._renderContextItems(tp.sessionName || 'Terminal', items, x, y);
   }
 
@@ -5472,6 +5501,46 @@ class CWMApp {
 
     // If the pane is in a non-active tab group, highlight the tab
     this._highlightTabGroupForSession(sessionId);
+
+    // Flash the browser tab title when the window isn't focused
+    // so users know which window needs attention
+    this._flashBrowserTitle(name);
+  }
+
+  /**
+   * Flash the browser tab title when a session completes and the window
+   * isn't focused. Alternates between the notification and original title.
+   * Stops when the window regains focus.
+   */
+  _flashBrowserTitle(sessionName) {
+    // Only flash if window is not focused
+    if (document.hasFocus()) return;
+
+    const originalTitle = this._originalTitle || document.title;
+    this._originalTitle = originalTitle;
+    const alertTitle = `🎩 ${sessionName} finished!`;
+
+    // Don't stack multiple flashers
+    if (this._titleFlashInterval) clearInterval(this._titleFlashInterval);
+
+    let showAlert = true;
+    this._titleFlashInterval = setInterval(() => {
+      document.title = showAlert ? alertTitle : originalTitle;
+      showAlert = !showAlert;
+    }, 1200);
+
+    // Also increment a counter badge
+    this._pendingNotifications = (this._pendingNotifications || 0) + 1;
+
+    // Stop flashing when window gets focus
+    const stopFlash = () => {
+      clearInterval(this._titleFlashInterval);
+      this._titleFlashInterval = null;
+      this._pendingNotifications = 0;
+      document.title = originalTitle;
+      window.removeEventListener('focus', stopFlash);
+    };
+    window.addEventListener('focus', stopFlash);
   }
 
   /**
@@ -5513,8 +5582,7 @@ class CWMApp {
         const tabBtn = document.querySelector(`.terminal-group-tab[data-group-id="${group.id}"]`);
         if (tabBtn && !tabBtn.classList.contains('tab-notify')) {
           tabBtn.classList.add('tab-notify');
-          // Remove after 10s or when the tab is clicked
-          setTimeout(() => tabBtn.classList.remove('tab-notify'), 10000);
+          // Stays until the tab group is clicked (removed in switchTerminalGroup)
         }
         break;
       }
@@ -5800,6 +5868,38 @@ class CWMApp {
       </button>${submenuHtml}</div>`;
     }).join('');
 
+    // Helper: position a submenu (position: fixed) next to its parent wrapper
+    const positionSubmenu = (wrapper, subEl) => {
+      const wrapperRect = wrapper.getBoundingClientRect();
+      // Try right side first
+      let left = wrapperRect.right + 2;
+      let top = wrapperRect.top;
+      // Show briefly to measure
+      subEl.style.left = '-9999px';
+      subEl.style.top = '0';
+      subEl.classList.add('ctx-submenu-visible');
+      const subRect = subEl.getBoundingClientRect();
+      // Flip left if overflows right edge
+      if (left + subRect.width > window.innerWidth - 8) {
+        left = wrapperRect.left - subRect.width - 2;
+      }
+      // Clamp vertically
+      if (top + subRect.height > window.innerHeight - 8) {
+        top = window.innerHeight - subRect.height - 8;
+      }
+      top = Math.max(4, top);
+      left = Math.max(4, left);
+      subEl.style.left = left + 'px';
+      subEl.style.top = top + 'px';
+    };
+
+    // Helper: hide all submenus
+    const hideAllSubmenus = () => {
+      container.querySelectorAll('.ctx-submenu').forEach(s => {
+        s.classList.remove('ctx-submenu-visible');
+      });
+    };
+
     // Bind click handlers for regular items
     container.querySelectorAll('.ctx-item-wrapper').forEach(wrapper => {
       const idx = parseInt(wrapper.dataset.idx);
@@ -5807,6 +5907,33 @@ class CWMApp {
       if (!item || item.type === 'sep') return;
 
       if (item.submenu) {
+        const subEl = wrapper.querySelector('.ctx-submenu');
+        const parentBtn = wrapper.querySelector(':scope > .context-menu-item');
+
+        // Show submenu on hover (desktop) — uses fixed positioning to escape overflow
+        wrapper.addEventListener('mouseenter', () => {
+          hideAllSubmenus();
+          if (subEl) positionSubmenu(wrapper, subEl);
+        });
+        wrapper.addEventListener('mouseleave', (e) => {
+          // Only hide if mouse didn't move into the submenu itself
+          if (subEl && !subEl.contains(e.relatedTarget) && !wrapper.contains(e.relatedTarget)) {
+            subEl.classList.remove('ctx-submenu-visible');
+          }
+        });
+
+        // Click on parent toggles submenu (for touch / accessibility)
+        if (parentBtn) {
+          parentBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (subEl) {
+              const isVisible = subEl.classList.contains('ctx-submenu-visible');
+              hideAllSubmenus();
+              if (!isVisible) positionSubmenu(wrapper, subEl);
+            }
+          });
+        }
+
         // Bind submenu item clicks
         wrapper.querySelectorAll('.ctx-submenu .context-menu-item').forEach(btn => {
           const si = parseInt(btn.dataset.subIdx);
@@ -5826,6 +5953,8 @@ class CWMApp {
           this.hideContextMenu();
           item.action();
         });
+        // When hovering a non-submenu item, hide any open submenus
+        wrapper.addEventListener('mouseenter', hideAllSubmenus);
       }
     });
 
@@ -5837,14 +5966,6 @@ class CWMApp {
     const my = Math.min(y, window.innerHeight - rect.height - 8);
     menu.style.left = Math.max(4, mx) + 'px';
     menu.style.top = Math.max(4, my) + 'px';
-
-    // Flip submenus to the left if they'd overflow the right edge
-    const menuRight = menu.getBoundingClientRect().right;
-    container.querySelectorAll('.ctx-submenu').forEach(sub => {
-      if (menuRight + 150 > window.innerWidth) {
-        sub.classList.add('ctx-submenu-left');
-      }
-    });
   }
 
   /* ─── Mobile Terminal Tab Strip ──────────────────────────── */
@@ -6537,9 +6658,38 @@ class CWMApp {
 
     this.els.terminalGroupsTabs.innerHTML = html;
 
-    // Bind tab click events
+    // Bind tab click + drag events
     this.els.terminalGroupsTabs.querySelectorAll('.terminal-group-tab').forEach(tab => {
       tab.addEventListener('click', () => this.switchTerminalGroup(tab.dataset.groupId));
+
+      // ── Drag-to-reorder tabs ──
+      tab.draggable = true;
+      tab.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/tab-group-id', tab.dataset.groupId);
+        e.dataTransfer.effectAllowed = 'move';
+        tab.classList.add('tab-dragging');
+      });
+      tab.addEventListener('dragend', () => {
+        tab.classList.remove('tab-dragging');
+        this.els.terminalGroupsTabs.querySelectorAll('.tab-drag-over').forEach(el => el.classList.remove('tab-drag-over'));
+      });
+      tab.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        tab.classList.add('tab-drag-over');
+      });
+      tab.addEventListener('dragleave', () => {
+        tab.classList.remove('tab-drag-over');
+      });
+      tab.addEventListener('drop', (e) => {
+        e.preventDefault();
+        tab.classList.remove('tab-drag-over');
+        const draggedId = e.dataTransfer.getData('text/tab-group-id');
+        const targetId = tab.dataset.groupId;
+        if (draggedId && draggedId !== targetId) {
+          this._reorderTabGroup(draggedId, targetId);
+        }
+      });
 
       // Double-click to rename
       tab.addEventListener('dblclick', (e) => {
@@ -6548,15 +6698,29 @@ class CWMApp {
         if (nameEl) this.startInlineRenameGroup(nameEl, tab.dataset.groupId);
       });
 
-      // Right-click context menu
+      // Right-click context menu — includes "Move Left/Right"
       tab.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         const groupId = tab.dataset.groupId;
-        this._renderContextItems('Tab Group', [
+        const groupIdx = this._tabGroups.findIndex(g => g.id === groupId);
+        const ctxItems = [
           { label: 'Rename', action: () => {
             const nameEl = tab.querySelector('.terminal-group-tab-name');
             if (nameEl) this.startInlineRenameGroup(nameEl, groupId);
           }},
+        ];
+        if (groupIdx > 0) {
+          ctxItems.push({ label: 'Move Left', icon: '&#9664;', action: () => {
+            this._swapTabGroups(groupIdx, groupIdx - 1);
+          }});
+        }
+        if (groupIdx < this._tabGroups.length - 1) {
+          ctxItems.push({ label: 'Move Right', icon: '&#9654;', action: () => {
+            this._swapTabGroups(groupIdx, groupIdx + 1);
+          }});
+        }
+        ctxItems.push({ type: 'sep' });
+        ctxItems.push(
           { label: 'Delete', danger: true, action: () => this.deleteTerminalGroup(groupId) },
         ], e.clientX, e.clientY);
       });
@@ -6566,6 +6730,10 @@ class CWMApp {
   switchTerminalGroup(groupId) {
     if (groupId === this._activeGroupId) return;
 
+    // Clear any notification badge on the target tab
+    const tabBtn = document.querySelector(`.terminal-group-tab[data-group-id="${groupId}"]`);
+    if (tabBtn) tabBtn.classList.remove('tab-notify');
+
     // Save current group's pane state
     this.saveCurrentGroupPanes();
 
@@ -6574,14 +6742,19 @@ class CWMApp {
       if (this.terminalPanes[i]) {
         this.terminalPanes[i].dispose();
         this.terminalPanes[i] = null;
-        const paneEl = document.getElementById(`term-pane-${i}`);
-        if (paneEl) {
-          paneEl.classList.add('terminal-pane-empty');
-          const header = paneEl.querySelector('.terminal-pane-title');
-          if (header) header.textContent = 'Drop a session here';
-          const closeBtn = paneEl.querySelector('.terminal-pane-close');
-          if (closeBtn) closeBtn.hidden = true;
-        }
+      }
+      // Always reset the pane DOM to empty state — even if terminalPanes[i] was
+      // null, the DOM element might have stale content from a previous group
+      const paneEl = document.getElementById(`term-pane-${i}`);
+      if (paneEl) {
+        paneEl.classList.add('terminal-pane-empty');
+        const header = paneEl.querySelector('.terminal-pane-title');
+        if (header) header.textContent = 'Drop a session here';
+        const closeBtn = paneEl.querySelector('.terminal-pane-close');
+        if (closeBtn) closeBtn.hidden = true;
+        // Clear any leftover xterm DOM from the terminal container
+        const termContainer = paneEl.querySelector('.terminal-container');
+        if (termContainer) termContainer.innerHTML = '';
       }
     }
 
@@ -6631,13 +6804,54 @@ class CWMApp {
       this.showToast('Cannot delete the last tab group', 'warning');
       return;
     }
+
+    const wasDeletingActive = (this._activeGroupId === groupId);
+
+    // If deleting the active group, save current pane state first so we
+    // can cleanly tear down, then switch. If deleting a non-active group,
+    // save active panes BEFORE filtering so the active group's pane data
+    // isn't lost when saveTerminalLayout runs.
+    this.saveCurrentGroupPanes();
+
     this._tabGroups = this._tabGroups.filter(g => g.id !== groupId);
-    if (this._activeGroupId === groupId) {
+
+    if (wasDeletingActive) {
+      // Must switch to another group — this will dispose current panes and restore the new group's
       this._activeGroupId = this._tabGroups[0].id;
-      this.switchTerminalGroup(this._activeGroupId);
+      // Bypass the early-return guard in switchTerminalGroup by setting a temp value
+      const targetId = this._activeGroupId;
+      this._activeGroupId = '__switching__';
+      this.switchTerminalGroup(targetId);
     }
+
     this.saveTerminalLayout();
     this.renderTerminalGroupTabs();
+  }
+
+  /**
+   * Reorder a tab group by moving it before the target group.
+   */
+  _reorderTabGroup(draggedId, targetId) {
+    const draggedIdx = this._tabGroups.findIndex(g => g.id === draggedId);
+    const targetIdx = this._tabGroups.findIndex(g => g.id === targetId);
+    if (draggedIdx === -1 || targetIdx === -1) return;
+
+    const [dragged] = this._tabGroups.splice(draggedIdx, 1);
+    this._tabGroups.splice(targetIdx, 0, dragged);
+    this.renderTerminalGroupTabs();
+    this.saveTerminalLayout();
+  }
+
+  /**
+   * Swap two adjacent tab groups by index.
+   */
+  _swapTabGroups(idxA, idxB) {
+    if (idxA < 0 || idxB < 0 || idxA >= this._tabGroups.length || idxB >= this._tabGroups.length) return;
+    const temp = this._tabGroups[idxA];
+    this._tabGroups[idxA] = this._tabGroups[idxB];
+    this._tabGroups[idxB] = temp;
+    this.renderTerminalGroupTabs();
+    this.saveTerminalLayout();
   }
 
   startInlineRenameGroup(nameEl, groupId) {
