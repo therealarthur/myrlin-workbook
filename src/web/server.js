@@ -176,6 +176,23 @@ app.post('/api/workspaces', requireAuth, (req, res) => {
  * PUT /api/workspaces/:id
  * Body: partial workspace fields to update
  */
+/**
+ * PUT /api/workspaces/reorder
+ * Body: { order: [...ids] }
+ * Saves the sidebar ordering (mix of workspace IDs and group IDs).
+ * IMPORTANT: Must be registered BEFORE PUT /api/workspaces/:id so Express
+ * doesn't match "reorder" as an :id parameter.
+ */
+app.put('/api/workspaces/reorder', requireAuth, (req, res) => {
+  const { order } = req.body || {};
+  if (!Array.isArray(order)) {
+    return res.status(400).json({ error: 'order must be an array of IDs.' });
+  }
+  const store = getStore();
+  store.reorderWorkspaces(order);
+  return res.json({ success: true });
+});
+
 app.put('/api/workspaces/:id', requireAuth, (req, res) => {
   const store = getStore();
   const workspace = store.updateWorkspace(req.params.id, req.body);
@@ -462,20 +479,7 @@ app.post('/api/groups/:id/add', requireAuth, (req, res) => {
   return res.json({ success: true });
 });
 
-/**
- * PUT /api/workspaces/reorder
- * Body: { order: [...ids] }
- * Saves the sidebar ordering (mix of workspace IDs and group IDs).
- */
-app.put('/api/workspaces/reorder', requireAuth, (req, res) => {
-  const { order } = req.body || {};
-  if (!Array.isArray(order)) {
-    return res.status(400).json({ error: 'order must be an array of IDs.' });
-  }
-  const store = getStore();
-  store.reorderWorkspaces(order);
-  return res.json({ success: true });
-});
+// (reorder route moved above PUT /api/workspaces/:id to avoid :id capturing "reorder")
 
 // ──────────────────────────────────────────────────────────
 //  SESSIONS
