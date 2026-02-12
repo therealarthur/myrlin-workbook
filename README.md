@@ -10,7 +10,7 @@ Discovers every Claude Code session you've ever run by scanning `~/.claude/proje
 > Currently supports Claude Code. Other AI coding tools on the [roadmap](#roadmap).
 
 <p align="center">
-  <img src="marketing/gifs/terminal-typing.gif" alt="Multi-terminal Claude sessions" width="800">
+  <img src="docs/images/terminal-typing.gif" alt="Multi-terminal Claude sessions" width="800">
 </p>
 
 ---
