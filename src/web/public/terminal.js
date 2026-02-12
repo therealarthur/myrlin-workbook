@@ -266,8 +266,6 @@ class TerminalPane {
       });
       this._resizeObserver.observe(container);
 
-      // ── Click-to-position cursor ──────────────────────────
-      this._initClickToPosition(container);
     } catch (err) {
       console.error('[Terminal] Init failed:', err);
       container.innerHTML = '<div style="padding:16px;color:#f38ba8;font-size:13px;">Terminal init failed: ' + err.message + '</div>';
@@ -586,58 +584,6 @@ class TerminalPane {
     }, { passive: true });
 
     this._touchScrollCleanup = () => cancelMomentum();
-  }
-
-  /**
-   * Click-to-position: when user clicks on the same row as the cursor,
-   * send left/right arrow keys to move cursor to clicked column.
-   * Desktop only — mobile has its own touch scroll handling.
-   */
-  _initClickToPosition(container) {
-    if (this._isMobile()) return;
-
-    container.addEventListener('mouseup', (e) => {
-      // Don't interfere with text selection
-      if (this.term.hasSelection()) return;
-      // Left-click only
-      if (e.button !== 0) return;
-
-      // Small delay to let selection state settle
-      setTimeout(() => {
-        if (this.term.hasSelection()) return;
-        this._handleClickToPosition(e, container);
-      }, 50);
-    });
-  }
-
-  _handleClickToPosition(e, container) {
-    if (!this.term || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
-    const cursorRow = this.term.buffer.active.cursorY;
-    const cursorCol = this.term.buffer.active.cursorX;
-
-    // Calculate cell dimensions from actual rendered size
-    const termEl = container.querySelector('.xterm-screen');
-    if (!termEl) return;
-    const rect = termEl.getBoundingClientRect();
-    const cellW = rect.width / this.term.cols;
-    const cellH = rect.height / this.term.rows;
-
-    // Determine clicked row/col
-    const clickedRow = Math.floor((e.clientY - rect.top) / cellH);
-    const clickedCol = Math.floor((e.clientX - rect.left) / cellW);
-
-    // Safety: only move cursor on the SAME ROW as cursor
-    if (clickedRow !== cursorRow) return;
-
-    // Clamp and calculate delta
-    const targetCol = Math.max(0, Math.min(clickedCol, this.term.cols - 1));
-    const delta = targetCol - cursorCol;
-    if (delta === 0) return;
-
-    // Send arrow key escape sequences
-    const seq = (delta > 0 ? '\x1b[C' : '\x1b[D').repeat(Math.abs(delta));
-    this.ws.send(JSON.stringify({ type: 'input', data: seq }));
   }
 
   /**
