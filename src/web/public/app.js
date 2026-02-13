@@ -193,6 +193,7 @@ class CWMApp {
       workspaceList: document.getElementById('workspace-list'),
       workspaceCount: document.getElementById('workspace-count'),
       createWorkspaceBtn: document.getElementById('create-workspace-btn'),
+      workspacesRefresh: document.getElementById('workspaces-refresh'),
       toggleHiddenBtn: document.getElementById('toggle-hidden-btn'),
       toggleHiddenLabel: document.getElementById('toggle-hidden-label'),
 
@@ -415,6 +416,16 @@ class CWMApp {
     this.els.viewTabs.forEach(tab => {
       tab.addEventListener('click', () => this.setViewMode(tab.dataset.mode));
     });
+
+    // Workspaces refresh
+    if (this.els.workspacesRefresh) {
+      this.els.workspacesRefresh.addEventListener('click', () => {
+        this.loadWorkspaces();
+        this.loadSessions();
+        this.loadStats();
+        this.showToast('Refreshing workspaces...', 'info');
+      });
+    }
 
     // Projects refresh
     if (this.els.projectsRefresh) {
