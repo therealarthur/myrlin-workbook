@@ -229,21 +229,36 @@ class TerminalPane {
         });
       });
 
-      // Intercept Shift+Enter to send newline instead of carriage return
-      // This lets Claude Code receive a "next line" signal rather than "submit"
+      // Custom key handler for Ctrl+C (copy), Ctrl+V (paste), Shift+Enter
       this.term.attachCustomKeyEventHandler((e) => {
-        // Ctrl+V / Cmd+V: let xterm.js handle paste natively.
-        // xterm.js v5 correctly supports bracketed paste mode (\x1b[200~ ... \x1b[201~).
-        // Previously we returned false here and had a separate container paste listener,
-        // but that caused double-paste: xterm.js's textarea caught the paste event AND
-        // our container handler also fired, sending the text twice to the PTY.
-        if (e.type === 'keydown' && e.key === 'Enter' && e.shiftKey) {
+        if (e.type !== 'keydown') return true;
+        const mod = e.ctrlKey || e.metaKey;
+
+        // Ctrl+C / Cmd+C: copy selected text to clipboard (if selection exists)
+        // Without selection, fall through so xterm sends \x03 (SIGINT) normally
+        if (mod && e.key === 'c' && this.term.hasSelection()) {
+          navigator.clipboard.writeText(this.term.getSelection()).catch(() => {});
+          this.term.clearSelection();
+          return false;
+        }
+
+        // Ctrl+V / Cmd+V: paste from clipboard via WebSocket
+        // Using explicit clipboard read instead of relying on browser paste event,
+        // which doesn't always fire reliably through xterm's hidden textarea
+        if (mod && e.key === 'v') {
+          this.pasteFromClipboard();
+          return false;
+        }
+
+        // Shift+Enter: send newline instead of carriage return
+        if (e.key === 'Enter' && e.shiftKey) {
           if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({ type: 'input', data: '\n' }));
           }
-          return false; // prevent xterm default Enter handling
+          return false;
         }
-        return true; // let xterm handle everything else (including Ctrl+V paste)
+
+        return true;
       });
 
       this.term.onData((data) => {
