@@ -132,6 +132,7 @@ class CWMApp {
 
     // ─── Conflict Detection state ────────────────────────────
     this._conflictCheckInterval = null;
+    this._lastConflictKeys = new Set();  // Dedup: tracks conflicts already toasted
 
     // ─── SSE ───────────────────────────────────────────────────
     this.eventSource = null;
@@ -754,6 +755,38 @@ class CWMApp {
             kb.classList.toggle('toolbar-active', isTypeMode);
             kb.textContent = isTypeMode ? '\u2328 Typing' : '\u2328 Type';
           });
+          return;
+        }
+
+        // Copy terminal content to clipboard (mobile copy button)
+        if (key === 'copy') {
+          let textToCopy = '';
+          // If there's an active selection in the terminal, copy that
+          if (activePane.term && activePane.term.hasSelection()) {
+            textToCopy = activePane.term.getSelection();
+          } else if (activePane.term) {
+            // No selection — copy all visible terminal content
+            const buffer = activePane.term.buffer.active;
+            const lines = [];
+            for (let i = 0; i < buffer.length; i++) {
+              const line = buffer.getLine(i);
+              if (line) lines.push(line.translateToString(true));
+            }
+            // Trim trailing empty lines
+            while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+              lines.pop();
+            }
+            textToCopy = lines.join('\n');
+          }
+          if (textToCopy) {
+            navigator.clipboard.writeText(textToCopy).then(() => {
+              this.showToast('Copied to clipboard', 'success');
+            }).catch(() => {
+              this.showToast('Failed to copy — check browser permissions', 'error');
+            });
+          } else {
+            this.showToast('Nothing to copy', 'info');
+          }
           return;
         }
 
@@ -8802,19 +8835,38 @@ class CWMApp {
       const data = await this.api('GET', `/api/workspaces/${ws.id}/conflicts`);
       const conflicts = data.conflicts || [];
 
-      if (conflicts.length === 0) return;
+      if (conflicts.length === 0) {
+        // All conflicts resolved — reset so future reappearances trigger toasts again
+        this._lastConflictKeys.clear();
+        return;
+      }
 
-      // Show a toast warning for each conflict (max 3 to avoid spam)
-      const shown = conflicts.slice(0, 3);
+      // Build a set of current conflict keys for deduplication
+      const currentKeys = new Set(conflicts.map(c => c.file || c.path || 'unknown'));
+
+      // Only show toasts for NEW conflicts (not already shown in a previous poll)
+      const newConflicts = conflicts.filter(c => {
+        const key = c.file || c.path || 'unknown';
+        return !this._lastConflictKeys.has(key);
+      });
+
+      // Update the tracked set to match current conflicts
+      this._lastConflictKeys = currentKeys;
+
+      // Nothing new to show — all current conflicts were already toasted
+      if (newConflicts.length === 0) return;
+
+      // Show a toast warning for each NEW conflict (max 3 to avoid spam)
+      const shown = newConflicts.slice(0, 3);
       shown.forEach(c => {
         const fileName = c.file || c.path || 'unknown file';
         const sessionCount = c.sessions ? c.sessions.length : c.count || 2;
         this.showToast(`Warning: ${fileName} is being edited by ${sessionCount} sessions`, 'warning');
       });
 
-      // If there are more conflicts than shown, add a summary toast
-      if (conflicts.length > 3) {
-        this.showToast(`${conflicts.length - 3} more file conflicts detected in ${this.escapeHtml(ws.name)}`, 'warning');
+      // If there are more new conflicts than shown, add a summary toast
+      if (newConflicts.length > 3) {
+        this.showToast(`${newConflicts.length - 3} more file conflicts detected in ${this.escapeHtml(ws.name)}`, 'warning');
       }
     } catch {
       // Silently ignore conflict check failures — the API endpoint may not exist yet.
