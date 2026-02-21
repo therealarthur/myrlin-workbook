@@ -570,6 +570,14 @@
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
+    /* Hide scrollbar on mobile — touch scrolling replaces it,
+       and the thin bar conflicts with Chrome's edge gestures */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .terminal-pane.mobile-active .xterm-viewport::-webkit-scrollbar {
+    display: none;
   }
 
   /* xterm screen layer (canvas) — pointer-events toggled by JS:
@@ -712,6 +720,64 @@
   }
 
   .terminal-mobile-toolbar .toolbar-send:active {
+    opacity: 0.8;
+  }
+
+  /* ── Mobile input row (replaces xterm textarea for autocorrect-safe typing) ── */
+  .terminal-mobile-input-row {
+    display: none;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--mantle);
+    border-top: 1px solid var(--surface0);
+    flex-shrink: 0;
+    align-items: center;
+  }
+
+  .terminal-mobile-input-row.active {
+    display: flex;
+  }
+
+  .terminal-mobile-input-row input {
+    flex: 1;
+    min-width: 0;
+    height: 40px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: var(--surface0);
+    border: 1px solid var(--surface1);
+    color: var(--text-primary);
+    font-size: 15px;
+    font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    outline: none;
+    -webkit-appearance: none;
+  }
+
+  .terminal-mobile-input-row input:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.2);
+  }
+
+  .terminal-mobile-input-row .mobile-send-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 56px;
+    height: 40px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    background: var(--green);
+    color: var(--crust);
+    border: none;
+    font-weight: 600;
+    font-size: 13px;
+    font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    cursor: pointer;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .terminal-mobile-input-row .mobile-send-btn:active {
     opacity: 0.8;
   }
 }

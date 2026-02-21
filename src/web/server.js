@@ -93,7 +93,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// CORS headers - restrict to localhost origins only
+// CORS headers - restrict to localhost and local network origins
 app.use((req, res, next) => {
   const origin = req.headers.origin || '';
   const allowedOrigins = [
@@ -104,7 +104,11 @@ app.use((req, res, next) => {
   ];
   // Allow any localhost port (e.g. http://localhost:3456, http://localhost:5173)
   const isAllowed = allowedOrigins.some(allowed => origin === allowed || origin.startsWith(allowed + ':'));
-  if (isAllowed) {
+  // Also allow requests from the same host (e.g. Tailscale IP)
+  const reqHost = req.headers.host;
+  if (!isAllowed && reqHost && origin.includes(reqHost.split(':')[0])) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (isAllowed) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -119,9 +123,12 @@ app.use((req, res, next) => {
 // ─── Security Headers ────────────────────────────────────────
 app.use((req, res, next) => {
   // Content Security Policy - allow self + inline styles (for dynamic UI) + WebSocket
+  // Dynamically allow WebSocket from the request host (supports Tailscale/LAN access)
+  const host = req.headers.host || 'localhost:3456';
+  const hostname = host.split(':')[0];
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-    "connect-src 'self' ws://localhost:* wss://localhost:* ws://127.0.0.1:* wss://127.0.0.1:*; " +
+    `connect-src 'self' ws://localhost:* wss://localhost:* ws://127.0.0.1:* wss://127.0.0.1:* ws://${hostname}:* wss://${hostname}:*; ` +
     "img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; " +
     "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com;"
   );

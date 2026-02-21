@@ -384,7 +384,58 @@ class TerminalPane {
         return true;
       });
 
+      // ── Mobile IME/autocorrect guard ──────────────────────────
+      // Mobile keyboards handle autocorrect in two ways:
+      // 1. Composition events (CJK, swipe typing): compositionstart → compositionend
+      // 2. beforeinput with insertReplacementText (tap-to-correct suggestions)
+      //
+      // xterm.js doesn't handle either well — it sends both the original
+      // keystrokes AND the replacement, causing text duplication.
+      //
+      // Strategy: intercept both paths, block xterm's processing, and send
+      // the correct keystrokes (backspaces + replacement) ourselves.
+      this._composing = false;
+      this._replacingText = false;
+      const xtermTextarea = container.querySelector('.xterm-helper-textarea');
+      if (xtermTextarea) {
+        // Path 1: Composition events (swipe, CJK input)
+        xtermTextarea.addEventListener('compositionstart', () => {
+          this._composing = true;
+        });
+        xtermTextarea.addEventListener('compositionend', (e) => {
+          this._composing = false;
+          if (e.data && this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'input', data: e.data }));
+          }
+        });
+
+        // Path 2: Autocorrect tap-to-replace (Gboard, iOS keyboard, etc.)
+        // beforeinput fires BEFORE the textarea is modified — we can block it
+        // and send the correct backspaces + replacement to the PTY ourselves.
+        xtermTextarea.addEventListener('beforeinput', (e) => {
+          if (e.inputType === 'insertReplacementText') {
+            e.preventDefault();
+            const replacement = e.data || (e.dataTransfer && e.dataTransfer.getData('text/plain')) || '';
+            if (!replacement || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+            // getTargetRanges() tells us what text the keyboard is replacing
+            const ranges = e.getTargetRanges();
+            let deleteCount = 0;
+            if (ranges.length > 0) {
+              const range = ranges[0];
+              deleteCount = range.endOffset - range.startOffset;
+            }
+
+            // Send backspaces to erase the old word, then the replacement
+            const backspaces = '\x7f'.repeat(deleteCount) || '\b'.repeat(deleteCount);
+            this.ws.send(JSON.stringify({ type: 'input', data: backspaces + replacement }));
+          }
+        });
+      }
+
       this.term.onData((data) => {
+        // Skip input during IME composition — compositionend sends the result
+        if (this._composing) return;
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'input', data }));
         }
@@ -658,6 +709,14 @@ class TerminalPane {
     this._xtermScreen = container.querySelector('.xterm-screen');
     this._xtermViewport = container.querySelector('.xterm-viewport');
 
+    // Disable mobile keyboard autocomplete/autocorrect/spellcheck.
+    // These use IME composition events that xterm.js mishandles,
+    // causing duplicated/garbled text injection.
+    textarea.setAttribute('autocomplete', 'off');
+    textarea.setAttribute('autocorrect', 'off');
+    textarea.setAttribute('autocapitalize', 'off');
+    textarea.setAttribute('spellcheck', 'false');
+
     // Default to scroll mode: block touch from reaching textarea and screen.
     // textarea: prevents keyboard popup on scroll
     // screen: block xterm.js's internal touch handling that calls preventDefault
@@ -712,6 +771,8 @@ class TerminalPane {
       // If currently selecting, let xterm handle
       if (this._mobileSelecting) return;
 
+      // Block xterm.js from seeing this event (it calls preventDefault)
+      e.stopPropagation();
       stopMomentum();
       const touch = e.touches[0];
       startY = touch.clientY;
@@ -731,6 +792,9 @@ class TerminalPane {
       if (this._mobileTypeMode) return;
       // If selecting, let xterm.js handle the selection drag
       if (this._mobileSelecting) return;
+
+      // Block xterm.js from seeing this event
+      e.stopPropagation();
 
       const touch = e.touches[0];
       const deltaY = touch.clientY - lastY;
@@ -758,7 +822,8 @@ class TerminalPane {
       lastTime = now;
     };
 
-    const onTouchEnd = () => {
+    const onTouchEnd = (e) => {
+      if (!this._mobileTypeMode && !this._mobileSelecting) e.stopPropagation();
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
       // If we were selecting, revert after a delay for xterm.js to process

@@ -997,13 +997,34 @@ class CWMApp {
           return;
         }
 
-        // Keyboard toggle - switches between scroll mode and type mode
+        // Keyboard toggle - show/hide dedicated mobile input field
+        // (bypasses xterm.js textarea entirely to avoid autocorrect duplication)
         if (key === 'keyboard') {
-          const isTypeMode = activePane.toggleMobileInputMode();
-          document.querySelectorAll('.toolbar-keyboard').forEach(kb => {
-            kb.classList.toggle('toolbar-active', isTypeMode);
-            kb.textContent = isTypeMode ? '\u2328 Typing' : '\u2328 Type';
-          });
+          const paneEl = btn.closest('.terminal-pane');
+          const inputRow = paneEl && paneEl.querySelector('.terminal-mobile-input-row');
+          const inputField = inputRow && inputRow.querySelector('.mobile-type-input');
+          const isActive = inputRow && inputRow.classList.contains('active');
+
+          if (isActive) {
+            // Closing: hide input row
+            if (inputRow) inputRow.classList.remove('active');
+            if (inputField) inputField.blur();
+            document.querySelectorAll('.toolbar-keyboard').forEach(kb => {
+              kb.classList.remove('toolbar-active');
+              kb.textContent = '\u2328 Type';
+            });
+          } else {
+            // Opening: show input row and focus
+            if (inputRow) inputRow.classList.add('active');
+            if (inputField) {
+              inputField.value = '';
+              inputField.focus();
+            }
+            document.querySelectorAll('.toolbar-keyboard').forEach(kb => {
+              kb.classList.add('toolbar-active');
+              kb.textContent = '\u2328 Typing';
+            });
+          }
           return;
         }
 
@@ -1060,6 +1081,37 @@ class CWMApp {
         const data = keyMap[key];
         if (data) {
           activePane.ws.send(JSON.stringify({ type: 'input', data }));
+        }
+      });
+    });
+
+    // ── Mobile input field: Send button + Enter key ──────────────
+    // Sends typed text to the active terminal's PTY, bypassing xterm.js textarea
+    document.querySelectorAll('.terminal-mobile-input-row').forEach(row => {
+      const input = row.querySelector('.mobile-type-input');
+      const sendBtn = row.querySelector('.mobile-send-btn');
+      if (!input || !sendBtn) return;
+
+      const sendInput = () => {
+        const paneEl = row.closest('.terminal-pane');
+        const slot = paneEl && parseInt(paneEl.dataset.slot, 10);
+        const pane = (slot != null) ? this.terminalPanes[slot] : null;
+        if (!pane || !pane.ws || pane.ws.readyState !== WebSocket.OPEN) return;
+        const text = input.value;
+        if (text) {
+          pane.ws.send(JSON.stringify({ type: 'input', data: text }));
+        }
+        // Always send Enter after the text
+        pane.ws.send(JSON.stringify({ type: 'input', data: '\r' }));
+        input.value = '';
+        input.focus();
+      };
+
+      sendBtn.addEventListener('click', sendInput);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sendInput();
         }
       });
     });
