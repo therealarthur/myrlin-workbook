@@ -513,10 +513,9 @@ class PtySessionManager {
       return;
     }
 
-    // Add client to the session's client set
-    session.clients.add(ws);
-
-    // Replay scrollback buffer so the client sees existing output
+    // Replay scrollback buffer BEFORE adding to broadcast set.
+    // This ensures the client receives the full historical output first,
+    // then starts receiving only NEW live data — no interleaving.
     if (session.scrollback.length > 0) {
       const replay = session.scrollback.join('');
       try {
@@ -527,6 +526,9 @@ class PtySessionManager {
         // ignore
       }
     }
+
+    // NOW add client to the broadcast set for live PTY data
+    session.clients.add(ws);
 
     // If session already exited, notify this client
     if (!session.alive) {

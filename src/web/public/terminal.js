@@ -458,10 +458,14 @@ class TerminalPane {
       this.ws = null;
     }
 
-    // On reconnect, fully reset the terminal before the server replays scrollback.
-    // reset() clears viewport, scrollback buffer, cursor, and all terminal state.
-    // Without this, the replayed scrollback appears on top of existing content.
+    // On reconnect, cancel any pending write operations THEN reset the terminal.
+    // Without draining the write pipeline first, a stale rAF/timer could flush
+    // old data into the terminal AFTER reset(), causing duplicate content.
     if (isReconnect && this.term) {
+      if (this._writeRaf) { cancelAnimationFrame(this._writeRaf); this._writeRaf = null; }
+      if (this._bgFlushTimer) { clearTimeout(this._bgFlushTimer); this._bgFlushTimer = null; }
+      this._writeBuf = '';
+      this._activitySample = '';
       this.term.reset();
     }
 
