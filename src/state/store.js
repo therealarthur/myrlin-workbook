@@ -310,7 +310,7 @@ class Store extends EventEmitter {
 
   // ─── Session CRUD ────────────────────────────────────────
 
-  createSession({ name, workspaceId, workingDir = '', topic = '', command = 'claude', resumeSessionId = null, tags = [] }) {
+  createSession({ name, workspaceId, workingDir = '', topic = '', command = 'claude', resumeSessionId = null, tags = [], initialPrompt = null, flags = [] }) {
     if (!this._state.workspaces[workspaceId]) return null;
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -325,6 +325,8 @@ class Store extends EventEmitter {
       status: 'stopped', // 'running' | 'stopped' | 'error' | 'idle'
       pid: null,
       tags: Array.isArray(tags) ? tags : [],
+      initialPrompt: initialPrompt || null,  // One-shot prompt for first launch
+      flags: Array.isArray(flags) ? flags : [],  // Extra CLI flags (e.g. --dangerously-skip-permissions)
       createdAt: now,
       lastActive: now,
       logs: [],

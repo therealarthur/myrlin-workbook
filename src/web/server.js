@@ -4767,7 +4767,7 @@ app.get('/api/worktree-tasks', requireAuth, async (req, res) => {
  * Create a worktree task: creates git worktree, session, and task record.
  */
 app.post('/api/worktree-tasks', requireAuth, async (req, res) => {
-  const { workspaceId, repoDir, branch, description, baseBranch, featureId, model, tags, startNow } = req.body || {};
+  const { workspaceId, repoDir, branch, description, baseBranch, featureId, model, tags, startNow, prompt, flags } = req.body || {};
   if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
   if (!repoDir) return res.status(400).json({ error: 'repoDir is required' });
   if (!branch) return res.status(400).json({ error: 'branch is required' });
@@ -4855,11 +4855,16 @@ app.post('/api/worktree-tasks', requireAuth, async (req, res) => {
 
     // 2. Create a session in this workspace pointing at the worktree
     const sessionName = branch.replace(/^feat\//, '') + ' (worktree task)';
-    const session = store.createSession(workspaceId, {
+    const safePrompt = (typeof prompt === 'string' && prompt.trim()) ? prompt.trim() : null;
+    const safeFlags = Array.isArray(flags) ? flags.filter(f => typeof f === 'string' && /^[a-zA-Z0-9-]+$/.test(f)) : [];
+    const session = store.createSession({
+      workspaceId,
       name: sessionName,
       workingDir: worktreePath,
       command: 'claude',
       model: model || undefined,
+      initialPrompt: safePrompt,
+      flags: safeFlags,
     });
     if (!session) {
       return res.status(500).json({ error: 'Failed to create session' });

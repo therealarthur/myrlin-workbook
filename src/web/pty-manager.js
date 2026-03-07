@@ -125,7 +125,7 @@ class PtySessionManager {
    * @param {boolean} [options.bypassPermissions=false] - If true, adds --dangerously-skip-permissions
    * @returns {PtySession} The PTY session object
    */
-  spawnSession(sessionId, { command = 'claude', cwd, cols = 120, rows = 30, bypassPermissions = false, resumeSessionId = null, verbose = false, model = null, agentTeams = false, shell: requestedShell = null, newSession = false } = {}) {
+  spawnSession(sessionId, { command = 'claude', cwd, cols = 120, rows = 30, bypassPermissions = false, resumeSessionId = null, verbose = false, model = null, agentTeams = false, shell: requestedShell = null, newSession = false, initialPrompt = null, flags = [] } = {}) {
     // Return existing session if already alive
     const existing = this.sessions.get(sessionId);
     if (existing && existing.alive) {
@@ -168,6 +168,20 @@ class PtySessionManager {
     }
     if (model) {
       fullCommand += ' --model ' + model;
+    }
+    // Extra flags (e.g. from worktree task flags checkboxes), validated upstream
+    if (Array.isArray(flags)) {
+      for (const f of flags) {
+        if (f && /^[a-zA-Z0-9-]+$/.test(f)) {
+          fullCommand += ' --' + f;
+        }
+      }
+    }
+    // Initial prompt: appended as the last argument on first launch only.
+    // Wrap in single quotes, escaping any single quotes inside the prompt.
+    if (initialPrompt && typeof initialPrompt === 'string') {
+      const escaped = initialPrompt.replace(/'/g, "'\\''");
+      fullCommand += " '" + escaped + "'";
     }
 
     // Validate cwd exists. If the provided path is invalid (e.g. an encoded
@@ -479,6 +493,9 @@ class PtySessionManager {
             model: storeSession.model || null,
             agentTeams: storeSession.agentTeams || false,
             resumeSessionId: storeSession.resumeSessionId || null,
+            // Only inject initialPrompt and flags on first launch (no resumeSessionId yet)
+            initialPrompt: storeSession.resumeSessionId ? null : (storeSession.initialPrompt || null),
+            flags: storeSession.resumeSessionId ? [] : (storeSession.flags || []),
             ...spawnOpts,
           });
         } else {
