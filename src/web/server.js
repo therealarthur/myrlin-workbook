@@ -4815,11 +4815,22 @@ app.post('/api/worktree-tasks', requireAuth, async (req, res) => {
       branchExists = true;
     } catch {}
 
-    const args = ['worktree', 'add'];
-    if (!branchExists) args.push('-b', branch);
-    args.push(worktreePath);
-    if (branchExists) args.push(branch);
-    await gitExec(args, root);
+    // Check if this worktree path is already registered with git (e.g. from a
+    // previous attempt that succeeded at the git level but failed later).
+    // If so, skip `git worktree add` to avoid the "already exists" fatal error.
+    let worktreeAlreadyRegistered = false;
+    try {
+      const listOut = await gitExec(['worktree', 'list', '--porcelain'], root);
+      worktreeAlreadyRegistered = listOut.includes(`worktree ${worktreePath}`);
+    } catch {}
+
+    if (!worktreeAlreadyRegistered) {
+      const args = ['worktree', 'add'];
+      if (!branchExists) args.push('-b', branch);
+      args.push(worktreePath);
+      if (branchExists) args.push(branch);
+      await gitExec(args, root);
+    }
 
     // 1.5. Run init hooks (copy_files and init_script) if configured
     const initHooks = store.getWorktreeInitHooks();
