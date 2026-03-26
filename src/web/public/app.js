@@ -9206,6 +9206,23 @@ class CWMApp {
 
     items.push({ type: 'sep' });
 
+    // Display image inline (imgcat via IIP)
+    items.push({
+      label: 'Show Image', icon: '&#128444;', action: () => {
+        this.showPromptModal('Image file path (or URL)', 'Display', async (filePath) => {
+          if (!filePath || !filePath.trim()) return;
+          try {
+            await this.api('POST', `/api/pty/${encodeURIComponent(tp.sessionId)}/imgcat`, {
+              filePath: filePath.trim(),
+            });
+            this.showToast('Image sent to terminal', 'success');
+          } catch (err) {
+            this.showToast(err.message || 'Failed to display image', 'error');
+          }
+        });
+      },
+    });
+
     // Fix Terminal - sends reset command
     items.push({
       label: 'Fix Terminal (reset)', icon: '&#8635;', action: () => {

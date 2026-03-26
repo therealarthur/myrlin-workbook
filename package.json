@@ -1,6 +1,6 @@
 {
   "name": "myrlin-workbook",
-  "version": "0.9.8",
+  "version": "0.10.0-alpha.1",
   "description": "Browser-based project manager for Claude Code sessions - session discovery, multi-terminal, cost tracking, docs, and kanban board",
   "main": "src/index.js",
   "bin": {
@@ -45,6 +45,7 @@
   "author": "Arthur",
   "license": "AGPL-3.0-only",
   "dependencies": {
+    "@xterm/addon-image": "^0.9.0",
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.11.0",
     "chalk": "^5.6.2",

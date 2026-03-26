@@ -4758,6 +4758,59 @@ app.get('/api/pty', requireAuth, (req, res) => {
 });
 
 /**
+ * POST /api/pty/:sessionId/imgcat
+ * Send an image to a terminal pane as iTerm2 IIP escape sequences.
+ * The image renders inline in xterm.js via @xterm/addon-image.
+ * Accepts: { base64: string, name?: string, width?: string, height?: string }
+ * Or: { filePath: string } to read an image from disk.
+ */
+app.post('/api/pty/:sessionId/imgcat', requireAuth, (req, res) => {
+  const ptyMgr = getPtyManager();
+  if (!ptyMgr) return res.status(503).json({ error: 'PTY manager not available' });
+
+  const session = ptyMgr.getSession(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  let base64Data;
+  let name = req.body.name || 'screenshot';
+
+  if (req.body.base64) {
+    base64Data = req.body.base64;
+  } else if (req.body.filePath) {
+    try {
+      const imgBuf = fs.readFileSync(req.body.filePath);
+      base64Data = imgBuf.toString('base64');
+      name = path.basename(req.body.filePath);
+    } catch (err) {
+      return res.status(400).json({ error: 'Cannot read file: ' + err.message });
+    }
+  } else {
+    return res.status(400).json({ error: 'Provide base64 or filePath' });
+  }
+
+  // Build iTerm2 IIP escape sequence
+  const args = [
+    'inline=1',
+    'name=' + Buffer.from(name).toString('base64'),
+    'preserveAspectRatio=1',
+    'size=' + Math.ceil(base64Data.length * 3 / 4),
+  ];
+  if (req.body.width) args.push('width=' + req.body.width);
+  if (req.body.height) args.push('height=' + req.body.height);
+
+  const seq = '\x1b]1337;File=' + args.join(';') + ':' + base64Data + '\x07\n';
+
+  // Send to all WebSocket clients for this session
+  for (const ws of session.clients) {
+    try {
+      if (ws.readyState === 1) ws.send(seq);
+    } catch (_) {}
+  }
+
+  return res.json({ ok: true, size: base64Data.length, name });
+});
+
+/**
  * POST /api/pty/kill-orphaned
  * Kills all PTY sessions that have zero connected WebSocket clients.
  */

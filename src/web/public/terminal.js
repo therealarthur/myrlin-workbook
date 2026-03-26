@@ -314,6 +314,20 @@ class TerminalPane {
         this.term.loadAddon(new WebLinksAddon.WebLinksAddon());
       }
 
+      // Load image addon for inline Sixel/iTerm2 IIP image rendering
+      if (typeof ImageAddon !== 'undefined') {
+        this.imageAddon = new ImageAddon.ImageAddon({
+          sixelSupport: true,
+          iipSupport: true,
+          sixelPaletteLimit: 4096,
+          pixelLimit: 16777216,       // 16M pixels max per image
+          storageLimit: 64,           // 64MB FIFO image cache
+          showPlaceholder: true,      // Show placeholder when images are evicted
+        });
+        this.term.loadAddon(this.imageAddon);
+        this._log('ImageAddon loaded (Sixel + IIP support)');
+      }
+
       this.term.open(container);
       this._log('xterm opened in ' + this.containerId + ' for session ' + this.sessionId);
 
