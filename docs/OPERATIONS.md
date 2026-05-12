@@ -6,12 +6,22 @@ Operational notes for the always-on `workbook.myrlin.dev` deployment.
 
 | Layer | Process | Auto-start | Auto-restart |
 |---|---|---|---|
-| Workbook (`node gui.js`) | child of supervisor.js | yes (via supervisor) | yes (supervisor 2s back-off, exponential cap 60s) |
+| Workbook (`node gui.js`) | child of supervisor.js OR launched by watchdog | yes (via supervisor + watchdog) | yes (supervisor 2s back-off; watchdog 10s poll) |
 | Supervisor (`node supervisor.js`) | Scheduled Task `Myrlin-Workbook` | yes (Task Scheduler `AtStartup`, S4U) | yes (Task Scheduler restart-on-failure x3) |
+| Watchdog (`node scripts/watchdog.js`) | Scheduled Task `Myrlin-Workbook-Watchdog` | yes (Task Scheduler `AtLogon`, Interactive) | yes (Task Scheduler restart-on-failure x3) |
 | Cloudflared | Windows service `Cloudflared` | yes (`start=auto`) | yes (SCM recovery: restart x3 / 5s delay) |
 | DNS | Cloudflare DNS (`myrlin.dev` zone) | n/a | n/a |
 | TLS | Cloudflare edge | n/a | n/a |
 | Auth | Cloudflare Access (Zero Trust) | n/a | n/a |
+
+### Watchdog vs Supervisor
+
+The watchdog (user-space, non-admin) and supervisor (S4U Scheduled Task, admin to register) are belt-and-suspenders for different failure modes:
+
+- **Supervisor** owns the workbook process — knows when its child crashes within milliseconds, restarts immediately.
+- **Watchdog** doesn't own anything — polls `http://127.0.0.1:3457/` every 10s. Spawns a replacement workbook if the port doesn't answer, regardless of why (manual kill, parent process death, supervisor itself dying).
+
+Together they handle every failure mode except a wedged tunnel or a kernel-level Windows crash.
 
 ## Quick health check
 
