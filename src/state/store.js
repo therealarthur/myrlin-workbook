@@ -20,7 +20,17 @@ const STATE_DIR = getDataDir();
 const BACKUP_DIR = path.join(STATE_DIR, 'backups');
 const STATE_FILE = path.join(STATE_DIR, 'workspaces.json');
 const BACKUP_FILE = path.join(STATE_DIR, 'workspaces.backup.json');
-const MAX_TIMESTAMPED_BACKUPS = 10; // Keep last N timestamped backups
+// Backup retention. Three tiers protect against different failure modes:
+//   1. Rolling ring: the N most-recent backups. Tuned big enough that a crash
+//      loop on startup can't evict every historical snapshot (10 was too small
+//      on 2026-05-11 — a 10-restart loop ate the entire backup history).
+//   2. Daily tier: one backup per calendar day for the last N days.
+//   3. Weekly tier: one backup per ISO week for the last N weeks.
+// A backup is kept if it qualifies for ANY tier. The tiers compose, so worst
+// case is: ring (50) + daily (30) + weekly (8) ≈ 88 files. JSON is small.
+const MAX_TIMESTAMPED_BACKUPS = 50;
+const TIERED_DAILY_DAYS = 30;
+const TIERED_WEEKLY_WEEKS = 8;
 
 // Default state shape
 const MAX_RECENT = 10;
@@ -118,6 +128,10 @@ class Store extends EventEmitter {
     this._dirty = false;
     this._saveTimer = null;
     this._lastDiskMtimeMs = 0; // Track last known mtime for cross-process sync
+    // Shape-drift detector: track the workspace count we last saw on disk so we
+    // can refuse saves that 10x it (a near-certain sign of test pollution or
+    // corruption). Initialized after load/save. 2026-05-11 incident reference.
+    this._lastKnownWorkspaceCount = 0;
   }
 
   /**
@@ -170,6 +184,7 @@ class Store extends EventEmitter {
       console.warn('[Store] _migrateBackupFiles unexpected error: ' + err.message);
     }
     this._recordDiskMtime();
+    this._recordWorkspaceBaseline();
     return this;
   }
 
@@ -231,6 +246,81 @@ class Store extends EventEmitter {
   }
 
   /**
+   * Update the baseline workspace count used by the shape-drift detector.
+   * Called after any successful load or save so a legitimate growth (user
+   * adding workspaces over time) doesn't trip the guard later.
+   */
+  _recordWorkspaceBaseline() {
+    try {
+      this._lastKnownWorkspaceCount = Object.keys((this._state && this._state.workspaces) || {}).length;
+    } catch (_) {
+      this._lastKnownWorkspaceCount = 0;
+    }
+  }
+
+  /**
+   * Detect suspicious state drift that almost certainly indicates test pollution
+   * or corruption. Returns a string reason if the save should be aborted, or
+   * null if safe.
+   *
+   * Checks:
+   *   1. Count balloon: in-memory workspaces > 10x last known AND > 50 absolute.
+   *      Real users don't 10x their workspace count between saves; test scripts do.
+   *   2. Test-shaped names: > 50 workspaces named like pty-test-*, codex-test-*,
+   *      test-*, recovery-test-*. Even ONE legitimate workspace with that name
+   *      is rare; 50+ means a test script polluted the store.
+   *
+   * Both can be bypassed with CWM_LARGE_STATE_OK=1 for legitimate bulk imports.
+   *
+   * History: on 2026-05-11 a misconfigured test wrote 1019 pty-test-ws-* and
+   * codex-test-ws-* workspaces over the real production state. This guard would
+   * have caught it BEFORE the bad save landed on disk.
+   */
+  _checkShapeDrift() {
+    if (process.env.CWM_LARGE_STATE_OK === '1') return null;
+    const wss = (this._state && this._state.workspaces) || {};
+    const currentCount = Object.keys(wss).length;
+
+    // Check 1: count balloon
+    const lastCount = this._lastKnownWorkspaceCount;
+    if (lastCount > 0 && currentCount > 50 && currentCount > lastCount * 10) {
+      return 'workspaces count ballooned from ' + lastCount + ' to ' + currentCount
+        + ' (>10x). Set CWM_LARGE_STATE_OK=1 to override.';
+    }
+
+    // Check 2: test-shaped names
+    let testShaped = 0;
+    for (const w of Object.values(wss)) {
+      if (/^(pty-test|codex-test|test-|recovery-test)/i.test(w.name || '')) testShaped++;
+    }
+    if (testShaped > 50) {
+      return testShaped + ' workspaces have test-shaped names (pty-test-*, codex-test-*, test-*). '
+        + 'Set CWM_LARGE_STATE_OK=1 to override.';
+    }
+
+    return null;
+  }
+
+  /**
+   * Common abort path for the shape-drift detector. Logs loudly, emits an
+   * error event, and dumps the rejected state to disk for forensic review
+   * (NOT a backup — it sits next to STATE_FILE with a .rejected suffix so
+   * it's obvious it isn't authoritative).
+   */
+  _handleShapeDriftAbort(drift) {
+    console.error('[Store] SHAPE DRIFT DETECTED, refusing to save:', drift);
+    this.emit('error', { type: 'shape_drift', error: drift });
+    try {
+      const dump = STATE_FILE + '.rejected.' + Date.now() + '.json';
+      fs.writeFileSync(dump, JSON.stringify(this._state, null, 2), 'utf-8');
+      console.error('[Store] Rejected in-memory state dumped to ' + dump
+        + ' for review. Disk state is unchanged.');
+    } catch (e) {
+      console.error('[Store] Could not dump rejected state: ' + e.message);
+    }
+  }
+
+  /**
    * Check if another process has modified the state file since we last read it.
    * If so, reload from disk. Enables TUI/GUI cross-process state sync.
    */
@@ -243,6 +333,7 @@ class Store extends EventEmitter {
         if (reloaded) {
           this._state = reloaded;
           this._lastDiskMtimeMs = currentMtimeMs;
+          this._recordWorkspaceBaseline();
           this.emit('state:reloaded');
         }
       }
@@ -346,6 +437,13 @@ class Store extends EventEmitter {
    * Verifies written data after rename to detect zero-fill corruption.
    */
   save() {
+    // Shape-drift detector runs BEFORE we touch disk so a polluted in-memory
+    // state can't overwrite a good file. Bypass with CWM_LARGE_STATE_OK=1.
+    const drift = this._checkShapeDrift();
+    if (drift) {
+      this._handleShapeDriftAbort(drift);
+      return;
+    }
     try {
       // Only backup current file if it contains real data (not zero-filled)
       if (fs.existsSync(STATE_FILE)) {
@@ -399,6 +497,7 @@ class Store extends EventEmitter {
       } catch (_) {}
 
       this._recordDiskMtime();
+      this._recordWorkspaceBaseline();
       this._dirty = false;
     } catch (err) {
       this.emit('error', { type: 'save_failed', error: err.message });
@@ -428,7 +527,10 @@ class Store extends EventEmitter {
 
   /**
    * Create a timestamped backup. Called on server startup to preserve
-   * state before any mutations. Keeps up to MAX_TIMESTAMPED_BACKUPS files.
+   * state before any mutations. Retains backups in three composing tiers
+   * (rolling ring + daily + weekly) so a single crash loop cannot evict
+   * the entire backup history. See MAX_TIMESTAMPED_BACKUPS constant block
+   * for tier sizes.
    */
   createTimestampedBackup() {
     try {
@@ -438,6 +540,14 @@ class Store extends EventEmitter {
         console.warn('[Store] Skipping timestamped backup: primary file is corrupt/zero-filled');
         return;
       }
+      // Defense in depth: never back up a file that would trip the shape-drift
+      // detector. Otherwise we'd dutifully back up the 1019-test-workspace
+      // pollution and immediately evict the clean backup that sits next to it.
+      const baselineCheck = this._checkShapeDriftOnFile(STATE_FILE);
+      if (baselineCheck) {
+        console.warn('[Store] Skipping timestamped backup: ' + baselineCheck);
+        return;
+      }
       if (!fs.existsSync(BACKUP_DIR)) {
         fs.mkdirSync(BACKUP_DIR, { recursive: true });
       }
@@ -445,16 +555,129 @@ class Store extends EventEmitter {
       const backupFile = path.join(BACKUP_DIR, `workspaces-${ts}.json`);
       fs.copyFileSync(STATE_FILE, backupFile);
 
-      // Prune old backups, keep only the most recent N
-      const backups = fs.readdirSync(BACKUP_DIR)
-        .filter(f => f.startsWith('workspaces-') && f.endsWith('.json'))
-        .sort();
-      while (backups.length > MAX_TIMESTAMPED_BACKUPS) {
-        const oldest = backups.shift();
-        try { fs.unlinkSync(path.join(BACKUP_DIR, oldest)); } catch (_) {}
-      }
+      this._pruneBackups();
     } catch (err) {
       console.error('[Store] Failed to create timestamped backup:', err.message);
+    }
+  }
+
+  /**
+   * Re-run the shape-drift heuristics on a file on disk (not the in-memory
+   * state). Used by createTimestampedBackup to refuse archiving a file that
+   * already looks polluted. Returns a reason string if the file looks bad,
+   * or null if it's clean.
+   */
+  _checkShapeDriftOnFile(filePath) {
+    if (process.env.CWM_LARGE_STATE_OK === '1') return null;
+    try {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      if (!raw.trim()) return null;
+      const parsed = JSON.parse(raw);
+      const wss = (parsed && parsed.workspaces) || {};
+      const count = Object.keys(wss).length;
+      let testShaped = 0;
+      for (const w of Object.values(wss)) {
+        if (/^(pty-test|codex-test|test-|recovery-test)/i.test(w.name || '')) testShaped++;
+      }
+      if (testShaped > 50) {
+        return 'file contains ' + testShaped + ' test-shaped workspace names — likely polluted.';
+      }
+      if (this._lastKnownWorkspaceCount > 0
+          && count > 50
+          && count > this._lastKnownWorkspaceCount * 10) {
+        return 'file has ' + count + ' workspaces, prior baseline ' + this._lastKnownWorkspaceCount
+          + ' (>10x ratio) — likely polluted.';
+      }
+      return null;
+    } catch (_) {
+      // Couldn't parse — leave it to the existing _isFileValid path.
+      return null;
+    }
+  }
+
+  /**
+   * Parse a backup filename to its Date. Filenames look like
+   * "workspaces-2026-05-13T08-38-03-412Z.json" (the stock createTimestampedBackup
+   * format with colons/dots replaced by hyphens). Returns null on malformed input.
+   */
+  _parseBackupTimestamp(filename) {
+    const m = filename.match(/^workspaces-(.+)\.json$/);
+    if (!m) return null;
+    const stamp = m[1];
+    const tIdx = stamp.indexOf('T');
+    if (tIdx < 0) return null;
+    const date = stamp.slice(0, tIdx);
+    const time = stamp.slice(tIdx + 1);
+    // time is like '08-38-03-412Z'; last hyphen separates seconds from millis
+    const lastHyphen = time.lastIndexOf('-');
+    if (lastHyphen < 0) return null;
+    const hms = time.slice(0, lastHyphen).replace(/-/g, ':');
+    const msZ = time.slice(lastHyphen + 1);
+    const iso = date + 'T' + hms + '.' + msZ;
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  /**
+   * Decide which timestamped backups to keep and delete the rest. A backup
+   * survives if it qualifies for ANY retention tier:
+   *
+   *   - Rolling: one of the MAX_TIMESTAMPED_BACKUPS most-recent
+   *   - Daily:   the most recent backup of its calendar day, for the
+   *              last TIERED_DAILY_DAYS days
+   *   - Weekly:  the most recent backup of its week-bucket, for the
+   *              last TIERED_WEEKLY_WEEKS weeks
+   */
+  _pruneBackups() {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(BACKUP_DIR)
+        .filter((f) => f.startsWith('workspaces-') && f.endsWith('.json'));
+    } catch (_) {
+      return;
+    }
+    const parsed = entries
+      .map((f) => ({ file: f, date: this._parseBackupTimestamp(f) }))
+      .filter((e) => e.date)
+      .sort((a, b) => b.date.getTime() - a.date.getTime()); // newest first
+
+    const keep = new Set();
+    // Tier 1: rolling ring
+    for (let i = 0; i < Math.min(parsed.length, MAX_TIMESTAMPED_BACKUPS); i++) {
+      keep.add(parsed[i].file);
+    }
+    // Tier 2: daily
+    const dayClaim = new Set();
+    const now = Date.now();
+    const dayMs = 86400000;
+    for (const e of parsed) {
+      const ageDays = (now - e.date.getTime()) / dayMs;
+      if (ageDays > TIERED_DAILY_DAYS) break;
+      const dayKey = Math.floor(e.date.getTime() / dayMs);
+      if (!dayClaim.has(dayKey)) {
+        dayClaim.add(dayKey);
+        keep.add(e.file);
+      }
+    }
+    // Tier 3: weekly
+    const weekClaim = new Set();
+    const weekMs = 7 * dayMs;
+    for (const e of parsed) {
+      const ageWeeks = (now - e.date.getTime()) / weekMs;
+      if (ageWeeks > TIERED_WEEKLY_WEEKS) break;
+      const weekKey = Math.floor(e.date.getTime() / weekMs);
+      if (!weekClaim.has(weekKey)) {
+        weekClaim.add(weekKey);
+        keep.add(e.file);
+      }
+    }
+
+    // Delete everything not kept. Anything that couldn't be parsed (e.g., a
+    // hand-renamed file the user wants to preserve) is left alone.
+    for (const e of parsed) {
+      if (!keep.has(e.file)) {
+        try { fs.unlinkSync(path.join(BACKUP_DIR, e.file)); } catch (_) {}
+      }
     }
   }
 
@@ -463,6 +686,12 @@ class Store extends EventEmitter {
    * Falls back to sync save() on error.
    */
   async saveAsync() {
+    // Shape-drift detector runs BEFORE we touch disk. Same guard as save().
+    const drift = this._checkShapeDrift();
+    if (drift) {
+      this._handleShapeDriftAbort(drift);
+      return;
+    }
     try {
       const json = JSON.stringify(this._state, null, 2);
       const tmpFile = STATE_FILE + '.' + process.pid + '.tmp';
@@ -492,6 +721,7 @@ class Store extends EventEmitter {
 
       await fs.promises.rename(tmpFile, STATE_FILE);
       this._recordDiskMtime();
+      this._recordWorkspaceBaseline();
       this._dirty = false;
     } catch (err) {
       console.error('[Store] Async save failed, falling back to sync:', err.message);

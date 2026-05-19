@@ -115,9 +115,34 @@ const BACKOFF_MAX_DELAY = 60000; // 60s ceiling on the back-off delay
 // Reset the consecutive restart counter after this many ms of stable uptime
 const STABLE_THRESHOLD = 30000; // 30 seconds
 
+// Hard-stop guard against sub-second crash loops.
+// On 2026-05-11 the server crash-looped 10 times in 75s, calling
+// store.createTimestampedBackup() on each startup and EVICTING all clean
+// timestamped backups from ~/.myrlin/backups/. After SUBSECOND_THRESHOLD_MS
+// uptime on N consecutive restarts, write a review-lock file and refuse to
+// auto-restart. The lock must be removed manually before the supervisor
+// will retry, giving you a chance to inspect state/backups first.
+const SUBSECOND_THRESHOLD_MS = 1500;
+const MAX_SUBSECOND_CRASHES = parseInt(process.env.CWM_MAX_SUBSECOND_CRASHES, 10) || 5;
+const REVIEW_LOCK = path.join(__dirname, '..', 'logs', 'needs-manual-review.lock');
+
+// Refuse to start if a previous run left a review lockfile in place.
+if (fs.existsSync(REVIEW_LOCK)) {
+  try {
+    const body = fs.readFileSync(REVIEW_LOCK, 'utf8');
+    console.error('[supervisor] HALTED: ' + REVIEW_LOCK + ' exists.');
+    console.error(body);
+    console.error('[supervisor] Inspect state and backups, then delete the lockfile to resume.');
+  } catch (_) {
+    console.error('[supervisor] HALTED: ' + REVIEW_LOCK + ' exists. Remove it to resume.');
+  }
+  process.exit(2);
+}
+
 let child = null;
 let shuttingDown = false;
 let consecutiveRestarts = 0;
+let subsecondCrashes = 0;
 let lastStartTime = 0;
 
 /**
@@ -146,6 +171,37 @@ function startChild() {
     const uptime = Date.now() - lastStartTime;
     if (uptime > STABLE_THRESHOLD) {
       consecutiveRestarts = 0;
+      subsecondCrashes = 0;
+    }
+
+    // Sub-second-crash tracking: a process that exits this fast almost
+    // certainly hit something during startup (bad config, corrupt state,
+    // missing dep). Each startup writes a timestamped backup, so allowing
+    // unlimited fast-restarts is what evicted clean backups during the
+    // 2026-05-11 incident. Hard-stop after MAX_SUBSECOND_CRASHES.
+    if (uptime < SUBSECOND_THRESHOLD_MS) {
+      subsecondCrashes++;
+    } else {
+      subsecondCrashes = 0;
+    }
+    if (subsecondCrashes >= MAX_SUBSECOND_CRASHES) {
+      const msg = '[supervisor] ' + subsecondCrashes + ' consecutive sub-' + SUBSECOND_THRESHOLD_MS
+        + 'ms crashes — refusing to restart. Likely a bad config or corrupt state. '
+        + 'Inspect ~/.myrlin/ and logs/crash.log, then delete ' + REVIEW_LOCK + ' to resume.';
+      try {
+        fs.writeFileSync(REVIEW_LOCK,
+          msg + '\nWritten at: ' + new Date().toISOString()
+          + '\nLast exit: ' + (signal ? 'signal ' + signal : 'exit code ' + code)
+          + '\nUptimes (recent): see logs/crash.log\n', 'utf8');
+      } catch (_) {}
+      logCrash('supervisor', 'HALTED: sub-second crash loop hit hard-stop', {
+        subsecondCrashes,
+        threshold: SUBSECOND_THRESHOLD_MS,
+        max: MAX_SUBSECOND_CRASHES,
+      });
+      try { console.error(msg); } catch (_) {}
+      process.exit(3);
+      return;
     }
 
     consecutiveRestarts++;
