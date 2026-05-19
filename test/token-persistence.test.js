@@ -19,8 +19,9 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
-// Force data directory to project-local ./state/ for test isolation
-process.env.CWM_DATA_DIR = path.join(__dirname, '..', 'state');
+// Sandbox CWM_DATA_DIR into a tmpdir before any module loads the store.
+// See test/_test-data-dir.js. Prior version pointed at the production ./state/.
+require('./_test-data-dir');
 
 const PORT = process.env.PORT || 3460;
 const PASSWORD = process.env.CWM_PASSWORD || 'test123';

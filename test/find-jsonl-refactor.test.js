@@ -25,8 +25,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-// Force data directory to project-local ./state/ for test isolation.
-process.env.CWM_DATA_DIR = path.join(__dirname, '..', 'state');
+// Sandbox CWM_DATA_DIR into a tmpdir before any module loads the store.
+// See test/_test-data-dir.js. Prior version pointed at the production ./state/.
+require('./_test-data-dir');
 
 // Reset module cache so each test gets a fresh registry. The registry has
 // in-process state (the _enabled Set, the _providers Map) that prior test

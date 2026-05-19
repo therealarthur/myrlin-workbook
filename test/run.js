@@ -6,9 +6,11 @@
 
 const path = require('path');
 
-// Force data directory to project-local ./state/ for test isolation
-// (prevents tests from reading/writing ~/.myrlin/ production data)
-process.env.CWM_DATA_DIR = path.join(__dirname, '..', 'state');
+// Sandbox the store into a fresh tmpdir before any module reads CWM_DATA_DIR.
+// See test/_test-data-dir.js. Previous implementation pointed at ./state/ which
+// is the PRODUCTION dir (was hidden behind the misleading "test isolation" comment)
+// and wiped real user data on 2026-05-11.
+require('./_test-data-dir');
 
 // Simple test framework
 let passed = 0;
@@ -47,14 +49,20 @@ function assertNotNull(val, msg) {
 }
 
 // ──────────────────────────────────────────────────────
-// Clean state before tests - PRESERVES production state
+// Clean state between tests. Points at the SAME directory the store reads
+// from (the sandbox tmpdir created by ./_test-data-dir, set in CWM_DATA_DIR).
+// If we pointed at ./state/ here, cleanState() would delete files the store
+// doesn't read, every test would inherit the previous test's data, and
+// ~5 store-CRUD tests would fail with "Expected 1, got 11" style errors.
 const fs = require('fs');
-const stateDir = path.join(__dirname, '..', 'state');
+const stateDir = process.env.CWM_DATA_DIR || path.join(__dirname, '..', 'state');
 const stateFile = path.join(stateDir, 'workspaces.json');
 const backupFile = path.join(stateDir, 'workspaces.backup.json');
 const backupsDir = path.join(stateDir, 'backups');
 
-// Save production state files before tests so they can be restored after
+// Legacy: the save/restore-prod block existed when tests ran against the
+// real ./state/ dir. The sandbox now isolates them, but the block is kept
+// as a no-op safety net for anyone running with CWM_TEST_ALLOW_PROD_DIR=1.
 const savedStateFile = stateFile + '.test-save';
 const savedBackupFile = backupFile + '.test-save';
 if (fs.existsSync(stateFile)) fs.copyFileSync(stateFile, savedStateFile);

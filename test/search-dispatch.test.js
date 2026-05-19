@@ -28,7 +28,8 @@ const http = require('http');
 const path = require('path');
 const worker_threads = require('worker_threads');
 
-process.env.CWM_DATA_DIR = path.join(__dirname, '..', 'state');
+// Sandbox CWM_DATA_DIR into a tmpdir; see test/_test-data-dir.js.
+require('./_test-data-dir');
 
 // Reset module cache for the modules that hold provider-registry / server
 // state, so the test boots from a clean slate even when run after other

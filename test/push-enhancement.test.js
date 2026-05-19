@@ -19,8 +19,9 @@ const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
 
-// Force data directory for test isolation
-process.env.CWM_DATA_DIR = path.join(__dirname, '..', 'state');
+// Sandbox CWM_DATA_DIR into a tmpdir before any module loads the store.
+// See test/_test-data-dir.js. Prior version pointed at the production ./state/.
+require('./_test-data-dir');
 
 // ---- Helpers ---------------------------------------------------------------
 

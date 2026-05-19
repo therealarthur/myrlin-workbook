@@ -28,9 +28,9 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-// Force data directory to project-local ./state/ for test isolation, before
-// requiring anything that touches the store. Mirrors the pattern in test/run.js.
-process.env.CWM_DATA_DIR = path.join(__dirname, '..', 'state');
+// Sandbox CWM_DATA_DIR into a tmpdir before any module loads the store.
+// See test/_test-data-dir.js. Prior version pointed at the production ./state/.
+require('./_test-data-dir');
 
 let passed = 0;
 let failed = 0;

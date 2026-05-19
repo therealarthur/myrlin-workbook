@@ -12,10 +12,32 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Path to the legacy in-repo ./state/ directory. Tests historically pointed
+ * CWM_DATA_DIR at this path and on 2026-05-11 it wiped the user's real
+ * workspaces.json with 1019 pty-test-ws-* / codex-test-ws-* entries. The
+ * guard below refuses to use that path unless explicitly opted in.
+ */
+const LEGACY_PROJECT_STATE_DIR = path.resolve(__dirname, '..', '..', 'state');
+
 /** Resolve the canonical data directory, creating it if needed. */
 function getDataDir() {
   if (process.env.CWM_DATA_DIR) {
-    const custom = process.env.CWM_DATA_DIR;
+    const custom = path.resolve(process.env.CWM_DATA_DIR);
+
+    // Defense in depth on top of test/_test-data-dir.js. Any process pointing
+    // CWM_DATA_DIR at the in-repo ./state/ is either a misconfigured test
+    // or a developer running on the legacy layout. Refuse the production
+    // dir by default; require an explicit opt-in to override.
+    if (custom === LEGACY_PROJECT_STATE_DIR && process.env.CWM_TEST_ALLOW_PROD_DIR !== '1') {
+      throw new Error(
+        '[data-dir] Refusing to use CWM_DATA_DIR=' + custom + ' because that path is the in-repo ' +
+        'legacy ./state/ directory which contains production data. If you really mean this, set ' +
+        'CWM_TEST_ALLOW_PROD_DIR=1. Otherwise point CWM_DATA_DIR at a tmpdir (tests should use ' +
+        'test/_test-data-dir.js).'
+      );
+    }
+
     if (!fs.existsSync(custom)) {
       fs.mkdirSync(custom, { recursive: true });
     }
@@ -31,9 +53,18 @@ function getDataDir() {
 /**
  * Migrate state files from old __dirname-relative ./state/ to ~/.myrlin/.
  * Only runs once: skips if the target already has a valid workspaces.json.
+ *
+ * Skipped entirely if CWM_DATA_DIR is set. The migration's purpose is the
+ * one-time move from the project-local layout to ~/.myrlin/ for fresh users;
+ * any explicit data-dir override (tests, custom installs) should get a
+ * clean directory, not silently inherit production data. Before this guard
+ * existed, test sandboxes that used a tmpdir picked up the project's
+ * ./state/ contents on first init() and reported wrong counts.
+ *
  * @param {string} legacyDir - The old state directory (project-local ./state/)
  */
 function migrateFromLegacy(legacyDir) {
+  if (process.env.CWM_DATA_DIR) return;
   const dataDir = getDataDir();
   const targetState = path.join(dataDir, 'workspaces.json');
 
