@@ -11,7 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20]
+        # Node 18 dropped (LTS ended April 2025) — Plan 22-03 Codex auto-discovery
+        # uses fs.watch(..., {recursive: true}) which is Linux-supported only on
+        # Node 20+. Add 22 here when current LTS rolls forward.
+        node-version: [20]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
