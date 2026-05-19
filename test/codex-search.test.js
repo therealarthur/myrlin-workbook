@@ -250,8 +250,12 @@ console.log('  ' + '-'.repeat(70));
   // ─── Test 7: time budget self-check ─────────────────────────────────────
   await test('search self-checks time budget', async () => {
     await withFreshHome(async (home) => {
-      // Stage 12 fixtures so even a tiny timeBudgetMs has work to skip.
-      for (let i = 0; i < 12; i++) {
+      // Stage 200 fixtures. On a fast Linux+Node20 runner the prior count of 12
+      // could be searched in <1ms entirely, leaving timedOut=false AND
+      // searchedFiles=12 — both early-termination signals false despite the
+      // code working correctly. 200 forces I/O time > 1ms on any platform.
+      const STAGED = 200;
+      for (let i = 0; i < STAGED; i++) {
         const id = '019dc872-' + String(i).padStart(4, '0') + '-7111-ba78-068f9294120c';
         stageRollout(home, MODERN_FIXTURE, '2026/04/26', id);
       }
@@ -261,7 +265,7 @@ console.log('  ' + '-'.repeat(70));
       // check fired. We assert that searchedFiles is strictly less than the
       // total staged count to prove early termination occurred OR that
       // timedOut is true.
-      assert(out.timedOut === true || out.searchedFiles < 12,
+      assert(out.timedOut === true || out.searchedFiles < STAGED,
         'expected early termination signal; timedOut=' + out.timedOut + ' searchedFiles=' + out.searchedFiles);
     });
   });
