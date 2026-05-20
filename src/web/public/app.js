@@ -3409,8 +3409,10 @@ class CWMApp {
     const isHidden = this.state.hiddenProjects.has(encodedName);
     // The project accordion in the sidebar carries data-provider on the parent
     // element. The caller passes it through so the "New Session" menu items
-    // below can spawn the right CLI for the folder (was always 'claude' before
-    // this — right-clicking a Codex folder opened a Claude session).
+    // below can spawn the right CLI for the folder (was previously hard-coded
+    // to the Claude CLI, so right-clicking a Codex folder opened a Claude
+    // session). Default falls back to the bootstrap provider when callers
+    // pre-date this parameter or state.providers has not loaded yet.
     const resolvedProjectProvider = projectProvider || 'claude'; /* gsd:provider-literal-allowed (back-compat default for callers that don't pass) */
 
     // Hide/unhide entire project
@@ -3451,8 +3453,8 @@ class CWMApp {
 
       // Build provider-aware "New Session" items. Folder's native provider
       // appears first; any other enabled provider follows. This replaces the
-      // pre-Phase-18 hard-coded "command: 'claude'" path that always opened a
-      // Claude session regardless of the folder's provider — right-clicking a
+      // pre-Phase-18 hard-coded command path that always opened a Claude
+      // session regardless of the folder's provider, so right-clicking a
       // Codex folder used to start the wrong CLI.
       const enabled = (this.state.providers || []).filter(p => p && p.enabled);
       const ordered = enabled.length
