@@ -1852,7 +1852,10 @@ class CWMApp {
         if (header) {
           e.preventDefault(); e.stopPropagation();
           const accordion = header.closest('.project-accordion');
-          this.showProjectContextMenu(accordion.dataset.encoded, header.querySelector('.project-name').textContent, accordion.dataset.path, e.clientX, e.clientY);
+          // Forward the project's provider so "New Session Here" spawns the
+          // right CLI (was always Claude before — see showProjectContextMenu).
+          const accProvider = (accordion && accordion.dataset.provider) || 'claude'; /* gsd:provider-literal-allowed (back-compat default) */
+          this.showProjectContextMenu(accordion.dataset.encoded, header.querySelector('.project-name').textContent, accordion.dataset.path, e.clientX, e.clientY, accProvider);
         }
       });
 
@@ -1917,7 +1920,8 @@ class CWMApp {
             const touch = e.touches[0];
             if (touch) {
               const accordion = header.closest('.project-accordion');
-              this.showProjectContextMenu(accordion.dataset.encoded, header.querySelector('.project-name').textContent, accordion.dataset.path, touch.clientX, touch.clientY);
+              const accProvider = (accordion && accordion.dataset.provider) || 'claude'; /* gsd:provider-literal-allowed (back-compat default, mirrors mouse contextmenu) */
+              this.showProjectContextMenu(accordion.dataset.encoded, header.querySelector('.project-name').textContent, accordion.dataset.path, touch.clientX, touch.clientY, accProvider);
             }
           }, 500);
         }
@@ -3400,9 +3404,14 @@ class CWMApp {
     this._renderContextItems(projectName, items, x, y);
   }
 
-  showProjectContextMenu(encodedName, displayName, projectPath, x, y) {
+  showProjectContextMenu(encodedName, displayName, projectPath, x, y, projectProvider) {
     const items = [];
     const isHidden = this.state.hiddenProjects.has(encodedName);
+    // The project accordion in the sidebar carries data-provider on the parent
+    // element. The caller passes it through so the "New Session" menu items
+    // below can spawn the right CLI for the folder (was always 'claude' before
+    // this — right-clicking a Codex folder opened a Claude session).
+    const resolvedProjectProvider = projectProvider || 'claude'; /* gsd:provider-literal-allowed (back-compat default for callers that don't pass) */
 
     // Hide/unhide entire project
     if (isHidden) {
@@ -3440,41 +3449,64 @@ class CWMApp {
     if (projectPath) {
       items.push({ type: 'sep' });
 
-      // New Claude session in this project directory
-      items.push({
-        label: 'New Session Here', icon: '&#9654;', action: () => {
-          const emptySlot = this.terminalPanes.findIndex(p => p === null);
-          if (emptySlot === -1) {
-            this.showToast('All terminal panes full. Close one first.', 'warning');
-            return;
-          }
-          const sid = 'proj-' + Date.now().toString(36);
-          this.setViewMode('terminal');
-          this.openTerminalInPane(emptySlot, sid, displayName, {
-            cwd: projectPath,
-            command: 'claude', // gsd:provider-literal-allowed (v1.1 frontend default; refactor deferred to Phase 18)
-          });
-        },
-      });
+      // Build provider-aware "New Session" items. Folder's native provider
+      // appears first; any other enabled provider follows. This replaces the
+      // pre-Phase-18 hard-coded "command: 'claude'" path that always opened a
+      // Claude session regardless of the folder's provider — right-clicking a
+      // Codex folder used to start the wrong CLI.
+      const enabled = (this.state.providers || []).filter(p => p && p.enabled);
+      const ordered = enabled.length
+        ? enabled.slice().sort((a, b) =>
+            a.id === resolvedProjectProvider ? -1
+              : b.id === resolvedProjectProvider ? 1
+              : 0)
+        : [{ id: 'claude', displayName: 'Claude', enabled: true }]; /* gsd:provider-literal-allowed (last-resort default if providers haven't loaded) */
 
-      items.push({
-        label: 'New Session (Bypass)', icon: '&#9888;', action: () => {
-          const emptySlot = this.terminalPanes.findIndex(p => p === null);
-          if (emptySlot === -1) {
-            this.showToast('All terminal panes full. Close one first.', 'warning');
-            return;
-          }
-          const sid = 'proj-' + Date.now().toString(36);
-          this.setViewMode('terminal');
-          this.openTerminalInPane(emptySlot, sid, displayName, {
-            cwd: projectPath,
-            command: 'claude', // gsd:provider-literal-allowed (v1.1 frontend default; refactor deferred to Phase 18)
-            bypassPermissions: true,
-          });
-        },
-      });
+      for (const prov of ordered) {
+        const providerId = prov.id;
+        const providerLabel = prov.displayName
+          || (providerId.charAt(0).toUpperCase() + providerId.slice(1));
+        const cliBinary = this.getProviderCliBinary(providerId);
 
-      // Start a new session with project context pre-injected
+        items.push({
+          label: 'New ' + providerLabel + ' Session Here', icon: '&#9654;', action: () => {
+            const emptySlot = this.terminalPanes.findIndex(p => p === null);
+            if (emptySlot === -1) {
+              this.showToast('All terminal panes full. Close one first.', 'warning');
+              return;
+            }
+            const sid = 'proj-' + Date.now().toString(36);
+            this.setViewMode('terminal');
+            this.openTerminalInPane(emptySlot, sid, displayName, {
+              cwd: projectPath,
+              command: cliBinary,
+              provider: providerId,
+            });
+          },
+        });
+
+        items.push({
+          label: 'New ' + providerLabel + ' Session (Bypass)', icon: '&#9888;', action: () => {
+            const emptySlot = this.terminalPanes.findIndex(p => p === null);
+            if (emptySlot === -1) {
+              this.showToast('All terminal panes full. Close one first.', 'warning');
+              return;
+            }
+            const sid = 'proj-' + Date.now().toString(36);
+            this.setViewMode('terminal');
+            this.openTerminalInPane(emptySlot, sid, displayName, {
+              cwd: projectPath,
+              command: cliBinary,
+              provider: providerId,
+              bypassPermissions: true,
+            });
+          },
+        });
+      }
+
+      // Start a new session with project context pre-injected.
+      // Currently Claude-only (relies on Claude's --append-system-prompt flag).
+      // Surfaced regardless of project provider since the action is opt-in.
       items.push({
         label: 'Start with Context', icon: '&#128218;', action: () => this.startProjectWithContext(projectPath),
       });
