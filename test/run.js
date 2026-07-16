@@ -922,6 +922,7 @@ const standaloneTests = [
   'mac-bridge.test.js',              // feat/mac-credential-sync: hermetic ssh/scp argv gate (accept-new, no token in argv), inventory parser, install/apply split
   'usage-meter.test.js',             // feat/usage-meter: per-model bars (Session/Opus/Fable), model-scope mapper wiring, absolute local resets
   'credential-delete-ui.test.js',    // feat/codex-account-switcher C1: delete saved-account button (active-row guard, stopPropagation, DELETE wiring, 404-as-success)
+  'credential-expiry-ui.test.js',    // expiry-fix spec P2+P3: dead-row Retry button, suspect copy, proactive sweep server wiring (source gate)
   'codex-accounts-capability.test.js',   // feat/codex-account-switcher C2: JWT decode, auth parse, usage mapping, capability surface (synthetic tokens only)
   'provider-account-manager.test.js',    // feat/codex-account-switcher C2: generic manager (capture, watcher, strictly-newer merge, apply transaction, v1 no-refresh usage policy, leak gate)
   'provider-account-routes.test.js',     // feat/codex-account-switcher C2: /api/provider-accounts routes (auth wall, six routes, SSE payload discipline, leak gate)

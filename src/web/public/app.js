@@ -188,7 +188,9 @@ class CWMApp {
       // macState: sanitized Mac inventory cache from /api/credentials/
       // mac-state ({checkedAt, reachable, activeName, activeProfileId,
       // profiles}); macStale mirrors the server's TTL verdict.
-      credentials: { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false },
+      // retryingId: profileId of the dead row whose Retry round trip is in
+      // flight (single-flight; disables that row's Retry button).
+      credentials: { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false, retryingId: null },
       // Provider account switcher roster (the Codex tab in the account
       // panel), fed by GET /api/provider-accounts/<id>. Shape mirrors the
       // credentials slice minus the Mac fields (machine sync is Claude-only
@@ -2369,7 +2371,7 @@ class CWMApp {
     this._stopAccountTick();
     this._closeAccountPanel();
     if (this.els.accountSwitcher) this.els.accountSwitcher.hidden = true;
-    this.state.credentials = { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false };
+    this.state.credentials = { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false, retryingId: null };
     // Provider account roster resets with the login state too, so the next
     // login re-fetches a fresh Codex-tab roster instead of showing stale rows.
     this.state.codexAccounts = { list: [], activeId: null, activeAuthMode: null, installed: false, loginHint: '', stagedId: null, loading: false, applying: false, lastListAt: 0 };
@@ -8230,6 +8232,18 @@ class CWMApp {
           this.captureProviderAccount(this._activeAccountTabEl());
           return;
         }
+        // Retry on a dead row: force one refresh of that profile through
+        // the existing per-profile force route. Runs before the generic
+        // row branch and stops propagation so a retry click can never try
+        // to stage the (unstageable) dead row underneath it.
+        const retryBtn = e.target.closest('.account-retry-btn');
+        if (retryBtn) {
+          e.stopPropagation();
+          const retryId = retryBtn.dataset.profileId
+            || ((retryBtn.closest('.account-row') || {}).dataset || {}).profileId;
+          if (retryId) this.retryDeadAccount(retryId);
+          return;
+        }
         // Delete branch MUST run before the pencil branch: the delete
         // button reuses the pencil's .account-row-edit class for its base
         // styling, so closest('.account-row-edit') would swallow it.
@@ -8636,8 +8650,22 @@ class CWMApp {
     // account with ONLY model-scoped data still renders usage rows.
     const opusWin = this._accountModelWindow(p, 'Opus');
     const fableWin = this._accountModelWindow(p, 'Fable');
+    // Amber suspect note (expiry-fix spec Phase 2): an ok row sitting under
+    // an unresolved auth_suspect ladder tells the honest story: temporary,
+    // being retried automatically, no user action needed yet. Keyed off
+    // BOTH the server health and the error kind so plain unverified rows
+    // (also needs-attention) never claim an auth issue they do not have.
+    const isSuspect = isWarn && p.lastRefreshError && p.lastRefreshError.kind === 'auth_suspect';
     if (isDead) {
-      usageHtml = '<span class="account-row-dead-note">needs re-login (stored token is dead)</span>';
+      // Softer dead-row copy plus a Retry button wired to the EXISTING
+      // per-profile force route (POST /api/credentials/refresh-usage).
+      // The row itself stays unstageable (tabindex -1, aria-disabled); the
+      // nested button stays interactive, same pattern as the pencil.
+      const retrying = cred.retryingId === p.profileId;
+      usageHtml = '<span class="account-row-dead-note">Signed out here. Run /login as this account once, or press Retry.'
+        + `<button type="button" class="account-retry-btn" data-profile-id="${this.escapeHtml(p.profileId)}"`
+        + ` aria-label="Retry stored credential for ${this.escapeHtml(name)}"${retrying ? ' disabled' : ''}>`
+        + (retrying ? 'Retrying' : 'Retry') + '</button></span>';
     } else if (p.usage && (p.usage.five_hour || p.usage.seven_day || opusWin || fableWin)) {
       const stale = this._isUsageStale(p) ? ' is-stale' : '';
       // Model rows render with absolute=true: Arthur wants the exact local
@@ -8648,7 +8676,12 @@ class CWMApp {
         + this._accountUsageRowHtml('week', p.usage.seven_day, true)
         + (opusWin ? this._accountUsageRowHtml('Opus', opusWin, true, 'Opus weekly usage') : '')
         + (fableWin ? this._accountUsageRowHtml('Fable', fableWin, true, 'Fable weekly usage') : '')
+        + (isSuspect ? '<span class="account-warn-note">Temporary auth issue, retrying</span>' : '')
         + '</span>';
+    } else if (isSuspect) {
+      // No usage cache to show: the suspect note takes the usage line slot
+      // (the extra class keeps the grid placement of the unavailable line).
+      usageHtml = '<span class="account-usage-unavailable account-warn-note">Temporary auth issue, retrying</span>';
     } else {
       usageHtml = '<span class="account-usage-unavailable">usage unavailable</span>';
     }
@@ -9157,6 +9190,49 @@ class CWMApp {
     } catch (err) {
       if (err && err.message === 'Unauthorized') return;
       this.showToast('Remove failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Retry a dead (needs-re-login) account row: POST the EXISTING
+   * per-profile force route /api/credentials/refresh-usage { profileId },
+   * which bypasses both the usage cache and the known-dead skip, giving
+   * the stored refresh token one real round trip against the auth server.
+   * Outcomes are honest: a row killed by a WAF 403 false positive (or by
+   * an out-of-date verdict) comes back healthy via the returned list; a
+   * genuinely rotated-out account stays dead WITH fresh evidence, and the
+   * toast says exactly what to do next. Single-flight per panel: the
+   * button disables while the round trip runs (cred.retryingId).
+   * @param {string} profileId - accountUuid of the dead row.
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async retryDeadAccount(profileId) {
+    const cred = this.state.credentials;
+    if (cred.applying || cred.retryingId) return;
+    const p = cred.list.find(x => x.profileId === profileId);
+    if (!p) return;
+    cred.retryingId = profileId;
+    this.renderAccountSwitcher();
+    try {
+      const resp = await this._credApi('POST', '/api/credentials/refresh-usage', { profileId });
+      if (!resp.ok) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Retry failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      this._applyCredListResponse(resp.data || {});
+      const fresh = cred.list.find(x => x.profileId === profileId);
+      if (fresh && this.accountHealth(fresh) !== 'needs-re-login') {
+        this.showToast(`${this._accountDisplayName(fresh)} recovered`, 'success');
+      } else {
+        this.showToast('Still signed out. Run /login as this account once; it recaptures automatically.', 'info');
+      }
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Retry failed: could not reach the server', 'error');
+    } finally {
+      cred.retryingId = null;
+      this.renderAccountSwitcher();
     }
   }
 

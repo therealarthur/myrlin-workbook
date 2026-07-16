@@ -22,6 +22,15 @@
  * 429, 5xx, protocol bugs on our side) never change tokenState; they are
  * recorded in lastRefreshError and the prior state is kept.
  *
+ * Expiry-fix additions (docs/plans/2026-07-16-credential-expiry-fix-spec.md):
+ * ambiguous auth answers (403 / bodyless 401) are 'suspect', not death;
+ * they escalate to needs_login only after SUSPECT_ESCALATE_COUNT
+ * consecutive hits. Rejections PRESERVE their evidence in lastRefreshError
+ * (never nulled). Dead rows self-retry after DEAD_RETRY_MIN. A proactive
+ * sweep rotates inactive ok accounts just before expiry (lineage-gated).
+ * A write-back guard refuses to adopt live tokens that provably belong to
+ * a different snapshot (post-switch CLI write-back theft).
+ *
  * Design: docs/plans/2026-07-02-credential-switcher-design.md sections 2, 3.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
@@ -53,6 +62,24 @@ const TOKEN_STATE_UNVERIFIED = 'unverified';
 // Refresh timeout is deliberately generous (15s, not the 5s the reference
 // tool used); a slow link must classify as transient, never as a dead token.
 const REFRESH_TIMEOUT_MS = 15000;
+// Suspect ladder (expiry-fix spec Phase 1): a 'suspect' auth response (403,
+// or 401 with no parseable body) is ambiguous evidence; Cloudflare's WAF in
+// front of the token endpoint produces 403 false positives. Only this many
+// CONSECUTIVE suspects escalate a row to needs_login; anything less keeps
+// the prior tokenState and records auth_suspect evidence instead.
+const SUSPECT_ESCALATE_COUNT = 3;
+// Dead-retry window (expiry-fix spec Phase 1): a needs_login account is
+// retried WITHOUT force once its last rejection evidence is older than this
+// (ms). A repeat invalid_grant is harmless, and the retry self-heals rows
+// that were killed by a WAF false positive or by the legacy nulled-evidence
+// bug (those rows have no timestamp at all and retry immediately).
+const DEAD_RETRY_MIN = 6 * 60 * 60 * 1000;
+// Proactive refresh (expiry-fix spec Phase 3): the sweep only rotates an
+// inactive account when its access token is within this many minutes of
+// lapsing (just-in-time, not constantly), and the server clamps the sweep
+// interval to at least the floor below.
+const PROACTIVE_REFRESH_WINDOW_MIN = 30;
+const PROACTIVE_REFRESH_FLOOR_MIN = 10;
 // Treat an access token as expired 5 minutes early so an apply never hands
 // the CLI a token that dies seconds later.
 const EXPIRY_SKEW_MS = 5 * 60 * 1000;
@@ -87,6 +114,13 @@ const DEFAULT_CRED_SETTINGS = Object.freeze({
   sshTimeoutSec: 8,
   backupKeep: 20,
   claudeSwapSeedDir: '',
+  // Proactive background refresh cadence in minutes; 0 disables the sweep.
+  // ON BY DEFAULT (Arthur's decision, 2026-07-16): refresh tokens are
+  // one-time-use, so whichever lineage holder refreshes first wins and the
+  // others' stored pairs die server-side. Rotating parked accounts just
+  // before expiry keeps the workbook the winner. The server clamps this to
+  // PROACTIVE_REFRESH_FLOOR_MIN. See the accepted-risk note in server.js.
+  proactiveRefreshMinutes: 20,
   // Lineage hint: the accountUuid live on the Mac (null = none known).
   // Persisted so the usage poller's lineage gate survives restarts; see
   // setMacActiveHint and the gate in _updateSnapshotUsageUnlocked.
@@ -128,12 +162,21 @@ function displayNameFor(snapshot) {
 /**
  * Map a tokenState to the UI health string. Expired-but-refreshable renders
  * exactly like healthy (never amber): expiry is normal and self-healing.
+ * One exception (expiry-fix spec Phase 1): an 'ok' row sitting under an
+ * unresolved auth_suspect ladder renders amber (needs-attention), because
+ * the last refresh attempt was answered suspiciously and the row is in a
+ * retry-and-watch state, neither proven healthy nor proven dead.
  *
  * @param {string} tokenState - One of the TOKEN_STATE_* values.
+ * @param {object|null} [lastRefreshError] - The snapshot's lastRefreshError
+ *   evidence record, when available ({ at, kind, status, ... }).
  * @returns {'healthy'|'needs-attention'|'needs-re-login'}
  */
-function healthFor(tokenState) {
-  if (tokenState === TOKEN_STATE_OK) return 'healthy';
+function healthFor(tokenState, lastRefreshError) {
+  if (tokenState === TOKEN_STATE_OK) {
+    if (lastRefreshError && lastRefreshError.kind === 'auth_suspect') return 'needs-attention';
+    return 'healthy';
+  }
   if (tokenState === TOKEN_STATE_NEEDS_LOGIN) return 'needs-re-login';
   return 'needs-attention';
 }
@@ -679,12 +722,19 @@ function createCredentialManager(opts = {}) {
   /**
    * Exchange a refresh token for a fresh pair at the OAuth token endpoint,
    * with the CORRECTED failure classification (this is where the reference
-   * tool's bug lived; it returned null for every failure kind):
+   * tool's bug lived; it returned null for every failure kind), further
+   * split per the expiry-fix spec Phase 1 (rejected vs suspect):
    *
    *   ok         { ok:true, tokens:{accessToken, refreshToken, expiresAt} }
-   *   needs_login DEFINITIVE auth rejection ONLY: HTTP 400/401 whose JSON
-   *              body has error === 'invalid_grant', HTTP 403, or a 401
-   *              with no parseable body.
+   *   rejected   DEFINITIVE auth rejection ONLY: HTTP 400/401 whose JSON
+   *              body has error === 'invalid_grant' (or no stored refresh
+   *              token at all, kind 'no_refresh_token'). Only /login
+   *              revives the account.
+   *   suspect    AMBIGUOUS auth answer: any HTTP 403 (Cloudflare's WAF in
+   *              front of the token endpoint throws 403 false positives)
+   *              or a 401 with no parseable body. NOT a death verdict on
+   *              its own; callers run the suspect ladder and escalate only
+   *              after SUSPECT_ESCALATE_COUNT consecutive suspects.
    *   transient  network errors, AbortError timeouts, HTTP 429, HTTP 5xx.
    *              NEVER a death verdict.
    *   protocol   any other rejection (e.g. a non-invalid_grant 400): OUR
@@ -699,7 +749,7 @@ function createCredentialManager(opts = {}) {
    */
   async function refreshInactiveToken(refreshToken) {
     if (!refreshToken) {
-      return { ok: false, verdict: 'needs_login', status: null, detail: 'no stored refresh token' };
+      return { ok: false, verdict: 'rejected', kind: 'no_refresh_token', status: null, detail: 'no stored refresh token' };
     }
     if (typeof fetchImpl !== 'function') {
       return { ok: false, verdict: 'transient', kind: 'network', status: null, detail: 'no fetch implementation available' };
@@ -747,13 +797,17 @@ function createCredentialManager(opts = {}) {
     const status = res.status;
     const bodyError = (body && typeof body.error === 'string') ? body.error : null;
     if (status === 403) {
-      return { ok: false, verdict: 'needs_login', status, detail: bodyError || 'HTTP 403 from token endpoint' };
+      // Demoted from a death verdict (expiry-fix spec): a 403 is usually
+      // the Cloudflare WAF, not the OAuth server; the ladder decides.
+      return { ok: false, verdict: 'suspect', status, detail: bodyError || 'HTTP 403 from token endpoint' };
     }
     if ((status === 400 || status === 401) && bodyError === 'invalid_grant') {
-      return { ok: false, verdict: 'needs_login', status, detail: 'invalid_grant' };
+      return { ok: false, verdict: 'rejected', kind: 'auth', status, detail: 'invalid_grant' };
     }
     if (status === 401 && body === null) {
-      return { ok: false, verdict: 'needs_login', status, detail: 'HTTP 401 with no parseable body' };
+      // Demoted from a death verdict (expiry-fix spec): without a parseable
+      // body there is no invalid_grant evidence; the ladder decides.
+      return { ok: false, verdict: 'suspect', status, detail: 'HTTP 401 with no parseable body' };
     }
     if (status === 429 || (status >= 500 && status <= 599)) {
       return { ok: false, verdict: 'transient', kind: 'server', status, detail: 'HTTP ' + status + ' from token endpoint' };
@@ -799,6 +853,104 @@ function createCredentialManager(opts = {}) {
         detail: String(r.detail || ''),
       },
     });
+  }
+
+  /**
+   * Record a DEFINITIVE auth rejection: tokenState becomes needs_login and,
+   * crucially, the evidence is PRESERVED (the old code wrote
+   * lastRefreshError: null here, erasing the at/kind/status story and
+   * making every dead row undiagnosable; expiry-fix spec Phase 1 item 2).
+   * The detail string never carries token material: it comes from the
+   * token endpoint's error field or our own fixed strings.
+   *
+   * @param {string} accountUuid - Snapshot to mark.
+   * @param {{kind?: string, status?: number|null, detail?: string}} r -
+   *   Rejection classification (from refreshInactiveToken) or a synthetic
+   *   record (e.g. kind 'no_refresh_token' from the no-token early outs).
+   * @returns {object} The updated snapshot.
+   */
+  function _recordAuthRejection(accountUuid, r) {
+    return _mutateSnapshot(accountUuid, {
+      tokenState: TOKEN_STATE_NEEDS_LOGIN,
+      lastRefreshError: {
+        at: new Date(clock()).toISOString(),
+        kind: (r && r.kind) || 'auth',
+        status: (r && r.status != null) ? r.status : null,
+        detail: String((r && r.detail) || ''),
+      },
+    });
+  }
+
+  /**
+   * Run one rung of the suspect ladder (expiry-fix spec Phase 1 item 3):
+   * an ambiguous auth answer (403 / bodyless 401) increments a consecutive
+   * counter carried on lastRefreshError. Below SUSPECT_ESCALATE_COUNT the
+   * prior tokenState is KEPT (a single Cloudflare 403 no longer nukes the
+   * row); at the threshold the row escalates to needs_login with the full
+   * escalation story preserved. Any successful refresh or usage fetch
+   * clears lastRefreshError and thereby resets the counter, so only truly
+   * consecutive suspects escalate.
+   *
+   * @param {string} accountUuid - Snapshot to update.
+   * @param {{status?: number|null, detail?: string}} r - Suspect
+   *   classification from refreshInactiveToken.
+   * @returns {{snap: object, escalated: boolean}} The updated snapshot and
+   *   whether this rung crossed the escalation threshold.
+   */
+  function _recordSuspect(accountUuid, r) {
+    const current = readSnapshot(accountUuid);
+    const prior = current ? current.lastRefreshError : null;
+    const priorCount = (prior && prior.kind === 'auth_suspect' && Number.isFinite(Number(prior.count)))
+      ? Number(prior.count) : 0;
+    const count = priorCount + 1;
+    const status = (r && r.status != null) ? r.status : null;
+    if (count >= SUSPECT_ESCALATE_COUNT) {
+      log.warn('[Credentials] suspect auth response for ' + accountUuid + ' (HTTP ' + status + '): '
+        + count + ' consecutive; escalating to needs_login');
+      const snap = _mutateSnapshot(accountUuid, {
+        tokenState: TOKEN_STATE_NEEDS_LOGIN,
+        lastRefreshError: {
+          at: new Date(clock()).toISOString(),
+          kind: 'auth',
+          status,
+          count,
+          detail: 'escalated after ' + count + ' consecutive suspect auth responses (last: '
+            + String((r && r.detail) || '') + ')',
+        },
+      });
+      return { snap, escalated: true };
+    }
+    log.warn('[Credentials] suspect auth response for ' + accountUuid + ' (HTTP ' + status + '): '
+      + count + ' of ' + SUSPECT_ESCALATE_COUNT + ' before escalation; prior state kept');
+    const snap = _mutateSnapshot(accountUuid, {
+      lastRefreshError: {
+        at: new Date(clock()).toISOString(),
+        kind: 'auth_suspect',
+        status,
+        count,
+        detail: String((r && r.detail) || ''),
+      },
+    });
+    return { snap, escalated: false };
+  }
+
+  /**
+   * Whether a needs_login snapshot is due for an automatic (non-forced)
+   * retry (expiry-fix spec Phase 1 item 4). True when the last rejection
+   * evidence is older than DEAD_RETRY_MIN, or when there is no readable
+   * timestamp at all (legacy rows whose evidence the old code nulled out).
+   * A repeat invalid_grant is harmless, and the retry self-heals rows that
+   * were killed by a WAF false positive.
+   *
+   * @param {object} snap - The needs_login snapshot.
+   * @param {number} now - Epoch ms.
+   * @returns {boolean} True when the dead row should be retried.
+   */
+  function _isDeadRetryDue(snap, now) {
+    const atText = snap && snap.lastRefreshError && snap.lastRefreshError.at;
+    const at = atText ? Date.parse(atText) : NaN;
+    if (!Number.isFinite(at)) return true; // no evidence: retry is harmless
+    return (now - at) >= DEAD_RETRY_MIN;
   }
 
   /**
@@ -882,13 +1034,18 @@ function createCredentialManager(opts = {}) {
       const storedRefresh = (snap.credentials && snap.credentials.refreshToken) ? String(snap.credentials.refreshToken) : '';
       if (!storedRefresh) {
         // Expired access token AND no refresh token: definitively dead,
-        // no network call needed.
-        return _mutateSnapshot(accountUuid, { tokenState: TOKEN_STATE_NEEDS_LOGIN, lastRefreshError: null });
+        // no network call needed. Evidence preserved (never nulled).
+        return _recordAuthRejection(accountUuid, {
+          kind: 'no_refresh_token',
+          status: null,
+          detail: 'expired access token with no stored refresh token',
+        });
       }
-      if (snap.tokenState === TOKEN_STATE_NEEDS_LOGIN && !force) {
-        // Known-dead refresh token: skip the pointless round trip unless the
-        // user explicitly forces a retry (the recovery path if the verdict
-        // was somehow wrong; one extra invalid_grant is harmless).
+      if (snap.tokenState === TOKEN_STATE_NEEDS_LOGIN && !force && !_isDeadRetryDue(snap, now)) {
+        // Known-dead refresh token with FRESH rejection evidence: skip the
+        // pointless round trip. A force retry (the user's Retry button) or
+        // evidence older than DEAD_RETRY_MIN goes through anyway; one extra
+        // invalid_grant is harmless and self-heals WAF false positives.
         return snap;
       }
       const r = await refreshInactiveToken(storedRefresh);
@@ -898,8 +1055,14 @@ function createCredentialManager(opts = {}) {
         // PERSIST IMMEDIATELY, before any usage call.
         snap = _mutateSnapshot(accountUuid, { credentials: rotated, tokenState: TOKEN_STATE_OK, lastRefreshError: null });
         accessToken = r.tokens.accessToken;
-      } else if (r.verdict === 'needs_login') {
-        return _mutateSnapshot(accountUuid, { tokenState: TOKEN_STATE_NEEDS_LOGIN, lastRefreshError: null });
+      } else if (r.verdict === 'rejected') {
+        // Definitive rejection: needs_login WITH the evidence preserved
+        // (the old code nulled lastRefreshError here, a diagnosability bug).
+        return _recordAuthRejection(accountUuid, r);
+      } else if (r.verdict === 'suspect') {
+        // Ambiguous auth answer: run the ladder; prior state kept until
+        // SUSPECT_ESCALATE_COUNT consecutive suspects.
+        return _recordSuspect(accountUuid, r).snap;
       } else {
         return _recordRefreshFailure(accountUuid, r);
       }
@@ -936,6 +1099,30 @@ function createCredentialManager(opts = {}) {
       const identity = readActiveIdentity();
       const uuid = identity && identity.accountUuid ? String(identity.accountUuid) : '';
       if (!validateAccountUuid(uuid)) return null;
+      // ─── WRITE-BACK THEFT GUARD (expiry-fix spec Phase 4) ───
+      // WHY: after a switch, a still-running CLI session from the PREVIOUS
+      // account can refresh its own pair and write those rotated tokens
+      // into the live .credentials.json. The identity file, however,
+      // already names the NEW account, so adopting here would graft the
+      // old account's tokens onto the new account's snapshot (an identity/
+      // token mismatch that corrupts which snapshot owns which lineage and
+      // accelerates lineage death). When the live access token is the
+      // stored token of a DIFFERENT snapshot, the live pair provably
+      // belongs to that other account: skip the whole adoption (merge AND
+      // resurrection; the "live login" evidence is not about this account)
+      // and leave both snapshots intact. Diagnostic carries uuid prefixes
+      // only, NEVER token values.
+      const liveToken = (live.oauth && typeof live.oauth.accessToken === 'string') ? live.oauth.accessToken : '';
+      if (liveToken) {
+        const owner = listSnapshots().find((s) => s.accountUuid !== uuid
+          && s.credentials && s.credentials.accessToken === liveToken);
+        if (owner) {
+          log.warn('[Credentials] write-back guard: the live token belongs to a different saved account ('
+            + owner.accountUuid.slice(0, 8) + ') than the active identity (' + uuid.slice(0, 8)
+            + '); adoption skipped, both snapshots left intact');
+          return null;
+        }
+      }
       const existing = readSnapshot(uuid);
       if (!existing) {
         const nowIso = new Date(clock()).toISOString();
@@ -1397,7 +1584,13 @@ function createCredentialManager(opts = {}) {
     if (_isAccessTokenExpired(snap.credentials, now)) {
       const storedRefresh = snap.credentials.refreshToken ? String(snap.credentials.refreshToken) : '';
       if (!storedRefresh) {
-        _mutateSnapshot(accountUuid, { tokenState: TOKEN_STATE_NEEDS_LOGIN, lastRefreshError: null });
+        // Evidence preserved (never nulled): the apply-path twin of the
+        // usage path's no-refresh-token rejection.
+        _recordAuthRejection(accountUuid, {
+          kind: 'no_refresh_token',
+          status: null,
+          detail: 'expired access token with no stored refresh token',
+        });
         throw credError(409, 'CRED_TOKEN_DEAD', 'The stored token for ' + (snap.email || accountUuid) + ' is expired and has no refresh token. /login as that account once; it recaptures automatically.');
       }
       const r = await refreshInactiveToken(storedRefresh);
@@ -1406,9 +1599,21 @@ function createCredentialManager(opts = {}) {
         // Persist the rotated pair BEFORE applying (the old refresh token
         // dies server-side the instant the new one is issued).
         snap = _mutateSnapshot(accountUuid, { credentials: rotated, tokenState: TOKEN_STATE_OK, lastRefreshError: null });
-      } else if (r.verdict === 'needs_login') {
-        _mutateSnapshot(accountUuid, { tokenState: TOKEN_STATE_NEEDS_LOGIN, lastRefreshError: null });
+      } else if (r.verdict === 'rejected') {
+        // Definitive rejection blocks the apply, WITH evidence preserved.
+        _recordAuthRejection(accountUuid, r);
         throw credError(409, 'CRED_TOKEN_DEAD', 'The stored token for ' + (snap.email || accountUuid) + ' was rejected by the auth server. /login as that account once; it recaptures automatically.');
+      } else if (r.verdict === 'suspect') {
+        // Ambiguous auth answer: run the ladder. Only an escalation (the
+        // SUSPECT_ESCALATE_COUNT-th consecutive suspect) blocks the apply;
+        // below that the swap proceeds with a warning, because a single
+        // Cloudflare 403 must not block switching to a working account.
+        const rung = _recordSuspect(accountUuid, r);
+        if (rung.escalated) {
+          throw credError(409, 'CRED_TOKEN_DEAD', 'The stored token for ' + (snap.email || accountUuid) + ' was rejected repeatedly by the auth server. /login as that account once; it recaptures automatically.');
+        }
+        warning = 'The auth server answered suspiciously (HTTP ' + (r.status != null ? r.status : 'unknown') + '); applied anyway. If the CLI demands login, run /login once.';
+        snap = rung.snap;
       } else {
         // Transient (network/timeout/5xx/429) or protocol failure: apply
         // anyway; never block on transience.
@@ -1499,6 +1704,104 @@ function createCredentialManager(opts = {}) {
   }
 
   /**
+   * Unlocked core of one proactive-refresh candidate (expiry-fix spec
+   * Phase 3). Re-reads the snapshot and re-checks EVERY gate under the
+   * mutex, because the world may have changed between the sweep's roster
+   * listing and this account's turn (an apply can make it PC-active, a Mac
+   * sweep can flag it Mac-active). Gates, all of which must pass:
+   *
+   *   1. never the PC-active account (refreshing it races the CLI's own
+   *      rotation and can brick the live login),
+   *   2. never the Mac-active account (the Mac owns that lineage; see the
+   *      lineage gate in _updateSnapshotUsageUnlocked),
+   *   3. tokenState ok only (dead rows ride the dead-retry window on the
+   *      usage path; unverified rows wait for positive evidence first),
+   *   4. no recent auth_suspect backoff (a suspect ladder in progress means
+   *      the endpoint is answering strangely; do not hammer it. Suspect
+   *      evidence older than DEAD_RETRY_MIN no longer blocks, so a stale
+   *      ladder cannot park an account out of the sweep forever),
+   *   5. expiresAt within PROACTIVE_REFRESH_WINDOW_MIN of lapsing
+   *      (just-in-time rotation, not constant churn; missing expiresAt
+   *      reads as already lapsed, same as _isAccessTokenExpired).
+   *
+   * On refresh success the rotated pair is PERSISTED FIRST (the old
+   * refresh token dies server-side the instant the new one is issued);
+   * only then is the fresh access token used for a best-effort usage
+   * fetch. Failures classify exactly like the usage path (rejected /
+   * suspect ladder / transient), so the sweep tells the same honest story.
+   *
+   * @param {string} accountUuid - Candidate snapshot id.
+   * @returns {Promise<string>} Outcome tag: 'refreshed', 'skipped',
+   *   'rejected', 'suspect', or 'transient'.
+   */
+  async function _proactiveRefreshOneUnlocked(accountUuid) {
+    const snap = readSnapshot(accountUuid);
+    if (!snap || !snap.credentials) return 'skipped';
+    const now = clock();
+    const activeUuid = getActiveAccountUuid();
+    if (activeUuid && activeUuid === snap.accountUuid) return 'skipped'; // gate 1
+    if (getMacActiveHint() === snap.accountUuid) return 'skipped'; // gate 2
+    if (snap.tokenState !== TOKEN_STATE_OK) return 'skipped'; // gate 3
+    if (snap.lastRefreshError && snap.lastRefreshError.kind === 'auth_suspect') { // gate 4
+      const at = snap.lastRefreshError.at ? Date.parse(snap.lastRefreshError.at) : NaN;
+      if (!Number.isFinite(at) || (now - at) < DEAD_RETRY_MIN) return 'skipped';
+    }
+    const expMs = Number(snap.credentials.expiresAt) || 0;
+    if ((expMs - now) > PROACTIVE_REFRESH_WINDOW_MIN * 60000) return 'skipped'; // gate 5
+    const storedRefresh = snap.credentials.refreshToken ? String(snap.credentials.refreshToken) : '';
+    if (!storedRefresh) return 'skipped'; // the usage path owns that death verdict
+    const r = await refreshInactiveToken(storedRefresh);
+    if (r.ok) {
+      const rotated = { ...snap.credentials, accessToken: r.tokens.accessToken, refreshToken: r.tokens.refreshToken, expiresAt: r.tokens.expiresAt };
+      // ROTATE-THEN-PERSIST: on disk before ANY use of the new pair.
+      _mutateSnapshot(accountUuid, { credentials: rotated, tokenState: TOKEN_STATE_OK, lastRefreshError: null });
+      // Freebie: the fresh token also refreshes the usage cache. Best
+      // effort; a usage failure keeps the rotated pair and the prior cache.
+      const usage = await fetchUsage(r.tokens.accessToken);
+      if (usage) _mutateSnapshot(accountUuid, { usage });
+      return 'refreshed';
+    }
+    if (r.verdict === 'rejected') { _recordAuthRejection(accountUuid, r); return 'rejected'; }
+    if (r.verdict === 'suspect') { _recordSuspect(accountUuid, r); return 'suspect'; }
+    _recordRefreshFailure(accountUuid, r);
+    return 'transient';
+  }
+
+  /**
+   * Proactive background refresh sweep over the whole roster (expiry-fix
+   * spec Phase 3; called by the server's guarded interval). Serializes PER
+   * ACCOUNT rather than around the whole sweep so an apply or usage call
+   * can interleave between candidates instead of waiting out N network
+   * round trips. Never rejects: per-account errors are logged and counted,
+   * and one bad snapshot cannot stop the rest of the sweep.
+   *
+   * @returns {Promise<{scanned: number, refreshed: number, skipped: number,
+   *   rejected: number, suspect: number, transient: number, errors: number}>}
+   *   Outcome counters (for logs and tests).
+   */
+  async function proactiveRefreshSweep() {
+    const out = { scanned: 0, refreshed: 0, skipped: 0, rejected: 0, suspect: 0, transient: 0, errors: 0 };
+    let snaps = [];
+    try { snaps = listSnapshots(); } catch (_) { snaps = []; }
+    for (const s of snaps) {
+      out.scanned += 1;
+      try {
+        const outcome = await serialize(() => _proactiveRefreshOneUnlocked(s.accountUuid));
+        out[outcome] = (out[outcome] || 0) + 1;
+      } catch (err) {
+        out.errors += 1;
+        log.warn('[Credentials] proactive refresh of ' + s.accountUuid + ' failed: ' + ((err && err.message) || err));
+      }
+    }
+    if (out.refreshed > 0 || out.rejected > 0 || out.suspect > 0) {
+      log.log('[Credentials] proactive refresh sweep: ' + out.refreshed + ' refreshed, '
+        + out.rejected + ' rejected, ' + out.suspect + ' suspect, '
+        + out.skipped + ' skipped of ' + out.scanned);
+    }
+    return out;
+  }
+
+  /**
    * Fire one serialized sync-back, swallowing every error (the watcher can
    * never crash the server).
    *
@@ -1584,7 +1887,9 @@ function createCredentialManager(opts = {}) {
         isActive: !!activeProfileId && snap.accountUuid === activeProfileId,
         tokenState,
         tokenDead: tokenState === TOKEN_STATE_NEEDS_LOGIN,
-        health: healthFor(tokenState),
+        // Health carries the suspect-ladder nuance: ok + auth_suspect
+        // renders amber (needs-attention), not healthy and not red.
+        health: healthFor(tokenState, snap.lastRefreshError),
         savedAt: snap.savedAt || null,
         updatedAt: snap.updatedAt || null,
         subscriptionType: (snap.credentials && snap.credentials.subscriptionType) || null,
@@ -1667,6 +1972,9 @@ function createCredentialManager(opts = {}) {
       await _pullMacActiveStateIfNeeded(uuid);
       return serialize(() => _updateSnapshotUsageUnlocked(uuid, o));
     },
+    // Proactive background refresh (expiry-fix spec Phase 3). Serializes
+    // internally per account; safe to call from a timer.
+    proactiveRefreshSweep,
     // Apply transaction
     backupLiveFile,
     applyCredential: (uuid) => serialize(() => _applyCredentialUnlocked(uuid)),
@@ -1692,6 +2000,10 @@ module.exports = {
   ANTHROPIC_OAUTH_CLIENT_ID,
   REFRESH_TIMEOUT_MS,
   EXPIRY_SKEW_MS,
+  SUSPECT_ESCALATE_COUNT,
+  DEAD_RETRY_MIN,
+  PROACTIVE_REFRESH_WINDOW_MIN,
+  PROACTIVE_REFRESH_FLOOR_MIN,
   TOKEN_STATE_OK,
   TOKEN_STATE_NEEDS_LOGIN,
   TOKEN_STATE_UNVERIFIED,

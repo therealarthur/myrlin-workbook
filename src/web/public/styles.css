@@ -8857,6 +8857,47 @@ html {
   color: var(--red);
 }
 
+/* Retry button on dead (needs-re-login) rows: sits inside the dead-note
+   line and stays ALWAYS visible (it is the recovery affordance, unlike the
+   hover-reveal pencil). The row's dimmed opacity still applies; the button
+   opts back into a pointer cursor over the row's not-allowed. */
+.account-retry-btn {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--surface1);
+  border-radius: 5px;
+  background: var(--surface0);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.account-retry-btn:hover {
+  background: var(--surface1);
+  border-color: var(--overlay0);
+}
+
+.account-retry-btn:focus-visible {
+  outline: 1px solid var(--overlay1);
+}
+
+.account-retry-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Amber suspect note (an ok row under an unresolved auth_suspect ladder):
+   reuses the needs-attention yellow at the dead-note size, so the amber
+   avatar and this line tell one consistent story. */
+.account-warn-note {
+  font-size: 10px;
+  color: var(--yellow);
+}
+
 .account-panel-footer {
   position: sticky;
   bottom: 0;
