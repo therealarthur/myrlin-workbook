@@ -922,6 +922,10 @@ const standaloneTests = [
   'mac-bridge.test.js',              // feat/mac-credential-sync: hermetic ssh/scp argv gate (accept-new, no token in argv), inventory parser, install/apply split
   'usage-meter.test.js',             // feat/usage-meter: per-model bars (Session/Opus/Fable), model-scope mapper wiring, absolute local resets
   'credential-delete-ui.test.js',    // feat/codex-account-switcher C1: delete saved-account button (active-row guard, stopPropagation, DELETE wiring, 404-as-success)
+  'codex-accounts-capability.test.js',   // feat/codex-account-switcher C2: JWT decode, auth parse, usage mapping, capability surface (synthetic tokens only)
+  'provider-account-manager.test.js',    // feat/codex-account-switcher C2: generic manager (capture, watcher, strictly-newer merge, apply transaction, v1 no-refresh usage policy, leak gate)
+  'provider-account-routes.test.js',     // feat/codex-account-switcher C2: /api/provider-accounts routes (auth wall, six routes, SSE payload discipline, leak gate)
+  'provider-account-tabs.test.js',       // feat/codex-account-switcher C2: account-panel tab bar + provider pipeline + SSE cases + CSS gates
   'windows-hide-sweep.test.js',  // chore/windowshide-sweep: every server-side child_process call site passes windowsHide (source gate)
   'git-conflict-cache.test.js',  // chore/windowshide-sweep: short-TTL git status cache hit/expiry/eager invalidation
   'jsonl-tailer.test.js',            // issue #10 T1 P1: byte-offset tailer (watch+poll, UTF-8 carry, truncate reset, oversized sentinel) + readTailWindow

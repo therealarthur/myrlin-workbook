@@ -119,7 +119,7 @@
           </button>
           <div class="account-panel" id="account-panel" role="listbox" hidden>
             <div class="account-panel-header">
-              <span>Claude account</span>
+              <span id="account-panel-title">Claude account</span>
               <span class="account-panel-header-actions">
                 <button class="btn btn-ghost btn-icon btn-sm" id="account-refresh-btn" title="Refresh usage and Mac state">&#8635;</button>
                 <!-- Gear opens the Mac sync config modal (enable/host/user/tool);
@@ -128,6 +128,18 @@
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
                 </button>
               </span>
+            </div>
+            <!-- Provider tab bar (Claude | Codex). data-kind selects the
+                 render pipeline in app.js: legacy = the existing Claude
+                 path untouched, provider = the generic
+                 /api/provider-accounts path. The provider id for API URLs
+                 comes from data-provider-tab, so app.js never hardcodes a
+                 provider name (grep-gate discipline). -->
+            <div class="account-tabs" role="tablist" id="account-tabs">
+              <button type="button" class="account-tab is-active" role="tab" aria-selected="true"
+                      data-kind="legacy" data-provider-tab="claude" id="account-tab-claude">Claude</button>
+              <button type="button" class="account-tab" role="tab" aria-selected="false"
+                      data-kind="provider" data-provider-tab="codex" id="account-tab-codex">Codex</button>
             </div>
             <!-- Mobile mirror of the header usage meter (active account's
                  Session/Opus/Fable bars). Populated by renderUsageMeter();

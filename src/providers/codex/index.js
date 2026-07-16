@@ -38,6 +38,7 @@ const os = require('os');
 const discover = require('./discover');
 const { parseTranscript, parseLine } = require('./parse');
 const { spawnCommand } = require('./spawn');
+const { accountsCapability } = require('./accounts');
 const { search } = require('./search');
 
 // ---------------------------------------------------------------------------
@@ -367,6 +368,12 @@ module.exports = {
   // NOT added to REQUIRED_METHODS, so providers without a mirror still
   // validate.
   mirror: { parseLine: parseLine },
+  // Account switcher: OPTIONAL capability consumed by the generic
+  // src/web/provider-account-manager.js (design doc
+  // 2026-07-03-codex-account-switcher-design.md). Mirrors the optional
+  // `mirror` member pattern above: NOT added to REQUIRED_METHODS, so
+  // providers without account switching still validate.
+  accounts: accountsCapability,
   // Issue #10 Tier 1: OPTIONAL capability flag; false because Codex has no
   // fork/resume affordance (see the function's JSDoc for why an explicit
   // false is exported instead of omitting the member).

@@ -122,21 +122,29 @@ check('ACTIVE row never renders the delete button (render-time guard)', () => {
 check('list click handler has an .account-delete-btn branch that stops propagation', () => {
   const handlerIdx = APP_JS.indexOf("els.accountPanelList.addEventListener('click'");
   assert(handlerIdx !== -1, 'delegated list click handler not found');
-  const handler = APP_JS.slice(handlerIdx, handlerIdx + 4000);
-  const delIdx = handler.indexOf(".closest('.account-delete-btn')");
-  assert(delIdx !== -1, 'delete branch missing from the delegated handler');
-  const branch = handler.slice(delIdx, delIdx + 500);
+  const handler = APP_JS.slice(handlerIdx, handlerIdx + 8000);
+  // Anchor on the LEGACY branch (the one calling deleteSavedAccount): a
+  // provider-row branch may also match .account-delete-btn above it.
+  const delCallIdx = handler.indexOf('this.deleteSavedAccount(');
+  assert(delCallIdx !== -1, 'deleteSavedAccount call missing from the delegated handler');
+  const branchStart = handler.lastIndexOf(".closest('.account-delete-btn')", delCallIdx);
+  assert(branchStart !== -1, 'the deleteSavedAccount call must sit inside an .account-delete-btn branch');
+  const branch = handler.slice(branchStart, delCallIdx);
   assert(branch.includes('e.stopPropagation()'), 'delete branch must stopPropagation (never stage the row)');
-  assert(branch.includes('deleteSavedAccount('), 'delete branch must call deleteSavedAccount');
 });
 
 check('delete branch runs BEFORE the pencil branch (shared base class)', () => {
   const handlerIdx = APP_JS.indexOf("els.accountPanelList.addEventListener('click'");
-  const handler = APP_JS.slice(handlerIdx, handlerIdx + 4000);
-  const delIdx = handler.indexOf(".closest('.account-delete-btn')");
-  const editIdx = handler.indexOf(".closest('.account-row-edit')");
-  assert(delIdx !== -1 && editIdx !== -1, 'both branches must exist');
-  assert(delIdx < editIdx,
+  const handler = APP_JS.slice(handlerIdx, handlerIdx + 8000);
+  // Anchor both branches by their action calls so provider-row branches
+  // (which also use these selectors) cannot confuse the ordering check.
+  const delCallIdx = handler.indexOf('this.deleteSavedAccount(');
+  const renameCallIdx = handler.indexOf('this.renameAccount(');
+  assert(delCallIdx !== -1 && renameCallIdx !== -1, 'both legacy branches must exist');
+  const delBranchIdx = handler.lastIndexOf(".closest('.account-delete-btn')", delCallIdx);
+  const editBranchIdx = handler.lastIndexOf(".closest('.account-row-edit')", renameCallIdx);
+  assert(delBranchIdx !== -1 && editBranchIdx !== -1, 'both branch selectors must exist');
+  assert(delBranchIdx < editBranchIdx,
     'the .account-delete-btn branch must be checked before .account-row-edit or the pencil branch swallows it');
 });
 

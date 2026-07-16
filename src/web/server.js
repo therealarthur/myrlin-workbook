@@ -396,6 +396,29 @@ setupCredentialRoutes(app, {
   macBridge: credentialMacBridge,
 });
 
+// ─── Provider Account Switchers (generic, capability-driven) ─
+// Design: docs/plans/2026-07-03-codex-account-switcher-design.md. The
+// generic manager mirrors the Claude credential manager above but is
+// fully parameterized by a provider-owned capability object, so this
+// wiring and src/web/provider-account-*.js stay free of provider
+// literals: the id string below comes from the capability itself. The
+// watcher is started in startServer() and stopped on shutdown.
+const { accountsCapability: codexAccountsCapability } = require('../providers/codex/accounts');
+const { createProviderAccountManager } = require('./provider-account-manager');
+const { setupProviderAccountRoutes } = require('./provider-account-routes');
+const codexAccountManager = createProviderAccountManager(codexAccountsCapability, {
+  // Per-provider settings live under settings.providerAccounts[providerId]
+  // (parallel to settings.credentialSwitcher for Claude).
+  settingsProvider: () =>
+    (((getStore().settings || {}).providerAccounts || {})[codexAccountsCapability.providerId]) || {},
+});
+setupProviderAccountRoutes(app, {
+  requireAuth,
+  broadcast: (type, data) => broadcastSSE(type, data),
+  structuredError,
+  managers: new Map([[codexAccountsCapability.providerId, codexAccountManager]]),
+});
+
 // ─── Session Mirror service (issue #10 Tier 1, Phase 3) ─────
 // Read-only live mirror of externally-started provider sessions. The
 // service owns the tailers and subscriber refcounts; the /api/mirror/*
@@ -5936,6 +5959,8 @@ const GLOBAL_EVENT_TYPES = new Set([
   'credentials:changed', // credential switcher: apply/capture/rename/delete
   'credentials:usage',   // credential switcher: usage refresh results
   'credentials:mac',     // credential switcher: Mac inventory sweep results (names/uuids only)
+  'provider-accounts:changed', // provider account switchers (e.g. Codex tab): apply/capture/rename/delete
+  'provider-accounts:usage',   // provider account switchers: usage refresh results (safe rows only)
 ]);
 
 /**
@@ -8658,6 +8683,15 @@ function startServer(port = 3456, host = '127.0.0.1') {
     console.warn('[Credentials] watcher failed to start:', err.message);
   }
 
+  // Provider account watcher(s): same write-back pattern for the generic
+  // account switchers (Codex tab). Auto-captures the live login within
+  // ~1s of a CLI login. A start failure only logs; never blocks boot.
+  try {
+    codexAccountManager.startWatcher();
+  } catch (err) {
+    console.warn('[ProviderAccounts] watcher failed to start:', err.message);
+  }
+
   // Cleanup tunnels, scheduler, and PTY sessions on shutdown
   const cleanup = () => {
     if (_scheduler) {
@@ -8667,6 +8701,7 @@ function startServer(port = 3456, host = '127.0.0.1') {
       try { _ptyManager.destroyAll(); } catch (_) {}
     }
     try { credentialManager.stopCredentialWatcher(); } catch (_) {}
+    try { codexAccountManager.stopWatcher(); } catch (_) {}
     // Issue #10 Phase 3: stop every mirror tailer (fs.watch handles + timers).
     try { mirrorService.disposeAll(); } catch (_) {}
     for (const [, t] of _tunnels) {
