@@ -8183,6 +8183,18 @@ class CWMApp {
       // Row interactions are delegated on the stable list container so the
       // per-render innerHTML swaps never need re-binding.
       els.accountPanelList.addEventListener('click', (e) => {
+        // Delete branch MUST run before the pencil branch: the delete
+        // button reuses the pencil's .account-row-edit class for its base
+        // styling, so closest('.account-row-edit') would swallow it.
+        const deleteBtn = e.target.closest('.account-delete-btn');
+        if (deleteBtn) {
+          // Deleting must never stage the row it sits on.
+          e.stopPropagation();
+          const profileId = deleteBtn.dataset.profileId
+            || ((deleteBtn.closest('.account-row') || {}).dataset || {}).profileId;
+          if (profileId) this.deleteSavedAccount(profileId);
+          return;
+        }
         const editBtn = e.target.closest('.account-row-edit');
         if (editBtn) {
           // The pencil must never stage the row it sits on.
@@ -8567,6 +8579,15 @@ class CWMApp {
     if (isActive) sideBits.push('<span class="account-active-pill">ACTIVE</span>');
     else if (!isDead) sideBits.push('<span class="account-row-radio" aria-hidden="true"></span>');
     sideBits.push(`<button type="button" class="account-row-edit" title="Rename" aria-label="Rename ${this.escapeHtml(name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>`);
+    // Delete (trash) button: HIDDEN on the ACTIVE row on purpose. Deleting
+    // the active snapshot is a confusing no-op because the credential
+    // watcher re-captures the live login within ~1s; switching away first
+    // is the supported removal path. Deletion removes ONLY the saved
+    // snapshot (DELETE /api/credentials/:profileId is snapshot-only); it
+    // never logs the account out anywhere.
+    if (!isActive) {
+      sideBits.push(`<button type="button" class="account-row-edit account-delete-btn" data-profile-id="${this.escapeHtml(p.profileId)}" title="Delete saved account" aria-label="Delete saved account ${this.escapeHtml(name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>`);
+    }
 
     return `<div class="${classes.join(' ')}" role="option" data-profile-id="${this.escapeHtml(p.profileId)}" data-health="${health}" tabindex="${isDead ? '-1' : '0'}" aria-selected="${isStaged ? 'true' : 'false'}"${isDead ? ' aria-disabled="true"' : ''}${deadTitle}>
       <span class="account-row-avatar" aria-hidden="true">${this.escapeHtml(avatarChar)}</span>
@@ -8976,6 +8997,72 @@ class CWMApp {
     } catch (err) {
       if (err && err.message === 'Unauthorized') return;
       this.showToast('Rename failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Delete a saved credential snapshot after an explicit confirm. Calls the
+   * snapshot-only DELETE /api/credentials/:profileId route, which removes
+   * Myrlin's saved copy of the credential and NOTHING else: the account is
+   * not logged out anywhere and can be re-added by logging in again.
+   *
+   * The ACTIVE account is guarded twice: the row hides its delete button at
+   * render time, and this method refuses stale clicks (the credential
+   * watcher re-captures the live login within ~1s, so deleting it would be
+   * a confusing no-op). A 404 from the route means another client already
+   * removed the snapshot and is treated as success. If the deleted row was
+   * staged for a switch, the stale staging is cleared. The SSE
+   * credentials:changed {deleted:true} broadcast reloads other clients; this
+   * client applies the route's own list response, so no extra reload fires.
+   * @param {string} profileId - accountUuid of the snapshot to delete.
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async deleteSavedAccount(profileId) {
+    const cred = this.state.credentials;
+    if (cred.applying) return;
+    const p = cred.list.find(x => x.profileId === profileId);
+    if (!p) return;
+    // Active-row guard (belt and braces on top of the hidden button).
+    if (profileId === cred.activeId) {
+      this.showToast('The active account is re-saved automatically; switch away first to remove it.', 'info');
+      return;
+    }
+    const name = this._accountDisplayName(p);
+    const confirmed = await this.showConfirmModal({
+      title: 'Remove saved account?',
+      message: `Remove saved account <strong>${this.escapeHtml(name)}</strong>? `
+        + 'This deletes Myrlin\'s saved copy of the credential. It does not log the account out; '
+        + 'you can re-add it by logging in again.',
+      confirmText: 'Remove',
+      confirmClass: 'btn-danger',
+    });
+    if (!confirmed) return;
+    // Suppress the self-echo toast from our own credentials:changed SSE.
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    try {
+      const resp = await this._credApi('DELETE', `/api/credentials/${encodeURIComponent(profileId)}`);
+      if (!resp.ok && resp.status !== 404) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Remove failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      // Staging hygiene: a deleted row can no longer be a pending target.
+      if (cred.stagedId === profileId) cred.stagedId = null;
+      if (cred.stagedMacId === profileId) cred.stagedMacId = null;
+      if (resp.ok && resp.data && Array.isArray(resp.data.profiles)) {
+        // The route returns the canonical list shape; applying it directly
+        // re-renders without a second GET (the SSE case still covers other
+        // clients).
+        this._applyCredListResponse(resp.data);
+      } else {
+        // 404 (already gone): drop the row locally and repaint.
+        cred.list = cred.list.filter(x => x.profileId !== profileId);
+        this.renderAccountSwitcher();
+      }
+      this.showToast(`Removed ${name}`, 'success');
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Remove failed: could not reach the server', 'error');
     }
   }
 

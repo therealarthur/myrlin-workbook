@@ -8783,6 +8783,17 @@ html {
   cursor: pointer;
 }
 
+/* Delete (trash) button: inherits the pencil's hover-reveal base via the
+   shared .account-row-edit class; the hover tint leans toward red because
+   this is a destructive action (it stays neutral until hover so the row
+   does not shout). The button is not rendered on the ACTIVE row at all:
+   the credential watcher re-saves the live login within ~1s, so deleting
+   the active snapshot would be a confusing no-op. */
+.account-row-edit.account-delete-btn:hover {
+  background: var(--surface1);
+  color: var(--red);
+}
+
 .account-panel-footer {
   position: sticky;
   bottom: 0;
