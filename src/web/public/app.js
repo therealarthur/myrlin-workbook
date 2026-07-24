@@ -190,7 +190,7 @@ class CWMApp {
       // profiles}); macStale mirrors the server's TTL verdict.
       // retryingId: profileId of the dead row whose Retry round trip is in
       // flight (single-flight; disables that row's Retry button).
-      credentials: { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false, retryingId: null },
+      credentials: { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false, retryingId: null, degraded: false },
       // Provider account switcher roster (the Codex tab in the account
       // panel), fed by GET /api/provider-accounts/<id>. Shape mirrors the
       // credentials slice minus the Mac fields (machine sync is Claude-only
@@ -8404,21 +8404,43 @@ class CWMApp {
    * @throws {Error} 'Unauthorized' on 401 (after local logout), or the network-level fetch error.
    */
   async _credApi(method, path, body) {
+    // Hard request deadline (deadlock hardening, 2026-07-24): the roster
+    // routes once hung forever behind a wedged server-side mutex, leaving
+    // an eternally pending skeleton in the switcher. A timeout turns any
+    // such regression into a REJECTED fetch that rides the existing catch
+    // paths (silent degrade or error toast). Because a timeout rejects
+    // instead of resolving with a status, it can never be misread as the
+    // 404 feature-unavailable signal, which requires a resolved response.
+    const CRED_API_TIMEOUT_MS = 10000;
     const headers = { 'Content-Type': 'application/json' };
     if (this.state.token) headers['Authorization'] = `Bearer ${this.state.token}`;
     const opts = { method, headers };
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
-    const res = await fetch(path, opts);
-    if (res.status === 401) {
-      this.state.token = null;
-      localStorage.removeItem('cwm_token');
-      this.showLogin();
-      this.disconnectSSE();
-      throw new Error('Unauthorized');
+    let fallbackTimer = null;
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      opts.signal = AbortSignal.timeout(CRED_API_TIMEOUT_MS);
+    } else if (typeof AbortController === 'function') {
+      // Older browsers without AbortSignal.timeout: manual controller; the
+      // timer is cleared in finally so it cannot abort a finished request.
+      const controller = new AbortController();
+      fallbackTimer = setTimeout(() => controller.abort(), CRED_API_TIMEOUT_MS);
+      opts.signal = controller.signal;
     }
-    let data = null;
-    try { data = await res.json(); } catch (_) { data = null; }
-    return { ok: res.ok, status: res.status, data };
+    try {
+      const res = await fetch(path, opts);
+      if (res.status === 401) {
+        this.state.token = null;
+        localStorage.removeItem('cwm_token');
+        this.showLogin();
+        this.disconnectSSE();
+        throw new Error('Unauthorized');
+      }
+      let data = null;
+      try { data = await res.json(); } catch (_) { data = null; }
+      return { ok: res.ok, status: res.status, data };
+    } finally {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+    }
   }
 
   /**
@@ -8476,6 +8498,11 @@ class CWMApp {
     cred.list = data.profiles;
     cred.activeId = data.activeProfileId || null;
     if (data.mac !== undefined) cred.mac = data.mac || null;
+    // degraded:true marks a roster served while the server's serialized
+    // seed/sync pass had not finished (deadlock hardening, 2026-07-24):
+    // the data is usable but possibly stale, so the chip gets an
+    // indicator instead of the switcher going blank or hanging.
+    cred.degraded = !!data.degraded;
     cred.lastListAt = Date.now();
     // Staging hygiene: a staged row that vanished or became active is stale.
     if (cred.stagedId && (cred.stagedId === cred.activeId || !cred.list.some(p => p.profileId === cred.stagedId))) {
@@ -8525,6 +8552,17 @@ class CWMApp {
       }
     }
     if (els.accountChip) els.accountChip.classList.toggle('is-applying', cred.applying);
+    if (els.accountChip) {
+      // Stale-data indicator for a degraded roster response (deadlock
+      // hardening, 2026-07-24): the class is a styling hook and the title
+      // explains why the data may lag; both clear on the next full load.
+      els.accountChip.classList.toggle('is-degraded', !!cred.degraded);
+      if (cred.degraded) {
+        els.accountChip.title = 'Account data may be stale: the server was busy, showing the last saved roster.';
+      } else if (els.accountChip.title) {
+        els.accountChip.removeAttribute('title');
+      }
+    }
 
     // Header usage meter rides the exact same render path as the chip so it
     // updates on initial load, refresh-usage, account switches, and both

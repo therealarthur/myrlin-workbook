@@ -21,11 +21,23 @@
 
 'use strict';
 
+// Shared best-effort race helper (observes both outcomes, unref'd timer);
+// lives with the other cross-module account-manager helpers, alongside the
+// writeFileAtomic/credError primitives the generic manager already reuses.
+const { settleWithin } = require('./credential-manager');
+
 // SSE event type names (shared with server.js GLOBAL_EVENT_TYPES and the
 // frontend switch cases; named here so the three sites cannot drift apart
 // silently in this file at least).
 const EVENT_CHANGED = 'provider-accounts:changed';
 const EVENT_USAGE = 'provider-accounts:usage';
+
+// Best-effort budget for the serialized pre-list sync on the GET list
+// route (same deadlock hardening as GET /api/credentials, 2026-07-24):
+// the roster (getSafeList) reads snapshot files directly and never touches
+// the manager's operation mutex, so it always renders; only the
+// belt-and-braces sync rides the mutex and is raced against this window.
+const LIST_BEST_EFFORT_MS = 2500;
 
 /**
  * Build the post-apply restart expectation copy for one provider. Set once
@@ -52,9 +64,15 @@ function restartNoteFor(displayName) {
  * @param {Map<string, object>} deps.managers - providerId -> manager map
  *   (createProviderAccountManager instances). The id strings come from
  *   each capability's providerId, so the caller stays literal-free too.
+ * @param {number} [deps.listBestEffortMs] - Override for the GET list
+ *   best-effort window (LIST_BEST_EFFORT_MS). Injectable for fast tests.
  * @returns {void}
  */
-function setupProviderAccountRoutes(app, { requireAuth, broadcast, structuredError, managers }) {
+function setupProviderAccountRoutes(app, { requireAuth, broadcast, structuredError, managers, listBestEffortMs }) {
+  // Effective best-effort window for the list route (tests inject a small
+  // one so a hung-mutex case does not cost 2.5s of wall clock per test).
+  const bestEffortMs = (Number.isFinite(Number(listBestEffortMs)) && Number(listBestEffortMs) > 0)
+    ? Number(listBestEffortMs) : LIST_BEST_EFFORT_MS;
   /**
    * Broadcast wrapper: an SSE failure must never fail a route.
    *
@@ -117,12 +135,21 @@ function setupProviderAccountRoutes(app, { requireAuth, broadcast, structuredErr
   // List the roster. A cheap guarded sync runs first so the live active
   // account always appears even before the watcher's first tick (same
   // belt-and-braces as GET /api/credentials). NO network usage calls.
+  // DEGRADED MODE (deadlock hardening, 2026-07-24): the sync rides the
+  // manager's serialized chain, so it is raced against bestEffortMs and
+  // the roster is served regardless, with degraded:true when the sync did
+  // not finish; a wedged chain can no longer blank the account tab.
   app.get('/api/provider-accounts/:providerId', requireAuth, async (req, res) => {
     const manager = resolveManager(req, res);
     if (!manager) return;
     try {
-      try { await manager.syncActiveAuthToSnapshot(); } catch (_) { /* sync is best effort */ }
-      return sendList(res, manager);
+      const bestEffort = (async () => {
+        try { await manager.syncActiveAuthToSnapshot(); } catch (_) { /* sync is best effort */ }
+      })();
+      const completed = await settleWithin(bestEffort, bestEffortMs);
+      const list = manager.getSafeList();
+      if (!completed) list.degraded = true;
+      return res.json(list);
     } catch (err) {
       return mapError(res, err);
     }

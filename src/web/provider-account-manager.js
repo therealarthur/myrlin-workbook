@@ -61,10 +61,13 @@ const path = require('path');
 const { getDataDir } = require('../utils/data-dir');
 // Reuse the Claude manager's exported, battle-tested primitives: the
 // atomic writer (temp+verify+rename with the Windows EPERM retry loop),
-// the route-mappable error builder, and the id validator (provider account
+// the route-mappable error builder, the id validator (provider account
 // ids observed so far are uuid-shaped; the hex/dash 8..64 rule gates path
-// construction for all of them).
-const { writeFileAtomic, credError, validateAccountUuid } = require('./credential-manager');
+// construction for all of them), and the serialized-op deadline pieces
+// from the 2026-07-24 deadlock hardening (withOpDeadline + OP_TIMEOUT_MS),
+// so this manager's mutex can never be wedged by a never-settling op
+// either.
+const { writeFileAtomic, credError, validateAccountUuid, withOpDeadline, OP_TIMEOUT_MS } = require('./credential-manager');
 
 // ─── Token state constants (same vocabulary as the Claude switcher) ────────
 const TOKEN_STATE_OK = 'ok';
@@ -146,6 +149,8 @@ function _formatStamp(epochMs) {
  * @param {() => number} [opts.clock] - Epoch-ms clock. Default Date.now.
  * @param {number} [opts.watchDebounceMs] - Watcher debounce. Default 500.
  * @param {number} [opts.pollIntervalMs] - Fallback poll. Default 30000.
+ * @param {number} [opts.opTimeoutMs] - Serialized-op deadline. Default
+ *   OP_TIMEOUT_MS (60000). Injectable for hermetic deadlock tests.
  * @param {object} [opts.log] - Logger with warn/error/log. Default console.
  * @returns {object} The manager API.
  */
@@ -160,6 +165,7 @@ function createProviderAccountManager(capability, opts = {}) {
   const clock = opts.clock || Date.now;
   const watchDebounceMs = opts.watchDebounceMs || 500;
   const pollIntervalMs = opts.pollIntervalMs || 30000;
+  const opTimeoutMs = opts.opTimeoutMs || OP_TIMEOUT_MS;
   const log = opts.log || console;
   const logTag = '[Accounts:' + capability.providerId + ']';
 
@@ -175,13 +181,17 @@ function createProviderAccountManager(capability, opts = {}) {
    * Promise-chain mutex. Serializes every mutating operation so two GUI
    * clients and the watcher can never interleave snapshot or live-file
    * writes. Errors propagate to the caller but never break the chain.
-   * Identical to credential-manager serialize().
+   * Identical to credential-manager serialize(), including the 2026-07-24
+   * deadlock hardening: every op runs under withOpDeadline, so a
+   * never-settling operation rejects its caller with CRED_OP_TIMEOUT after
+   * opTimeoutMs instead of wedging the chain forever.
    *
    * @param {() => (Promise<*>|*)} fn - Operation to run exclusively.
+   * @param {string} [label] - Short op label for timeout errors and logs.
    * @returns {Promise<*>} Resolves/rejects with fn's outcome.
    */
-  function serialize(fn) {
-    const run = _chain.then(() => fn());
+  function serialize(fn, label) {
+    const run = _chain.then(() => withOpDeadline(fn, opTimeoutMs, logTag + ' ' + String(label || 'op')));
     _chain = run.then(() => undefined, () => undefined);
     return run;
   }
@@ -626,28 +636,39 @@ function createProviderAccountManager(capability, opts = {}) {
       return { ok: false, kind: 'transient', status: null, detail: 'no fetch implementation available' };
     }
     const timeoutMs = Math.max(1, Number(getSettings().httpTimeoutSec) || 5) * 1000;
+    // WHY the abort deadline spans the BODY READ (timer cleared only in
+    // finally): the exact clear-on-headers pattern this used to have caused
+    // the 2026-07-24 production deadlock in the Claude manager's
+    // refreshInactiveToken. A body stream that never finishes must abort at
+    // the deadline instead of pinning the serialized operation chain.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    if (timer.unref) timer.unref();
     let res;
+    let raw = null;
     try {
-      res = await fetchImpl(usageUrl(), {
-        method: 'GET',
-        headers: capability.usage.headers(auth),
-        signal: controller.signal,
-      });
-    } catch (err) {
+      try {
+        res = await fetchImpl(usageUrl(), {
+          method: 'GET',
+          headers: capability.usage.headers(auth),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        const timedOut = !!(err && (err.name === 'AbortError' || err.name === 'TimeoutError' || err.code === 'ABORT_ERR'));
+        return { ok: false, kind: 'transient', status: null, detail: timedOut ? 'timeout' : 'network error' };
+      }
+      if (res && (res.status === 401 || res.status === 403)) {
+        return { ok: false, kind: 'auth', status: res.status };
+      }
+      if (!res || !res.ok) {
+        return { ok: false, kind: 'transient', status: res ? res.status : null, detail: 'HTTP ' + (res ? res.status : 'no response') };
+      }
+      // A body read aborted by the deadline (or malformed JSON) degrades to
+      // raw null, which classifies transient below; always a settled verdict.
+      raw = await res.json().catch(() => null);
+    } finally {
       clearTimeout(timer);
-      const timedOut = !!(err && (err.name === 'AbortError' || err.name === 'TimeoutError' || err.code === 'ABORT_ERR'));
-      return { ok: false, kind: 'transient', status: null, detail: timedOut ? 'timeout' : 'network error' };
     }
-    clearTimeout(timer);
-    if (res && (res.status === 401 || res.status === 403)) {
-      return { ok: false, kind: 'auth', status: res.status };
-    }
-    if (!res || !res.ok) {
-      return { ok: false, kind: 'transient', status: res ? res.status : null, detail: 'HTTP ' + (res ? res.status : 'no response') };
-    }
-    const raw = await res.json().catch(() => null);
     const usage = capability.usage.map(raw, new Date(clock()).toISOString());
     if (!usage) {
       return { ok: false, kind: 'transient', status: res.status, detail: 'unmappable usage response' };
@@ -820,7 +841,7 @@ function createProviderAccountManager(capability, opts = {}) {
    */
   function _fireSync() {
     if (clock() < _selfWriteUntil) return; // our own apply is writing
-    serialize(() => _syncActiveAuthToSnapshotUnlocked()).catch((err) => {
+    serialize(() => _syncActiveAuthToSnapshotUnlocked(), 'watcher-sync').catch((err) => {
       log.warn(logTag + ' watcher sync failed: ' + ((err && err.message) || err));
     });
   }
@@ -967,23 +988,24 @@ function createProviderAccountManager(capability, opts = {}) {
     readSnapshot,
     saveSnapshot,
     listSnapshots,
-    deleteSnapshot: (id) => serialize(() => _deleteSnapshotUnlocked(id)),
+    deleteSnapshot: (id) => serialize(() => _deleteSnapshotUnlocked(id), 'delete-snapshot'),
     // Watcher (login write-back loop)
     startWatcher,
     stopWatcher,
-    syncActiveAuthToSnapshot: () => serialize(() => _syncActiveAuthToSnapshotUnlocked()),
+    syncActiveAuthToSnapshot: () => serialize(() => _syncActiveAuthToSnapshotUnlocked(), 'sync-active'),
     // Capture / labels
-    captureCurrent: (o) => serialize(() => _captureCurrentUnlocked(o)),
-    setLabel: (id, label) => serialize(() => _setLabelUnlocked(id, label)),
+    captureCurrent: (o) => serialize(() => _captureCurrentUnlocked(o), 'capture'),
+    setLabel: (id, label) => serialize(() => _setLabelUnlocked(id, label), 'set-label'),
     // Usage (read-only; NEVER calls a token endpoint in v1)
-    updateSnapshotUsage: (id, o) => serialize(() => _updateSnapshotUsageUnlocked(id, o)),
+    updateSnapshotUsage: (id, o) => serialize(() => _updateSnapshotUsageUnlocked(id, o), 'usage-update'),
     // Apply transaction
     backupLiveFile,
-    applyAccount: (id) => serialize(() => _applyAccountUnlocked(id)),
+    applyAccount: (id) => serialize(() => _applyAccountUnlocked(id), 'apply'),
     // Safe projection (the only route-serializable shape)
     getSafeList,
     // Internal, for tests only
     _armSelfWriteGuard,
+    _serialize: serialize,
   };
 }
 

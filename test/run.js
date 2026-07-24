@@ -918,6 +918,7 @@ const standaloneTests = [
   'phantom-tokens.test.js',          // ui-token-repair: every consumed var(--x) must be defined (phantom-token gate)
   'smooth-scroll.test.js',           // issue #41: xterm smoothScrollDuration capability gate, setting/reduced-motion resolution, mobile engine guard
   'credential-manager.test.js',      // credential switcher T1: snapshot store, rotation write-back, corrected token-state model, apply transaction
+  'credential-deadlock.test.js',     // 2026-07-24 outage regression: stalled-body refresh settles transient, op deadline (CRED_OP_TIMEOUT), degraded list routes, stalled-chain watchdog
   'credential-routes.test.js',       // credential switcher T1: /api/credentials routes, SSE broadcasts, token-material leak gate
   'mac-bridge.test.js',              // feat/mac-credential-sync: hermetic ssh/scp argv gate (accept-new, no token in argv), inventory parser, install/apply split
   'usage-meter.test.js',             // feat/usage-meter: per-model bars (Session/Opus/Fable), model-scope mapper wiring, absolute local resets
