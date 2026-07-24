@@ -64,6 +64,15 @@ const RENAME_MAX_ATTEMPTS = 5;
 const RENAME_BACKOFF_MS = 50;
 const LABEL_MAX_LENGTH = 60;
 const CREDENTIALS_FILE_NAME = '.credentials.json';
+// Cross-process ownership contract shared with Myrlin's bridge credential
+// router. The bridge creates this exclusive marker in the snapshot-pool
+// root while it owns token refresh/write-back. CWM only honors the contract
+// after an explicit opt-in, so the shipped default remains unchanged.
+const POOL_OWNER_MARKER_FILE = '.myrlin-credential-pool-owner.json';
+const EXTERNAL_BRIDGE_OWNER = 'myrlin-bridge-gateway';
+const EXTERNAL_OWNER_ENV = 'CWM_CRED_EXTERNAL_BRIDGE_OWNER';
+const CRED_POOL_EXTERNAL_OWNER_CODE = 'CRED_POOL_EXTERNAL_OWNER';
+const POOL_OWNER_MARKER_MAX_BYTES = 8 * 1024;
 // One-time claude-swap seed sentinel, written into the accounts dir after the
 // first import attempt completes. The sentinel's PRESENCE (not snapshot
 // count) is the "already seeded" signal: snapshot count is wrong evidence
@@ -75,6 +84,11 @@ const SEED_SENTINEL_FILE = '.seeded';
 
 // ─── Default settings (section 2.3 of the design) ───────────────────────────
 const DEFAULT_CRED_SETTINGS = Object.freeze({
+  // Fail-safe handoff to an external bridge process. When true, CWM is a
+  // passive reader of the credential pool even when the marker is absent
+  // or malformed; operators must explicitly turn this back off before CWM
+  // may resume ownership.
+  externalBridgeOwner: false,
   mac: Object.freeze({
     enabled: false,
     host: 'arthurs-mac-mini',
@@ -269,6 +283,9 @@ function _formatStamp(epochMs) {
  * @param {number} [opts.refreshTimeoutMs] - Refresh HTTP timeout. Default
  *   REFRESH_TIMEOUT_MS (15000). Injectable for hermetic timeout tests.
  * @param {object} [opts.log] - Logger with warn/error/log. Default console.
+ * @param {boolean} [opts.externalBridgeOwner] - Explicit passive-mode
+ *   override. When omitted, CWM_CRED_EXTERNAL_BRIDGE_OWNER=1 or
+ *   settings.externalBridgeOwner=true enables the mode.
  * @param {(patch: object) => void} [opts.settingsPatcher] - Optional write-back
  *   for manager-owned settings (the Mac-active lineage hint). Wired to the
  *   store by the server; absent in most tests (hint stays in memory).
@@ -294,6 +311,7 @@ function createCredentialManager(opts = {}) {
   const pollIntervalMs = opts.pollIntervalMs || 30000;
   const refreshTimeoutMs = opts.refreshTimeoutMs || REFRESH_TIMEOUT_MS;
   const log = opts.log || console;
+  const externalBridgeOwnerOverride = opts.externalBridgeOwner;
 
   const credFilePath = path.join(claudeDir, CREDENTIALS_FILE_NAME);
 
@@ -366,6 +384,104 @@ function createCredentialManager(opts = {}) {
       ...raw,
       mac: { ...DEFAULT_CRED_SETTINGS.mac, ...(raw.mac || {}) },
     };
+  }
+
+  /**
+   * Whether CWM has explicitly handed credential-pool ownership to the
+   * external bridge. An injected override wins in tests/embedders, then the
+   * strict "=1" environment flag, then the persisted credential-switcher
+   * setting. The marker itself never opts CWM in: this preserves legacy
+   * behavior unless an operator deliberately enables the guard.
+   *
+   * Once configured, the answer stays fail-closed regardless of marker
+   * validity/presence. A missing marker means "external owner not currently
+   * observable", not permission for CWM to start mutating the pool again.
+   *
+   * @returns {boolean}
+   */
+  function isCredentialPoolReadOnly() {
+    if (externalBridgeOwnerOverride !== undefined) return externalBridgeOwnerOverride === true;
+    if (process.env[EXTERNAL_OWNER_ENV] === '1') return true;
+    return getSettings().externalBridgeOwner === true;
+  }
+
+  /**
+   * Read and validate the Myrlin bridge ownership marker without exposing
+   * its lease id. The read is bounded and accepts exactly the v1 owner shape
+   * written by bridge-credential-provider-router.js.
+   *
+   * @returns {{path: string, present: boolean, valid: boolean, owner: string|null, pid: number|null, startedAt: string|null}}
+   */
+  function readCredentialPoolOwnerMarker() {
+    const markerPath = path.join(accountsDir, POOL_OWNER_MARKER_FILE);
+    const empty = {
+      path: markerPath,
+      present: false,
+      valid: false,
+      owner: null,
+      pid: null,
+      startedAt: null,
+    };
+    try {
+      const stat = fs.statSync(markerPath);
+      if (!stat.isFile() || stat.size < 1 || stat.size > POOL_OWNER_MARKER_MAX_BYTES) {
+        return { ...empty, present: true };
+      }
+      const value = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
+      const valid = !!value && typeof value === 'object' && !Array.isArray(value)
+        && value.version === 1
+        && value.owner === EXTERNAL_BRIDGE_OWNER
+        && Number.isSafeInteger(value.pid) && value.pid > 0
+        && typeof value.startedAt === 'string' && Number.isFinite(Date.parse(value.startedAt))
+        && typeof value.leaseId === 'string' && /^[a-f0-9]{32}$/.test(value.leaseId);
+      if (!valid) return { ...empty, present: true };
+      return {
+        path: markerPath,
+        present: true,
+        valid: true,
+        owner: value.owner,
+        pid: value.pid,
+        startedAt: value.startedAt,
+      };
+    } catch (_) {
+      return fs.existsSync(markerPath) ? { ...empty, present: true } : empty;
+    }
+  }
+
+  /**
+   * Safe ownership diagnostics for routes/tests. Contains no credentials or
+   * lease secret, only the configured/passive state and sanitized marker
+   * metadata.
+   *
+   * @returns {{configured: boolean, readOnly: boolean, marker: object}}
+   */
+  function getCredentialPoolState() {
+    const configured = isCredentialPoolReadOnly();
+    return {
+      configured,
+      readOnly: configured,
+      marker: readCredentialPoolOwnerMarker(),
+    };
+  }
+
+  /**
+   * Throw the typed HTTP-409 conflict used at every credential mutation
+   * boundary while the bridge owns the pool.
+   *
+   * @param {string} [operation] - Human-readable blocked operation.
+   * @returns {void}
+   */
+  function assertCredentialPoolWritable(operation) {
+    if (!isCredentialPoolReadOnly()) return;
+    const marker = readCredentialPoolOwnerMarker();
+    const owner = marker.valid ? marker.owner : EXTERNAL_BRIDGE_OWNER;
+    const action = operation ? String(operation).trim() : 'Credential mutation';
+    throw credError(
+      409,
+      CRED_POOL_EXTERNAL_OWNER_CODE,
+      action + ' is disabled because credential-pool ownership is assigned to ' + owner + '. CWM is in passive read-only mode.',
+      false,
+    );
   }
 
   /**
@@ -523,6 +639,7 @@ function createCredentialManager(opts = {}) {
    * @returns {object} The same snapshot.
    */
   function _writeSnapshot(snapshot) {
+    assertCredentialPoolWritable('Credential snapshot write');
     const p = snapshotPath(snapshot.accountUuid);
     writeFileAtomic(p, JSON.stringify(snapshot, null, 2), { mode: 0o600 });
     return snapshot;
@@ -556,6 +673,7 @@ function createCredentialManager(opts = {}) {
    * @returns {object} The merged, persisted snapshot.
    */
   function saveSnapshot(snapshot, saveOpts = {}) {
+    assertCredentialPoolWritable('Credential snapshot save');
     if (!snapshot || !validateAccountUuid(snapshot.accountUuid)) {
       throw credError(400, 'VALIDATION', 'snapshot.accountUuid is required and must be a valid account uuid');
     }
@@ -698,6 +816,7 @@ function createCredentialManager(opts = {}) {
    * @returns {Promise<object>} Classification object per above.
    */
   async function refreshInactiveToken(refreshToken) {
+    assertCredentialPoolWritable('OAuth token refresh');
     if (!refreshToken) {
       return { ok: false, verdict: 'needs_login', status: null, detail: 'no stored refresh token' };
     }
@@ -827,6 +946,10 @@ function createCredentialManager(opts = {}) {
     if (!snap) {
       throw credError(404, 'CRED_NOT_FOUND', 'No stored credential snapshot for profile ' + accountUuid + '.');
     }
+    // Passive mode serves the last safely cached usage projection only.
+    // It performs no usage request (which would otherwise need a snapshot
+    // cache write) and, critically, never reaches the refresh-token path.
+    if (isCredentialPoolReadOnly()) return snap;
     const now = clock();
     const cacheMs = Math.max(0, Number(getSettings().usageCacheMinutes) || 10) * 60000;
     const fetchedAtMs = snap.usage && snap.usage.fetchedAt ? Date.parse(snap.usage.fetchedAt) : NaN;
@@ -930,6 +1053,7 @@ function createCredentialManager(opts = {}) {
    *   is unreadable (nothing written).
    */
   function _syncActiveTokenToProfileUnlocked() {
+    if (isCredentialPoolReadOnly()) return null;
     try {
       const live = readActiveCredential();
       if (!live || !live.oauth) return null;
@@ -992,6 +1116,9 @@ function createCredentialManager(opts = {}) {
    */
   function _syncBackFromMacUnlocked(accountUuid, liveCredText) {
     const out = { synced: false, resurrected: false };
+    if (isCredentialPoolReadOnly()) {
+      return { ...out, reason: 'credential pool is externally owned and read-only' };
+    }
     if (!validateAccountUuid(accountUuid)) {
       return { ...out, reason: 'invalid accountUuid' };
     }
@@ -1169,6 +1296,7 @@ function createCredentialManager(opts = {}) {
    * @returns {object} The persisted snapshot.
    */
   function _captureCurrentUnlocked(captureOpts = {}) {
+    assertCredentialPoolWritable('Credential capture');
     const live = readActiveCredential();
     const identity = readActiveIdentity();
     if (!live || !live.oauth || !identity || !identity.accountUuid) {
@@ -1224,6 +1352,9 @@ function createCredentialManager(opts = {}) {
    * @returns {{imported: number, skipped: number}}
    */
   function _seedFromClaudeSwapUnlocked(dir) {
+    if (isCredentialPoolReadOnly()) {
+      return { imported: 0, skipped: 0, readOnly: true };
+    }
     const source = dir || resolveSeedDir();
     const result = { imported: 0, skipped: 0 };
     const sentinelPath = path.join(accountsDir, SEED_SENTINEL_FILE);
@@ -1294,6 +1425,7 @@ function createCredentialManager(opts = {}) {
    * @returns {object} The updated snapshot.
    */
   function _setLabelUnlocked(accountUuid, label) {
+    assertCredentialPoolWritable('Credential snapshot label update');
     if (!validateAccountUuid(accountUuid)) {
       throw credError(400, 'VALIDATION', 'profileId must be a valid account uuid');
     }
@@ -1316,6 +1448,7 @@ function createCredentialManager(opts = {}) {
    * @returns {string|null} The backup path, or null.
    */
   function backupLiveFile(livePath) {
+    assertCredentialPoolWritable('Credential backup write');
     try {
       if (!livePath || !fs.existsSync(livePath) || !fs.statSync(livePath).isFile()) return null;
     } catch (_) {
@@ -1371,6 +1504,7 @@ function createCredentialManager(opts = {}) {
    * @returns {Promise<{applied: boolean, alreadyActive: boolean, email: string, warning?: string}>}
    */
   async function _applyCredentialUnlocked(accountUuid) {
+    assertCredentialPoolWritable('Credential apply');
     // Step 0: validate and load.
     if (!validateAccountUuid(accountUuid)) {
       throw credError(400, 'VALIDATION', 'profileId must be a valid account uuid');
@@ -1487,6 +1621,7 @@ function createCredentialManager(opts = {}) {
    * @returns {{deleted: boolean}}
    */
   function _deleteSnapshotUnlocked(accountUuid) {
+    assertCredentialPoolWritable('Credential snapshot delete');
     if (!validateAccountUuid(accountUuid)) {
       throw credError(400, 'VALIDATION', 'profileId must be a valid account uuid');
     }
@@ -1505,6 +1640,7 @@ function createCredentialManager(opts = {}) {
    * @returns {void}
    */
   function _fireSync() {
+    if (isCredentialPoolReadOnly()) return;
     if (clock() < _selfWriteUntil) return; // our own apply is writing
     serialize(() => _syncActiveTokenToProfileUnlocked()).catch((err) => {
       log.warn('[Credentials] watcher sync failed: ' + ((err && err.message) || err));
@@ -1522,6 +1658,7 @@ function createCredentialManager(opts = {}) {
    * @returns {void}
    */
   function startCredentialWatcher() {
+    if (isCredentialPoolReadOnly()) return;
     if (_watcher || _pollTimer) return; // already running
     try {
       _watcher = fs.watch(claudeDir, (event, filename) => {
@@ -1623,6 +1760,10 @@ function createCredentialManager(opts = {}) {
     backupsDir,
     getSettings,
     resolveSeedDir,
+    isCredentialPoolReadOnly,
+    getCredentialPoolState,
+    readCredentialPoolOwnerMarker,
+    assertCredentialPoolWritable,
     // Pure helpers re-exposed on the instance for convenience
     validateAccountUuid,
     displayNameFor,
@@ -1664,6 +1805,9 @@ function createCredentialManager(opts = {}) {
     // holding the snapshot mutex would deadlock, because the refresher's
     // sync-back needs that same mutex).
     updateSnapshotUsage: async (uuid, o) => {
+      if (isCredentialPoolReadOnly()) {
+        return serialize(() => _updateSnapshotUsageUnlocked(uuid, o));
+      }
       await _pullMacActiveStateIfNeeded(uuid);
       return serialize(() => _updateSnapshotUsageUnlocked(uuid, o));
     },
@@ -1695,4 +1839,8 @@ module.exports = {
   TOKEN_STATE_OK,
   TOKEN_STATE_NEEDS_LOGIN,
   TOKEN_STATE_UNVERIFIED,
+  POOL_OWNER_MARKER_FILE,
+  EXTERNAL_BRIDGE_OWNER,
+  EXTERNAL_OWNER_ENV,
+  CRED_POOL_EXTERNAL_OWNER_CODE,
 };

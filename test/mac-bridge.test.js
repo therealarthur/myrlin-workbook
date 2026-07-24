@@ -458,6 +458,27 @@ function assertNoSecretInArgv(calls, where) {
     assertEqual(empty.error, 'CRED_NOT_FOUND');
   });
 
+  await test('external bridge ownership blocks Mac install/apply before any process or temp-file write', async () => {
+    const manager = makeManagerStub(makeSnapshot());
+    manager.assertCredentialPoolWritable = () => {
+      const err = new Error('Mac credential apply is disabled because credential-pool ownership is assigned to myrlin-bridge-gateway.');
+      err.status = 409;
+      err.code = 'CRED_POOL_EXTERNAL_OWNER';
+      throw err;
+    };
+    const fake = makeExecFake([]);
+    const install = await bridge.installProfileOnMac(manager, CFG, UUID_M, { execFileImpl: fake.impl });
+    assertEqual(install.installed, false);
+    assertEqual(install.error, 'CRED_POOL_EXTERNAL_OWNER');
+    assert(install.message.indexOf('myrlin-bridge-gateway') !== -1, 'owner is actionable');
+    const apply = await bridge.applyProfileOnMac(manager, CFG, UUID_M, { execFileImpl: fake.impl });
+    assertEqual(apply.mirrored, false);
+    assertEqual(apply.error, 'CRED_POOL_EXTERNAL_OWNER');
+    assertEqual(fake.calls.length, 0, 'no ssh/scp process spawned');
+    assertEqual(manager.syncBacks.length, 0, 'no remote sync-back attempted');
+    assertEqual(manager.hints.length, 0, 'no ownership hint mutation');
+  });
+
   await test('mirrorToMac maps scp failure to MAC_UNREACHABLE and stops', async () => {
     const manager = makeManagerStub(makeSnapshot());
     const fake = makeExecFake((call) => {
