@@ -1502,11 +1502,9 @@ class CWMApp {
             textToCopy = lines.join('\n');
           }
           if (textToCopy) {
-            navigator.clipboard.writeText(textToCopy).then(() => {
-              this.showToast('Copied to clipboard', 'success');
-            }).catch(() => {
-              this.showToast('Failed to copy - check browser permissions', 'error');
-            });
+            // Universal copy helper: works on insecure origins too and never
+            // throws into this click handler (see _copyWithToast WHY).
+            this._copyWithToast(textToCopy, 'Copied to clipboard', 'Failed to copy - check browser permissions');
           } else {
             this.showToast('Nothing to copy', 'info');
           }
@@ -3335,8 +3333,7 @@ class CWMApp {
         { label: 'Summarize to Docs', action: () => this.summarizeSessionToDocs(sessionId) },
         { label: 'Export Context', action: () => this.exportSessionContext(sessionId) },
         { label: 'Copy Session ID', action: () => {
-          navigator.clipboard.writeText(session.resumeSessionId || session.id);
-          this.showToast('Session ID copied', 'success');
+          this._copyWithToast(session.resumeSessionId || session.id, 'Session ID copied');
         }},
       ],
     });
@@ -3425,14 +3422,12 @@ class CWMApp {
     const insightsItems = [
       { label: 'Summarize', action: () => this.summarizeSession(sessionId, sessionId) },
       { label: 'Copy Session ID', action: () => {
-        navigator.clipboard.writeText(sessionId);
-        this.showToast('Session ID copied', 'success');
+        this._copyWithToast(sessionId, 'Session ID copied');
       }},
     ];
     if (cwd) {
       insightsItems.push({ label: 'Copy Path', action: () => {
-        navigator.clipboard.writeText(cwd);
-        this.showToast('Path copied', 'success');
+        this._copyWithToast(cwd, 'Path copied');
       }});
     }
     items.push({ label: 'Insights', icon: '&#128220;', submenu: insightsItems });
@@ -3545,8 +3540,7 @@ class CWMApp {
       {
         label: 'Copy Selector', icon: '&#128203;', action: () => {
           const selector = this._buildSelector(targetEl);
-          navigator.clipboard.writeText(selector);
-          this.showToast('Selector copied', 'success');
+          this._copyWithToast(selector, 'Selector copied');
         },
       },
     ];
@@ -3670,12 +3664,10 @@ class CWMApp {
       submenu: [
         { label: 'Summarize', action: () => this.summarizeSession(sessionName, sessionName) },
         { label: 'Copy Session ID', action: () => {
-          navigator.clipboard.writeText(sessionName);
-          this.showToast('Session ID copied', 'success');
+          this._copyWithToast(sessionName, 'Session ID copied');
         }},
         { label: 'Copy Path', action: () => {
-          navigator.clipboard.writeText(projectPath);
-          this.showToast('Path copied', 'success');
+          this._copyWithToast(projectPath, 'Path copied');
         }},
       ],
     });
@@ -3740,15 +3732,13 @@ class CWMApp {
     // Copy path
     if (projectPath) {
       items.push({ label: 'Copy Path', icon: '&#128193;', action: () => {
-        navigator.clipboard.writeText(projectPath);
-        this.showToast('Path copied', 'success');
+        this._copyWithToast(projectPath, 'Path copied');
       }});
     }
 
     // Copy encoded name
     items.push({ label: 'Copy Encoded Name', icon: '&#128203;', action: () => {
-      navigator.clipboard.writeText(encodedName);
-      this.showToast('Encoded name copied', 'success');
+      this._copyWithToast(encodedName, 'Encoded name copied');
     }});
 
     if (projectPath) {
@@ -6516,9 +6506,14 @@ class CWMApp {
         hash.title = 'Click to copy full hash';
         hash.addEventListener('click', (e) => {
           e.stopPropagation(); // don't also trigger row click
-          navigator.clipboard.writeText(commit.hash).catch(() => {});
-          hash.textContent = 'copied!';
-          setTimeout(() => { hash.textContent = commit.shortHash; }, 1500);
+          // Universal copy helper (never throws; works on insecure origins).
+          // Keeps the inline text feedback this row always had, but honest:
+          // the old bare-catch call claimed "copied!" even when the property
+          // access threw before anything reached the clipboard.
+          TerminalPane.copyTextToClipboard(commit.hash).then((ok) => {
+            hash.textContent = ok ? 'copied!' : 'copy failed';
+            setTimeout(() => { hash.textContent = commit.shortHash; }, 1500);
+          });
         });
 
         const msg = document.createElement('span');
@@ -11598,6 +11593,38 @@ class CWMApp {
      TOASTS
      ═══════════════════════════════════════════════════════════ */
 
+  /**
+   * Copy text to the clipboard and toast the outcome.
+   *
+   * WHY (user report, 2026-07-24, same trap as paste issue #64): all the
+   * small "Copy X" affordances (context menus, copy buttons) used to call
+   * the async Clipboard API directly and toast success unconditionally. On
+   * insecure origins (plain http over LAN, the documented remote-access
+   * mode) that API is undefined, so the bare property access threw a
+   * synchronous TypeError into the click handler while the toast still
+   * claimed success. Routing through TerminalPane.copyTextToClipboard
+   * (which falls back to a user-gesture execCommand copy and never throws)
+   * makes these copies WORK on every origin, and the resolved boolean makes
+   * the toast honest. terminal.js loads before app.js (index.html script
+   * order), so the static is always available; the typeof guard is only a
+   * belt-and-braces for a broken partial deploy.
+   *
+   * @param {string} text - Text to copy.
+   * @param {string} successMessage - Toast shown when the copy succeeded.
+   * @param {string} [failureMessage] - Toast shown when it failed
+   *   (defaults to 'Copy failed').
+   */
+  _copyWithToast(text, successMessage, failureMessage) {
+    const copied = (typeof TerminalPane !== 'undefined' &&
+        typeof TerminalPane.copyTextToClipboard === 'function')
+      ? TerminalPane.copyTextToClipboard(text)
+      : Promise.resolve(false);
+    copied.then((ok) => {
+      if (ok) this.showToast(successMessage, 'success');
+      else this.showToast(failureMessage || 'Copy failed', 'error');
+    });
+  }
+
   showToast(message, level = 'info') {
     const icons = {
       info: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M9 8v4M9 6v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -15077,8 +15104,7 @@ class CWMApp {
         label: 'Copy', icon: '&#128203;', action: () => {
           const selected = tp.term.getSelection();
           if (selected) {
-            navigator.clipboard.writeText(selected);
-            this.showToast('Copied to clipboard', 'success');
+            this._copyWithToast(selected, 'Copied to clipboard');
           }
         },
       });
@@ -20144,8 +20170,7 @@ class CWMApp {
     // Bind copy buttons
     container.querySelectorAll('.copy-tunnel-url').forEach(btn => {
       btn.addEventListener('click', () => {
-        navigator.clipboard.writeText(btn.dataset.url);
-        this.showToast('URL copied', 'success');
+        this._copyWithToast(btn.dataset.url, 'URL copied');
       });
     });
   }
@@ -21180,10 +21205,14 @@ class CWMApp {
       });
 
       if (result) {
-        // Copy to clipboard
+        // Copy to clipboard through the universal helper (works on insecure
+        // origins, never rejects); the boolean keeps the toasts honest. The
+        // outer try/catch is retained as a second belt so a copy problem can
+        // never abort the continue-in-new-session flow below.
         try {
-          await navigator.clipboard.writeText(markdown);
-          this.showToast('Context copied to clipboard', 'success');
+          const ok = await TerminalPane.copyTextToClipboard(markdown);
+          if (ok) this.showToast('Context copied to clipboard', 'success');
+          else this.showToast('Could not copy to clipboard', 'warning');
         } catch (_) {
           this.showToast('Could not copy to clipboard', 'warning');
         }
@@ -22995,10 +23024,17 @@ class CWMApp {
           // Bind copy buttons
           urlsEl.querySelectorAll('.pair-url-copy').forEach(btn => {
             btn.addEventListener('click', async () => {
+              // Universal copy helper: the pairing screen is exactly the
+              // remote-access (plain http over LAN) scenario where the bare
+              // Clipboard API call used to throw. Button feedback preserved.
               try {
-                await navigator.clipboard.writeText(btn.dataset.url);
-                btn.textContent = 'Copied';
-                setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+                const ok = await TerminalPane.copyTextToClipboard(btn.dataset.url);
+                if (ok) {
+                  btn.textContent = 'Copied';
+                  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+                } else {
+                  this.showToast('Failed to copy URL', 'error');
+                }
               } catch (_) {
                 this.showToast('Failed to copy URL', 'error');
               }

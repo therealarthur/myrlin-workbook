@@ -237,6 +237,151 @@ class TerminalPane {
     return SMOOTH_SCROLL_DURATION_MS;
   }
 
+  // ── Universal clipboard copy (secure-context safe) ─────────────
+  // WHY these live on TerminalPane as statics: terminal.js is the shared
+  // seam between the pane and the app shell. index.html loads terminal.js
+  // before app.js, and app.js already consumes TerminalPane statics
+  // (getCurrentTheme), so both files copy through this one implementation
+  // without inventing a module system for the public/ scripts.
+
+  /**
+   * Copy text to the clipboard on ANY origin, secure or not.
+   *
+   * The async Clipboard API (navigator.clipboard.writeText) only exists in
+   * secure contexts (https or localhost). On plain http to a LAN IP or
+   * hostname, the documented remote-access mode, navigator.clipboard is
+   * undefined and even PROPERTY ACCESS on it throws a SYNCHRONOUS TypeError
+   * that a chained .catch() can never intercept (.catch only sees promise
+   * rejections, not a throw during property lookup). That exact trap is what
+   * turned Ctrl+C-to-copy into a SIGINT to the running CLI (see the Ctrl+C
+   * branch in attachCustomKeyEventHandler) and is the copy-side twin of
+   * paste issue #64.
+   *
+   * WHY copy can work everywhere while paste cannot: browsers still permit
+   * document.execCommand('copy') from script during a user gesture on every
+   * origin, because copying exposes nothing the page did not already have.
+   * Programmatic PASTE reads foreign clipboard data and is dead from script
+   * on insecure origins, which is why the paste path can only degrade to a
+   * "press Ctrl+V" hint while this helper has a real universal fallback.
+   *
+   * Feature-detects the writeText FUNCTION, not just the clipboard object:
+   * some engines expose a navigator.clipboard object without writeText, and
+   * calling through a mere object check would reintroduce the throw.
+   *
+   * Contract: NEVER throws and the returned promise NEVER rejects, under any
+   * circumstance, so callers inside key and click handlers stay
+   * exception-safe.
+   *
+   * @param {string} text - Text to place on the clipboard ('' when nullish).
+   * @returns {Promise<boolean>} Resolves true when the copy succeeded, false
+   *   when every available path failed. Never rejects.
+   */
+  static copyTextToClipboard(text) {
+    const value = (text === null || text === undefined) ? '' : String(text);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard &&
+          typeof navigator.clipboard.writeText === 'function') {
+        // Secure context: async Clipboard API. Map BOTH outcomes so the
+        // promise can never reject. On rejection (Safari and some mobile
+        // browsers deny programmatic writes even on https) attempt the
+        // execCommand fallback before giving up; by the time the rejection
+        // lands the user gesture may have expired, in which case execCommand
+        // simply reports false, so trying is harmless.
+        return navigator.clipboard.writeText(value).then(
+          () => true,
+          () => {
+            try { return TerminalPane._copyViaExecCommand(value); } catch (_) { return false; }
+          }
+        );
+      }
+      // Insecure origin (or clipboard API absent): synchronous fallback.
+      return Promise.resolve(TerminalPane._copyViaExecCommand(value));
+    } catch (_) {
+      // Belt and braces: nothing above should throw, but the whole point of
+      // this helper is that callers NEVER see an exception. A throw escaping
+      // a key handler is exactly the bug that sent SIGINT to running CLIs.
+      return Promise.resolve(false);
+    }
+  }
+
+  /**
+   * Fallback copy via a temporary offscreen textarea and
+   * document.execCommand('copy'). Standard technique; kept private, callers
+   * use copyTextToClipboard which picks the right path.
+   *
+   * The textarea is rendered but invisible: execCommand('copy') copies the
+   * CURRENT SELECTION, so the element must be selectable (display:none would
+   * break it, and readOnly is deliberately not set because a real selection
+   * is required). position:fixed at 1px keeps the focus jump from scrolling
+   * the page; aria-hidden keeps it out of the accessibility tree.
+   *
+   * The user's prior focus and document selection are snapshotted and
+   * restored where practical: xterm selections live in xterm's own model,
+   * not the document selection, so terminal copies are unaffected, but this
+   * protects copies triggered while text elsewhere on the page (an input,
+   * the docs panel) is selected.
+   *
+   * @param {string} value - Already-stringified text to copy.
+   * @returns {boolean} True when execCommand reported success. Never throws.
+   */
+  static _copyViaExecCommand(value) {
+    if (typeof document === 'undefined' || !document.body ||
+        typeof document.execCommand !== 'function') {
+      return false;
+    }
+    const prevActive = document.activeElement;
+    const selection = typeof document.getSelection === 'function' ? document.getSelection() : null;
+    const savedRanges = [];
+    if (selection && typeof selection.rangeCount === 'number') {
+      for (let i = 0; i < selection.rangeCount; i++) {
+        try { savedRanges.push(selection.getRangeAt(i)); } catch (_) {}
+      }
+    }
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.setAttribute('aria-hidden', 'true');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.width = '1px';
+    ta.style.height = '1px';
+    ta.style.padding = '0';
+    ta.style.border = 'none';
+    ta.style.outline = 'none';
+    ta.style.boxShadow = 'none';
+    ta.style.background = 'transparent';
+    ta.style.opacity = '0';
+    let ok = false;
+    try {
+      document.body.appendChild(ta);
+      if (typeof ta.focus === 'function') ta.focus({ preventScroll: true });
+      if (typeof ta.select === 'function') ta.select();
+      // iOS Safari ignores select() on some versions; the explicit range
+      // makes the selection real there too.
+      if (typeof ta.setSelectionRange === 'function') ta.setSelectionRange(0, value.length);
+      ok = !!document.execCommand('copy');
+    } catch (_) {
+      ok = false;
+    } finally {
+      // ALWAYS remove the scratch element, even when execCommand threw, so
+      // repeated failed copies can never leak textareas into the DOM.
+      try { if (ta.parentNode) ta.parentNode.removeChild(ta); } catch (_) {}
+      // Restore the user's selection and focus, best-effort: a failure here
+      // must not turn a successful copy into a throw.
+      try {
+        if (selection && savedRanges.length) {
+          selection.removeAllRanges();
+          for (const r of savedRanges) selection.addRange(r);
+        }
+        if (prevActive && prevActive !== document.body &&
+            typeof prevActive.focus === 'function') {
+          prevActive.focus({ preventScroll: true });
+        }
+      } catch (_) {}
+    }
+    return ok;
+  }
+
   // ── Idle-notification gating constants (notification-storm fix) ──
   // Minimum ANSI-stripped, trimmed characters a flushed chunk must contain
   // to count as "meaningful output" that re-arms idle detection. Cosmetic
@@ -442,10 +587,37 @@ class TerminalPane {
         const mod = e.ctrlKey || e.metaKey;
 
         // Ctrl+C / Cmd+C: copy selected text to clipboard (if selection exists)
-        // Without selection, fall through so xterm sends \x03 (SIGINT) normally
+        // Without selection, fall through so xterm sends \x03 (SIGINT) normally.
+        //
+        // WHY the try/catch bracket and the helper (user report, 2026-07-24):
+        // this branch used to call the async Clipboard API directly with a
+        // chained .catch(). On insecure origins (plain http to a LAN IP or
+        // hostname, the documented remote-access mode) navigator.clipboard is
+        // undefined, so the PROPERTY ACCESS threw a synchronous TypeError
+        // that .catch() could not see (.catch only intercepts promise
+        // rejections, not a throw during property lookup). The exception
+        // escaped this handler BEFORE clearSelection() and `return false`
+        // ran, xterm treated the key as unhandled, and the "copy" keystroke
+        // sent \x03 (SIGINT) that interrupted the user's running CLI
+        // session. Same secure-context trap as paste issue #64, which was
+        // fixed on the Ctrl+V branch below but never applied here.
+        //
+        // TerminalPane.copyTextToClipboard never throws by contract (and
+        // actually copies on every origin via its execCommand fallback), but
+        // the bracket below makes the SIGINT fall-through STRUCTURALLY
+        // impossible even if a future edit regresses that guarantee: once a
+        // selection exists this branch always reaches `return false` and
+        // consumes the key. Do not lift the copy call out of the try.
         if (mod && e.key === 'c' && this.term.hasSelection()) {
-          navigator.clipboard.writeText(this.term.getSelection()).catch(() => {});
-          this.term.clearSelection();
+          try {
+            // Fire-and-forget: the copy is best-effort (matches the old
+            // silent-catch behavior); consuming the key is mandatory.
+            TerminalPane.copyTextToClipboard(this.term.getSelection());
+            this.term.clearSelection();
+          } catch (_) {
+            // Swallow everything. An exception escaping past this point is
+            // what used to SIGINT the CLI mid-run.
+          }
           return false;
         }
 

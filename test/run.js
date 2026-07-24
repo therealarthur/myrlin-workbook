@@ -935,6 +935,7 @@ const standaloneTests = [
   'codex-mirror-parse.test.js',      // issue #10 T1 P2: codex parseLine extraction + parseTranscript parity on canonical fixtures
   'mirror-service.test.js',          // issue #10 T1 P3: MirrorService open/close refcount, broadcast batching, limit, truncate reset, readEarlier paging
   'mirror-routes.test.js',           // issue #10 T1 P0+P3: /api/mirror routes, SSE deviceId scoping, discovery live/lastActiveMs flags
+  'copy-secure-context-fallback.test.js', // 2026-07-24 user report: Ctrl+C copy sent SIGINT on plain-http; universal copy helper + exception-proof branch + zero bare writeText gate
 ];
 
 let standaloneFailed = 0;
