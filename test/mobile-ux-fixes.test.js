@@ -44,6 +44,33 @@ function stripCssComments(css) {
 const styles = stripCssComments(fs.readFileSync(path.join(PUBLIC, 'styles.css'), 'utf8'));
 const stylesMobile = stripCssComments(fs.readFileSync(path.join(PUBLIC, 'styles-mobile.css'), 'utf8'));
 const appJs = fs.readFileSync(path.join(PUBLIC, 'app.js'), 'utf8');
+const terminalJs = fs.readFileSync(path.join(PUBLIC, 'terminal.js'), 'utf8');
+
+/**
+ * Extract the body of a JS method by name from terminal.js (brace-balanced
+ * slice starting at `name(`). Used to assert selection-mode detection logic
+ * lives inside the intended method, not merely somewhere in the file. Returns
+ * '' when the method cannot be located or balanced.
+ * @param {string} src Full source text.
+ * @param {string} name Method name preceding the parameter list.
+ * @returns {string} The method body between its outermost braces, or ''.
+ */
+function methodBody(src, name) {
+  const sig = src.indexOf(name + '(');
+  if (sig === -1) return '';
+  const open = src.indexOf('{', sig);
+  if (open === -1) return '';
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return src.slice(open + 1, i);
+    }
+  }
+  return '';
+}
 
 let passed = 0;
 let failed = 0;
@@ -308,6 +335,45 @@ check('P2: mobile tab-close has an enlarged hit area', () => {
   assert.ok(
     /\.terminal-tab-close::before\s*\{[^}]*inset:\s*-12px/s.test(stylesMobile),
     'terminal-tab-close::before must extend the tap target by 12px'
+  );
+});
+
+// ─── P3: desktop mouse selection + copy regression (2026-07-25) ─────────────
+// _isMobile() must NOT treat a fine-pointer desktop as mobile. The old test
+// used `'ontouchstart' in window`, which is true on desktop Chrome/Edge with
+// zero touch hardware. That flipped mobile mode on, which set
+// `.xterm-screen { pointer-events: none }` and killed xterm's mousedown-based
+// selection, so hasSelection() stayed false, a native highlight could not be
+// copied, and Ctrl+C fell through to SIGINT. Lock the tightened detection.
+
+check('P3: _isMobile requires a coarse primary pointer (no ontouchstart-only)', () => {
+  const body = methodBody(terminalJs, '_isMobile');
+  assert.ok(body, '_isMobile method must exist in terminal.js');
+  assert.ok(
+    /matchMedia\(\s*['"]\(pointer:\s*coarse\)['"]\s*\)/.test(body),
+    '_isMobile must gate on matchMedia("(pointer: coarse)")'
+  );
+  assert.ok(
+    /maxTouchPoints\s*>\s*0/.test(body),
+    '_isMobile must still require real touch points (maxTouchPoints > 0)'
+  );
+  // Strip JS comments before the negative assertion: the method's own
+  // explanatory comment quotes the retired `'ontouchstart' in window`
+  // expression, and we must assert on executable code, not prose.
+  const code = body
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  assert.ok(
+    !/['"]ontouchstart['"]\s+in\s+window/.test(code),
+    '_isMobile must NOT use `\'ontouchstart\' in window` (true on no-touch desktops)'
+  );
+});
+
+check('P3: _isMobile combines coarse pointer AND touch points (not OR)', () => {
+  const body = methodBody(terminalJs, '_isMobile');
+  assert.ok(
+    /coarsePrimary\s*&&\s*hasTouchPoints/.test(body),
+    '_isMobile must return coarsePrimary && hasTouchPoints so a mouse desktop is never mobile'
   );
 });
 

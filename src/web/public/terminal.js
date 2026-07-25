@@ -1137,9 +1137,51 @@ class TerminalPane {
    * Type mode: textarea is writable, keyboard appears for input
    */
   _isMobile() {
-    // Enable touch scroll/type modes for any device with touch capability, 
-    // including tablets (not just narrow screens).
-    return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+    // Decide whether this pane should run the mobile scroll/type engine.
+    //
+    // REGRESSION FIX (user report, 2026-07-25): the previous test was
+    // `('ontouchstart' in window) || navigator.maxTouchPoints > 0`, added by
+    // commit 7b992aa ("enable touch scrolling for all clients"). Desktop
+    // Chrome and Edge expose `window.ontouchstart` even with ZERO touch
+    // hardware (maxTouchPoints 0, no digitizer), so that first disjunct made
+    // `_isMobile()` return true on ordinary mouse desktops. When it returned
+    // true, initMobileInputMode() set `.xterm-screen { pointer-events: none }`
+    // for scroll passthrough. With the screen pointer-transparent, xterm's
+    // SelectionService (which binds mousedown on `.xterm-screen`) never saw
+    // the drag, so term.hasSelection() stayed false while the browser still
+    // painted a NATIVE DOM selection over the DOM-rendered rows. That is
+    // exactly the reported bug: a visible highlight that Ctrl+C could not
+    // copy (hasSelection() false, so the copy branch in
+    // attachCustomKeyEventHandler fell through and xterm sent \x03/SIGINT,
+    // which is why a second Ctrl+C exited the CLI), and a right-click Copy
+    // that found nothing because it reads the same empty xterm selection.
+    //
+    // The fix requires a REAL coarse primary pointer AND actual touch points,
+    // never `ontouchstart` alone. A phone or tablet reports
+    // `(pointer: coarse)` as its primary pointer together with
+    // maxTouchPoints > 0, so genuine touch devices still get the scroll/type
+    // engine. A desktop with a mouse reports `(pointer: fine)` as primary
+    // (even when a touchscreen is attached), so it now stays in desktop mode
+    // where `.xterm-screen` keeps its default pointer-events and mouse text
+    // selection plus Ctrl+C copy work normally.
+    //
+    // All lookups are typeof-guarded and wrapped so detection can never throw
+    // in a non-browser or partially-stubbed environment (the source tests
+    // construct TerminalPane without a full window); on any failure we default
+    // to desktop, the non-restrictive mode that preserves mouse selection.
+    try {
+      const coarsePrimary =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(pointer: coarse)').matches;
+      const hasTouchPoints =
+        typeof navigator !== 'undefined' &&
+        typeof navigator.maxTouchPoints === 'number' &&
+        navigator.maxTouchPoints > 0;
+      return coarsePrimary && hasTouchPoints;
+    } catch (_) {
+      return false;
+    }
   }
 
   /**
