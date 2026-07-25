@@ -25,6 +25,11 @@ const td = require('../core/td-adapter');
 const { getDataDir } = require('../utils/data-dir');
 const { Worker } = require('worker_threads');
 
+// Full-SPA browser acceptance launches the real server against an isolated
+// profile. In that explicit mode, operations that inspect project-local
+// credentials, fetch Git refs, or start tunnel processes must stay inert.
+const HERMETIC_UI_TEST = process.env.CWM_TEST_HERMETIC_UI === '1';
+
 // Plan 15-01 (DISC-03): provider registry and Claude provider object.
 // The registry resolves session.provider tags to provider objects via
 // getProviderForSession(); claudeProvider supplies cliBinary and
@@ -7360,22 +7365,24 @@ app.get('/api/version', requireAuth, async (req, res) => {
     let remoteVersion = currentVersion;
     let commitsBehind = 0;
 
-    try {
-      // Fetch latest from remote
-      execSync('git fetch origin main --quiet', { cwd: appDir, timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    if (!HERMETIC_UI_TEST) {
+      try {
+        // Fetch latest from remote
+        execSync('git fetch origin main --quiet', { cwd: appDir, timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
 
-      // Check how many commits behind
-      const behindOutput = execSync('git rev-list HEAD..origin/main --count', { cwd: appDir, timeout: 5000, encoding: 'utf-8', windowsHide: true }).trim();
-      commitsBehind = parseInt(behindOutput, 10) || 0;
-      updateAvailable = commitsBehind > 0;
+        // Check how many commits behind
+        const behindOutput = execSync('git rev-list HEAD..origin/main --count', { cwd: appDir, timeout: 5000, encoding: 'utf-8', windowsHide: true }).trim();
+        commitsBehind = parseInt(behindOutput, 10) || 0;
+        updateAvailable = commitsBehind > 0;
 
-      // Get the latest commit message from remote
-      if (updateAvailable) {
-        const latestMsg = execSync('git log origin/main -1 --format=%s', { cwd: appDir, timeout: 5000, encoding: 'utf-8', windowsHide: true }).trim();
-        remoteVersion = `${currentVersion}+${commitsBehind}`;
+        // Get the latest commit message from remote
+        if (updateAvailable) {
+          const latestMsg = execSync('git log origin/main -1 --format=%s', { cwd: appDir, timeout: 5000, encoding: 'utf-8', windowsHide: true }).trim();
+          remoteVersion = `${currentVersion}+${commitsBehind}`;
+        }
+      } catch (_) {
+        // Git operations may fail if not a git repo or no network
       }
-    } catch (_) {
-      // Git operations may fail if not a git repo or no network
     }
 
     res.json({
@@ -7390,6 +7397,9 @@ app.get('/api/version', requireAuth, async (req, res) => {
 });
 
 app.post('/api/update', requireAuth, async (req, res) => {
+  if (HERMETIC_UI_TEST) {
+    return res.status(503).json({ error: 'Self-update is disabled in hermetic UI tests' });
+  }
   const appDir = path.resolve(__dirname, '..', '..');
 
   // Use chunked transfer to stream progress
@@ -7508,6 +7518,9 @@ let _tunnelIdCounter = 0;
 let _cloudflaredAvailable = null;
 
 function checkCloudflared() {
+  if (HERMETIC_UI_TEST) {
+    return Promise.resolve({ available: false, version: null });
+  }
   return new Promise((resolve) => {
     execFile('cloudflared', ['--version'], { timeout: 5000, windowsHide: true }, (err, stdout) => {
       if (err) return resolve({ available: false, version: null });
@@ -7608,6 +7621,7 @@ const NAMED_TUNNEL_HOME_CONFIG = path.join(getDataDir(), 'config.json');
 const NAMED_TUNNEL_LOCAL_CONFIG = path.join(__dirname, '..', '..', 'state', 'config.json');
 
 function readMyrlinConfig() {
+  if (HERMETIC_UI_TEST) return {};
   for (const p of [NAMED_TUNNEL_HOME_CONFIG, NAMED_TUNNEL_LOCAL_CONFIG]) {
     try {
       if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf-8'));
@@ -7617,6 +7631,7 @@ function readMyrlinConfig() {
 }
 
 function writeMyrlinConfig(updates) {
+  if (HERMETIC_UI_TEST) return false;
   const cfg = readMyrlinConfig();
   Object.assign(cfg, updates);
   const homeDir = path.join(os.homedir(), '.myrlin');
@@ -7631,6 +7646,7 @@ function writeMyrlinConfig(updates) {
     if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
     fs.writeFileSync(NAMED_TUNNEL_LOCAL_CONFIG, JSON.stringify(cfg, null, 2), 'utf-8');
   } catch (_) {}
+  return true;
 }
 
 let _namedTunnel = null; // { process, status, startedAt, tunnelId }
@@ -7647,6 +7663,9 @@ function getNamedTunnelStatus() {
 }
 
 function startNamedTunnel(token) {
+  if (HERMETIC_UI_TEST) {
+    return { error: 'Named tunnels are disabled in hermetic UI tests' };
+  }
   if (_namedTunnel && _namedTunnel.process && !_namedTunnel.process.killed) {
     return { error: 'Tunnel already running' };
   }
@@ -7694,6 +7713,14 @@ function startNamedTunnel(token) {
 }
 
 app.get('/api/tunnel/named', requireAuth, (req, res) => {
+  if (HERMETIC_UI_TEST) {
+    return res.json({
+      configured: false,
+      autoStart: false,
+      disabled: true,
+      ...getNamedTunnelStatus(),
+    });
+  }
   const cfg = readMyrlinConfig();
   res.json({
     configured: !!(process.env.CWM_CF_TOKEN || cfg.cfTunnelToken),
@@ -7703,6 +7730,9 @@ app.get('/api/tunnel/named', requireAuth, (req, res) => {
 });
 
 app.put('/api/tunnel/named/config', requireAuth, (req, res) => {
+  if (HERMETIC_UI_TEST) {
+    return res.status(503).json({ error: 'Named tunnels are disabled in hermetic UI tests' });
+  }
   const { token, autoStart } = req.body || {};
   const updates = {};
   if (token !== undefined) {
@@ -7720,6 +7750,9 @@ app.put('/api/tunnel/named/config', requireAuth, (req, res) => {
 });
 
 app.post('/api/tunnel/named/start', requireAuth, async (req, res) => {
+  if (HERMETIC_UI_TEST) {
+    return res.status(503).json({ error: 'Named tunnels are disabled in hermetic UI tests' });
+  }
   const cfg = readMyrlinConfig();
   const token = process.env.CWM_CF_TOKEN || cfg.cfTunnelToken;
   if (!token) {
@@ -7735,6 +7768,9 @@ app.post('/api/tunnel/named/start', requireAuth, async (req, res) => {
 });
 
 app.post('/api/tunnel/named/stop', requireAuth, (req, res) => {
+  if (HERMETIC_UI_TEST) {
+    return res.status(503).json({ error: 'Named tunnels are disabled in hermetic UI tests' });
+  }
   if (!_namedTunnel || !_namedTunnel.process) {
     return res.status(404).json({ error: 'No named tunnel running' });
   }
@@ -7751,6 +7787,7 @@ app.post('/api/tunnel/named/stop', requireAuth, (req, res) => {
 
 // Auto-start on server init if configured
 (async () => {
+  if (HERMETIC_UI_TEST) return;
   const cfg = readMyrlinConfig();
   const token = process.env.CWM_CF_TOKEN || cfg.cfTunnelToken;
   if (cfg.cfTunnelAutoStart && token) {

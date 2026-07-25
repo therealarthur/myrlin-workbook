@@ -1313,6 +1313,15 @@ class CWMApp {
       this.showToast(msg, 'warning');
     });
 
+    // ─── Clipboard Copy Unavailable ──────────────────────────
+    // Selected Ctrl+C is always consumed so it cannot become SIGINT. When
+    // both Clipboard API and execCommand paths fail, TerminalPane keeps the
+    // selection and dispatches this event instead of silently claiming
+    // success or discarding the user's only recoverable copy.
+    document.addEventListener('cwm:copy-unavailable', () => {
+      this.showToast('Copy was blocked by the browser. Selection kept.', 'error');
+    });
+
     // ─── Terminal Needs-Input Badge ─────────────────────────
     // When auto-trust detects a question it won't auto-answer, show/hide
     // an amber "Needs input" badge on the terminal pane header.

@@ -305,6 +305,35 @@ class TerminalPane {
   }
 
   /**
+   * Return a stable identity for the terminal's current xterm selection range.
+   *
+   * Clipboard writes can settle asynchronously. Text alone is insufficient
+   * to decide whether it is still safe to clear the old selection because the
+   * user may select an identical string elsewhere while the write is pending.
+   * xterm exposes a public 1-based range; collapse it to a scalar key so the
+   * key handler can compare the exact start/end coordinates.
+   *
+   * @param {Object} term - xterm Terminal instance (or a test double).
+   * @returns {string|null} Range key, empty string for no range, or null when
+   *   the installed xterm API does not expose a readable range.
+   */
+  static _selectionPositionKey(term) {
+    if (!term || typeof term.getSelectionPosition !== 'function') return null;
+    try {
+      const range = term.getSelectionPosition();
+      if (!range) return '';
+      return [
+        range.start && range.start.x,
+        range.start && range.start.y,
+        range.end && range.end.x,
+        range.end && range.end.y,
+      ].join(':');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
    * Fallback copy via a temporary offscreen textarea and
    * document.execCommand('copy'). Standard technique; kept private, callers
    * use copyTextToClipboard which picks the right path.
@@ -630,21 +659,52 @@ class TerminalPane {
         // session. Same secure-context trap as paste issue #64, which was
         // fixed on the Ctrl+V branch below but never applied here.
         //
-        // TerminalPane.copyTextToClipboard never throws by contract (and
-        // actually copies on every origin via its execCommand fallback), but
-        // the bracket below makes the SIGINT fall-through STRUCTURALLY
-        // impossible even if a future edit regresses that guarantee: once a
-        // selection exists this branch always reaches `return false` and
-        // consumes the key. Do not lift the copy call out of the try.
+        // TerminalPane.copyTextToClipboard never throws by contract and uses
+        // execCommand as a best-effort fallback on every origin. Its boolean
+        // result still matters: clear the selection only after a confirmed
+        // copy. If every browser path fails, keep the selection recoverable
+        // and tell the app shell to show an honest error.
+        //
+        // The bracket below makes the SIGINT fall-through STRUCTURALLY
+        // impossible even if a future edit regresses the helper's no-throw
+        // guarantee: once a selection exists this branch always reaches
+        // `return false` and consumes the key. Do not lift the copy call out
+        // of the try.
         if (mod && e.key === 'c' && this.term.hasSelection()) {
           try {
-            // Fire-and-forget: the copy is best-effort (matches the old
-            // silent-catch behavior); consuming the key is mandatory.
-            TerminalPane.copyTextToClipboard(this.term.getSelection());
-            this.term.clearSelection();
+            // Returning false tells xterm not to forward Ctrl+C to the PTY,
+            // but it does not cancel Chromium's native copy/default action.
+            // Cancel that second clipboard path before starting our truthful,
+            // success-aware helper. This is intentionally selection-only:
+            // plain Ctrl+C must still reach the terminal as SIGINT.
+            if (typeof e.preventDefault === 'function') e.preventDefault();
+            const selectedText = this.term.getSelection();
+            const selectedPositionKey = TerminalPane._selectionPositionKey(this.term);
+            Promise.resolve(TerminalPane.copyTextToClipboard(selectedText)).then(
+              (copied) => {
+                if (copied) {
+                  try {
+                    // Do not erase a newer selection made while an async
+                    // Clipboard API write was settling. Compare both its text
+                    // and exact xterm range: identical text may occur twice.
+                    const currentPositionKey = TerminalPane._selectionPositionKey(this.term);
+                    const samePosition = selectedPositionKey === null ||
+                      currentPositionKey === selectedPositionKey;
+                    if (this.term && this.term.getSelection() === selectedText && samePosition) {
+                      this.term.clearSelection();
+                    }
+                  } catch (_) {
+                    // The copy itself succeeded; a stale/disposed terminal
+                    // should not turn that into a misleading failure toast.
+                  }
+                } else {
+                  this._emitCopyUnavailable('failed');
+                }
+              },
+              () => this._emitCopyUnavailable('failed')
+            );
           } catch (_) {
-            // Swallow everything. An exception escaping past this point is
-            // what used to SIGINT the CLI mid-run.
+            this._emitCopyUnavailable('failed');
           }
           return false;
         }
@@ -754,7 +814,10 @@ class TerminalPane {
         // already handled this paste (sets _pasteHandled), so check the flag first.
         xtermTextarea.addEventListener('paste', (e) => {
           e.preventDefault();
-          e.stopPropagation();
+          // xterm also listens for paste on this exact textarea. A capture
+          // listener runs first, but stopPropagation() would still allow
+          // xterm's same-target listener to send the text a second time.
+          e.stopImmediatePropagation();
           if (this._pasteHandled) {
             this._pasteHandled = false;
             return;
@@ -1047,6 +1110,29 @@ class TerminalPane {
       this._emitPasteUnavailable('denied');
       if (this.term) this.term.focus();
       return false;
+    }
+  }
+
+  /**
+   * Surface a failed Ctrl+C/Cmd+C copy through the app shell.
+   *
+   * The key remains consumed so it can never become SIGINT, while the xterm
+   * selection remains intact so the user can retry. Notification dispatch is
+   * best-effort and must never escape back into the terminal key handler.
+   * @param {string} reason - Stable failure reason for the app shell.
+   */
+  _emitCopyUnavailable(reason) {
+    try {
+      if (typeof document === 'undefined') return;
+      const container = document.getElementById(this.containerId);
+      const target = container || document;
+      if (!target || typeof target.dispatchEvent !== 'function') return;
+      target.dispatchEvent(new CustomEvent('cwm:copy-unavailable', {
+        bubbles: true,
+        detail: { reason, containerId: this.containerId, sessionId: this.sessionId },
+      }));
+    } catch (_) {
+      // Never let a notification failure escape into the Ctrl+C key path.
     }
   }
 
@@ -1961,9 +2047,11 @@ class TerminalPane {
    * DOM events and xterm's public Shift-to-select behavior, so it survives
    * bundle updates.
    *
-   * Left-button only: right/middle clicks pass through untouched so the
-   * right-click context menu (and its Copy item) still works, and so the
-   * clickable TUI is reachable the instant the toggle goes back off.
+   * Left-button selection: middle clicks and ordinary right clicks pass
+   * through. The one exception is right-button mousedown over an existing
+   * selection, which is withheld from xterm so the subsequent Workbook Copy
+   * menu sees the same text. The clickable TUI remains reachable whenever
+   * there is no selection and the toggle is off.
    */
   _installSelectModeInterceptor() {
     const container = document.getElementById(this.containerId);
@@ -1978,6 +2066,16 @@ class TerminalPane {
     }
     this._selectDragging = false;
     const handler = (e) => {
+      // A right-button press over a genuine xterm selection belongs to the
+      // Workbook context menu, not the mouse-reporting TUI. Block xterm's
+      // same-event listener before the TUI can redraw or mutate the selected
+      // buffer, but do not preventDefault: the later contextmenu event must
+      // still open app.js's truthful Copy action.
+      if (e.type === 'mousedown' && e.button === 2 &&
+          this.term && this.term.hasSelection()) {
+        e.stopImmediatePropagation();
+        return;
+      }
       // OFF: do nothing, so the app receives normal mouse reporting and the
       // interactive TUI stays fully clickable.
       if (!this._selectMode) return;

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Issue #64: paste broken for all non-localhost users.
+ * Modified: 2026-07-25
  *
  * PR #45 (commit cee137a) added an unconditional e.preventDefault() to the
  * Ctrl+V/Cmd+V branch in TerminalPane.attachCustomKeyEventHandler to stop a
@@ -75,6 +76,23 @@ function extractCtrlVBranch() {
   const endIdx = after.indexOf(endToken);
   assert.ok(endIdx !== -1, 'Ctrl+V branch has no return false; terminator');
   return after.slice(0, endIdx + endToken.length);
+}
+
+/**
+ * Compile the real capture-phase native-paste handler from terminal.js.
+ * The executed test below then models xterm's listener on the same textarea:
+ * stopPropagation() is insufficient at the target, while
+ * stopImmediatePropagation() prevents the second send.
+ * @returns {Function} The extracted handler, accepting event/WebSocket/window.
+ */
+function compileNativePasteHandler() {
+  const anchor = "xtermTextarea.addEventListener('paste', (e) => {";
+  const start = termSrc.indexOf(anchor);
+  assert.ok(start !== -1, 'could not locate the native paste listener');
+  const bodyStart = start + anchor.length;
+  const end = termSrc.indexOf("}, { capture: true });", bodyStart);
+  assert.ok(end !== -1, 'could not locate the native paste listener terminator');
+  return new Function('e', 'WebSocket', 'window', termSrc.slice(bodyStart, end));
 }
 
 console.log('\n  Issue #64: paste secure-context fallback gate');
@@ -162,7 +180,52 @@ check('native paste + beforeinput fallback handlers remain intact', () => {
 });
 
 // ---------------------------------------------------------------------------
-// (5) The app.js context-menu Paste action checks availability
+// (5) Native paste suppresses xterm's listener on the same textarea
+// ---------------------------------------------------------------------------
+
+check('native paste sends exactly once when xterm also listens on the textarea', () => {
+  const sent = [];
+  const pane = {
+    _pasteHandled: false,
+    ws: {
+      readyState: 1,
+      send(payload) {
+        sent.push(JSON.parse(payload).data);
+      },
+    },
+  };
+  const event = {
+    immediateStopped: false,
+    preventDefault() {},
+    stopPropagation() {},
+    stopImmediatePropagation() {
+      this.immediateStopped = true;
+    },
+    clipboardData: {
+      getData() {
+        return 'native paste';
+      },
+    },
+  };
+
+  compileNativePasteHandler().call(pane, event, { OPEN: 1 }, {});
+
+  // xterm registers its own non-capture paste listener on this exact
+  // textarea. A capture listener must stop it immediately, not merely stop
+  // propagation to ancestors.
+  if (!event.immediateStopped) {
+    sent.push('native paste');
+  }
+
+  assert.deepStrictEqual(
+    sent,
+    ['\x1b[200~native paste\x1b[201~'],
+    'native paste must produce one bracketed WebSocket input frame'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// (6) The app.js context-menu Paste action checks availability
 // ---------------------------------------------------------------------------
 
 check('context-menu Paste action feature-detects the clipboard API', () => {

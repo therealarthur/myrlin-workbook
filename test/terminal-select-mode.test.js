@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Copy-mode gate (mouse-mode copy fix, 2026-07-25).
+ * Modified: 2026-07-25
  *
  * Root cause under test: Claude Code's interactive TUI enables terminal mouse
  * tracking, so xterm forwards a plain drag/wheel to the PTY instead of making a
@@ -72,8 +73,9 @@ check('interceptor forces selection via a shiftKey-true synthetic clone', () => 
   assert.ok(/stopImmediatePropagation/.test(termSrc), 'expected the raw event to be stopped');
 });
 
-check('interceptor only steers the left button (right/middle pass through)', () => {
+check('interceptor steers left drags and preserves selected-text right-click', () => {
   assert.ok(/e\.button\s*!==\s*0/.test(termSrc), 'expected a left-button-only guard');
+  assert.ok(/hasSelection\(\)/.test(termSrc), 'expected a selected-text right-click guard');
 });
 
 check('Select-mode control is injected into the pane header', () => {
@@ -104,9 +106,9 @@ check('dispose() tears the interceptor + injected DOM down', () => {
   assert.ok(/this\._selectModeBtn\.remove\(\)/.test(termSrc), 'expected the toggle button removed');
 });
 
-check('index.html cache-buster on terminal.js was bumped to copymode', () => {
-  assert.ok(/terminal\.js\?v=20260725-copymode/.test(indexSrc),
-    'expected terminal.js?v=20260725-copymode in index.html');
+check('index.html cache-buster on terminal.js was bumped to copymode2', () => {
+  assert.ok(/terminal\.js\?v=20260725-copymode2/.test(indexSrc),
+    'expected terminal.js?v=20260725-copymode2 in index.html');
 });
 
 // ── Executed proof: run the real interceptor ─────────────────
@@ -140,9 +142,10 @@ function loadTerminalPane() {
  * captured mousedown handler. Runs terminal.js in a fresh sandbox each call.
  * @param {boolean} selectMode - initial _selectMode for the fake pane.
  * @param {Array} dispatched - array that fake dispatchEvent pushes into.
+ * @param {boolean} [hasSelection=false] - Whether xterm has selected text.
  * @returns {{handler: Function, TerminalPane: Function, FakeMouseEvent: Function}}
  */
-function installOnFakeContainer(selectMode, dispatched) {
+function installOnFakeContainer(selectMode, dispatched, hasSelection = false) {
   const { TerminalPane, FakeMouseEvent, sandbox } = loadTerminalPane();
   let handler = null;
   const container = {
@@ -151,7 +154,8 @@ function installOnFakeContainer(selectMode, dispatched) {
     dispatchEvent: (e) => dispatched.push(e),
   };
   const ctx = { containerId: 'x', _selectMode: selectMode, _selectDragging: false,
-    _selInterceptorContainer: null, _selMouseHandler: null };
+    _selInterceptorContainer: null, _selMouseHandler: null,
+    term: { hasSelection: () => hasSelection } };
   // The interceptor resolves `document` to the SANDBOX document (it is a
   // closure defined inside the vm), so route the fake container through there.
   sandbox.document.getElementById = () => container;
@@ -205,7 +209,7 @@ check('executed: ON turns a plain left-drag into a shiftKey-true clone', () => {
   assert.strictEqual(clone.clientX, 7, 'clone preserves the pointer position');
 });
 
-check('executed: a right-button press passes through untouched when ON', () => {
+check('executed: a right-button press without selection passes through untouched when ON', () => {
   const dispatched = [];
   const { handler } = installOnFakeContainer(true, dispatched);
   let stopped = false;
@@ -218,6 +222,23 @@ check('executed: a right-button press passes through untouched when ON', () => {
   handler(ev);
   assert.strictEqual(stopped, false, 'right button must not be intercepted');
   assert.strictEqual(dispatched.length, 0, 'no clone for the right button');
+});
+
+check('executed: right-click on selected text cannot reach the mouse-reporting TUI', () => {
+  const dispatched = [];
+  const { handler } = installOnFakeContainer(false, dispatched, true);
+  let stopped = false;
+  let prevented = false;
+  const ev = {
+    type: 'mousedown', button: 2, __cwmSelSynthetic: false, cancelable: true,
+    target: { dispatchEvent: (e) => dispatched.push(e) },
+    preventDefault: () => { prevented = true; },
+    stopImmediatePropagation: () => { stopped = true; },
+  };
+  handler(ev);
+  assert.strictEqual(stopped, true, 'selected right-click must be stopped before xterm reports it');
+  assert.strictEqual(prevented, false, 'contextmenu must remain available for the Copy action');
+  assert.strictEqual(dispatched.length, 0, 'selected right-click must not synthesize a mouse event');
 });
 
 console.log('\n  ' + passed + ' passed, ' + failed + ' failed');

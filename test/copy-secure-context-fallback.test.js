@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Ctrl+C copy SIGINT regression gate (user report, 2026-07-24).
+ * Modified: 2026-07-25
  *
  * The bug: the Ctrl+C branch of TerminalPane.attachCustomKeyEventHandler
  * called navigator.clipboard.writeText(...).catch(() => {}) directly. On an
@@ -24,7 +25,9 @@
  *      The helper never throws and its promise never rejects.
  *   2. The Ctrl+C branch routes through the helper inside a try/catch
  *      bracket so it ALWAYS reaches `return false` once a selection exists;
- *      the SIGINT fall-through is structurally impossible.
+ *      the SIGINT fall-through is structurally impossible. It clears only
+ *      after a successful copy; failure retains the selection and dispatches
+ *      cwm:copy-unavailable for truthful user feedback.
  *   3. Every writeText call site in app.js routes through the helper (or
  *      the _copyWithToast wrapper); zero bare calls remain.
  *
@@ -49,8 +52,10 @@ const assert = require('assert');
 
 const TERMINAL_JS_PATH = path.join(__dirname, '..', 'src', 'web', 'public', 'terminal.js');
 const APP_JS_PATH = path.join(__dirname, '..', 'src', 'web', 'public', 'app.js');
+const INDEX_HTML_PATH = path.join(__dirname, '..', 'src', 'web', 'public', 'index.html');
 const termSrc = fs.readFileSync(TERMINAL_JS_PATH, 'utf8');
 const appSrc = fs.readFileSync(APP_JS_PATH, 'utf8');
+const indexSrc = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
 
 let passed = 0;
 let failed = 0;
@@ -209,16 +214,30 @@ async function main() {
   await check('Ctrl+C branch is structurally exception-proof (try before copy, catch before return false)', () => {
     const branch = extractCtrlCBranch();
     const tryIdx = branch.search(/try\s*\{/);
+    const selectionIdx = branch.indexOf('const selectedText = this.term.getSelection()');
     const copyIdx = branch.indexOf('copyTextToClipboard');
     const catchIdx = branch.search(/catch\s*\(/);
     const retIdx = branch.lastIndexOf('return false;');
+    const preventIdx = branch.indexOf('e.preventDefault()');
     assert.ok(tryIdx !== -1, 'branch must open a try block');
     assert.ok(catchIdx !== -1, 'branch must have a catch clause');
+    assert.ok(preventIdx !== -1, 'selected Ctrl+C must cancel the browser native copy action');
+    assert.ok(tryIdx < preventIdx && preventIdx < copyIdx,
+      'preventDefault must run inside the selected branch before the custom clipboard helper');
+    assert.ok(tryIdx < selectionIdx, 'selection extraction must sit INSIDE the try block');
+    assert.ok(selectionIdx < copyIdx, 'the exact selection must be captured before the async copy');
     assert.ok(tryIdx < copyIdx, 'the copy call must sit INSIDE the try block');
     assert.ok(copyIdx < catchIdx, 'catch must close over the copy call');
     assert.ok(catchIdx < retIdx, 'return false must come AFTER the catch, outside the bracket, so it always executes');
-    assert.ok(/clearSelection/.test(branch.slice(tryIdx, catchIdx)),
-      'clearSelection must also be bracketed so a throw cannot skip the return');
+    const protectedRegion = branch.slice(tryIdx, catchIdx);
+    assert.ok(/clearSelection/.test(protectedRegion),
+      'successful copy must still clear the selection inside the exception bracket');
+    assert.ok(/if\s*\(\s*copied\s*\)/.test(protectedRegion),
+      'clearSelection must be gated on the helper reporting success');
+    assert.ok(/_emitCopyUnavailable\('failed'\)/.test(branch),
+      'clipboard failure must dispatch a truthful user-visible notification');
+    assert.ok(/_selectionPositionKey/.test(branch),
+      'async success must compare the exact xterm selection range, not text alone');
   });
 
   // -------------------------------------------------------------------------
@@ -272,6 +291,21 @@ async function main() {
     assert.ok(/TerminalPane\.copyTextToClipboard/.test(body), '_copyWithToast must delegate to TerminalPane.copyTextToClipboard');
     assert.ok(/showToast\(successMessage, 'success'\)/.test(body), '_copyWithToast must keep the success toast');
     assert.ok(/'error'/.test(body), '_copyWithToast must toast failures');
+  });
+
+  await check('app.js surfaces cwm:copy-unavailable and says the selection was kept', () => {
+    const idx = appSrc.indexOf("document.addEventListener('cwm:copy-unavailable'");
+    assert.ok(idx !== -1, 'app.js must listen for Ctrl+C clipboard failures');
+    const body = appSrc.slice(idx, idx + 650);
+    assert.ok(/Selection kept/.test(body), 'the failure toast must tell the user the selection remains available');
+    assert.ok(/showToast\([^;]+,\s*'error'\)/s.test(body), 'clipboard failure must use an error toast');
+  });
+
+  await check('index.html cache-busts the changed app.js copy-failure listener', () => {
+    assert.ok(
+      /app\.js\?v=20260725-copytruth/.test(indexSrc),
+      'the changed app.js must not reuse a stale unversioned browser cache entry'
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -352,6 +386,7 @@ async function main() {
     sandbox.document = doc;
     const harness = compileCtrlCHarness(context);
     let cleared = 0;
+    let prevented = 0;
     const thisStub = {
       term: {
         hasSelection: () => true,
@@ -362,34 +397,99 @@ async function main() {
     // With the OLD code this call THREW (TypeError on the property access)
     // before return false, which is exactly how Ctrl+C reached the PTY as
     // SIGINT. The assertion set below is therefore the whole bug in one run.
-    const result = harness.call(thisStub, { type: 'keydown', key: 'c', ctrlKey: true, metaKey: false }, true);
+    const result = harness.call(thisStub, {
+      type: 'keydown',
+      key: 'c',
+      ctrlKey: true,
+      metaKey: false,
+      preventDefault: () => { prevented++; },
+    }, true);
     assert.strictEqual(result, false, 'branch must consume the key (return false); anything else falls through to SIGINT');
+    assert.strictEqual(prevented, 1, 'selected Ctrl+C must suppress the browser native copy path exactly once');
+    await new Promise((resolve) => setImmediate(resolve));
     assert.strictEqual(cleared, 1, 'clearSelection must still run');
     assert.deepStrictEqual(record.copiedValues, ['SELECTED TEXT'], 'the selection must actually land on the (stub) clipboard via the fallback');
   });
 
-  await check('REAL branch: even with NO document at all it still returns false (structurally exception-proof)', async () => {
+  await check('REAL branch: failed copy keeps selection, reports failure, and still consumes Ctrl+C', async () => {
     const { sandbox, context } = loadTerminalPane();
     delete sandbox.navigator;
     delete sandbox.document; // scorched earth: every copy path unavailable
     const harness = compileCtrlCHarness(context);
+    let cleared = 0;
+    let prevented = 0;
+    const notifications = [];
     const thisStub = {
-      term: { hasSelection: () => true, getSelection: () => 'x', clearSelection: () => {} },
+      term: {
+        hasSelection: () => true,
+        getSelection: () => 'RECOVERABLE SELECTION',
+        clearSelection: () => { cleared++; },
+      },
+      _emitCopyUnavailable: (reason) => { notifications.push(reason); },
+    };
+    const result = harness.call(thisStub, {
+      type: 'keydown',
+      key: 'c',
+      ctrlKey: true,
+      metaKey: false,
+      preventDefault: () => { prevented++; },
+    }, true);
+    assert.strictEqual(result, false, 'the copy may fail, consuming the key may not');
+    assert.strictEqual(prevented, 1, 'failed selected Ctrl+C must still cancel the native copy path');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(cleared, 0, 'a failed copy must keep the selection so the user can recover it');
+    assert.deepStrictEqual(notifications, ['failed'], 'failed copy must emit exactly one notification');
+  });
+
+  await check('REAL branch: async success does not clear a newer equal-text selection at another range', async () => {
+    const { sandbox, context, TerminalPane } = loadTerminalPane();
+    let resolveCopy;
+    TerminalPane.copyTextToClipboard = () => new Promise((resolve) => { resolveCopy = resolve; });
+    sandbox.navigator = {};
+    const harness = compileCtrlCHarness(context);
+    let cleared = 0;
+    let position = {
+      start: { x: 1, y: 2 },
+      end: { x: 5, y: 2 },
+    };
+    const thisStub = {
+      term: {
+        hasSelection: () => true,
+        getSelection: () => 'SAME',
+        getSelectionPosition: () => position,
+        clearSelection: () => { cleared++; },
+      },
+      _emitCopyUnavailable: () => {},
     };
     const result = harness.call(thisStub, { type: 'keydown', key: 'c', ctrlKey: true, metaKey: false }, true);
-    assert.strictEqual(result, false, 'the copy may fail, consuming the key may not');
+    assert.strictEqual(result, false, 'selected Ctrl+C must be consumed while the copy is pending');
+    position = {
+      start: { x: 12, y: 8 },
+      end: { x: 16, y: 8 },
+    };
+    resolveCopy(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(cleared, 0, 'equal text at a newer range must remain selected');
   });
 
   await check('REAL branch: no selection still falls through (plain Ctrl+C SIGINT preserved)', async () => {
     const { sandbox, context } = loadTerminalPane();
     delete sandbox.navigator;
     const harness = compileCtrlCHarness(context);
+    let prevented = 0;
     const thisStub = {
       term: { hasSelection: () => false, getSelection: () => '', clearSelection: () => {} },
     };
-    const result = harness.call(thisStub, { type: 'keydown', key: 'c', ctrlKey: true, metaKey: false }, true);
+    const result = harness.call(thisStub, {
+      type: 'keydown',
+      key: 'c',
+      ctrlKey: true,
+      metaKey: false,
+      preventDefault: () => { prevented++; },
+    }, true);
     assert.strictEqual(result, 'fell-through-to-SIGINT',
       'without a selection the branch must NOT consume the key; Ctrl+C must still interrupt the CLI');
+    assert.strictEqual(prevented, 0, 'plain Ctrl+C must not cancel the terminal SIGINT path');
   });
 
   // -------------------------------------------------------------------------
