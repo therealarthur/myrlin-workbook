@@ -447,6 +447,25 @@ class TerminalPane {
     this._activitySample = '';
     this._writeRaf = null;
     this._pasteHandled = false;
+    // Copy-mode root cause (user report, 2026-07-25): Claude Code's interactive
+    // TUI turns on terminal mouse tracking (DECSET 1000/1002/1003 + SGR 1006).
+    // While that is active, xterm forwards a plain drag/wheel to the PTY instead
+    // of making a text selection, so plain-drag never selects and Ctrl+C finds
+    // no selection. xterm's documented escape hatch is Shift (shouldForceSelection
+    // returns event.shiftKey on non-Mac), so Shift+drag always selects. This flag
+    // powers an opt-in per-pane "Select mode" that makes a PLAIN drag behave like
+    // a Shift+drag, so the user can copy without the interactive layer being
+    // disabled globally. OFF by default so clickable TUI options keep working.
+    this._selectMode = false;
+    // References to the injected copy-mode DOM + the capture-phase mouse
+    // interceptor, so dispose() can tear everything down cleanly.
+    this._selectModeBtn = null;
+    this._selStrip = null;
+    this._copyHint = null;
+    this._copyHintTimer = null;
+    this._selMouseHandler = null;
+    this._selInterceptorContainer = null;
+    this._selectDragging = false;
     // Issue #41: true while a mobile touch gesture (or its momentum tail) is
     // driving term.scrollLines() directly. xterm's smoothScrollDuration is
     // zeroed for that window so the engine's per-frame interpolation is not
@@ -544,6 +563,15 @@ class TerminalPane {
 
       // Initialize mobile scroll/type mode after terminal is in DOM
       this.initMobileInputMode();
+
+      // Copy-mode: install the capture-phase mouse interceptor (a no-op until
+      // the toggle is ON) and inject the Select-mode control + one-time hint
+      // into the pane header. Kept out of the mobile engine's way: the touch
+      // scroll/select engine only runs on real touch devices (_isMobile), and
+      // this interceptor only acts on left-button MOUSE drags while the toggle
+      // is on, so the two never fight over the same gesture.
+      this._installSelectModeInterceptor();
+      this._injectCopyControls();
 
       // IMPORTANT: Fit BEFORE connecting WebSocket so we know the real
       // terminal dimensions. The PTY spawns at whatever cols/rows we pass
@@ -1904,6 +1932,255 @@ class TerminalPane {
     return /[❯$>]\s*$/.test(lineText) || /^(Human:|Type.*message)/.test(lineText);
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     COPY / SELECT MODE  (mouse-mode copy fix, 2026-07-25)
+     Claude Code's interactive TUI enables terminal mouse tracking,
+     so xterm forwards a plain drag to the PTY instead of selecting
+     text. Two copy paths are provided WITHOUT disabling the clickable
+     TUI: (A) a per-pane Select-mode toggle that makes a plain drag act
+     like a Shift+drag, and (B) the always-on Shift+drag fast path that
+     xterm already honors (shouldForceSelection => event.shiftKey).
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Install a capture-phase mouse interceptor on this pane's container.
+   *
+   * The interceptor is a NO-OP unless this._selectMode is on. When on, it
+   * takes each left-button mouse event, stops xterm's own listener from
+   * seeing the raw event (stopImmediatePropagation), and re-dispatches a
+   * clone with shiftKey forced true. xterm then treats the gesture as a
+   * forced selection (CoreBrowserTerminal: `if (!areMouseEventsActive ||
+   * shouldForceSelection(ev)) return;` skips the PTY send, and
+   * SelectionService starts a real selection), so a plain drag selects text
+   * even while the app has mouse tracking on.
+   *
+   * WHY the synthetic-shift approach instead of poking xterm internals: the
+   * browser loads the MINIFIED vendor bundle (vendor/xterm/xterm.min.js), so
+   * private fields like the selection/mouse services are name-mangled and
+   * cannot be monkeypatched reliably. This path depends only on documented
+   * DOM events and xterm's public Shift-to-select behavior, so it survives
+   * bundle updates.
+   *
+   * Left-button only: right/middle clicks pass through untouched so the
+   * right-click context menu (and its Copy item) still works, and so the
+   * clickable TUI is reachable the instant the toggle goes back off.
+   */
+  _installSelectModeInterceptor() {
+    const container = document.getElementById(this.containerId);
+    if (!container) return;
+    // Idempotent: a remount into the same slot must not stack interceptors.
+    if (this._selInterceptorContainer && this._selMouseHandler) {
+      try {
+        this._selInterceptorContainer.removeEventListener('mousedown', this._selMouseHandler, { capture: true });
+        this._selInterceptorContainer.removeEventListener('mousemove', this._selMouseHandler, { capture: true });
+        this._selInterceptorContainer.removeEventListener('mouseup', this._selMouseHandler, { capture: true });
+      } catch (_) {}
+    }
+    this._selectDragging = false;
+    const handler = (e) => {
+      // OFF: do nothing, so the app receives normal mouse reporting and the
+      // interactive TUI stays fully clickable.
+      if (!this._selectMode) return;
+      // Our own re-dispatched clone: let it reach xterm untouched.
+      if (e.__cwmSelSynthetic) return;
+      if (e.type === 'mousedown') {
+        if (e.button !== 0) return;        // pass right/middle through
+        this._selectDragging = true;
+      } else if (!this._selectDragging) {
+        return;                            // only steer moves/ups of our own drag
+      }
+      if (e.type === 'mouseup') this._selectDragging = false;
+      // Clone the event with shiftKey forced true. bubbles+cancelable so the
+      // clone reaches xterm's element/document listeners and its preventDefault
+      // works exactly as a genuine Shift+drag would.
+      let clone;
+      try {
+        clone = new MouseEvent(e.type, {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          view: (typeof window !== 'undefined' ? window : null),
+          detail: e.detail,
+          screenX: e.screenX,
+          screenY: e.screenY,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+          shiftKey: true,
+          button: e.button,
+          buttons: e.buttons,
+          relatedTarget: e.relatedTarget || null,
+        });
+      } catch (_) {
+        // If MouseEvent construction fails for any reason, fall back to letting
+        // the raw event through rather than swallowing the gesture entirely.
+        return;
+      }
+      clone.__cwmSelSynthetic = true;
+      if (e.cancelable) e.preventDefault();
+      e.stopImmediatePropagation();
+      (e.target || container).dispatchEvent(clone);
+    };
+    this._selMouseHandler = handler;
+    this._selInterceptorContainer = container;
+    container.addEventListener('mousedown', handler, { capture: true });
+    container.addEventListener('mousemove', handler, { capture: true });
+    container.addEventListener('mouseup', handler, { capture: true });
+  }
+
+  /**
+   * Enable or disable Select mode for this pane and refresh its UI.
+   * @param {boolean} on - true to make plain drags select text.
+   * @returns {boolean} The resulting mode.
+   */
+  setSelectMode(on) {
+    this._selectMode = !!on;
+    if (this._selectMode) this._dismissCopyHint();
+    this._updateSelectModeUI();
+    return this._selectMode;
+  }
+
+  /** Flip Select mode. Returns the new state. */
+  toggleSelectMode() {
+    return this.setSelectMode(!this._selectMode);
+  }
+
+  /**
+   * Build the Select-mode toggle button inside this pane's header and, on the
+   * first pane ever mounted, a dismissable one-time hint about copying. All
+   * visual state is set with inline styles that reference Catppuccin CSS
+   * variables (with literal fallbacks) so the control renders correctly even
+   * if a cached styles.css has not refreshed. Idempotent across remounts.
+   */
+  _injectCopyControls() {
+    if (!this.paneEl) return;
+    const header = this.paneEl.querySelector('.terminal-pane-header');
+    if (!header) return;
+    const existing = header.querySelector('.terminal-pane-selectmode');
+    if (existing) existing.remove();
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'terminal-pane-selectmode btn btn-ghost btn-icon btn-sm';
+    btn.setAttribute('aria-pressed', 'false');
+    btn.style.transition = 'color 160ms ease, background 160ms ease';
+    // I-beam / text-selection glyph, sized to match the sibling header icons.
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">'
+      + '<path d="M5.5 2.5A.5.5 0 0 1 6 2h4a.5.5 0 0 1 0 1H8.5v10H10a.5.5 0 0 1 0 1H6a.5.5 0 0 1 0-1h1.5V3H6a.5.5 0 0 1-.5-.5z"/>'
+      + '<path d="M3.5 2h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 0-.5.5v1a.5.5 0 0 1-1 0v-1A1.5 1.5 0 0 1 3.5 2zm8 0A1.5 1.5 0 0 1 13 3.5v1a.5.5 0 0 1-1 0v-1a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 1 0-1h.5zM2.5 11a.5.5 0 0 1 .5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 1 0 1h-1A1.5 1.5 0 0 1 2 12.5v-1a.5.5 0 0 1 .5-.5zm11 0a.5.5 0 0 1 .5.5v1a1.5 1.5 0 0 1-1.5 1.5h-1a.5.5 0 0 1 0-1h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 1 .5-.5z"/></svg>';
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const on = this.toggleSelectMode();
+      // Turning OFF restores the clickable layer; refocus so typing resumes.
+      if (!on && this.term) this.term.focus();
+    });
+
+    const closeBtn = header.querySelector('.terminal-pane-close');
+    if (closeBtn) header.insertBefore(btn, closeBtn);
+    else header.appendChild(btn);
+    this._selectModeBtn = btn;
+
+    this._maybeShowCopyHint();
+    this._updateSelectModeUI();
+  }
+
+  /**
+   * Reflect the current Select-mode state on the toggle button and show or
+   * hide the "options paused" strip. Colors come from theme variables so the
+   * active state matches whichever Catppuccin flavor is live.
+   */
+  _updateSelectModeUI() {
+    const on = !!this._selectMode;
+    if (this._selectModeBtn) {
+      this._selectModeBtn.classList.toggle('active', on);
+      this._selectModeBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      this._selectModeBtn.style.color = on ? 'var(--mauve, #cba6f7)' : '';
+      this._selectModeBtn.style.background = on ? 'var(--surface1, rgba(203, 166, 247, 0.16))' : '';
+      this._selectModeBtn.title = on
+        ? 'Select mode ON: drag selects text, Ctrl+C copies. Clickable options are paused. Click to turn off.'
+        : 'Select / Copy mode: drag to select text. Tip: hold Shift and drag to select any time. Clickable options pause while this is on.';
+    }
+    if (on) this._showSelectModeStrip();
+    else this._hideSelectModeStrip();
+    if (this.paneEl) this.paneEl.classList.toggle('select-mode-on', on);
+  }
+
+  /**
+   * Show a compact non-blocking strip at the bottom of the pane while Select
+   * mode is on, so the user knows the interactive layer is paused and how to
+   * resume it. pointer-events:none so it never intercepts a selection drag.
+   */
+  _showSelectModeStrip() {
+    if (!this.paneEl) return;
+    if (this._selStrip) { this._selStrip.hidden = false; this._selStrip.style.opacity = '1'; return; }
+    const s = document.createElement('div');
+    s.className = 'terminal-selectmode-strip';
+    s.textContent = 'Select mode: drag to select, Ctrl+C to copy. Clickable options paused, toggle off to resume.';
+    s.style.cssText = 'position:absolute;left:8px;right:8px;bottom:8px;z-index:20;'
+      + "font:11px/1.4 'Plus Jakarta Sans', system-ui, sans-serif;"
+      + 'color:var(--text, #cdd6f4);background:var(--surface0, rgba(24, 24, 37, 0.94));'
+      + 'border:1px solid var(--mauve, #cba6f7);border-radius:8px;padding:6px 10px;'
+      + 'box-shadow:0 6px 18px rgba(0, 0, 0, 0.35);opacity:0;'
+      + 'transition:opacity 160ms ease;pointer-events:none;';
+    this.paneEl.appendChild(s);
+    requestAnimationFrame(() => { if (this._selStrip) this._selStrip.style.opacity = '1'; });
+    this._selStrip = s;
+  }
+
+  /** Hide the Select-mode strip (kept in the DOM for cheap re-show). */
+  _hideSelectModeStrip() {
+    if (this._selStrip) {
+      this._selStrip.style.opacity = '0';
+      this._selStrip.hidden = true;
+    }
+  }
+
+  /**
+   * Show a one-time, dismissable hint explaining the two copy paths. Gated by
+   * a localStorage flag so it appears once and never nags. Auto-dismisses
+   * after a short window; the × button or enabling Select mode also dismisses.
+   */
+  _maybeShowCopyHint() {
+    try {
+      if (localStorage.getItem('cwm_copyhint_v1')) return;
+    } catch (_) { return; }
+    if (!this.paneEl || this._copyHint) return;
+    const h = document.createElement('div');
+    h.className = 'terminal-copy-hint';
+    h.style.cssText = 'position:absolute;top:36px;right:8px;z-index:30;max-width:248px;'
+      + "font:11px/1.45 'Plus Jakarta Sans', system-ui, sans-serif;"
+      + 'color:var(--text, #cdd6f4);background:var(--surface0, rgba(24, 24, 37, 0.97));'
+      + 'border:1px solid var(--surface2, #585b70);border-radius:10px;'
+      + 'padding:9px 22px 9px 11px;box-shadow:0 8px 24px rgba(0, 0, 0, 0.42);'
+      + 'opacity:0;transition:opacity 180ms ease;';
+    h.innerHTML = 'Claude Code captures the mouse. Hold <b>Shift</b> and drag to select, '
+      + 'then <b>Ctrl+C</b> to copy, or use <b>Select mode</b> (this button).'
+      + '<button class="terminal-copy-hint-x" aria-label="Dismiss" '
+      + 'style="position:absolute;top:3px;right:5px;background:none;border:none;'
+      + 'color:inherit;cursor:pointer;font-size:15px;line-height:1;padding:2px;opacity:0.7;">&times;</button>';
+    this.paneEl.appendChild(h);
+    requestAnimationFrame(() => { if (this._copyHint) this._copyHint.style.opacity = '1'; });
+    const x = h.querySelector('.terminal-copy-hint-x');
+    if (x) x.addEventListener('click', (e) => { e.stopPropagation(); this._dismissCopyHint(); });
+    this._copyHint = h;
+    this._copyHintTimer = setTimeout(() => this._dismissCopyHint(), 14000);
+  }
+
+  /** Dismiss the one-time copy hint and remember it so it never returns. */
+  _dismissCopyHint() {
+    try { localStorage.setItem('cwm_copyhint_v1', '1'); } catch (_) {}
+    if (this._copyHintTimer) { clearTimeout(this._copyHintTimer); this._copyHintTimer = null; }
+    if (this._copyHint) {
+      const el = this._copyHint;
+      this._copyHint = null;
+      el.style.opacity = '0';
+      setTimeout(() => { try { el.remove(); } catch (_) {} }, 220);
+    }
+  }
+
   dispose() {
     clearTimeout(this.reconnectTimer);
     clearTimeout(this._fitTimer);
@@ -1915,6 +2192,21 @@ class TerminalPane {
     this._writeBuf = '';
     this._activitySample = '';
     if (this._touchScrollCleanup) this._touchScrollCleanup();
+    // Copy-mode teardown: remove the capture-phase mouse interceptor and any
+    // injected controls/hints so a remount into the same slot starts clean.
+    if (this._copyHintTimer) { clearTimeout(this._copyHintTimer); this._copyHintTimer = null; }
+    if (this._selInterceptorContainer && this._selMouseHandler) {
+      try {
+        this._selInterceptorContainer.removeEventListener('mousedown', this._selMouseHandler, { capture: true });
+        this._selInterceptorContainer.removeEventListener('mousemove', this._selMouseHandler, { capture: true });
+        this._selInterceptorContainer.removeEventListener('mouseup', this._selMouseHandler, { capture: true });
+      } catch (_) {}
+    }
+    this._selMouseHandler = null;
+    this._selInterceptorContainer = null;
+    if (this._selectModeBtn) { try { this._selectModeBtn.remove(); } catch (_) {} this._selectModeBtn = null; }
+    if (this._selStrip) { try { this._selStrip.remove(); } catch (_) {} this._selStrip = null; }
+    if (this._copyHint) { try { this._copyHint.remove(); } catch (_) {} this._copyHint = null; }
     if (this._resizeObserver) this._resizeObserver.disconnect();
     if (this.ws) { this.ws.onmessage = null; this.ws.onclose = null; this.ws.close(); }
     if (this.term) this.term.dispose();
