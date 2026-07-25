@@ -918,9 +918,16 @@ const standaloneTests = [
   'phantom-tokens.test.js',          // ui-token-repair: every consumed var(--x) must be defined (phantom-token gate)
   'smooth-scroll.test.js',           // issue #41: xterm smoothScrollDuration capability gate, setting/reduced-motion resolution, mobile engine guard
   'credential-manager.test.js',      // credential switcher T1: snapshot store, rotation write-back, corrected token-state model, apply transaction
+  'credential-deadlock.test.js',     // 2026-07-24 outage regression: stalled-body refresh settles transient, op deadline (CRED_OP_TIMEOUT), degraded list routes, stalled-chain watchdog
   'credential-routes.test.js',       // credential switcher T1: /api/credentials routes, SSE broadcasts, token-material leak gate
   'mac-bridge.test.js',              // feat/mac-credential-sync: hermetic ssh/scp argv gate (accept-new, no token in argv), inventory parser, install/apply split
   'usage-meter.test.js',             // feat/usage-meter: per-model bars (Session/Opus/Fable), model-scope mapper wiring, absolute local resets
+  'credential-delete-ui.test.js',    // feat/codex-account-switcher C1: delete saved-account button (active-row guard, stopPropagation, DELETE wiring, 404-as-success)
+  'credential-expiry-ui.test.js',    // expiry-fix spec P2+P3: dead-row Retry button, suspect copy, proactive sweep server wiring (source gate)
+  'codex-accounts-capability.test.js',   // feat/codex-account-switcher C2: JWT decode, auth parse, usage mapping, capability surface (synthetic tokens only)
+  'provider-account-manager.test.js',    // feat/codex-account-switcher C2: generic manager (capture, watcher, strictly-newer merge, apply transaction, v1 no-refresh usage policy, leak gate)
+  'provider-account-routes.test.js',     // feat/codex-account-switcher C2: /api/provider-accounts routes (auth wall, six routes, SSE payload discipline, leak gate)
+  'provider-account-tabs.test.js',       // feat/codex-account-switcher C2: account-panel tab bar + provider pipeline + SSE cases + CSS gates
   'windows-hide-sweep.test.js',  // chore/windowshide-sweep: every server-side child_process call site passes windowsHide (source gate)
   'git-conflict-cache.test.js',  // chore/windowshide-sweep: short-TTL git status cache hit/expiry/eager invalidation
   'jsonl-tailer.test.js',            // issue #10 T1 P1: byte-offset tailer (watch+poll, UTF-8 carry, truncate reset, oversized sentinel) + readTailWindow
@@ -928,6 +935,7 @@ const standaloneTests = [
   'codex-mirror-parse.test.js',      // issue #10 T1 P2: codex parseLine extraction + parseTranscript parity on canonical fixtures
   'mirror-service.test.js',          // issue #10 T1 P3: MirrorService open/close refcount, broadcast batching, limit, truncate reset, readEarlier paging
   'mirror-routes.test.js',           // issue #10 T1 P0+P3: /api/mirror routes, SSE deviceId scoping, discovery live/lastActiveMs flags
+  'copy-secure-context-fallback.test.js', // 2026-07-24 user report: Ctrl+C copy sent SIGINT on plain-http; universal copy helper + exception-proof branch + zero bare writeText gate
 ];
 
 let standaloneFailed = 0;

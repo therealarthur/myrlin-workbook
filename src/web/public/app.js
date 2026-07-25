@@ -188,7 +188,19 @@ class CWMApp {
       // macState: sanitized Mac inventory cache from /api/credentials/
       // mac-state ({checkedAt, reachable, activeName, activeProfileId,
       // profiles}); macStale mirrors the server's TTL verdict.
-      credentials: { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false },
+      // retryingId: profileId of the dead row whose Retry round trip is in
+      // flight (single-flight; disables that row's Retry button).
+      credentials: { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false, retryingId: null, degraded: false },
+      // Provider account switcher roster (the Codex tab in the account
+      // panel), fed by GET /api/provider-accounts/<id>. Shape mirrors the
+      // credentials slice minus the Mac fields (machine sync is Claude-only
+      // in v1). activeAuthMode drives the API-key empty-state notice;
+      // installed drives the login-hint empty state; loginHint carries the
+      // provider-appropriate copy from the server capability.
+      codexAccounts: { list: [], activeId: null, activeAuthMode: null, installed: false, loginHint: '', stagedId: null, loading: false, applying: false, lastListAt: 0 },
+      // Active account-panel tab (a data-provider-tab value); null until
+      // the user switches, meaning "whatever the DOM marks is-active".
+      accountTab: null,
       settings: Object.assign({
         paneColorHighlights: true,
         activityIndicators: true,
@@ -367,6 +379,9 @@ class CWMApp {
       accountChipLabel: document.getElementById('account-chip-label'),
       accountChipMeta: document.getElementById('account-chip-meta'),
       accountPanel: document.getElementById('account-panel'),
+      // Provider tab bar (Claude | Codex) and the retitlable panel header.
+      accountTabs: document.getElementById('account-tabs'),
+      accountPanelTitle: document.getElementById('account-panel-title'),
       accountPanelList: document.getElementById('account-panel-list'),
       accountRefreshBtn: document.getElementById('account-refresh-btn'),
       accountMacConfigBtn: document.getElementById('account-mac-config-btn'),
@@ -1487,11 +1502,9 @@ class CWMApp {
             textToCopy = lines.join('\n');
           }
           if (textToCopy) {
-            navigator.clipboard.writeText(textToCopy).then(() => {
-              this.showToast('Copied to clipboard', 'success');
-            }).catch(() => {
-              this.showToast('Failed to copy - check browser permissions', 'error');
-            });
+            // Universal copy helper: works on insecure origins too and never
+            // throws into this click handler (see _copyWithToast WHY).
+            this._copyWithToast(textToCopy, 'Copied to clipboard', 'Failed to copy - check browser permissions');
           } else {
             this.showToast('Nothing to copy', 'info');
           }
@@ -2356,7 +2369,10 @@ class CWMApp {
     this._stopAccountTick();
     this._closeAccountPanel();
     if (this.els.accountSwitcher) this.els.accountSwitcher.hidden = true;
-    this.state.credentials = { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false };
+    this.state.credentials = { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false, retryingId: null };
+    // Provider account roster resets with the login state too, so the next
+    // login re-fetches a fresh Codex-tab roster instead of showing stale rows.
+    this.state.codexAccounts = { list: [], activeId: null, activeAuthMode: null, installed: false, loginHint: '', stagedId: null, loading: false, applying: false, lastListAt: 0 };
     // The usage meter lives outside the switcher subtree, so re-render it
     // against the now-empty roster to hide and clear its bars too.
     this.renderUsageMeter();
@@ -3317,8 +3333,7 @@ class CWMApp {
         { label: 'Summarize to Docs', action: () => this.summarizeSessionToDocs(sessionId) },
         { label: 'Export Context', action: () => this.exportSessionContext(sessionId) },
         { label: 'Copy Session ID', action: () => {
-          navigator.clipboard.writeText(session.resumeSessionId || session.id);
-          this.showToast('Session ID copied', 'success');
+          this._copyWithToast(session.resumeSessionId || session.id, 'Session ID copied');
         }},
       ],
     });
@@ -3407,14 +3422,12 @@ class CWMApp {
     const insightsItems = [
       { label: 'Summarize', action: () => this.summarizeSession(sessionId, sessionId) },
       { label: 'Copy Session ID', action: () => {
-        navigator.clipboard.writeText(sessionId);
-        this.showToast('Session ID copied', 'success');
+        this._copyWithToast(sessionId, 'Session ID copied');
       }},
     ];
     if (cwd) {
       insightsItems.push({ label: 'Copy Path', action: () => {
-        navigator.clipboard.writeText(cwd);
-        this.showToast('Path copied', 'success');
+        this._copyWithToast(cwd, 'Path copied');
       }});
     }
     items.push({ label: 'Insights', icon: '&#128220;', submenu: insightsItems });
@@ -3527,8 +3540,7 @@ class CWMApp {
       {
         label: 'Copy Selector', icon: '&#128203;', action: () => {
           const selector = this._buildSelector(targetEl);
-          navigator.clipboard.writeText(selector);
-          this.showToast('Selector copied', 'success');
+          this._copyWithToast(selector, 'Selector copied');
         },
       },
     ];
@@ -3652,12 +3664,10 @@ class CWMApp {
       submenu: [
         { label: 'Summarize', action: () => this.summarizeSession(sessionName, sessionName) },
         { label: 'Copy Session ID', action: () => {
-          navigator.clipboard.writeText(sessionName);
-          this.showToast('Session ID copied', 'success');
+          this._copyWithToast(sessionName, 'Session ID copied');
         }},
         { label: 'Copy Path', action: () => {
-          navigator.clipboard.writeText(projectPath);
-          this.showToast('Path copied', 'success');
+          this._copyWithToast(projectPath, 'Path copied');
         }},
       ],
     });
@@ -3722,15 +3732,13 @@ class CWMApp {
     // Copy path
     if (projectPath) {
       items.push({ label: 'Copy Path', icon: '&#128193;', action: () => {
-        navigator.clipboard.writeText(projectPath);
-        this.showToast('Path copied', 'success');
+        this._copyWithToast(projectPath, 'Path copied');
       }});
     }
 
     // Copy encoded name
     items.push({ label: 'Copy Encoded Name', icon: '&#128203;', action: () => {
-      navigator.clipboard.writeText(encodedName);
-      this.showToast('Encoded name copied', 'success');
+      this._copyWithToast(encodedName, 'Encoded name copied');
     }});
 
     if (projectPath) {
@@ -6498,9 +6506,14 @@ class CWMApp {
         hash.title = 'Click to copy full hash';
         hash.addEventListener('click', (e) => {
           e.stopPropagation(); // don't also trigger row click
-          navigator.clipboard.writeText(commit.hash).catch(() => {});
-          hash.textContent = 'copied!';
-          setTimeout(() => { hash.textContent = commit.shortHash; }, 1500);
+          // Universal copy helper (never throws; works on insecure origins).
+          // Keeps the inline text feedback this row always had, but honest:
+          // the old bare-catch call claimed "copied!" even when the property
+          // access threw before anything reached the clipboard.
+          TerminalPane.copyTextToClipboard(commit.hash).then((ok) => {
+            hash.textContent = ok ? 'copied!' : 'copy failed';
+            setTimeout(() => { hash.textContent = commit.shortHash; }, 1500);
+          });
         });
 
         const msg = document.createElement('span');
@@ -8183,6 +8196,61 @@ class CWMApp {
       // Row interactions are delegated on the stable list container so the
       // per-render innerHTML swaps never need re-binding.
       els.accountPanelList.addEventListener('click', (e) => {
+        // Provider-tab rows carry data-account-id (never data-profile-id)
+        // and route through the generic provider pipeline. This branch
+        // runs FIRST so provider rows can never fall through into the
+        // legacy Claude branches below.
+        const provRow = e.target.closest('.account-row[data-account-id]');
+        if (provRow) {
+          const tabEl = this._activeAccountTabEl();
+          const provDelete = e.target.closest('.account-delete-btn');
+          if (provDelete) {
+            // Deleting must never stage the row it sits on.
+            e.stopPropagation();
+            this.deleteProviderAccount(tabEl, provRow.dataset.accountId);
+            return;
+          }
+          const provEdit = e.target.closest('.account-row-edit');
+          if (provEdit) {
+            // The pencil must never stage the row it sits on.
+            e.stopPropagation();
+            const a = this.state.codexAccounts.list.find(x => x.accountId === provRow.dataset.accountId);
+            if (a) this.renameProviderAccount(tabEl, a);
+            return;
+          }
+          if (provRow.getAttribute('aria-disabled') !== 'true') {
+            this.stageProviderAccount(provRow.dataset.accountId);
+          }
+          return;
+        }
+        if (e.target.closest('#account-capture-provider-btn')) {
+          this.captureProviderAccount(this._activeAccountTabEl());
+          return;
+        }
+        // Retry on a dead row: force one refresh of that profile through
+        // the existing per-profile force route. Runs before the generic
+        // row branch and stops propagation so a retry click can never try
+        // to stage the (unstageable) dead row underneath it.
+        const retryBtn = e.target.closest('.account-retry-btn');
+        if (retryBtn) {
+          e.stopPropagation();
+          const retryId = retryBtn.dataset.profileId
+            || ((retryBtn.closest('.account-row') || {}).dataset || {}).profileId;
+          if (retryId) this.retryDeadAccount(retryId);
+          return;
+        }
+        // Delete branch MUST run before the pencil branch: the delete
+        // button reuses the pencil's .account-row-edit class for its base
+        // styling, so closest('.account-row-edit') would swallow it.
+        const deleteBtn = e.target.closest('.account-delete-btn');
+        if (deleteBtn) {
+          // Deleting must never stage the row it sits on.
+          e.stopPropagation();
+          const profileId = deleteBtn.dataset.profileId
+            || ((deleteBtn.closest('.account-row') || {}).dataset || {}).profileId;
+          if (profileId) this.deleteSavedAccount(profileId);
+          return;
+        }
         const editBtn = e.target.closest('.account-row-edit');
         if (editBtn) {
           // The pencil must never stage the row it sits on.
@@ -8213,6 +8281,16 @@ class CWMApp {
         }
       });
 
+      // Provider tab bar (Claude | Codex). Delegated so a future third tab
+      // needs zero new bindings. Clicking the active tab is a no-op.
+      if (els.accountTabs) {
+        els.accountTabs.addEventListener('click', (e) => {
+          const btn = e.target.closest('.account-tab');
+          if (!btn || btn.classList.contains('is-active')) return;
+          this._activateAccountTab(btn);
+        });
+      }
+
       // Keyboard: ArrowUp/ArrowDown roving focus between selectable rows,
       // Enter/Space stages the focused row (needs-re-login rows excluded).
       els.accountPanel.addEventListener('keydown', (e) => {
@@ -8226,6 +8304,13 @@ class CWMApp {
           if (row && row.dataset.profileId && row.getAttribute('aria-disabled') !== 'true') {
             e.preventDefault();
             this.stageAccount(row.dataset.profileId);
+            return;
+          }
+          // Provider-tab rows stage through the generic pipeline (they
+          // carry data-account-id instead of data-profile-id).
+          if (row && row.dataset.accountId && row.getAttribute('aria-disabled') !== 'true') {
+            e.preventDefault();
+            this.stageProviderAccount(row.dataset.accountId);
           }
         }
       });
@@ -8234,6 +8319,13 @@ class CWMApp {
       // the PC roster plus (when the bridge is enabled) one live Mac
       // inventory probe, fired in parallel so neither waits on the other.
       els.accountRefreshBtn.addEventListener('click', () => {
+        // Provider tabs refresh their own roster; the Claude behavior
+        // below is unchanged when the legacy tab is active.
+        const tabEl = this._activeAccountTabEl();
+        if (tabEl && tabEl.dataset.kind === 'provider') {
+          this.loadProviderAccounts(tabEl, { refresh: true });
+          return;
+        }
         this.loadCredentials({ refresh: true });
         if (this._macEnabled()) this.loadMacState({ probe: true });
       });
@@ -8245,10 +8337,22 @@ class CWMApp {
       els.accountCancelBtn.addEventListener('click', () => {
         this.state.credentials.stagedId = null;
         this.state.credentials.stagedMacId = null;
+        // Provider-tab staging clears with the same Cancel (one footer,
+        // one cancel semantics, whichever tab is showing).
+        this.state.codexAccounts.stagedId = null;
         this._closeAccountPanel();
         this.renderAccountSwitcher();
       });
-      els.accountSaveBtn.addEventListener('click', () => this.applyStagedAccount());
+      els.accountSaveBtn.addEventListener('click', () => {
+        // Save routes per tab: provider tabs apply through the generic
+        // pipeline; the legacy tab keeps the exact Claude behavior.
+        const tabEl = this._activeAccountTabEl();
+        if (tabEl && tabEl.dataset.kind === 'provider') {
+          this.applyStagedProviderAccount(tabEl);
+          return;
+        }
+        this.applyStagedAccount();
+      });
       // The old "Also apply on Mac Mini" checkbox is retired: per-row MAC
       // segments stage the Mac independently now. Clear its stale
       // localStorage key so no future code can ever misread it.
@@ -8295,21 +8399,43 @@ class CWMApp {
    * @throws {Error} 'Unauthorized' on 401 (after local logout), or the network-level fetch error.
    */
   async _credApi(method, path, body) {
+    // Hard request deadline (deadlock hardening, 2026-07-24): the roster
+    // routes once hung forever behind a wedged server-side mutex, leaving
+    // an eternally pending skeleton in the switcher. A timeout turns any
+    // such regression into a REJECTED fetch that rides the existing catch
+    // paths (silent degrade or error toast). Because a timeout rejects
+    // instead of resolving with a status, it can never be misread as the
+    // 404 feature-unavailable signal, which requires a resolved response.
+    const CRED_API_TIMEOUT_MS = 10000;
     const headers = { 'Content-Type': 'application/json' };
     if (this.state.token) headers['Authorization'] = `Bearer ${this.state.token}`;
     const opts = { method, headers };
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
-    const res = await fetch(path, opts);
-    if (res.status === 401) {
-      this.state.token = null;
-      localStorage.removeItem('cwm_token');
-      this.showLogin();
-      this.disconnectSSE();
-      throw new Error('Unauthorized');
+    let fallbackTimer = null;
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      opts.signal = AbortSignal.timeout(CRED_API_TIMEOUT_MS);
+    } else if (typeof AbortController === 'function') {
+      // Older browsers without AbortSignal.timeout: manual controller; the
+      // timer is cleared in finally so it cannot abort a finished request.
+      const controller = new AbortController();
+      fallbackTimer = setTimeout(() => controller.abort(), CRED_API_TIMEOUT_MS);
+      opts.signal = controller.signal;
     }
-    let data = null;
-    try { data = await res.json(); } catch (_) { data = null; }
-    return { ok: res.ok, status: res.status, data };
+    try {
+      const res = await fetch(path, opts);
+      if (res.status === 401) {
+        this.state.token = null;
+        localStorage.removeItem('cwm_token');
+        this.showLogin();
+        this.disconnectSSE();
+        throw new Error('Unauthorized');
+      }
+      let data = null;
+      try { data = await res.json(); } catch (_) { data = null; }
+      return { ok: res.ok, status: res.status, data };
+    } finally {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+    }
   }
 
   /**
@@ -8367,6 +8493,11 @@ class CWMApp {
     cred.list = data.profiles;
     cred.activeId = data.activeProfileId || null;
     if (data.mac !== undefined) cred.mac = data.mac || null;
+    // degraded:true marks a roster served while the server's serialized
+    // seed/sync pass had not finished (deadlock hardening, 2026-07-24):
+    // the data is usable but possibly stale, so the chip gets an
+    // indicator instead of the switcher going blank or hanging.
+    cred.degraded = !!data.degraded;
     cred.lastListAt = Date.now();
     // Staging hygiene: a staged row that vanished or became active is stale.
     if (cred.stagedId && (cred.stagedId === cred.activeId || !cred.list.some(p => p.profileId === cred.stagedId))) {
@@ -8416,6 +8547,17 @@ class CWMApp {
       }
     }
     if (els.accountChip) els.accountChip.classList.toggle('is-applying', cred.applying);
+    if (els.accountChip) {
+      // Stale-data indicator for a degraded roster response (deadlock
+      // hardening, 2026-07-24): the class is a styling hook and the title
+      // explains why the data may lag; both clear on the next full load.
+      els.accountChip.classList.toggle('is-degraded', !!cred.degraded);
+      if (cred.degraded) {
+        els.accountChip.title = 'Account data may be stale: the server was busy, showing the last saved roster.';
+      } else if (els.accountChip.title) {
+        els.accountChip.removeAttribute('title');
+      }
+    }
 
     // Header usage meter rides the exact same render path as the chip so it
     // updates on initial load, refresh-usage, account switches, and both
@@ -8434,6 +8576,17 @@ class CWMApp {
     }
 
     if (!els.accountPanel || els.accountPanel.hidden) return;
+
+    // ── Provider tab branch ──
+    // When a provider tab (data-kind="provider") is active, the panel body
+    // renders through the generic provider pipeline and the entire legacy
+    // Claude path below is skipped. The chip and header meter above stay
+    // Claude-driven in v1 (design doc Part 9.1).
+    const activeTabEl = this._activeAccountTabEl();
+    if (activeTabEl && activeTabEl.dataset.kind === 'provider') {
+      this._renderProviderAccountPane(activeTabEl);
+      return;
+    }
 
     // ── Machines strip (PC / Mac locations) ──
     // Rendered on every open-panel repaint so roster loads, mac-state
@@ -8530,8 +8683,22 @@ class CWMApp {
     // account with ONLY model-scoped data still renders usage rows.
     const opusWin = this._accountModelWindow(p, 'Opus');
     const fableWin = this._accountModelWindow(p, 'Fable');
+    // Amber suspect note (expiry-fix spec Phase 2): an ok row sitting under
+    // an unresolved auth_suspect ladder tells the honest story: temporary,
+    // being retried automatically, no user action needed yet. Keyed off
+    // BOTH the server health and the error kind so plain unverified rows
+    // (also needs-attention) never claim an auth issue they do not have.
+    const isSuspect = isWarn && p.lastRefreshError && p.lastRefreshError.kind === 'auth_suspect';
     if (isDead) {
-      usageHtml = '<span class="account-row-dead-note">needs re-login (stored token is dead)</span>';
+      // Softer dead-row copy plus a Retry button wired to the EXISTING
+      // per-profile force route (POST /api/credentials/refresh-usage).
+      // The row itself stays unstageable (tabindex -1, aria-disabled); the
+      // nested button stays interactive, same pattern as the pencil.
+      const retrying = cred.retryingId === p.profileId;
+      usageHtml = '<span class="account-row-dead-note">Signed out here. Run /login as this account once, or press Retry.'
+        + `<button type="button" class="account-retry-btn" data-profile-id="${this.escapeHtml(p.profileId)}"`
+        + ` aria-label="Retry stored credential for ${this.escapeHtml(name)}"${retrying ? ' disabled' : ''}>`
+        + (retrying ? 'Retrying' : 'Retry') + '</button></span>';
     } else if (p.usage && (p.usage.five_hour || p.usage.seven_day || opusWin || fableWin)) {
       const stale = this._isUsageStale(p) ? ' is-stale' : '';
       // Model rows render with absolute=true: Arthur wants the exact local
@@ -8542,7 +8709,12 @@ class CWMApp {
         + this._accountUsageRowHtml('week', p.usage.seven_day, true)
         + (opusWin ? this._accountUsageRowHtml('Opus', opusWin, true, 'Opus weekly usage') : '')
         + (fableWin ? this._accountUsageRowHtml('Fable', fableWin, true, 'Fable weekly usage') : '')
+        + (isSuspect ? '<span class="account-warn-note">Temporary auth issue, retrying</span>' : '')
         + '</span>';
+    } else if (isSuspect) {
+      // No usage cache to show: the suspect note takes the usage line slot
+      // (the extra class keeps the grid placement of the unavailable line).
+      usageHtml = '<span class="account-usage-unavailable account-warn-note">Temporary auth issue, retrying</span>';
     } else {
       usageHtml = '<span class="account-usage-unavailable">usage unavailable</span>';
     }
@@ -8567,6 +8739,15 @@ class CWMApp {
     if (isActive) sideBits.push('<span class="account-active-pill">ACTIVE</span>');
     else if (!isDead) sideBits.push('<span class="account-row-radio" aria-hidden="true"></span>');
     sideBits.push(`<button type="button" class="account-row-edit" title="Rename" aria-label="Rename ${this.escapeHtml(name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>`);
+    // Delete (trash) button: HIDDEN on the ACTIVE row on purpose. Deleting
+    // the active snapshot is a confusing no-op because the credential
+    // watcher re-captures the live login within ~1s; switching away first
+    // is the supported removal path. Deletion removes ONLY the saved
+    // snapshot (DELETE /api/credentials/:profileId is snapshot-only); it
+    // never logs the account out anywhere.
+    if (!isActive) {
+      sideBits.push(`<button type="button" class="account-row-edit account-delete-btn" data-profile-id="${this.escapeHtml(p.profileId)}" title="Delete saved account" aria-label="Delete saved account ${this.escapeHtml(name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>`);
+    }
 
     return `<div class="${classes.join(' ')}" role="option" data-profile-id="${this.escapeHtml(p.profileId)}" data-health="${health}" tabindex="${isDead ? '-1' : '0'}" aria-selected="${isStaged ? 'true' : 'false'}"${isDead ? ' aria-disabled="true"' : ''}${deadTitle}>
       <span class="account-row-avatar" aria-hidden="true">${this.escapeHtml(avatarChar)}</span>
@@ -8976,6 +9157,115 @@ class CWMApp {
     } catch (err) {
       if (err && err.message === 'Unauthorized') return;
       this.showToast('Rename failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Delete a saved credential snapshot after an explicit confirm. Calls the
+   * snapshot-only DELETE /api/credentials/:profileId route, which removes
+   * Myrlin's saved copy of the credential and NOTHING else: the account is
+   * not logged out anywhere and can be re-added by logging in again.
+   *
+   * The ACTIVE account is guarded twice: the row hides its delete button at
+   * render time, and this method refuses stale clicks (the credential
+   * watcher re-captures the live login within ~1s, so deleting it would be
+   * a confusing no-op). A 404 from the route means another client already
+   * removed the snapshot and is treated as success. If the deleted row was
+   * staged for a switch, the stale staging is cleared. The SSE
+   * credentials:changed {deleted:true} broadcast reloads other clients; this
+   * client applies the route's own list response, so no extra reload fires.
+   * @param {string} profileId - accountUuid of the snapshot to delete.
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async deleteSavedAccount(profileId) {
+    const cred = this.state.credentials;
+    if (cred.applying) return;
+    const p = cred.list.find(x => x.profileId === profileId);
+    if (!p) return;
+    // Active-row guard (belt and braces on top of the hidden button).
+    if (profileId === cred.activeId) {
+      this.showToast('The active account is re-saved automatically; switch away first to remove it.', 'info');
+      return;
+    }
+    const name = this._accountDisplayName(p);
+    const confirmed = await this.showConfirmModal({
+      title: 'Remove saved account?',
+      message: `Remove saved account <strong>${this.escapeHtml(name)}</strong>? `
+        + 'This deletes Myrlin\'s saved copy of the credential. It does not log the account out; '
+        + 'you can re-add it by logging in again.',
+      confirmText: 'Remove',
+      confirmClass: 'btn-danger',
+    });
+    if (!confirmed) return;
+    // Suppress the self-echo toast from our own credentials:changed SSE.
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    try {
+      const resp = await this._credApi('DELETE', `/api/credentials/${encodeURIComponent(profileId)}`);
+      if (!resp.ok && resp.status !== 404) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Remove failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      // Staging hygiene: a deleted row can no longer be a pending target.
+      if (cred.stagedId === profileId) cred.stagedId = null;
+      if (cred.stagedMacId === profileId) cred.stagedMacId = null;
+      if (resp.ok && resp.data && Array.isArray(resp.data.profiles)) {
+        // The route returns the canonical list shape; applying it directly
+        // re-renders without a second GET (the SSE case still covers other
+        // clients).
+        this._applyCredListResponse(resp.data);
+      } else {
+        // 404 (already gone): drop the row locally and repaint.
+        cred.list = cred.list.filter(x => x.profileId !== profileId);
+        this.renderAccountSwitcher();
+      }
+      this.showToast(`Removed ${name}`, 'success');
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Remove failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Retry a dead (needs-re-login) account row: POST the EXISTING
+   * per-profile force route /api/credentials/refresh-usage { profileId },
+   * which bypasses both the usage cache and the known-dead skip, giving
+   * the stored refresh token one real round trip against the auth server.
+   * Outcomes are honest: a row killed by a WAF 403 false positive (or by
+   * an out-of-date verdict) comes back healthy via the returned list; a
+   * genuinely rotated-out account stays dead WITH fresh evidence, and the
+   * toast says exactly what to do next. Single-flight per panel: the
+   * button disables while the round trip runs (cred.retryingId).
+   * @param {string} profileId - accountUuid of the dead row.
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async retryDeadAccount(profileId) {
+    const cred = this.state.credentials;
+    if (cred.applying || cred.retryingId) return;
+    const p = cred.list.find(x => x.profileId === profileId);
+    if (!p) return;
+    cred.retryingId = profileId;
+    this.renderAccountSwitcher();
+    try {
+      const resp = await this._credApi('POST', '/api/credentials/refresh-usage', { profileId });
+      if (!resp.ok) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Retry failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      this._applyCredListResponse(resp.data || {});
+      const fresh = cred.list.find(x => x.profileId === profileId);
+      if (fresh && this.accountHealth(fresh) !== 'needs-re-login') {
+        this.showToast(`${this._accountDisplayName(fresh)} recovered`, 'success');
+      } else {
+        this.showToast('Still signed out. Run /login as this account once; it recaptures automatically.', 'info');
+      }
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Retry failed: could not reach the server', 'error');
+    } finally {
+      cred.retryingId = null;
+      this.renderAccountSwitcher();
     }
   }
 
@@ -9516,6 +9806,544 @@ class CWMApp {
     const mins = Math.floor((diffMs % 3600000) / 60000);
     if (hrs > 0) return `Resets in ${hrs} hr ${mins} min`;
     return `Resets in ${mins} min`;
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════
+     PROVIDER ACCOUNT TABS (Codex tab in the account panel)
+     Design contract: docs/plans/2026-07-03-codex-account-switcher-design.md
+     Part 3.4. The provider id for every API URL comes from the clicked
+     tab's dataset.providerTab, so this code carries no provider names.
+     Tokens NEVER reach this code; only the safe rows from
+     GET /api/provider-accounts/:providerId.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * The currently active tab button in the account panel's tab bar, or
+   * null when the tab bar is absent (old HTML: the legacy pipeline is the
+   * only pipeline).
+   * @returns {HTMLElement|null} The .account-tab.is-active element.
+   */
+  _activeAccountTabEl() {
+    if (!this.els.accountTabs) return null;
+    return this.els.accountTabs.querySelector('.account-tab.is-active');
+  }
+
+  /**
+   * Find the tab button for one providerId (used by the SSE cases to
+   * decide whether a broadcast concerns a tab this client can show).
+   * @param {string} providerId - Provider id from an SSE payload.
+   * @returns {HTMLElement|null} The matching .account-tab element.
+   */
+  _accountTabForProvider(providerId) {
+    if (!this.els.accountTabs || !providerId) return null;
+    try {
+      const escaped = (window.CSS && CSS.escape) ? CSS.escape(providerId) : providerId;
+      return this.els.accountTabs.querySelector(`.account-tab[data-provider-tab="${escaped}"]`);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Activate one account-panel tab: swap the is-active/aria-selected
+   * marks, retitle the panel header from the tab label, stamp the panel's
+   * data-active-tab attribute (drives the per-provider accent CSS), show
+   * or hide the Claude-only chrome (Mac gear, machines strip, mobile
+   * meter mirror), re-render, and lazy-load the provider roster on first
+   * activation. The legacy tab restores the exact pre-tab-bar panel.
+   * @param {HTMLElement} btn - The clicked .account-tab button.
+   * @returns {void}
+   */
+  _activateAccountTab(btn) {
+    const els = this.els;
+    if (!btn || !els.accountTabs) return;
+    this.state.accountTab = btn.dataset.providerTab || null;
+    els.accountTabs.querySelectorAll('.account-tab').forEach(t => {
+      const isActive = t === btn;
+      t.classList.toggle('is-active', isActive);
+      t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    if (els.accountPanelTitle) {
+      els.accountPanelTitle.textContent = (btn.textContent || '').trim() + ' account';
+    }
+    if (els.accountPanel) {
+      els.accountPanel.dataset.activeTab = btn.dataset.providerTab || '';
+    }
+    const isProvider = btn.dataset.kind === 'provider';
+    // Claude-only chrome (v1): the Mac gear, machines strip, and the
+    // mobile meter mirror hide on provider tabs; the legacy tab restores
+    // them (the render paths re-manage strip/meter visibility anyway).
+    if (els.accountMacConfigBtn) els.accountMacConfigBtn.hidden = isProvider;
+    if (isProvider) {
+      if (els.accountMachines) els.accountMachines.hidden = true;
+      if (els.accountPanelMeter) els.accountPanelMeter.hidden = true;
+    }
+    this.renderAccountSwitcher();
+    // Lazy first load: fetch the provider roster only when its tab is
+    // first opened, never at app boot.
+    if (isProvider && this.state.codexAccounts.lastListAt === 0) {
+      this.loadProviderAccounts(btn);
+    }
+  }
+
+  /**
+   * Load the provider account roster for one tab: GET
+   * /api/provider-accounts/<id>, or POST .../refresh-usage with an empty
+   * body when opts.refresh is true (the server-side cache TTL is
+   * honored). A 404 marks the tab unavailable (old server without the
+   * routes) and leaves the Claude tab untouched; network failures degrade
+   * silently on first load and toast afterwards.
+   * @param {HTMLElement} tabEl - The provider tab button (carries the id).
+   * @param {object} [opts] - Options bag.
+   * @param {boolean} [opts.refresh=false] - Refresh usage instead of a plain list read.
+   * @returns {Promise<void>} Never rejects; failures degrade or toast.
+   */
+  async loadProviderAccounts(tabEl, { refresh = false } = {}) {
+    const pa = this.state.codexAccounts;
+    if (!tabEl || !tabEl.dataset.providerTab || pa.loading) return;
+    pa.loading = true;
+    const firstLoad = pa.lastListAt === 0;
+    // Render immediately so an open panel shows the skeleton rows.
+    this.renderAccountSwitcher();
+    try {
+      const pid = encodeURIComponent(tabEl.dataset.providerTab);
+      const resp = refresh
+        ? await this._credApi('POST', `/api/provider-accounts/${pid}/refresh-usage`, {})
+        : await this._credApi('GET', `/api/provider-accounts/${pid}`);
+      if (!resp.ok) {
+        if (resp.status === 404) {
+          // Old server without the provider-account routes: mark the tab
+          // unavailable rather than erroring on every open (mirrors the
+          // Claude switcher's 404 self-hide).
+          tabEl.classList.add('is-unavailable');
+          tabEl.title = 'Update the workbook server to manage these accounts';
+          return;
+        }
+        if (!firstLoad) {
+          const msg = (resp.data && (resp.data.message || resp.data.error)) || `Failed to load accounts (${resp.status})`;
+          this.showToast(msg, 'error');
+        }
+        return;
+      }
+      this._applyProviderListResponse(resp.data || {});
+    } catch (_) {
+      // Network failure or auth logout: degrade silently; previous rows
+      // stay on screen until the next successful load.
+    } finally {
+      pa.loading = false;
+      this.renderAccountSwitcher();
+    }
+  }
+
+  /**
+   * Apply a provider safe-list response ({ activeAccountId, activeAuthMode,
+   * installed, loginHint, accounts }) to local state, run staging hygiene,
+   * start the countdown tick, and render. Shared by load, rename, capture,
+   * and delete (their routes all return the same list shape).
+   * @param {object} data - Response body in the safe-list shape.
+   * @returns {boolean} True when the payload carried a usable accounts array.
+   */
+  _applyProviderListResponse(data) {
+    if (!data || !Array.isArray(data.accounts)) return false;
+    const pa = this.state.codexAccounts;
+    pa.list = data.accounts;
+    pa.activeId = data.activeAccountId || null;
+    pa.activeAuthMode = data.activeAuthMode || null;
+    pa.installed = !!data.installed;
+    if (typeof data.loginHint === 'string') pa.loginHint = data.loginHint;
+    pa.lastListAt = Date.now();
+    // Staging hygiene: a staged row that vanished or became active is stale.
+    if (pa.stagedId && (pa.stagedId === pa.activeId || !pa.list.some(a => a.accountId === pa.stagedId))) {
+      pa.stagedId = null;
+    }
+    this._startAccountTick();
+    this.renderAccountSwitcher();
+    return true;
+  }
+
+  /**
+   * Render the provider tab's panel body: skeleton rows while the first
+   * load runs, the roster rows, or the provider empty state (login hint,
+   * capture CTA when a capturable login is live, or the API-key notice),
+   * plus the footer pending line and Save/Cancel/Refresh states. Called
+   * only from renderAccountSwitcher's provider branch, so the legacy
+   * Claude path below it stays untouched.
+   * @param {HTMLElement} tabEl - The active provider tab button.
+   * @returns {void}
+   */
+  _renderProviderAccountPane(tabEl) {
+    const els = this.els;
+    const pa = this.state.codexAccounts;
+    const tabLabel = ((tabEl && tabEl.textContent) || 'Provider').trim();
+
+    // Claude-only chrome stays hidden on every provider repaint (the
+    // legacy render paths re-show it when the legacy tab returns).
+    if (els.accountMachines) els.accountMachines.hidden = true;
+    if (els.accountPanelMeter) els.accountPanelMeter.hidden = true;
+    if (els.accountMacConfigBtn) els.accountMacConfigBtn.hidden = true;
+
+    // ── Row list ──
+    if (pa.loading && pa.list.length === 0) {
+      // First load: skeleton rows, never spinners (design system rule).
+      els.accountPanelList.innerHTML = Array.from({ length: 3 }, () => `
+        <div class="account-row account-row-skeleton" aria-hidden="true">
+          <span class="skeleton-line account-skeleton-avatar"></span>
+          <span class="account-row-body">
+            <span class="skeleton-line" style="width: 55%"></span>
+            <span class="skeleton-line" style="width: 75%"></span>
+            <span class="skeleton-line" style="width: 40%"></span>
+          </span>
+        </div>
+      `).join('');
+    } else if (pa.list.length === 0) {
+      // Empty states (design doc 3.4): API-key auth has no switchable
+      // account; a live chatgpt login gets the capture CTA; otherwise the
+      // provider's own login hint explains the path in.
+      let hintHtml = '';
+      let captureHtml = '';
+      if (pa.installed && pa.activeAuthMode === 'apikey') {
+        hintHtml = `<p class="account-empty-hint">${this.escapeHtml(tabLabel)} is using an API key; API-key auth has no switchable account.</p>`;
+      } else {
+        if (pa.loginHint) {
+          hintHtml = `<p class="account-empty-hint">${this.escapeHtml(pa.loginHint)}</p>`;
+        }
+        if (pa.installed && pa.activeAuthMode === 'chatgpt') {
+          captureHtml = '<button type="button" class="btn btn-primary btn-sm" id="account-capture-provider-btn">Capture current account</button>';
+        }
+      }
+      els.accountPanelList.innerHTML = `
+        <div class="account-empty">
+          <p>No ${this.escapeHtml(tabLabel)} accounts yet</p>
+          ${hintHtml}
+          ${captureHtml}
+        </div>`;
+    } else {
+      els.accountPanelList.innerHTML = pa.list.map(a => this.renderProviderAccountRow(a)).join('');
+    }
+
+    // ── Footer ──
+    const pendingRow = (pa.stagedId && pa.stagedId !== pa.activeId)
+      ? pa.list.find(a => a.accountId === pa.stagedId) : null;
+    if (els.accountPending) {
+      els.accountPending.innerHTML = pendingRow
+        ? ('<span class="account-pending-line"><span class="account-pending-key">' + this.escapeHtml(tabLabel) + ':</span>'
+          + this.escapeHtml(this._accountDisplayName(pendingRow)) + '</span>')
+        : '';
+      els.accountPending.hidden = !pendingRow;
+    }
+    if (els.accountSaveBtn) {
+      els.accountSaveBtn.disabled = !pendingRow || pa.applying;
+      els.accountSaveBtn.textContent = pa.applying ? 'Applying' : 'Save';
+    }
+    const skeletonState = pa.loading && pa.list.length === 0;
+    if (els.accountCancelBtn) els.accountCancelBtn.disabled = pa.applying || skeletonState;
+    if (els.accountRefreshBtn) els.accountRefreshBtn.disabled = pa.loading || pa.applying;
+  }
+
+  /**
+   * Build the HTML for one provider account row, reusing the Claude row's
+   * classes wholesale (avatar, primary line with plan badge, secondary
+   * email line, usage mini-bars, ACTIVE pill / staged radio, rename
+   * pencil, delete trash) so both tabs share every pixel of styling. The
+   * row carries data-account-id (never data-profile-id) so the legacy
+   * delegated branches ignore it. No machine segments (Claude-only in v1).
+   * All fields are escaped: JWT-derived claims are untrusted display data.
+   * @param {object} a - Safe account row from GET /api/provider-accounts/:id.
+   * @returns {string} Row HTML string.
+   */
+  renderProviderAccountRow(a) {
+    const pa = this.state.codexAccounts;
+    const health = this.accountHealth(a);
+    const isDead = health === 'needs-re-login';
+    const isWarn = health === 'needs-attention';
+    const isActive = a.accountId === pa.activeId;
+    const isStaged = a.accountId === pa.stagedId;
+    const name = this._accountDisplayName({ ...a, profileId: a.accountId });
+    const badge = a.plan ? String(a.plan) : '';
+
+    // Identity always visible: named rows show the email as the secondary
+    // line; unnamed rows already show the email as primary, so their
+    // secondary is the id8 marker.
+    const email = a.email || '';
+    let secondary = '';
+    if (email && name !== email) secondary = email;
+    else if (email) secondary = (a.accountId || '').slice(0, 8) + ' unnamed';
+
+    let usageHtml = '';
+    if (isDead) {
+      usageHtml = '<span class="account-row-dead-note">needs re-login (stored login was rejected)</span>';
+    } else if (a.usage && (a.usage.five_hour || a.usage.seven_day)) {
+      const stale = (this._isUsageStale(a) || a.accessExpired) ? ' is-stale' : '';
+      usageHtml = `<span class="account-usage${stale}">`
+        + this._accountUsageRowHtml('5h', a.usage.five_hour, false)
+        + this._accountUsageRowHtml('week', a.usage.seven_day, true)
+        + '</span>';
+    } else if (a.accessExpired) {
+      // v1 never refreshes parked tokens (design doc 5.2): the meter comes
+      // back after this account is made active once.
+      usageHtml = '<span class="account-usage-unavailable">usage unavailable (token past its access window; switching still works)</span>';
+    } else {
+      usageHtml = '<span class="account-usage-unavailable">usage unavailable</span>';
+    }
+
+    const classes = ['account-row'];
+    if (isActive) classes.push('is-active');
+    if (isStaged && !isActive) classes.push('is-staged');
+    if (isDead) classes.push('is-dead');
+    if (isWarn) classes.push('is-warn');
+
+    const avatarChar = isDead ? '!' : (name.charAt(0).toUpperCase() || '?');
+    const deadTitle = isDead
+      ? ' title="Log in as this account with the CLI once; it is recaptured automatically"'
+      : '';
+
+    const sideBits = [];
+    if (isActive) sideBits.push('<span class="account-active-pill">ACTIVE</span>');
+    else if (!isDead) sideBits.push('<span class="account-row-radio" aria-hidden="true"></span>');
+    sideBits.push(`<button type="button" class="account-row-edit" title="Rename" aria-label="Rename ${this.escapeHtml(name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>`);
+    // Same delete affordance and ACTIVE-row rule as the Claude rows: the
+    // watcher re-captures the live login within ~1s, so deleting the
+    // active snapshot would be a confusing no-op and the button hides.
+    if (!isActive) {
+      sideBits.push(`<button type="button" class="account-row-edit account-delete-btn" data-account-id="${this.escapeHtml(a.accountId)}" title="Delete saved account" aria-label="Delete saved account ${this.escapeHtml(name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>`);
+    }
+
+    return `<div class="${classes.join(' ')}" role="option" data-account-id="${this.escapeHtml(a.accountId)}" data-health="${health}" tabindex="${isDead ? '-1' : '0'}" aria-selected="${isStaged ? 'true' : 'false'}"${isDead ? ' aria-disabled="true"' : ''}${deadTitle}>
+      <span class="account-row-avatar" aria-hidden="true">${this.escapeHtml(avatarChar)}</span>
+      <span class="account-row-body">
+        <span class="account-row-primary">
+          <span class="account-row-name">${this.escapeHtml(name)}</span>
+          ${badge ? `<span class="account-plan-badge">${this.escapeHtml(badge)}</span>` : ''}
+        </span>
+        ${secondary ? `<span class="account-row-secondary">${this.escapeHtml(secondary)}</span>` : ''}
+        ${usageHtml}
+      </span>
+      <span class="account-row-side">${sideBits.join('')}</span>
+    </div>`;
+  }
+
+  /**
+   * Stage a provider account row for the Save button. Staging the active
+   * row clears the selection ("keep current"); needs-re-login rows are
+   * not selectable at all. Mirrors stageAccount including the focus
+   * restoration after the re-render.
+   * @param {string} accountId - Account id of the clicked row.
+   * @returns {void}
+   */
+  stageProviderAccount(accountId) {
+    const pa = this.state.codexAccounts;
+    if (pa.applying) return;
+    const a = pa.list.find(x => x.accountId === accountId);
+    if (!a) return;
+    if (this.accountHealth(a) === 'needs-re-login') return;
+    pa.stagedId = (accountId === pa.activeId) ? null : accountId;
+    this.renderAccountSwitcher();
+    try {
+      const escaped = (window.CSS && CSS.escape) ? CSS.escape(accountId) : accountId;
+      const rowEl = this.els.accountPanelList.querySelector(`.account-row[data-account-id="${escaped}"]`);
+      if (rowEl) rowEl.focus({ preventScroll: true });
+    } catch (_) {
+      // Focus restoration is cosmetic; never fatal.
+    }
+  }
+
+  /**
+   * Rename a saved provider account via the shared prompt modal. Empty
+   * submit clears the label (display falls back to email / id8).
+   * @param {HTMLElement} tabEl - The active provider tab (carries the id).
+   * @param {object} a - Safe account row being renamed.
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async renameProviderAccount(tabEl, a) {
+    if (!tabEl || !a || !a.accountId) return;
+    const result = await this.showPromptModal({
+      title: 'Rename account',
+      fields: [{
+        key: 'label',
+        label: 'Label',
+        value: a.label || '',
+        placeholder: a.email || 'Label',
+        maxlength: 60,
+      }],
+      confirmText: 'Save',
+    });
+    if (!result) return; // cancelled
+    const label = (result.label || '').trim().slice(0, 60);
+    if (label === (a.label || '')) return; // unchanged: skip the round-trip
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    try {
+      const pid = encodeURIComponent(tabEl.dataset.providerTab || '');
+      const resp = await this._credApi('PUT', `/api/provider-accounts/${pid}/${encodeURIComponent(a.accountId)}/label`, { label });
+      if (!resp.ok) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Rename failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      this._applyProviderListResponse(resp.data || {});
+      this.showToast(label ? `Renamed to ${label}` : 'Label cleared', 'success');
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Rename failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Empty-state CTA: snapshot the live provider login via POST
+   * /api/provider-accounts/:id/capture with an optional label prompt.
+   * @param {HTMLElement} tabEl - The active provider tab (carries the id).
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async captureProviderAccount(tabEl) {
+    if (!tabEl || !tabEl.dataset.providerTab) return;
+    const result = await this.showPromptModal({
+      title: 'Capture current account',
+      fields: [{
+        key: 'label',
+        label: 'Label (optional)',
+        value: '',
+        placeholder: 'e.g. Personal',
+        maxlength: 60,
+      }],
+      confirmText: 'Capture',
+    });
+    if (!result) return; // cancelled
+    const label = (result.label || '').trim().slice(0, 60);
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    try {
+      const pid = encodeURIComponent(tabEl.dataset.providerTab);
+      const resp = await this._credApi('POST', `/api/provider-accounts/${pid}/capture`, label ? { label } : {});
+      if (!resp.ok) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Capture failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      this._applyProviderListResponse(resp.data || {});
+      this.showToast('Current account captured', 'success');
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Capture failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Delete a saved provider account snapshot after an explicit confirm.
+   * Identical contract to deleteSavedAccount (the Claude rows): the DELETE
+   * route removes ONLY the saved snapshot, never the live login; the
+   * ACTIVE row is guarded (its button is hidden at render time and this
+   * method refuses stale clicks because the watcher re-captures the live
+   * login within ~1s); a 404 is treated as success; stale staging clears.
+   * @param {HTMLElement} tabEl - The active provider tab (carries the id).
+   * @param {string} accountId - Account id of the snapshot to delete.
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async deleteProviderAccount(tabEl, accountId) {
+    const pa = this.state.codexAccounts;
+    if (!tabEl || !accountId || pa.applying) return;
+    const a = pa.list.find(x => x.accountId === accountId);
+    if (!a) return;
+    // Active-row guard (belt and braces on top of the hidden button).
+    if (accountId === pa.activeId) {
+      this.showToast('The active account is re-saved automatically; switch away first to remove it.', 'info');
+      return;
+    }
+    const name = this._accountDisplayName({ ...a, profileId: a.accountId });
+    const tabLabel = ((tabEl.textContent) || 'provider').trim();
+    const confirmed = await this.showConfirmModal({
+      title: 'Remove saved account?',
+      message: `Remove saved account <strong>${this.escapeHtml(name)}</strong>? `
+        + `This deletes Myrlin's saved copy of the ${this.escapeHtml(tabLabel)} login. It does not log the account out; `
+        + 'you can re-add it by logging in with the CLI again.',
+      confirmText: 'Remove',
+      confirmClass: 'btn-danger',
+    });
+    if (!confirmed) return;
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    try {
+      const pid = encodeURIComponent(tabEl.dataset.providerTab || '');
+      const resp = await this._credApi('DELETE', `/api/provider-accounts/${pid}/${encodeURIComponent(accountId)}`);
+      if (!resp.ok && resp.status !== 404) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Remove failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      if (pa.stagedId === accountId) pa.stagedId = null;
+      if (resp.ok && resp.data && Array.isArray(resp.data.accounts)) {
+        this._applyProviderListResponse(resp.data);
+      } else {
+        // 404 (already gone): drop the row locally and repaint.
+        pa.list = pa.list.filter(x => x.accountId !== accountId);
+        this.renderAccountSwitcher();
+      }
+      this.showToast(`Removed ${name}`, 'success');
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Remove failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Apply the staged provider account: confirm modal (with the
+   * new-sessions-only restart note; never auto-restarts anything), POST
+   * /api/provider-accounts/:id/apply, toast outcomes including the
+   * accessExpired warning, clear staging, close when done, and refresh the
+   * roster in the background. Unlike the Claude path this never offers
+   * restartAllSessions: that helper restarts EVERY session and a
+   * per-provider restart is future work (design doc 3.4).
+   * @param {HTMLElement} tabEl - The active provider tab (carries the id).
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async applyStagedProviderAccount(tabEl) {
+    const pa = this.state.codexAccounts;
+    if (!tabEl || pa.applying) return;
+    const targetRow = (pa.stagedId && pa.stagedId !== pa.activeId)
+      ? pa.list.find(a => a.accountId === pa.stagedId) : null;
+    if (!targetRow) return;
+    const tabLabel = ((tabEl.textContent) || 'provider').trim();
+    const name = this._accountDisplayName({ ...targetRow, profileId: targetRow.accountId });
+    const confirmed = await this.showConfirmModal({
+      // Title renders via textContent (no HTML), so no escaping here.
+      title: `Switch ${tabLabel} account?`,
+      message: `<strong>${this.escapeHtml(name)}</strong> (${this.escapeHtml(targetRow.email || 'no email on record')})`
+        + `<br><br>The swap affects only new ${this.escapeHtml(tabLabel)} sessions. `
+        + 'Running sessions keep the previous account until restarted.',
+      confirmText: 'Switch',
+    });
+    if (!confirmed) return;
+    pa.applying = true;
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    this.renderAccountSwitcher();
+    try {
+      const pid = encodeURIComponent(tabEl.dataset.providerTab || '');
+      const resp = await this._credApi('POST', `/api/provider-accounts/${pid}/apply`, { accountId: targetRow.accountId });
+      if (!resp.ok) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Switch failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return; // staging preserved for a retry
+      }
+      const result = resp.data || {};
+      if (result.applied || result.alreadyActive) {
+        pa.activeId = targetRow.accountId;
+        pa.stagedId = null;
+        this.showToast(
+          result.alreadyActive ? `${name} was already active` : `Switched to ${name}`,
+          'success'
+        );
+        if (result.warning) this.showToast(result.warning, 'warning');
+        pa.applying = false;
+        this._closeAccountPanel();
+        this.renderAccountSwitcher();
+        // Background roster refresh (isActive flags, usage, health).
+        this.loadProviderAccounts(tabEl);
+      }
+    } catch (err) {
+      if (!(err && err.message === 'Unauthorized')) {
+        this.showToast('Switch failed: could not reach the server', 'error');
+      }
+    } finally {
+      pa.applying = false;
+      this.renderAccountSwitcher();
+    }
   }
 
 
@@ -10765,6 +11593,38 @@ class CWMApp {
      TOASTS
      ═══════════════════════════════════════════════════════════ */
 
+  /**
+   * Copy text to the clipboard and toast the outcome.
+   *
+   * WHY (user report, 2026-07-24, same trap as paste issue #64): all the
+   * small "Copy X" affordances (context menus, copy buttons) used to call
+   * the async Clipboard API directly and toast success unconditionally. On
+   * insecure origins (plain http over LAN, the documented remote-access
+   * mode) that API is undefined, so the bare property access threw a
+   * synchronous TypeError into the click handler while the toast still
+   * claimed success. Routing through TerminalPane.copyTextToClipboard
+   * (which falls back to a user-gesture execCommand copy and never throws)
+   * makes these copies WORK on every origin, and the resolved boolean makes
+   * the toast honest. terminal.js loads before app.js (index.html script
+   * order), so the static is always available; the typeof guard is only a
+   * belt-and-braces for a broken partial deploy.
+   *
+   * @param {string} text - Text to copy.
+   * @param {string} successMessage - Toast shown when the copy succeeded.
+   * @param {string} [failureMessage] - Toast shown when it failed
+   *   (defaults to 'Copy failed').
+   */
+  _copyWithToast(text, successMessage, failureMessage) {
+    const copied = (typeof TerminalPane !== 'undefined' &&
+        typeof TerminalPane.copyTextToClipboard === 'function')
+      ? TerminalPane.copyTextToClipboard(text)
+      : Promise.resolve(false);
+    copied.then((ok) => {
+      if (ok) this.showToast(successMessage, 'success');
+      else this.showToast(failureMessage || 'Copy failed', 'error');
+    });
+  }
+
   showToast(message, level = 'info') {
     const icons = {
       info: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M9 8v4M9 6v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -11079,6 +11939,53 @@ class CWMApp {
             && cred.stagedMacId === cred.macState.activeProfileId) {
             cred.stagedMacId = null;
           }
+          this.renderAccountSwitcher();
+        }
+        break;
+      }
+      case 'provider-accounts:changed': {
+        // Provider account switcher (Codex tab): the live login changed or
+        // a snapshot was captured/renamed/deleted. The case MUST exist
+        // here; without it the default branch below would turn every
+        // broadcast into a full loadAll() reload storm. Payload rides at
+        // data.data (same envelope convention as credentials:*).
+        const payload = (data && data.data) || {};
+        const pa = this.state.codexAccounts;
+        const fromSelf = this._credSelfActionUntil && Date.now() < this._credSelfActionUntil;
+        if (!fromSelf) {
+          if (payload.renamed) {
+            this.showToast('A saved account was renamed', 'info');
+          } else if (payload.captured) {
+            this.showToast('An account was captured', 'info');
+          } else if (payload.deleted) {
+            this.showToast('A saved account was removed', 'info');
+          } else if (payload.activeAccountId !== undefined && payload.activeAccountId !== pa.activeId) {
+            const who = payload.email ? ` to ${payload.email}` : '';
+            this.showToast(`Account switched${who} from another client`, 'info');
+          }
+        }
+        // Reload the roster only when the changed provider has a tab and
+        // this client has ever loaded it (lazy tabs stay lazy).
+        const changedTab = this._accountTabForProvider(payload.providerId);
+        if (changedTab && pa.lastListAt !== 0) {
+          this.loadProviderAccounts(changedTab);
+        }
+        break;
+      }
+      case 'provider-accounts:usage': {
+        // Provider usage refresh completed (always client-triggered server
+        // side). Merge the safe rows into local state by accountId and
+        // re-render so mini-bars and reset countdowns update in place.
+        const payload = (data && data.data) || {};
+        const pa = this.state.codexAccounts;
+        if (Array.isArray(payload.accounts) && payload.accounts.length > 0
+          && this._accountTabForProvider(payload.providerId)) {
+          const byId = new Map(payload.accounts.map(a => [a.accountId, a]));
+          pa.list = pa.list.map(a => byId.get(a.accountId) || a);
+          // Any brand-new accounts (captured elsewhere) get appended.
+          payload.accounts.forEach(a => {
+            if (!pa.list.some(x => x.accountId === a.accountId)) pa.list.push(a);
+          });
           this.renderAccountSwitcher();
         }
         break;
@@ -14197,8 +15104,7 @@ class CWMApp {
         label: 'Copy', icon: '&#128203;', action: () => {
           const selected = tp.term.getSelection();
           if (selected) {
-            navigator.clipboard.writeText(selected);
-            this.showToast('Copied to clipboard', 'success');
+            this._copyWithToast(selected, 'Copied to clipboard');
           }
         },
       });
@@ -19264,8 +20170,7 @@ class CWMApp {
     // Bind copy buttons
     container.querySelectorAll('.copy-tunnel-url').forEach(btn => {
       btn.addEventListener('click', () => {
-        navigator.clipboard.writeText(btn.dataset.url);
-        this.showToast('URL copied', 'success');
+        this._copyWithToast(btn.dataset.url, 'URL copied');
       });
     });
   }
@@ -20300,10 +21205,14 @@ class CWMApp {
       });
 
       if (result) {
-        // Copy to clipboard
+        // Copy to clipboard through the universal helper (works on insecure
+        // origins, never rejects); the boolean keeps the toasts honest. The
+        // outer try/catch is retained as a second belt so a copy problem can
+        // never abort the continue-in-new-session flow below.
         try {
-          await navigator.clipboard.writeText(markdown);
-          this.showToast('Context copied to clipboard', 'success');
+          const ok = await TerminalPane.copyTextToClipboard(markdown);
+          if (ok) this.showToast('Context copied to clipboard', 'success');
+          else this.showToast('Could not copy to clipboard', 'warning');
         } catch (_) {
           this.showToast('Could not copy to clipboard', 'warning');
         }
@@ -22115,10 +23024,17 @@ class CWMApp {
           // Bind copy buttons
           urlsEl.querySelectorAll('.pair-url-copy').forEach(btn => {
             btn.addEventListener('click', async () => {
+              // Universal copy helper: the pairing screen is exactly the
+              // remote-access (plain http over LAN) scenario where the bare
+              // Clipboard API call used to throw. Button feedback preserved.
               try {
-                await navigator.clipboard.writeText(btn.dataset.url);
-                btn.textContent = 'Copied';
-                setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+                const ok = await TerminalPane.copyTextToClipboard(btn.dataset.url);
+                if (ok) {
+                  btn.textContent = 'Copied';
+                  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+                } else {
+                  this.showToast('Failed to copy URL', 'error');
+                }
               } catch (_) {
                 this.showToast('Failed to copy URL', 'error');
               }

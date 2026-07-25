@@ -22,6 +22,23 @@
  * 429, 5xx, protocol bugs on our side) never change tokenState; they are
  * recorded in lastRefreshError and the prior state is kept.
  *
+ * Expiry-fix additions (docs/plans/2026-07-16-credential-expiry-fix-spec.md):
+ * ambiguous auth answers (403 / bodyless 401) are 'suspect', not death;
+ * they escalate to needs_login only after SUSPECT_ESCALATE_COUNT
+ * consecutive hits. Rejections PRESERVE their evidence in lastRefreshError
+ * (never nulled). Dead rows self-retry after DEAD_RETRY_MIN. A proactive
+ * sweep rotates inactive ok accounts just before expiry (lineage-gated).
+ * A write-back guard refuses to adopt live tokens that provably belong to
+ * a different snapshot (post-switch CLI write-back theft).
+ *
+ * Deadlock hardening (2026-07-24): an unguarded token-endpoint body read in
+ * refreshInactiveToken could pend forever and wedge the serialize() mutex,
+ * hanging every credential operation (production outage: switcher and usage
+ * meter down). Fixed at the source (the abort deadline now spans the body
+ * read) plus two defense layers: a per-op deadline inside both mutexes
+ * (CRED_OP_TIMEOUT) and a stalled-chain watchdog that force-resets a chain
+ * held past CHAIN_STALL_FACTOR times its deadline.
+ *
  * Design: docs/plans/2026-07-02-credential-switcher-design.md sections 2, 3.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
@@ -53,6 +70,24 @@ const TOKEN_STATE_UNVERIFIED = 'unverified';
 // Refresh timeout is deliberately generous (15s, not the 5s the reference
 // tool used); a slow link must classify as transient, never as a dead token.
 const REFRESH_TIMEOUT_MS = 15000;
+// Suspect ladder (expiry-fix spec Phase 1): a 'suspect' auth response (403,
+// or 401 with no parseable body) is ambiguous evidence; Cloudflare's WAF in
+// front of the token endpoint produces 403 false positives. Only this many
+// CONSECUTIVE suspects escalate a row to needs_login; anything less keeps
+// the prior tokenState and records auth_suspect evidence instead.
+const SUSPECT_ESCALATE_COUNT = 3;
+// Dead-retry window (expiry-fix spec Phase 1): a needs_login account is
+// retried WITHOUT force once its last rejection evidence is older than this
+// (ms). A repeat invalid_grant is harmless, and the retry self-heals rows
+// that were killed by a WAF false positive or by the legacy nulled-evidence
+// bug (those rows have no timestamp at all and retry immediately).
+const DEAD_RETRY_MIN = 6 * 60 * 60 * 1000;
+// Proactive refresh (expiry-fix spec Phase 3): the sweep only rotates an
+// inactive account when its access token is within this many minutes of
+// lapsing (just-in-time, not constantly), and the server clamps the sweep
+// interval to at least the floor below.
+const PROACTIVE_REFRESH_WINDOW_MIN = 30;
+const PROACTIVE_REFRESH_FLOOR_MIN = 10;
 // Treat an access token as expired 5 minutes early so an apply never hands
 // the CLI a token that dies seconds later.
 const EXPIRY_SKEW_MS = 5 * 60 * 1000;
@@ -62,6 +97,28 @@ const SELF_WRITE_GUARD_MS = 3000;
 // and concurrent readers; same lesson as store.js save()).
 const RENAME_MAX_ATTEMPTS = 5;
 const RENAME_BACKOFF_MS = 50;
+// ─── Serialized-operation deadlines (deadlock hardening, 2026-07-24) ────────
+// WHY these exist: the promise-chain mutex (`serialize`) advances only when
+// the running operation's promise settles. On 2026-07-24 one operation whose
+// promise NEVER settled (an unguarded token-endpoint body read inside
+// refreshInactiveToken) wedged the chain in production for hours, hanging
+// GET /api/credentials and blanking the account switcher and usage meter.
+// The body-read bug is fixed at its source, but as defense in depth NO
+// serialized operation may hold the chain longer than this deadline; past
+// it the caller receives a typed, retryable CRED_OP_TIMEOUT (HTTP 503) and
+// the chain advances. 60s is ~4x the worst legitimate apply (15s refresh
+// plus 5s usage plus disk writes), so a deadline hit means a genuine wedge,
+// never a slow-but-healthy operation.
+const OP_TIMEOUT_MS = 60000;
+// Mac operations ride multi-second SSH round trips (inventory sweep, then
+// install + activate + verify), so their chain gets a roomier deadline.
+const MAC_OP_TIMEOUT_MS = 120000;
+// Stalled-chain watchdog (third layer, ON by default): check cadence and
+// the multiple of the op deadline past which the chain is force-reset.
+// With the deadline layer active this should never fire; it exists so a
+// future code path that bypasses the deadline cannot resurrect the outage.
+const CHAIN_WATCHDOG_INTERVAL_MS = 30000;
+const CHAIN_STALL_FACTOR = 3;
 const LABEL_MAX_LENGTH = 60;
 const CREDENTIALS_FILE_NAME = '.credentials.json';
 // One-time claude-swap seed sentinel, written into the accounts dir after the
@@ -87,6 +144,13 @@ const DEFAULT_CRED_SETTINGS = Object.freeze({
   sshTimeoutSec: 8,
   backupKeep: 20,
   claudeSwapSeedDir: '',
+  // Proactive background refresh cadence in minutes; 0 disables the sweep.
+  // ON BY DEFAULT (Arthur's decision, 2026-07-16): refresh tokens are
+  // one-time-use, so whichever lineage holder refreshes first wins and the
+  // others' stored pairs die server-side. Rotating parked accounts just
+  // before expiry keeps the workbook the winner. The server clamps this to
+  // PROACTIVE_REFRESH_FLOOR_MIN. See the accepted-risk note in server.js.
+  proactiveRefreshMinutes: 20,
   // Lineage hint: the accountUuid live on the Mac (null = none known).
   // Persisted so the usage poller's lineage gate survives restarts; see
   // setMacActiveHint and the gate in _updateSnapshotUsageUnlocked.
@@ -128,12 +192,21 @@ function displayNameFor(snapshot) {
 /**
  * Map a tokenState to the UI health string. Expired-but-refreshable renders
  * exactly like healthy (never amber): expiry is normal and self-healing.
+ * One exception (expiry-fix spec Phase 1): an 'ok' row sitting under an
+ * unresolved auth_suspect ladder renders amber (needs-attention), because
+ * the last refresh attempt was answered suspiciously and the row is in a
+ * retry-and-watch state, neither proven healthy nor proven dead.
  *
  * @param {string} tokenState - One of the TOKEN_STATE_* values.
+ * @param {object|null} [lastRefreshError] - The snapshot's lastRefreshError
+ *   evidence record, when available ({ at, kind, status, ... }).
  * @returns {'healthy'|'needs-attention'|'needs-re-login'}
  */
-function healthFor(tokenState) {
-  if (tokenState === TOKEN_STATE_OK) return 'healthy';
+function healthFor(tokenState, lastRefreshError) {
+  if (tokenState === TOKEN_STATE_OK) {
+    if (lastRefreshError && lastRefreshError.kind === 'auth_suspect') return 'needs-attention';
+    return 'healthy';
+  }
   if (tokenState === TOKEN_STATE_NEEDS_LOGIN) return 'needs-re-login';
   return 'needs-attention';
 }
@@ -231,6 +304,66 @@ function credError(status, code, message, retryable = false) {
 }
 
 /**
+ * Run fn under a hard deadline: resolves/rejects with fn's own outcome when
+ * it settles in time, and rejects with a typed, retryable CRED_OP_TIMEOUT
+ * (HTTP 503) when it does not. Used by the serialized-operation mutexes so
+ * one never-settling operation can no longer wedge every later credential
+ * operation (the 2026-07-24 production deadlock).
+ *
+ * The deadline timer is unref'd (it can never hold the process open) and is
+ * always cleared once fn settles. NOTE, documented tradeoff: a timed-out
+ * operation is not cancelled (promises cannot be); the chain simply stops
+ * waiting for it. A post-timeout straggler write is theoretically possible
+ * but the deadline is ~4x the worst legitimate operation, so a straggler is
+ * overwhelmingly a network zombie, and a wedged mutex (total outage) is
+ * strictly worse than that rare race.
+ *
+ * @param {() => (Promise<*>|*)} fn - Operation to run.
+ * @param {number} timeoutMs - Hard deadline in ms.
+ * @param {string} label - Short operation label for diagnosable errors.
+ * @returns {Promise<*>} fn's outcome, or a CRED_OP_TIMEOUT rejection.
+ */
+function withOpDeadline(fn, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
+    let timer = setTimeout(() => {
+      timer = null;
+      reject(credError(503, 'CRED_OP_TIMEOUT',
+        "serialized operation '" + label + "' did not settle within " + timeoutMs +
+        'ms and was timed out so queued credential operations can proceed; retry shortly', true));
+    }, timeoutMs);
+    if (timer.unref) timer.unref();
+    Promise.resolve().then(fn).then(
+      (value) => { if (timer) { clearTimeout(timer); timer = null; } resolve(value); },
+      (err) => { if (timer) { clearTimeout(timer); timer = null; } reject(err); }
+    );
+  });
+}
+
+/**
+ * Await `work`, but stop waiting after `ms`. Resolves true when work settled
+ * (resolved OR rejected) inside the window, false when the deadline won.
+ * Both outcomes of `work` are observed up front, so a late rejection can
+ * never surface as an unhandled rejection. The work itself is never
+ * cancelled; callers use this to serve best-effort results (e.g. the roster
+ * list) without letting a wedged serialized call hang the response.
+ *
+ * @param {Promise<*>} work - The promise to wait on.
+ * @param {number} ms - Maximum wait in ms.
+ * @returns {Promise<boolean>} true = settled in time, false = still pending.
+ */
+function settleWithin(work, ms) {
+  let timer = null;
+  const settled = Promise.resolve(work).then(() => true, () => true);
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+    if (timer.unref) timer.unref();
+  });
+  return Promise.race([settled, deadline]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+/**
  * Format an epoch-ms timestamp as yyyyMMdd-HHmmss for backup filenames.
  *
  * @param {number} epochMs - Timestamp in epoch milliseconds.
@@ -268,6 +401,12 @@ function _formatStamp(epochMs) {
  * @param {number} [opts.pollIntervalMs] - Fallback poll. Default 30000.
  * @param {number} [opts.refreshTimeoutMs] - Refresh HTTP timeout. Default
  *   REFRESH_TIMEOUT_MS (15000). Injectable for hermetic timeout tests.
+ * @param {number} [opts.opTimeoutMs] - Serialized-op deadline. Default
+ *   OP_TIMEOUT_MS (60000). Injectable for hermetic deadlock tests.
+ * @param {number} [opts.macOpTimeoutMs] - Mac-op deadline. Default
+ *   MAC_OP_TIMEOUT_MS (120000). Injectable for hermetic deadlock tests.
+ * @param {number} [opts.watchdogIntervalMs] - Stalled-chain watchdog check
+ *   cadence. Default CHAIN_WATCHDOG_INTERVAL_MS (30000). Injectable.
  * @param {object} [opts.log] - Logger with warn/error/log. Default console.
  * @param {(patch: object) => void} [opts.settingsPatcher] - Optional write-back
  *   for manager-owned settings (the Mac-active lineage hint). Wired to the
@@ -293,6 +432,9 @@ function createCredentialManager(opts = {}) {
   const watchDebounceMs = opts.watchDebounceMs || 500;
   const pollIntervalMs = opts.pollIntervalMs || 30000;
   const refreshTimeoutMs = opts.refreshTimeoutMs || REFRESH_TIMEOUT_MS;
+  const opTimeoutMs = opts.opTimeoutMs || OP_TIMEOUT_MS;
+  const macOpTimeoutMs = opts.macOpTimeoutMs || MAC_OP_TIMEOUT_MS;
+  const watchdogIntervalMs = opts.watchdogIntervalMs || CHAIN_WATCHDOG_INTERVAL_MS;
   const log = opts.log || console;
 
   const credFilePath = path.join(claudeDir, CREDENTIALS_FILE_NAME);
@@ -322,17 +464,49 @@ function createCredentialManager(opts = {}) {
   // bridge directly would create a circular require (the bridge already
   // requires this module for serializeCredentialsFile).
   let _macStateRefresher = null;
+  // Stalled-chain watchdog bookkeeping (deadlock hardening, 2026-07-24):
+  // the label and clock() start stamp of the serialized op CURRENTLY
+  // holding each mutex (0 = idle), a sequence counter so a straggler op
+  // settling late can never clear a NEWER op's stamp, and the watchdog
+  // interval handle.
+  let _opStartedAt = 0;
+  let _opLabel = '';
+  let _opSeq = 0;
+  let _macOpStartedAt = 0;
+  let _macOpLabel = '';
+  let _macOpSeq = 0;
+  let _chainWatchdogTimer = null;
 
   /**
    * Promise-chain mutex. Serializes every mutating operation so two GUI
    * clients and the watcher can never interleave snapshot or live-file
    * writes. Errors propagate to the caller but never break the chain.
    *
+   * DEADLOCK HARDENING (2026-07-24): every op runs under withOpDeadline,
+   * so a never-settling operation (the outage class) rejects its caller
+   * with CRED_OP_TIMEOUT after opTimeoutMs instead of holding the chain
+   * forever, and the running op's label + start stamp are recorded for the
+   * stalled-chain watchdog.
+   *
    * @param {() => (Promise<*>|*)} fn - Operation to run exclusively.
+   * @param {string} [label] - Short op label for timeout errors and logs.
    * @returns {Promise<*>} Resolves/rejects with fn's outcome.
    */
-  function serialize(fn) {
-    const run = _chain.then(() => fn());
+  function serialize(fn, label) {
+    const opLabel = String(label || 'op');
+    const run = _chain.then(() => {
+      _opSeq += 1;
+      const mySeq = _opSeq;
+      _opStartedAt = clock();
+      _opLabel = opLabel;
+      // Clear the stamp only if no newer op has taken the chain since
+      // (a post-timeout straggler must not blind the watchdog to op N+1).
+      const clearStamp = () => { if (_opSeq === mySeq) { _opStartedAt = 0; _opLabel = ''; } };
+      return withOpDeadline(fn, opTimeoutMs, opLabel).then(
+        (value) => { clearStamp(); return value; },
+        (err) => { clearStamp(); throw err; }
+      );
+    });
     _chain = run.then(() => undefined, () => undefined);
     return run;
   }
@@ -343,13 +517,76 @@ function createCredentialManager(opts = {}) {
    * conversations; see the _macChain WHY comment above. Errors propagate to
    * the caller but never break the chain.
    *
+   * Same deadlock hardening as serialize(), with the roomier
+   * macOpTimeoutMs because these ops ride multi-second SSH round trips.
+   *
    * @param {() => (Promise<*>|*)} fn - Mac operation to run exclusively.
+   * @param {string} [label] - Short op label for timeout errors and logs.
    * @returns {Promise<*>} Resolves/rejects with fn's outcome.
    */
-  function runMacExclusive(fn) {
-    const run = _macChain.then(() => fn());
+  function runMacExclusive(fn, label) {
+    const opLabel = String(label || 'mac-op');
+    const run = _macChain.then(() => {
+      _macOpSeq += 1;
+      const mySeq = _macOpSeq;
+      _macOpStartedAt = clock();
+      _macOpLabel = opLabel;
+      const clearStamp = () => { if (_macOpSeq === mySeq) { _macOpStartedAt = 0; _macOpLabel = ''; } };
+      return withOpDeadline(fn, macOpTimeoutMs, opLabel).then(
+        (value) => { clearStamp(); return value; },
+        (err) => { clearStamp(); throw err; }
+      );
+    });
     _macChain = run.then(() => undefined, () => undefined);
     return run;
+  }
+
+  /**
+   * Start the stalled-chain watchdog (idempotent; ON by default from
+   * construction). Every watchdogIntervalMs it checks whether the op
+   * currently holding either mutex has exceeded CHAIN_STALL_FACTOR times
+   * its deadline; if so it logs loudly and force-resets that chain so
+   * queued credential operations can run again. With the withOpDeadline
+   * layer in place this should never fire; it is the last line of defense
+   * against a future code path that bypasses the deadline. The interval is
+   * unref'd so it can never hold the process (or a test run) open.
+   *
+   * @returns {void}
+   */
+  function _startChainWatchdog() {
+    if (_chainWatchdogTimer) return; // already running
+    _chainWatchdogTimer = setInterval(() => {
+      try {
+        const now = clock();
+        const stallMs = opTimeoutMs * CHAIN_STALL_FACTOR;
+        if (_opStartedAt && (now - _opStartedAt) > stallMs) {
+          log.error("[Credentials] STALLED operation chain: op '" + _opLabel + "' has held the mutex for "
+            + (now - _opStartedAt) + 'ms (limit ' + stallMs + 'ms); force-resetting the chain so credential operations can resume');
+          _chain = Promise.resolve();
+          _opStartedAt = 0;
+          _opLabel = '';
+        }
+        const macStallMs = macOpTimeoutMs * CHAIN_STALL_FACTOR;
+        if (_macOpStartedAt && (now - _macOpStartedAt) > macStallMs) {
+          log.error("[Credentials] STALLED Mac operation chain: op '" + _macOpLabel + "' has held the Mac mutex for "
+            + (now - _macOpStartedAt) + 'ms (limit ' + macStallMs + 'ms); force-resetting the Mac chain');
+          _macChain = Promise.resolve();
+          _macOpStartedAt = 0;
+          _macOpLabel = '';
+        }
+      } catch (_) { /* the watchdog must never throw */ }
+    }, watchdogIntervalMs);
+    if (_chainWatchdogTimer.unref) _chainWatchdogTimer.unref();
+  }
+
+  /**
+   * Stop the stalled-chain watchdog (idempotent). Called from
+   * stopCredentialWatcher so shutdown and tests never leak the interval.
+   *
+   * @returns {void}
+   */
+  function _stopChainWatchdog() {
+    if (_chainWatchdogTimer) { clearInterval(_chainWatchdogTimer); _chainWatchdogTimer = null; }
   }
 
   /**
@@ -649,6 +886,13 @@ function createCredentialManager(opts = {}) {
    * failure; usage failures never say anything about the refresh token and
    * never change tokenState.
    *
+   * LOCK-IN (2026-07-24 deadlock): the abort timer is cleared ONLY in the
+   * finally block so it spans the res.json() body read. Do not "optimize"
+   * the clearTimeout up to the header arrival; that exact pattern in
+   * refreshInactiveToken caused a production deadlock (a stalled body read
+   * that never settles wedges the serialize() mutex forever). A hermetic
+   * stalled-body test in test/credential-deadlock.test.js enforces this.
+   *
    * @param {string} accessToken - A live or stored OAuth access token.
    * @returns {Promise<object|null>} Stored usage shape or null.
    */
@@ -679,12 +923,19 @@ function createCredentialManager(opts = {}) {
   /**
    * Exchange a refresh token for a fresh pair at the OAuth token endpoint,
    * with the CORRECTED failure classification (this is where the reference
-   * tool's bug lived; it returned null for every failure kind):
+   * tool's bug lived; it returned null for every failure kind), further
+   * split per the expiry-fix spec Phase 1 (rejected vs suspect):
    *
    *   ok         { ok:true, tokens:{accessToken, refreshToken, expiresAt} }
-   *   needs_login DEFINITIVE auth rejection ONLY: HTTP 400/401 whose JSON
-   *              body has error === 'invalid_grant', HTTP 403, or a 401
-   *              with no parseable body.
+   *   rejected   DEFINITIVE auth rejection ONLY: HTTP 400/401 whose JSON
+   *              body has error === 'invalid_grant' (or no stored refresh
+   *              token at all, kind 'no_refresh_token'). Only /login
+   *              revives the account.
+   *   suspect    AMBIGUOUS auth answer: any HTTP 403 (Cloudflare's WAF in
+   *              front of the token endpoint throws 403 false positives)
+   *              or a 401 with no parseable body. NOT a death verdict on
+   *              its own; callers run the suspect ladder and escalate only
+   *              after SUSPECT_ESCALATE_COUNT consecutive suspects.
    *   transient  network errors, AbortError timeouts, HTTP 429, HTTP 5xx.
    *              NEVER a death verdict.
    *   protocol   any other rejection (e.g. a non-invalid_grant 400): OUR
@@ -699,39 +950,77 @@ function createCredentialManager(opts = {}) {
    */
   async function refreshInactiveToken(refreshToken) {
     if (!refreshToken) {
-      return { ok: false, verdict: 'needs_login', status: null, detail: 'no stored refresh token' };
+      return { ok: false, verdict: 'rejected', kind: 'no_refresh_token', status: null, detail: 'no stored refresh token' };
     }
     if (typeof fetchImpl !== 'function') {
       return { ok: false, verdict: 'transient', kind: 'network', status: null, detail: 'no fetch implementation available' };
     }
+    // ─── ROOT CAUSE OF THE 2026-07-24 PRODUCTION DEADLOCK, DO NOT REGRESS ───
+    // WHY the abort deadline must span the BODY READ and not just the
+    // headers: the old code cleared this timer the moment response headers
+    // arrived and only AFTER that awaited res.json(). When a connection
+    // dies without the runtime propagating the failure to the body stream
+    // (reproduced on Node v22: res.json() pending 300+ seconds; in
+    // production, hours), that unguarded body read never settles. Because
+    // this function runs INSIDE the serialize() mutex (usage updates,
+    // applies, the proactive sweep), the chain then never advances and
+    // every later credential operation hangs forever, taking down the
+    // account switcher and usage meter. One controller now covers the
+    // request AND the body read, and the timer is cleared ONLY in finally,
+    // mirroring fetchUsage (the correct pattern in this file).
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), refreshTimeoutMs);
+    if (timer.unref) timer.unref();
     let res;
-    try {
-      res = await fetchImpl(tokenUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          grant_type: 'refresh_token',
-          refresh_token: refreshToken,
-          client_id: ANTHROPIC_OAUTH_CLIENT_ID,
-        }),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      clearTimeout(timer);
-      const timedOut = !!(err && (err.name === 'AbortError' || err.name === 'TimeoutError' || err.code === 'ABORT_ERR'));
-      return {
-        ok: false,
-        verdict: 'transient',
-        kind: timedOut ? 'timeout' : 'network',
-        status: null,
-        detail: String((err && err.message) || err),
-      };
-    }
-    clearTimeout(timer);
     let body = null;
-    try { body = await res.json(); } catch (_) { body = null; }
+    try {
+      try {
+        res = await fetchImpl(tokenUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken,
+            client_id: ANTHROPIC_OAUTH_CLIENT_ID,
+          }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        const timedOut = !!(err && (err.name === 'AbortError' || err.name === 'TimeoutError' || err.code === 'ABORT_ERR'));
+        return {
+          ok: false,
+          verdict: 'transient',
+          kind: timedOut ? 'timeout' : 'network',
+          status: null,
+          detail: String((err && err.message) || err),
+        };
+      }
+      try {
+        body = await res.json();
+      } catch (err) {
+        // An abort-shaped failure HERE means our deadline fired while the
+        // body was still streaming. A timeout is NEVER evidence the
+        // credential is dead, so this classifies transient even when the
+        // status line alone (e.g. a stalled 401) would otherwise have read
+        // as suspect. Malformed-but-received JSON falls through with a
+        // null body to the status-based classification below, exactly as
+        // it did before this hardening.
+        const aborted = controller.signal.aborted ||
+          !!(err && (err.name === 'AbortError' || err.name === 'TimeoutError' || err.code === 'ABORT_ERR'));
+        if (aborted) {
+          return {
+            ok: false,
+            verdict: 'transient',
+            kind: 'timeout',
+            status: null,
+            detail: 'token endpoint sent HTTP ' + (res && res.status) + ' headers but the body read did not finish within ' + refreshTimeoutMs + 'ms',
+          };
+        }
+        body = null;
+      }
+    } finally {
+      clearTimeout(timer);
+    }
     if (res.ok) {
       const accessToken = body && typeof body.access_token === 'string' ? body.access_token : '';
       if (!accessToken) {
@@ -747,13 +1036,17 @@ function createCredentialManager(opts = {}) {
     const status = res.status;
     const bodyError = (body && typeof body.error === 'string') ? body.error : null;
     if (status === 403) {
-      return { ok: false, verdict: 'needs_login', status, detail: bodyError || 'HTTP 403 from token endpoint' };
+      // Demoted from a death verdict (expiry-fix spec): a 403 is usually
+      // the Cloudflare WAF, not the OAuth server; the ladder decides.
+      return { ok: false, verdict: 'suspect', status, detail: bodyError || 'HTTP 403 from token endpoint' };
     }
     if ((status === 400 || status === 401) && bodyError === 'invalid_grant') {
-      return { ok: false, verdict: 'needs_login', status, detail: 'invalid_grant' };
+      return { ok: false, verdict: 'rejected', kind: 'auth', status, detail: 'invalid_grant' };
     }
     if (status === 401 && body === null) {
-      return { ok: false, verdict: 'needs_login', status, detail: 'HTTP 401 with no parseable body' };
+      // Demoted from a death verdict (expiry-fix spec): without a parseable
+      // body there is no invalid_grant evidence; the ladder decides.
+      return { ok: false, verdict: 'suspect', status, detail: 'HTTP 401 with no parseable body' };
     }
     if (status === 429 || (status >= 500 && status <= 599)) {
       return { ok: false, verdict: 'transient', kind: 'server', status, detail: 'HTTP ' + status + ' from token endpoint' };
@@ -799,6 +1092,104 @@ function createCredentialManager(opts = {}) {
         detail: String(r.detail || ''),
       },
     });
+  }
+
+  /**
+   * Record a DEFINITIVE auth rejection: tokenState becomes needs_login and,
+   * crucially, the evidence is PRESERVED (the old code wrote
+   * lastRefreshError: null here, erasing the at/kind/status story and
+   * making every dead row undiagnosable; expiry-fix spec Phase 1 item 2).
+   * The detail string never carries token material: it comes from the
+   * token endpoint's error field or our own fixed strings.
+   *
+   * @param {string} accountUuid - Snapshot to mark.
+   * @param {{kind?: string, status?: number|null, detail?: string}} r -
+   *   Rejection classification (from refreshInactiveToken) or a synthetic
+   *   record (e.g. kind 'no_refresh_token' from the no-token early outs).
+   * @returns {object} The updated snapshot.
+   */
+  function _recordAuthRejection(accountUuid, r) {
+    return _mutateSnapshot(accountUuid, {
+      tokenState: TOKEN_STATE_NEEDS_LOGIN,
+      lastRefreshError: {
+        at: new Date(clock()).toISOString(),
+        kind: (r && r.kind) || 'auth',
+        status: (r && r.status != null) ? r.status : null,
+        detail: String((r && r.detail) || ''),
+      },
+    });
+  }
+
+  /**
+   * Run one rung of the suspect ladder (expiry-fix spec Phase 1 item 3):
+   * an ambiguous auth answer (403 / bodyless 401) increments a consecutive
+   * counter carried on lastRefreshError. Below SUSPECT_ESCALATE_COUNT the
+   * prior tokenState is KEPT (a single Cloudflare 403 no longer nukes the
+   * row); at the threshold the row escalates to needs_login with the full
+   * escalation story preserved. Any successful refresh or usage fetch
+   * clears lastRefreshError and thereby resets the counter, so only truly
+   * consecutive suspects escalate.
+   *
+   * @param {string} accountUuid - Snapshot to update.
+   * @param {{status?: number|null, detail?: string}} r - Suspect
+   *   classification from refreshInactiveToken.
+   * @returns {{snap: object, escalated: boolean}} The updated snapshot and
+   *   whether this rung crossed the escalation threshold.
+   */
+  function _recordSuspect(accountUuid, r) {
+    const current = readSnapshot(accountUuid);
+    const prior = current ? current.lastRefreshError : null;
+    const priorCount = (prior && prior.kind === 'auth_suspect' && Number.isFinite(Number(prior.count)))
+      ? Number(prior.count) : 0;
+    const count = priorCount + 1;
+    const status = (r && r.status != null) ? r.status : null;
+    if (count >= SUSPECT_ESCALATE_COUNT) {
+      log.warn('[Credentials] suspect auth response for ' + accountUuid + ' (HTTP ' + status + '): '
+        + count + ' consecutive; escalating to needs_login');
+      const snap = _mutateSnapshot(accountUuid, {
+        tokenState: TOKEN_STATE_NEEDS_LOGIN,
+        lastRefreshError: {
+          at: new Date(clock()).toISOString(),
+          kind: 'auth',
+          status,
+          count,
+          detail: 'escalated after ' + count + ' consecutive suspect auth responses (last: '
+            + String((r && r.detail) || '') + ')',
+        },
+      });
+      return { snap, escalated: true };
+    }
+    log.warn('[Credentials] suspect auth response for ' + accountUuid + ' (HTTP ' + status + '): '
+      + count + ' of ' + SUSPECT_ESCALATE_COUNT + ' before escalation; prior state kept');
+    const snap = _mutateSnapshot(accountUuid, {
+      lastRefreshError: {
+        at: new Date(clock()).toISOString(),
+        kind: 'auth_suspect',
+        status,
+        count,
+        detail: String((r && r.detail) || ''),
+      },
+    });
+    return { snap, escalated: false };
+  }
+
+  /**
+   * Whether a needs_login snapshot is due for an automatic (non-forced)
+   * retry (expiry-fix spec Phase 1 item 4). True when the last rejection
+   * evidence is older than DEAD_RETRY_MIN, or when there is no readable
+   * timestamp at all (legacy rows whose evidence the old code nulled out).
+   * A repeat invalid_grant is harmless, and the retry self-heals rows that
+   * were killed by a WAF false positive.
+   *
+   * @param {object} snap - The needs_login snapshot.
+   * @param {number} now - Epoch ms.
+   * @returns {boolean} True when the dead row should be retried.
+   */
+  function _isDeadRetryDue(snap, now) {
+    const atText = snap && snap.lastRefreshError && snap.lastRefreshError.at;
+    const at = atText ? Date.parse(atText) : NaN;
+    if (!Number.isFinite(at)) return true; // no evidence: retry is harmless
+    return (now - at) >= DEAD_RETRY_MIN;
   }
 
   /**
@@ -882,13 +1273,18 @@ function createCredentialManager(opts = {}) {
       const storedRefresh = (snap.credentials && snap.credentials.refreshToken) ? String(snap.credentials.refreshToken) : '';
       if (!storedRefresh) {
         // Expired access token AND no refresh token: definitively dead,
-        // no network call needed.
-        return _mutateSnapshot(accountUuid, { tokenState: TOKEN_STATE_NEEDS_LOGIN, lastRefreshError: null });
+        // no network call needed. Evidence preserved (never nulled).
+        return _recordAuthRejection(accountUuid, {
+          kind: 'no_refresh_token',
+          status: null,
+          detail: 'expired access token with no stored refresh token',
+        });
       }
-      if (snap.tokenState === TOKEN_STATE_NEEDS_LOGIN && !force) {
-        // Known-dead refresh token: skip the pointless round trip unless the
-        // user explicitly forces a retry (the recovery path if the verdict
-        // was somehow wrong; one extra invalid_grant is harmless).
+      if (snap.tokenState === TOKEN_STATE_NEEDS_LOGIN && !force && !_isDeadRetryDue(snap, now)) {
+        // Known-dead refresh token with FRESH rejection evidence: skip the
+        // pointless round trip. A force retry (the user's Retry button) or
+        // evidence older than DEAD_RETRY_MIN goes through anyway; one extra
+        // invalid_grant is harmless and self-heals WAF false positives.
         return snap;
       }
       const r = await refreshInactiveToken(storedRefresh);
@@ -898,8 +1294,14 @@ function createCredentialManager(opts = {}) {
         // PERSIST IMMEDIATELY, before any usage call.
         snap = _mutateSnapshot(accountUuid, { credentials: rotated, tokenState: TOKEN_STATE_OK, lastRefreshError: null });
         accessToken = r.tokens.accessToken;
-      } else if (r.verdict === 'needs_login') {
-        return _mutateSnapshot(accountUuid, { tokenState: TOKEN_STATE_NEEDS_LOGIN, lastRefreshError: null });
+      } else if (r.verdict === 'rejected') {
+        // Definitive rejection: needs_login WITH the evidence preserved
+        // (the old code nulled lastRefreshError here, a diagnosability bug).
+        return _recordAuthRejection(accountUuid, r);
+      } else if (r.verdict === 'suspect') {
+        // Ambiguous auth answer: run the ladder; prior state kept until
+        // SUSPECT_ESCALATE_COUNT consecutive suspects.
+        return _recordSuspect(accountUuid, r).snap;
       } else {
         return _recordRefreshFailure(accountUuid, r);
       }
@@ -936,6 +1338,30 @@ function createCredentialManager(opts = {}) {
       const identity = readActiveIdentity();
       const uuid = identity && identity.accountUuid ? String(identity.accountUuid) : '';
       if (!validateAccountUuid(uuid)) return null;
+      // ─── WRITE-BACK THEFT GUARD (expiry-fix spec Phase 4) ───
+      // WHY: after a switch, a still-running CLI session from the PREVIOUS
+      // account can refresh its own pair and write those rotated tokens
+      // into the live .credentials.json. The identity file, however,
+      // already names the NEW account, so adopting here would graft the
+      // old account's tokens onto the new account's snapshot (an identity/
+      // token mismatch that corrupts which snapshot owns which lineage and
+      // accelerates lineage death). When the live access token is the
+      // stored token of a DIFFERENT snapshot, the live pair provably
+      // belongs to that other account: skip the whole adoption (merge AND
+      // resurrection; the "live login" evidence is not about this account)
+      // and leave both snapshots intact. Diagnostic carries uuid prefixes
+      // only, NEVER token values.
+      const liveToken = (live.oauth && typeof live.oauth.accessToken === 'string') ? live.oauth.accessToken : '';
+      if (liveToken) {
+        const owner = listSnapshots().find((s) => s.accountUuid !== uuid
+          && s.credentials && s.credentials.accessToken === liveToken);
+        if (owner) {
+          log.warn('[Credentials] write-back guard: the live token belongs to a different saved account ('
+            + owner.accountUuid.slice(0, 8) + ') than the active identity (' + uuid.slice(0, 8)
+            + '); adoption skipped, both snapshots left intact');
+          return null;
+        }
+      }
       const existing = readSnapshot(uuid);
       if (!existing) {
         const nowIso = new Date(clock()).toISOString();
@@ -1397,7 +1823,13 @@ function createCredentialManager(opts = {}) {
     if (_isAccessTokenExpired(snap.credentials, now)) {
       const storedRefresh = snap.credentials.refreshToken ? String(snap.credentials.refreshToken) : '';
       if (!storedRefresh) {
-        _mutateSnapshot(accountUuid, { tokenState: TOKEN_STATE_NEEDS_LOGIN, lastRefreshError: null });
+        // Evidence preserved (never nulled): the apply-path twin of the
+        // usage path's no-refresh-token rejection.
+        _recordAuthRejection(accountUuid, {
+          kind: 'no_refresh_token',
+          status: null,
+          detail: 'expired access token with no stored refresh token',
+        });
         throw credError(409, 'CRED_TOKEN_DEAD', 'The stored token for ' + (snap.email || accountUuid) + ' is expired and has no refresh token. /login as that account once; it recaptures automatically.');
       }
       const r = await refreshInactiveToken(storedRefresh);
@@ -1406,9 +1838,21 @@ function createCredentialManager(opts = {}) {
         // Persist the rotated pair BEFORE applying (the old refresh token
         // dies server-side the instant the new one is issued).
         snap = _mutateSnapshot(accountUuid, { credentials: rotated, tokenState: TOKEN_STATE_OK, lastRefreshError: null });
-      } else if (r.verdict === 'needs_login') {
-        _mutateSnapshot(accountUuid, { tokenState: TOKEN_STATE_NEEDS_LOGIN, lastRefreshError: null });
+      } else if (r.verdict === 'rejected') {
+        // Definitive rejection blocks the apply, WITH evidence preserved.
+        _recordAuthRejection(accountUuid, r);
         throw credError(409, 'CRED_TOKEN_DEAD', 'The stored token for ' + (snap.email || accountUuid) + ' was rejected by the auth server. /login as that account once; it recaptures automatically.');
+      } else if (r.verdict === 'suspect') {
+        // Ambiguous auth answer: run the ladder. Only an escalation (the
+        // SUSPECT_ESCALATE_COUNT-th consecutive suspect) blocks the apply;
+        // below that the swap proceeds with a warning, because a single
+        // Cloudflare 403 must not block switching to a working account.
+        const rung = _recordSuspect(accountUuid, r);
+        if (rung.escalated) {
+          throw credError(409, 'CRED_TOKEN_DEAD', 'The stored token for ' + (snap.email || accountUuid) + ' was rejected repeatedly by the auth server. /login as that account once; it recaptures automatically.');
+        }
+        warning = 'The auth server answered suspiciously (HTTP ' + (r.status != null ? r.status : 'unknown') + '); applied anyway. If the CLI demands login, run /login once.';
+        snap = rung.snap;
       } else {
         // Transient (network/timeout/5xx/429) or protocol failure: apply
         // anyway; never block on transience.
@@ -1499,6 +1943,104 @@ function createCredentialManager(opts = {}) {
   }
 
   /**
+   * Unlocked core of one proactive-refresh candidate (expiry-fix spec
+   * Phase 3). Re-reads the snapshot and re-checks EVERY gate under the
+   * mutex, because the world may have changed between the sweep's roster
+   * listing and this account's turn (an apply can make it PC-active, a Mac
+   * sweep can flag it Mac-active). Gates, all of which must pass:
+   *
+   *   1. never the PC-active account (refreshing it races the CLI's own
+   *      rotation and can brick the live login),
+   *   2. never the Mac-active account (the Mac owns that lineage; see the
+   *      lineage gate in _updateSnapshotUsageUnlocked),
+   *   3. tokenState ok only (dead rows ride the dead-retry window on the
+   *      usage path; unverified rows wait for positive evidence first),
+   *   4. no recent auth_suspect backoff (a suspect ladder in progress means
+   *      the endpoint is answering strangely; do not hammer it. Suspect
+   *      evidence older than DEAD_RETRY_MIN no longer blocks, so a stale
+   *      ladder cannot park an account out of the sweep forever),
+   *   5. expiresAt within PROACTIVE_REFRESH_WINDOW_MIN of lapsing
+   *      (just-in-time rotation, not constant churn; missing expiresAt
+   *      reads as already lapsed, same as _isAccessTokenExpired).
+   *
+   * On refresh success the rotated pair is PERSISTED FIRST (the old
+   * refresh token dies server-side the instant the new one is issued);
+   * only then is the fresh access token used for a best-effort usage
+   * fetch. Failures classify exactly like the usage path (rejected /
+   * suspect ladder / transient), so the sweep tells the same honest story.
+   *
+   * @param {string} accountUuid - Candidate snapshot id.
+   * @returns {Promise<string>} Outcome tag: 'refreshed', 'skipped',
+   *   'rejected', 'suspect', or 'transient'.
+   */
+  async function _proactiveRefreshOneUnlocked(accountUuid) {
+    const snap = readSnapshot(accountUuid);
+    if (!snap || !snap.credentials) return 'skipped';
+    const now = clock();
+    const activeUuid = getActiveAccountUuid();
+    if (activeUuid && activeUuid === snap.accountUuid) return 'skipped'; // gate 1
+    if (getMacActiveHint() === snap.accountUuid) return 'skipped'; // gate 2
+    if (snap.tokenState !== TOKEN_STATE_OK) return 'skipped'; // gate 3
+    if (snap.lastRefreshError && snap.lastRefreshError.kind === 'auth_suspect') { // gate 4
+      const at = snap.lastRefreshError.at ? Date.parse(snap.lastRefreshError.at) : NaN;
+      if (!Number.isFinite(at) || (now - at) < DEAD_RETRY_MIN) return 'skipped';
+    }
+    const expMs = Number(snap.credentials.expiresAt) || 0;
+    if ((expMs - now) > PROACTIVE_REFRESH_WINDOW_MIN * 60000) return 'skipped'; // gate 5
+    const storedRefresh = snap.credentials.refreshToken ? String(snap.credentials.refreshToken) : '';
+    if (!storedRefresh) return 'skipped'; // the usage path owns that death verdict
+    const r = await refreshInactiveToken(storedRefresh);
+    if (r.ok) {
+      const rotated = { ...snap.credentials, accessToken: r.tokens.accessToken, refreshToken: r.tokens.refreshToken, expiresAt: r.tokens.expiresAt };
+      // ROTATE-THEN-PERSIST: on disk before ANY use of the new pair.
+      _mutateSnapshot(accountUuid, { credentials: rotated, tokenState: TOKEN_STATE_OK, lastRefreshError: null });
+      // Freebie: the fresh token also refreshes the usage cache. Best
+      // effort; a usage failure keeps the rotated pair and the prior cache.
+      const usage = await fetchUsage(r.tokens.accessToken);
+      if (usage) _mutateSnapshot(accountUuid, { usage });
+      return 'refreshed';
+    }
+    if (r.verdict === 'rejected') { _recordAuthRejection(accountUuid, r); return 'rejected'; }
+    if (r.verdict === 'suspect') { _recordSuspect(accountUuid, r); return 'suspect'; }
+    _recordRefreshFailure(accountUuid, r);
+    return 'transient';
+  }
+
+  /**
+   * Proactive background refresh sweep over the whole roster (expiry-fix
+   * spec Phase 3; called by the server's guarded interval). Serializes PER
+   * ACCOUNT rather than around the whole sweep so an apply or usage call
+   * can interleave between candidates instead of waiting out N network
+   * round trips. Never rejects: per-account errors are logged and counted,
+   * and one bad snapshot cannot stop the rest of the sweep.
+   *
+   * @returns {Promise<{scanned: number, refreshed: number, skipped: number,
+   *   rejected: number, suspect: number, transient: number, errors: number}>}
+   *   Outcome counters (for logs and tests).
+   */
+  async function proactiveRefreshSweep() {
+    const out = { scanned: 0, refreshed: 0, skipped: 0, rejected: 0, suspect: 0, transient: 0, errors: 0 };
+    let snaps = [];
+    try { snaps = listSnapshots(); } catch (_) { snaps = []; }
+    for (const s of snaps) {
+      out.scanned += 1;
+      try {
+        const outcome = await serialize(() => _proactiveRefreshOneUnlocked(s.accountUuid), 'proactive-refresh');
+        out[outcome] = (out[outcome] || 0) + 1;
+      } catch (err) {
+        out.errors += 1;
+        log.warn('[Credentials] proactive refresh of ' + s.accountUuid + ' failed: ' + ((err && err.message) || err));
+      }
+    }
+    if (out.refreshed > 0 || out.rejected > 0 || out.suspect > 0) {
+      log.log('[Credentials] proactive refresh sweep: ' + out.refreshed + ' refreshed, '
+        + out.rejected + ' rejected, ' + out.suspect + ' suspect, '
+        + out.skipped + ' skipped of ' + out.scanned);
+    }
+    return out;
+  }
+
+  /**
    * Fire one serialized sync-back, swallowing every error (the watcher can
    * never crash the server).
    *
@@ -1506,7 +2048,7 @@ function createCredentialManager(opts = {}) {
    */
   function _fireSync() {
     if (clock() < _selfWriteUntil) return; // our own apply is writing
-    serialize(() => _syncActiveTokenToProfileUnlocked()).catch((err) => {
+    serialize(() => _syncActiveTokenToProfileUnlocked(), 'watcher-sync').catch((err) => {
       log.warn('[Credentials] watcher sync failed: ' + ((err && err.message) || err));
     });
   }
@@ -1522,6 +2064,7 @@ function createCredentialManager(opts = {}) {
    * @returns {void}
    */
   function startCredentialWatcher() {
+    _startChainWatchdog(); // idempotent; re-arms after a stopCredentialWatcher
     if (_watcher || _pollTimer) return; // already running
     try {
       _watcher = fs.watch(claudeDir, (event, filename) => {
@@ -1563,6 +2106,7 @@ function createCredentialManager(opts = {}) {
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     if (_watcher) { try { _watcher.close(); } catch (_) { /* best effort */ } _watcher = null; }
     _lastPollMtime = null;
+    _stopChainWatchdog(); // never leak the stall watchdog past shutdown/tests
   }
 
   /**
@@ -1584,7 +2128,9 @@ function createCredentialManager(opts = {}) {
         isActive: !!activeProfileId && snap.accountUuid === activeProfileId,
         tokenState,
         tokenDead: tokenState === TOKEN_STATE_NEEDS_LOGIN,
-        health: healthFor(tokenState),
+        // Health carries the suspect-ladder nuance: ok + auth_suspect
+        // renders amber (needs-attention), not healthy and not red.
+        health: healthFor(tokenState, snap.lastRefreshError),
         savedAt: snap.savedAt || null,
         updatedAt: snap.updatedAt || null,
         subscriptionType: (snap.credentials && snap.credentials.subscriptionType) || null,
@@ -1615,6 +2161,11 @@ function createCredentialManager(opts = {}) {
     _selfWriteUntil = clock() + (Number(ms) || 0);
   }
 
+  // The stalled-chain watchdog is ON from construction (cheap insurance;
+  // unref'd, so it can never hold the process or a test run open). It is
+  // cleared by stopCredentialWatcher and re-armed by startCredentialWatcher.
+  _startChainWatchdog();
+
   return {
     // Paths and config (read-only introspection for routes and tests)
     claudeDir,
@@ -1637,15 +2188,15 @@ function createCredentialManager(opts = {}) {
     readSnapshot,
     saveSnapshot,
     listSnapshots,
-    deleteSnapshot: (uuid) => serialize(() => _deleteSnapshotUnlocked(uuid)),
+    deleteSnapshot: (uuid) => serialize(() => _deleteSnapshotUnlocked(uuid), 'delete-snapshot'),
     // Watcher (rotation write-back loop)
     startCredentialWatcher,
     stopCredentialWatcher,
-    syncActiveTokenToProfile: () => serialize(() => _syncActiveTokenToProfileUnlocked()),
+    syncActiveTokenToProfile: () => serialize(() => _syncActiveTokenToProfileUnlocked(), 'sync-active'),
     // Mac bridge support: sync-back merge (short, snapshot-mutex guarded),
     // the SSH-op mutex, the sweep cache (never secret-bearing), the
     // Mac-active lineage hint, and the routes-registered state refresher.
-    syncBackFromMac: (uuid, credText) => serialize(() => _syncBackFromMacUnlocked(uuid, credText)),
+    syncBackFromMac: (uuid, credText) => serialize(() => _syncBackFromMacUnlocked(uuid, credText), 'mac-sync-back'),
     runMacExclusive,
     getMacState,
     setMacState,
@@ -1653,9 +2204,9 @@ function createCredentialManager(opts = {}) {
     setMacActiveHint,
     setMacStateRefresher,
     // Capture / seed / labels
-    captureCurrent: (o) => serialize(() => _captureCurrentUnlocked(o)),
-    seedFromClaudeSwap: (dir) => serialize(() => _seedFromClaudeSwapUnlocked(dir)),
-    setLabel: (uuid, label) => serialize(() => _setLabelUnlocked(uuid, label)),
+    captureCurrent: (o) => serialize(() => _captureCurrentUnlocked(o), 'capture'),
+    seedFromClaudeSwap: (dir) => serialize(() => _seedFromClaudeSwapUnlocked(dir), 'seed'),
+    setLabel: (uuid, label) => serialize(() => _setLabelUnlocked(uuid, label), 'set-label'),
     // Network
     fetchUsage,
     refreshInactiveToken,
@@ -1665,15 +2216,22 @@ function createCredentialManager(opts = {}) {
     // sync-back needs that same mutex).
     updateSnapshotUsage: async (uuid, o) => {
       await _pullMacActiveStateIfNeeded(uuid);
-      return serialize(() => _updateSnapshotUsageUnlocked(uuid, o));
+      return serialize(() => _updateSnapshotUsageUnlocked(uuid, o), 'usage-update');
     },
+    // Proactive background refresh (expiry-fix spec Phase 3). Serializes
+    // internally per account; safe to call from a timer. Each per-account
+    // serialize inherits the op deadline, so one wedged account rejects
+    // (counted as an error) instead of freezing the sweep and the chain.
+    proactiveRefreshSweep,
     // Apply transaction
     backupLiveFile,
-    applyCredential: (uuid) => serialize(() => _applyCredentialUnlocked(uuid)),
+    applyCredential: (uuid) => serialize(() => _applyCredentialUnlocked(uuid), 'apply'),
     // Safe projection (the only route-serializable shape)
     getSafeList,
     // Internal, for tests only
     _armSelfWriteGuard,
+    _serialize: serialize,
+    _hasChainWatchdog: () => !!_chainWatchdogTimer,
   };
 }
 
@@ -1685,13 +2243,23 @@ module.exports = {
   displayNameFor,
   healthFor,
   credError,
+  withOpDeadline,
+  settleWithin,
   DEFAULT_CRED_SETTINGS,
   ANTHROPIC_TOKEN_URL,
   ANTHROPIC_USAGE_URL,
   ANTHROPIC_OAUTH_BETA,
   ANTHROPIC_OAUTH_CLIENT_ID,
   REFRESH_TIMEOUT_MS,
+  OP_TIMEOUT_MS,
+  MAC_OP_TIMEOUT_MS,
+  CHAIN_WATCHDOG_INTERVAL_MS,
+  CHAIN_STALL_FACTOR,
   EXPIRY_SKEW_MS,
+  SUSPECT_ESCALATE_COUNT,
+  DEAD_RETRY_MIN,
+  PROACTIVE_REFRESH_WINDOW_MIN,
+  PROACTIVE_REFRESH_FLOOR_MIN,
   TOKEN_STATE_OK,
   TOKEN_STATE_NEEDS_LOGIN,
   TOKEN_STATE_UNVERIFIED,

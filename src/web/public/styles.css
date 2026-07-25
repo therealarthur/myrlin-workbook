@@ -8399,6 +8399,69 @@ html {
   color: var(--text-muted);
 }
 
+/* ─── Provider tab bar (Claude | Codex) ──────────────────────────
+   Sits between the panel header and the meter/machines strips. Mirrors
+   the sidebar provider tabs (.sidebar-tabs): flat buttons, a 2px bottom
+   border in the active provider's accent token, 150-200ms transitions
+   via the shared --transition-fast. Only existing theme tokens are
+   consumed (css-tokens + phantom-tokens gates). */
+.account-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.account-tab {
+  flex: 1 1 0;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.account-tab:hover {
+  color: var(--text-secondary);
+}
+.account-tab.is-active {
+  color: var(--text-primary);
+}
+.account-tab.is-active[data-provider-tab="claude"] {
+  border-bottom-color: var(--provider-claude-accent);
+}
+.account-tab.is-active[data-provider-tab="codex"] {
+  border-bottom-color: var(--provider-codex-accent);
+}
+/* Old server without the provider-account routes: the tab stays visible
+   but reads as unavailable (loadProviderAccounts sets the class + title
+   on a 404). */
+.account-tab.is-unavailable {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Hint line inside the provider empty state (login instructions or the
+   API-key notice), one step quieter than the headline paragraph. */
+.account-empty-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* Codex-accented selection marks, scoped to the Codex tab via the
+   panel's data-active-tab attribute (set by _activateAccountTab). Only
+   the staged radio and its dot diverge; every other pixel is shared with
+   the Claude tab. The ACTIVE pill already uses var(--green), which IS
+   the Codex accent token, so it needs no override. */
+.account-panel[data-active-tab="codex"] .account-row.is-staged .account-row-radio {
+  border-color: var(--provider-codex-accent);
+}
+.account-panel[data-active-tab="codex"] .account-row.is-staged .account-row-radio::after {
+  background: var(--provider-codex-accent);
+}
+
 /* ─── Machines strip (PC / Mac location summary) ─────────────────
    Which account is live on which machine, under the panel header. Hidden
    while the Mac bridge is disabled (renderMachinesStrip). Every color is a
@@ -8781,6 +8844,58 @@ html {
 /* Dead rows keep the pencil reachable at reduced emphasis */
 .account-row.is-dead .account-row-edit {
   cursor: pointer;
+}
+
+/* Delete (trash) button: inherits the pencil's hover-reveal base via the
+   shared .account-row-edit class; the hover tint leans toward red because
+   this is a destructive action (it stays neutral until hover so the row
+   does not shout). The button is not rendered on the ACTIVE row at all:
+   the credential watcher re-saves the live login within ~1s, so deleting
+   the active snapshot would be a confusing no-op. */
+.account-row-edit.account-delete-btn:hover {
+  background: var(--surface1);
+  color: var(--red);
+}
+
+/* Retry button on dead (needs-re-login) rows: sits inside the dead-note
+   line and stays ALWAYS visible (it is the recovery affordance, unlike the
+   hover-reveal pencil). The row's dimmed opacity still applies; the button
+   opts back into a pointer cursor over the row's not-allowed. */
+.account-retry-btn {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--surface1);
+  border-radius: 5px;
+  background: var(--surface0);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.account-retry-btn:hover {
+  background: var(--surface1);
+  border-color: var(--overlay0);
+}
+
+.account-retry-btn:focus-visible {
+  outline: 1px solid var(--overlay1);
+}
+
+.account-retry-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Amber suspect note (an ok row under an unresolved auth_suspect ladder):
+   reuses the needs-attention yellow at the dead-note size, so the amber
+   avatar and this line tell one consistent story. */
+.account-warn-note {
+  font-size: 10px;
+  color: var(--yellow);
 }
 
 .account-panel-footer {

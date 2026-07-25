@@ -373,7 +373,7 @@ setupDeviceRoutes(app, {
 // transaction; the watcher is started in startServer() and stopped on
 // shutdown. broadcast is a lazy closure: broadcastSSE is a hoisted function
 // declaration, so runtime calls resolve even though it is defined below.
-const { createCredentialManager } = require('./credential-manager');
+const { createCredentialManager, PROACTIVE_REFRESH_FLOOR_MIN } = require('./credential-manager');
 const credentialMacBridge = require('./mac-bridge');
 const { setupCredentialRoutes } = require('./credential-routes');
 const credentialManager = createCredentialManager({
@@ -394,6 +394,29 @@ setupCredentialRoutes(app, {
   structuredError,
   manager: credentialManager,
   macBridge: credentialMacBridge,
+});
+
+// ─── Provider Account Switchers (generic, capability-driven) ─
+// Design: docs/plans/2026-07-03-codex-account-switcher-design.md. The
+// generic manager mirrors the Claude credential manager above but is
+// fully parameterized by a provider-owned capability object, so this
+// wiring and src/web/provider-account-*.js stay free of provider
+// literals: the id string below comes from the capability itself. The
+// watcher is started in startServer() and stopped on shutdown.
+const { accountsCapability: codexAccountsCapability } = require('../providers/codex/accounts');
+const { createProviderAccountManager } = require('./provider-account-manager');
+const { setupProviderAccountRoutes } = require('./provider-account-routes');
+const codexAccountManager = createProviderAccountManager(codexAccountsCapability, {
+  // Per-provider settings live under settings.providerAccounts[providerId]
+  // (parallel to settings.credentialSwitcher for Claude).
+  settingsProvider: () =>
+    (((getStore().settings || {}).providerAccounts || {})[codexAccountsCapability.providerId]) || {},
+});
+setupProviderAccountRoutes(app, {
+  requireAuth,
+  broadcast: (type, data) => broadcastSSE(type, data),
+  structuredError,
+  managers: new Map([[codexAccountsCapability.providerId, codexAccountManager]]),
 });
 
 // ─── Session Mirror service (issue #10 Tier 1, Phase 3) ─────
@@ -5936,6 +5959,8 @@ const GLOBAL_EVENT_TYPES = new Set([
   'credentials:changed', // credential switcher: apply/capture/rename/delete
   'credentials:usage',   // credential switcher: usage refresh results
   'credentials:mac',     // credential switcher: Mac inventory sweep results (names/uuids only)
+  'provider-accounts:changed', // provider account switchers (e.g. Codex tab): apply/capture/rename/delete
+  'provider-accounts:usage',   // provider account switchers: usage refresh results (safe rows only)
 ]);
 
 /**
@@ -8658,6 +8683,67 @@ function startServer(port = 3456, host = '127.0.0.1') {
     console.warn('[Credentials] watcher failed to start:', err.message);
   }
 
+  // Proactive credential refresh sweep (expiry-fix spec Phase 3; ON BY
+  // DEFAULT). WHY: refresh tokens are one-time-use; a successful refresh
+  // rotates the pair and kills the old refresh token server-side, so
+  // whichever lineage holder refreshes first wins and every other stored
+  // copy dies. Parked accounts were expiring ~8 to 13h after their last
+  // rotation because some OTHER holder (a CLI session left running on a
+  // switched-away account, a Mac profile, an old claude-swap copy) rotated
+  // first. This sweep keeps the workbook the winner by rotating inactive,
+  // believed-good accounts just before their access token lapses.
+  //
+  // ACCEPTED RISK (Arthur's decision, 2026-07-16): when the workbook wins
+  // the lineage, a CLI session still running on that switched-away account
+  // loses it and can be logged out mid-session, and the OAuth server's
+  // reuse detection can revoke the whole token family. The manager's gates
+  // (never PC-active, never Mac-active, tokenState ok only, no recent
+  // suspect backoff, 30-minute expiry window) minimize but do not
+  // eliminate this; /login on the affected account recovers it either way.
+  //
+  // The tick re-reads settings, so setting proactiveRefreshMinutes to 0
+  // disables the sweep live; the interval LENGTH is read once at boot (a
+  // cadence change applies on the next restart). Clamped to the named
+  // floor so a typo like 1 cannot hammer the token endpoint.
+  let credProactiveTimer = null;
+  try {
+    const configuredMinutes = Number(credentialManager.getSettings().proactiveRefreshMinutes);
+    if (configuredMinutes > 0) {
+      const intervalMinutes = Math.max(PROACTIVE_REFRESH_FLOOR_MIN, configuredMinutes);
+      credProactiveTimer = setInterval(() => {
+        try {
+          const minutesNow = Number(credentialManager.getSettings().proactiveRefreshMinutes);
+          if (!(minutesNow > 0)) return; // disabled at runtime: skip the tick
+          credentialManager.proactiveRefreshSweep().then((result) => {
+            // Repaint connected clients only when something changed; the
+            // payload is the safe projection (never token material).
+            if (result && (result.refreshed > 0 || result.rejected > 0 || result.suspect > 0)) {
+              try {
+                broadcastSSE('credentials:usage', { profiles: credentialManager.getSafeList().profiles });
+              } catch (_) { /* broadcast is best effort */ }
+            }
+          }).catch((err) => {
+            console.warn('[Credentials] proactive refresh sweep failed:', (err && err.message) || err);
+          });
+        } catch (err) {
+          console.warn('[Credentials] proactive refresh tick failed:', (err && err.message) || err);
+        }
+      }, intervalMinutes * 60 * 1000);
+      if (credProactiveTimer.unref) credProactiveTimer.unref();
+    }
+  } catch (err) {
+    console.warn('[Credentials] proactive refresh setup failed:', (err && err.message) || err);
+  }
+
+  // Provider account watcher(s): same write-back pattern for the generic
+  // account switchers (Codex tab). Auto-captures the live login within
+  // ~1s of a CLI login. A start failure only logs; never blocks boot.
+  try {
+    codexAccountManager.startWatcher();
+  } catch (err) {
+    console.warn('[ProviderAccounts] watcher failed to start:', err.message);
+  }
+
   // Cleanup tunnels, scheduler, and PTY sessions on shutdown
   const cleanup = () => {
     if (_scheduler) {
@@ -8667,6 +8753,11 @@ function startServer(port = 3456, host = '127.0.0.1') {
       try { _ptyManager.destroyAll(); } catch (_) {}
     }
     try { credentialManager.stopCredentialWatcher(); } catch (_) {}
+    if (credProactiveTimer) {
+      try { clearInterval(credProactiveTimer); } catch (_) {}
+      credProactiveTimer = null;
+    }
+    try { codexAccountManager.stopWatcher(); } catch (_) {}
     // Issue #10 Phase 3: stop every mirror tailer (fs.watch handles + timers).
     try { mirrorService.disposeAll(); } catch (_) {}
     for (const [, t] of _tunnels) {
