@@ -85,6 +85,36 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   }
 
   /**
+   * Reject a credential mutation when ownership has been handed to the
+   * external Myrlin bridge. Older injected manager fakes do not expose the
+   * guard and retain their historical behavior.
+   *
+   * @param {import('express').Response} res
+   * @param {string} operation - Human-readable operation for the conflict.
+   * @returns {import('express').Response|null} Conflict response, or null.
+   */
+  function rejectExternalOwnerMutation(res, operation) {
+    if (typeof manager.assertCredentialPoolWritable !== 'function') return null;
+    try {
+      manager.assertCredentialPoolWritable(operation);
+      return null;
+    } catch (err) {
+      return mapError(res, err);
+    }
+  }
+
+  /**
+   * Read the manager's passive-mode state without making marker presence an
+   * implicit opt-in. Missing methods on older test fakes mean writable.
+   *
+   * @returns {boolean}
+   */
+  function credentialPoolIsReadOnly() {
+    return typeof manager.isCredentialPoolReadOnly === 'function'
+      && manager.isCredentialPoolReadOnly();
+  }
+
+  /**
    * Summarize the mac mirror config for list responses (no secrets; host
    * and user are already non-secret connection metadata).
    *
@@ -239,6 +269,17 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // the frontend the pass did not finish (stale-but-usable data).
   app.get('/api/credentials', requireAuth, async (req, res) => {
     try {
+      // MERGE NOTE (passive mode x degraded mode): in passive mode this GET
+      // is a true read. No seed sentinel, snapshot import, or live-token
+      // sync-back may ride on a list request, and because nothing is queued
+      // on the serialized chain there is nothing to race a deadline against:
+      // the roster is served directly and is never marked degraded. When CWM
+      // owns the pool, the deadlock hardening applies unchanged: both
+      // best-effort side effects are raced against bestEffortMs so a wedged
+      // chain can only ever make this list stale, never hang it.
+      if (credentialPoolIsReadOnly()) {
+        return sendList(res);
+      }
       const bestEffort = (async () => {
         try { await manager.seedFromClaudeSwap(); } catch (_) { /* seed is best effort */ }
         try { await manager.syncActiveTokenToProfile(); } catch (_) { /* sync is best effort */ }
@@ -255,6 +296,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // snapshot whose cache is stale. Per-profile usage failure is NOT a route
   // error (rows keep their stale cache; dead tokens surface in the list).
   app.post('/api/credentials/refresh-usage', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Usage refresh');
+    if (ownershipConflict) return ownershipConflict;
     try {
       const body = req.body || {};
       if (body.profileId !== undefined) {
@@ -329,6 +372,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   //           which case the historical error statuses are kept.
   // PC always runs first so the Mac push ships the freshest PC state.
   app.post('/api/credentials/apply', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential apply');
+    if (ownershipConflict) return ownershipConflict;
     const body = req.body || {};
     const legacy = body.profileId !== undefined;
     let pcTarget = null;
@@ -457,6 +502,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // ─── POST /api/credentials/capture ────────────────────────────────────
   // Snapshot the live PC pair with an optional friendly label.
   app.post('/api/credentials/capture', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential capture');
+    if (ownershipConflict) return ownershipConflict;
     try {
       const body = req.body || {};
       const snap = await manager.captureCurrent({ label: body.label });
@@ -470,6 +517,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // ─── PUT /api/credentials/:profileId/label ────────────────────────────
   // Rename. Trim, cap 60 (400 beyond), empty clears back to the fallback.
   app.put('/api/credentials/:profileId/label', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential label update');
+    if (ownershipConflict) return ownershipConflict;
     try {
       const body = req.body || {};
       const snap = await manager.setLabel(req.params.profileId, body.label != null ? body.label : '');
@@ -483,6 +532,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // ─── DELETE /api/credentials/:profileId ───────────────────────────────
   // Removes the snapshot file only (never live files, never remote files).
   app.delete('/api/credentials/:profileId', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential snapshot delete');
+    if (ownershipConflict) return ownershipConflict;
     try {
       const profileId = req.params.profileId;
       await manager.deleteSnapshot(profileId);
@@ -515,6 +566,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // option-injection guard). No connectivity probe here; the probe happens
   // naturally at mirror time with a clean MAC_UNREACHABLE.
   app.put('/api/credentials/mac-config', requireAuth, (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential switcher configuration update');
+    if (ownershipConflict) return ownershipConflict;
     try {
       const body = req.body || {};
       const cur = manager.getSettings().mac;
@@ -569,6 +622,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // credentials:mac. An offline Mac is a 200 with reachable:false, never an
   // error status: offline is a state the UI renders, not a failure.
   app.post('/api/credentials/mac-state/refresh', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Mac credential-state refresh');
+    if (ownershipConflict) return ownershipConflict;
     try {
       if (!macStateAvailable()) {
         return res.json({

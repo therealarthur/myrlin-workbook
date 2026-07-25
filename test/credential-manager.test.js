@@ -42,6 +42,9 @@ const {
   DEAD_RETRY_MIN,
   PROACTIVE_REFRESH_WINDOW_MIN,
   PROACTIVE_REFRESH_FLOOR_MIN,
+  POOL_OWNER_MARKER_FILE,
+  EXTERNAL_BRIDGE_OWNER,
+  CRED_POOL_EXTERNAL_OWNER_CODE,
 } = require('../src/web/credential-manager');
 
 let passed = 0;
@@ -135,6 +138,23 @@ function makeIdentity(uuid, email) {
     organizationName: 'Fixture Org',
     organizationRole: 'admin',
   };
+}
+
+/**
+ * Write the exact v1 marker shape owned by Myrlin's bridge router.
+ * @param {string} accountsDir - Credential snapshot pool root.
+ * @returns {string} Marker path.
+ */
+function writePoolOwnerMarker(accountsDir) {
+  const markerPath = path.join(accountsDir, POOL_OWNER_MARKER_FILE);
+  fs.writeFileSync(markerPath, JSON.stringify({
+    version: 1,
+    owner: EXTERNAL_BRIDGE_OWNER,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    leaseId: 'a'.repeat(32),
+  }), 'utf-8');
+  return markerPath;
 }
 
 let fixtureSeq = 0;
@@ -382,6 +402,114 @@ let stubBase = '';
     assertEqual(read2.label, 'Work', 'label carried forward');
     assertEqual(read2.credentials.accessToken, 'at-FIXTURE-B2', 'credentials updated');
     assertEqual(read2.tokenState, TOKEN_STATE_OK, 'tokenState carried forward');
+  });
+
+  await test('bridge marker alone does not change the default-off credential behavior', async () => {
+    const fx = makeFixture();
+    writePoolOwnerMarker(fx.accountsDir);
+    const state = fx.manager.getCredentialPoolState();
+    assertEqual(state.configured, false, 'external ownership remains opt-in');
+    assertEqual(state.readOnly, false, 'marker presence alone does not enable passive mode');
+    assertEqual(state.marker.valid, true, 'router marker shape is recognized');
+    assertEqual(state.marker.owner, EXTERNAL_BRIDGE_OWNER);
+    const captured = await fx.manager.captureCurrent({ label: 'Default still writable' });
+    assertEqual(captured.accountUuid, UUID_A, 'legacy capture behavior is preserved when the flag is off');
+    const priorEnv = process.env.CWM_CRED_EXTERNAL_BRIDGE_OWNER;
+    try {
+      process.env.CWM_CRED_EXTERNAL_BRIDGE_OWNER = '1';
+      assertEqual(fx.manager.isCredentialPoolReadOnly(), true, 'strict env opt-in enables passive mode');
+    } finally {
+      if (priorEnv === undefined) delete process.env.CWM_CRED_EXTERNAL_BRIDGE_OWNER;
+      else process.env.CWM_CRED_EXTERNAL_BRIDGE_OWNER = priorEnv;
+    }
+  });
+
+  await test('external bridge ownership is fail-closed across refresh, sync, seed, snapshot, and live-file writes', async () => {
+    resetStub();
+    const settings = { externalBridgeOwner: false };
+    const fx = makeFixture({ settings });
+    const cachedUsage = {
+      five_hour: { utilization: 17, resets_at: '2026-07-25T00:00:00Z' },
+      seven_day: { utilization: 29, resets_at: '2026-07-31T00:00:00Z' },
+      fetchedAt: '2026-07-24T00:00:00.000Z',
+    };
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B,
+      email: EMAIL_B,
+      label: 'Externally owned',
+      credentials: makeOauth('PASSIVE-B', Date.now() - HOUR_MS),
+      identity: makeIdentity(UUID_B, EMAIL_B),
+      usage: cachedUsage,
+      tokenState: TOKEN_STATE_OK,
+    });
+    const markerPath = writePoolOwnerMarker(fx.accountsDir);
+    const snapshotFile = path.join(fx.accountsDir, UUID_B + '.json');
+    const snapshotBefore = fs.readFileSync(snapshotFile, 'utf-8');
+    const liveCredBefore = fs.readFileSync(fx.credPath, 'utf-8');
+    const liveIdentityBefore = fs.readFileSync(fx.claudeJsonPath, 'utf-8');
+    settings.externalBridgeOwner = true;
+
+    const state = fx.manager.getCredentialPoolState();
+    assertEqual(state.readOnly, true);
+    assertEqual(state.marker.path, markerPath);
+    assertEqual(state.marker.valid, true);
+    assertEqual(state.marker.owner, EXTERNAL_BRIDGE_OWNER);
+    assertEqual(state.marker.pid, process.pid);
+    fs.unlinkSync(markerPath);
+    assertEqual(fx.manager.getCredentialPoolState().readOnly, true,
+      'configured ownership stays fail-closed when the marker is absent');
+    fs.writeFileSync(markerPath, '{"owner":"unexpected"}', 'utf-8');
+    const malformedState = fx.manager.getCredentialPoolState();
+    assertEqual(malformedState.readOnly, true, 'malformed marker cannot reopen writes');
+    assertEqual(malformedState.marker.valid, false);
+    writePoolOwnerMarker(fx.accountsDir);
+
+    const list = fx.manager.getSafeList();
+    const row = list.profiles.find((p) => p.profileId === UUID_B);
+    assert(row && row.usage, 'cached read-only usage remains visible');
+    assertEqual(row.usage.five_hour.utilization, 17);
+    const usageResult = await fx.manager.updateSnapshotUsage(UUID_B, { force: true });
+    assertEqual(usageResult.usage.five_hour.utilization, 17, 'usage refresh degrades to cached data');
+    assertEqual(stub.usageHits, 0, 'passive usage never calls the usage endpoint');
+    assertEqual(stub.tokenHits, 0, 'passive usage never calls the token endpoint');
+
+    assertEqual(await fx.manager.syncActiveTokenToProfile(), null, 'PC sync is a no-op');
+    const macSync = await fx.manager.syncBackFromMac(
+      UUID_B,
+      serializeCredentialsFile(makeOauth('MAC-NEWER', Date.now() + 12 * HOUR_MS)),
+    );
+    assertEqual(macSync.synced, false, 'Mac sync-back is a no-op');
+    assert(macSync.reason && macSync.reason.indexOf('read-only') !== -1, 'Mac sync-back reports passive mode');
+    const seed = await fx.manager.seedFromClaudeSwap();
+    assertEqual(seed.readOnly, true, 'seed is explicitly skipped');
+    assert(!fs.existsSync(path.join(fx.accountsDir, '.seeded')), 'passive seed writes no sentinel');
+
+    const blocked = [
+      () => fx.manager.saveSnapshot({ accountUuid: UUID_C }),
+      () => fx.manager.captureCurrent({}),
+      () => fx.manager.setLabel(UUID_B, 'blocked'),
+      () => fx.manager.deleteSnapshot(UUID_B),
+      () => fx.manager.applyCredential(UUID_B),
+      () => fx.manager.refreshInactiveToken('rt-FIXTURE-BLOCKED'),
+      () => fx.manager.backupLiveFile(fx.credPath),
+    ];
+    for (const invoke of blocked) {
+      let err = null;
+      try { await invoke(); } catch (caught) { err = caught; }
+      assert(err, 'mutation must throw a typed conflict');
+      assertEqual(err.status, 409);
+      assertEqual(err.code, CRED_POOL_EXTERNAL_OWNER_CODE);
+      assert(err.message.indexOf(EXTERNAL_BRIDGE_OWNER) !== -1, 'conflict names the bridge owner');
+    }
+
+    fx.manager.startCredentialWatcher();
+    await sleep(50);
+    fx.manager.stopCredentialWatcher();
+    assertEqual(fs.readFileSync(snapshotFile, 'utf-8'), snapshotBefore, 'snapshot bytes stay unchanged');
+    assertEqual(fs.readFileSync(fx.credPath, 'utf-8'), liveCredBefore, 'live credential bytes stay unchanged');
+    assertEqual(fs.readFileSync(fx.claudeJsonPath, 'utf-8'), liveIdentityBefore, 'live identity bytes stay unchanged');
+    assert(!fs.existsSync(fx.manager.backupsDir), 'no credential backup file was written');
+    assertEqual(stub.tokenHits, 0, 'direct token refresh was blocked before network');
   });
 
   await test('legacy tokenDead files normalize to unverified, never needs_login', async () => {

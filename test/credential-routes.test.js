@@ -508,7 +508,12 @@ function openSSE(server) {
   // macBridge (zero SSH possible by construction), lift the env gate only
   // while the fake is the ONLY bridge in play, and restore it afterwards.
   const express = require('express');
-  const { createCredentialManager } = require('../src/web/credential-manager');
+  const {
+    createCredentialManager,
+    POOL_OWNER_MARKER_FILE,
+    EXTERNAL_BRIDGE_OWNER,
+    CRED_POOL_EXTERNAL_OWNER_CODE,
+  } = require('../src/web/credential-manager');
   const { setupCredentialRoutes } = require('../src/web/credential-routes');
   const realBridge = require('../src/web/mac-bridge');
 
@@ -744,6 +749,71 @@ function openSSE(server) {
     assertEqual(again.body.alreadyActive, true);
     assertEqual(again.body.mac.attempted, false, 'legacy semantics: no mirror after alreadyActive');
     assertEqual(fakeBridge.applies.length, 0, 'bridge never called');
+  });
+
+  await test('external bridge ownership keeps GET read-only and returns typed 409 for every mutating credential route', async () => {
+    const markerPath = path.join(macManager.accountsDir, POOL_OWNER_MARKER_FILE);
+    fs.writeFileSync(markerPath, JSON.stringify({
+      version: 1,
+      owner: EXTERNAL_BRIDGE_OWNER,
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      leaseId: 'b'.repeat(32),
+    }), 'utf-8');
+    macSettings.externalBridgeOwner = true;
+
+    // Make the live token strictly newer than the active snapshot. A legacy
+    // GET would sync it back; the passive GET must leave the snapshot bytes
+    // untouched while still returning the safe cached roster.
+    fs.writeFileSync(macCredPath,
+      JSON.stringify({ claudeAiOauth: makeOauth('PASSIVE-LIVE', Date.now() + 24 * HOUR_MS) }),
+      'utf-8');
+    const snapshotPaths = fs.readdirSync(macManager.accountsDir)
+      .filter((name) => /^[0-9a-f-]{8,64}\.json$/i.test(name))
+      .map((name) => path.join(macManager.accountsDir, name));
+    const snapshotsBefore = new Map(snapshotPaths.map((file) => [file, fs.readFileSync(file, 'utf-8')]));
+    const liveCredBefore = fs.readFileSync(macCredPath, 'utf-8');
+    const liveIdentityBefore = fs.readFileSync(macClaudeJson, 'utf-8');
+    const usageHitsBefore = stub.usageHits;
+    const tokenHitsBefore = stub.tokenHits;
+    const sweepsBefore = fakeBridge.sweeps;
+    const appliesBefore = fakeBridge.applies.length;
+    const eventsBefore = macEvents.length;
+
+    const list = await req(macListener, 'GET', '/api/credentials');
+    assertEqual(list.status, 200, 'safe roster remains available');
+    assertNoTokenMaterial(list.raw, 'passive GET list');
+    assert(Array.isArray(list.body.profiles) && list.body.profiles.length >= 2, 'cached roster returned');
+
+    const mutations = [
+      ['POST', '/api/credentials/refresh-usage', { profileId: UUID_PC2 }],
+      ['POST', '/api/credentials/apply', { pc: UUID_MAC, mac: UUID_PC2 }],
+      ['POST', '/api/credentials/capture', { label: 'blocked' }],
+      ['PUT', '/api/credentials/' + UUID_PC2 + '/label', { label: 'blocked' }],
+      ['DELETE', '/api/credentials/' + UUID_PC2, null],
+      ['PUT', '/api/credentials/mac-config', { enabled: false }],
+      ['POST', '/api/credentials/mac-state/refresh', {}],
+    ];
+    for (const [method, routePath, body] of mutations) {
+      const r = await req(macListener, method, routePath, { body });
+      assertEqual(r.status, 409, method + ' ' + routePath + ' must conflict: ' + r.raw);
+      assertEqual(r.body.error, CRED_POOL_EXTERNAL_OWNER_CODE);
+      assert(r.body.message.indexOf(EXTERNAL_BRIDGE_OWNER) !== -1,
+        method + ' ' + routePath + ' conflict must identify the owner');
+      assertNoTokenMaterial(r.raw, 'passive conflict ' + method + ' ' + routePath);
+    }
+
+    for (const [file, before] of snapshotsBefore) {
+      assertEqual(fs.readFileSync(file, 'utf-8'), before, path.basename(file) + ' stayed byte-identical');
+    }
+    assertEqual(fs.readFileSync(macCredPath, 'utf-8'), liveCredBefore, 'live credential file stayed byte-identical');
+    assertEqual(fs.readFileSync(macClaudeJson, 'utf-8'), liveIdentityBefore, 'live identity file stayed byte-identical');
+    assert(!fs.existsSync(path.join(macManager.accountsDir, '.seeded')), 'GET wrote no seed sentinel');
+    assertEqual(stub.usageHits, usageHitsBefore, 'no usage endpoint request');
+    assertEqual(stub.tokenHits, tokenHitsBefore, 'no token refresh request');
+    assertEqual(fakeBridge.sweeps, sweepsBefore, 'no Mac inventory sweep');
+    assertEqual(fakeBridge.applies.length, appliesBefore, 'no Mac apply');
+    assertEqual(macEvents.length, eventsBefore, 'blocked mutations emitted no SSE event');
   });
 
   // Restore the env gate so nothing after this point could ever touch a
