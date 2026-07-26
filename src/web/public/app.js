@@ -16883,8 +16883,7 @@ class CWMApp {
       'terminal-pane-done',
       'mobile-active'
     );
-      paneEl.classList.add('terminal-pane-empty');
-      paneEl.classList.remove('mobile-active');
+    paneEl.classList.add('terminal-pane-empty');
     paneEl.removeAttribute('data-provider');
     delete paneEl.dataset.attentionState;
     delete paneEl.dataset.needsInput;
