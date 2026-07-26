@@ -191,7 +191,9 @@
     async function resetFixtureState() {
       await fetch('/reset', { method: 'POST' });
       window.__copyAttempts.length = 0;
+      window.__nativeCopyEvents.length = 0;
       window.__toast = null;
+      window.__focusCalls = 0;
       await refreshFixtureState();
     }
 
@@ -272,8 +274,25 @@
     }
 
     window.__copyAttempts = [];
+    window.__nativeCopyEvents = [];
     window.__toast = null;
     localStorage.setItem('cwm_token', 'fixture-token');
+
+    // Bubble after xterm's target listener so the record contains the exact
+    // text xterm synchronously placed in ClipboardEvent.clipboardData.
+    document.addEventListener('copy', (event) => {
+      let text = '';
+      try {
+        text = event.clipboardData
+          ? event.clipboardData.getData('text/plain')
+          : '';
+      } catch (_) {}
+      window.__nativeCopyEvents.push({
+        trusted: event.isTrusted,
+        text,
+        defaultPrevented: event.defaultPrevented,
+      });
+    });
 
     document.addEventListener('DOMContentLoaded', async () => {
       const pane = new TerminalPane('fixture-terminal', 'fixture_session', 'Fixture TUI', {
@@ -295,11 +314,23 @@
       const CwmAppClass = await loadCwmAppClass();
       const menuApp = Object.create(CwmAppClass.prototype);
       menuApp.terminalPanes = [pane];
+      menuApp._activeTerminalSlot = 0;
       menuApp.state = {};
       menuApp._tabGroups = [];
       menuApp._activeGroupId = null;
       menuApp._buildSessionContextItems = () => null;
       menuApp.getSessionConflicts = () => [];
+      // Model the production pane-focus path adversarially: a refocus may
+      // clear xterm selection before the descendant right-button guard runs.
+      // The production _focusTerminalPaneFromPointer helper must skip this
+      // callback for a selected-text right press.
+      window.__focusCalls = 0;
+      menuApp.setActiveTerminalPane = (slot) => {
+        window.__focusCalls += 1;
+        menuApp._activeTerminalSlot = slot;
+        pane.term.clearSelection();
+        pane.focus();
+      };
       menuApp.showToast = (message, level) => {
         window.__toast = { message, level };
         const toast = document.getElementById('toast');
@@ -309,20 +340,25 @@
       menuApp._renderContextItems = renderFixtureContextMenu;
       window.__fixtureApp = menuApp;
 
-      // The fixture intentionally does not boot CWMApp._bindEvents. Mirror its
-      // production copy-failure listener so a real TerminalPane Ctrl+C event
-      // exercises the same visible outcome.
-      document.addEventListener('cwm:copy-unavailable', () => {
-        menuApp.showToast('Copy was blocked by the browser. Selection kept.', 'error');
-      });
-
       const paneElement = document.getElementById('term-pane-0');
-      paneElement.addEventListener('mousedown', () => pane.focus(), true);
+      paneElement.addEventListener('mousedown', (event) => {
+        menuApp._focusTerminalPaneFromPointer(0, event);
+      }, true);
       paneElement.addEventListener('contextmenu', (event) => {
+        const terminalPane = menuApp._terminalPaneFromPointerEvent(0, event);
+        const copySelection = terminalPane
+          ? terminalPane.getCopySelection()
+          : { hasSelection: false, text: '', source: null };
         event.preventDefault();
         event.stopPropagation();
-        menuApp.showTerminalContextMenu(0, event.clientX, event.clientY);
-      });
+        menuApp.showTerminalContextMenu(
+          0,
+          event.clientX,
+          event.clientY,
+          copySelection,
+          terminalPane
+        );
+      }, true);
 
       document.getElementById('mode-alt').addEventListener('click', () => setFixtureMode('alt'));
       document.getElementById('mode-normal').addEventListener('click', () => setFixtureMode('normal'));

@@ -277,8 +277,8 @@ async function run() {
     assert.strictEqual(shell.title, "myrlin's workbook");
     assert.strictEqual(shell.loginHidden, true, 'startup token must reveal the application shell');
     assert.strictEqual(shell.appHidden, false, 'application shell must be visible after startup auth');
-    assert.match(shell.terminalScript, /^terminal\.js\?v=20260725-copymode3-/);
-    assert.match(shell.appScript, /^app\.js\?v=20260725-copytruth-/);
+    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260725-copy-native5');
+    assert.strictEqual(shell.appScript, 'app.js?v=20260725-copy-native5');
     assert.strictEqual(shell.terminalClass, 'function', 'production TerminalPane must load');
     assert.strictEqual(shell.selectInterceptor, 'function', 'Select-mode interceptor must be present');
     assert.strictEqual(shell.themeRegistry, 'object', 'canonical theme registry must load before the app');
@@ -735,21 +735,6 @@ async function run() {
     );
     await classicPage.close();
 
-    // Exercise the listener installed by the real CWMApp._bindEvents rather
-    // than the lightweight terminal fixture's mirrored listener.
-    await page.evaluate(() => {
-      document.dispatchEvent(new CustomEvent('cwm:copy-unavailable', {
-        bubbles: true,
-        detail: { reason: 'failed', containerId: 'shell-proof', sessionId: 'shell-proof' },
-      }));
-    });
-    const copyFailureToast = page.locator('#toast-container .toast-error .toast-message').last();
-    await copyFailureToast.waitFor({ state: 'visible' });
-    assert.strictEqual(
-      await copyFailureToast.textContent(),
-      'Copy was blocked by the browser. Selection kept.',
-      'production app listener must render truthful Ctrl+C copy failure feedback'
-    );
     assert.deepStrictEqual(pageErrors, [], 'full Workbook page raised browser errors');
     const unexpectedExternalRequests = blockedExternalRequests.filter((requestUrl) => (
       !requestUrl.startsWith('https://fonts.googleapis.com/') &&
@@ -765,7 +750,6 @@ async function run() {
     console.log('  One-use startup auth succeeded and token was removed from the URL');
     console.log('  Focused desktop, tablet, mobile, light, and classic-density layouts rendered');
     console.log('  Secondary views routed through More; preview task tabs remained gated');
-    console.log('  Production copy-failure event listener rendered the truthful error');
     console.log('  External browser traffic was blocked; Git fetch and tunnel probes stayed inert');
     console.log('  No real profile, credential, session, or provider state was used');
     console.log('  Screenshots: ' + [

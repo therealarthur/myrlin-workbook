@@ -40,6 +40,7 @@ const ALLOWED_ASSETS = new Map([
 const state = {
   inputFrames: 0,
   mouseEvents: 0,
+  hoverMoves: 0,
   leftPresses: 0,
   rightPresses: 0,
   sigintCount: 0,
@@ -56,6 +57,7 @@ const state = {
 function resetState() {
   state.inputFrames = 0;
   state.mouseEvents = 0;
+  state.hoverMoves = 0;
   state.leftPresses = 0;
   state.rightPresses = 0;
   state.sigintCount = 0;
@@ -72,6 +74,7 @@ function snapshotState() {
   return {
     inputFrames: state.inputFrames,
     mouseEvents: state.mouseEvents,
+    hoverMoves: state.hoverMoves,
     leftPresses: state.leftPresses,
     rightPresses: state.rightPresses,
     sigintCount: state.sigintCount,
@@ -101,7 +104,7 @@ function enterAltMode() {
   state.mode = 'alt';
   broadcast(
     '\x1b[?1049h' +
-    '\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h' +
+    '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h\x1b[?2004h' +
     '\x1b[2J\x1b[H' +
     'MYRLIN MOUSE-CAPTURING TUI FIXTURE\r\n' +
     'COPY_TARGET_ALPHA_BETA_GAMMA\r\n' +
@@ -146,6 +149,9 @@ function observeInput(data) {
   for (const match of data.matchAll(mousePattern)) {
     state.mouseEvents++;
     const code = Number(match[1]);
+    if (match[4] === 'M' && (code & 32) !== 0 && (code & 3) === 3) {
+      state.hoverMoves++;
+    }
     if (match[4] === 'M' && (code & 3) === 0) state.leftPresses++;
     if (match[4] === 'M' && (code & 3) === 2) state.rightPresses++;
   }

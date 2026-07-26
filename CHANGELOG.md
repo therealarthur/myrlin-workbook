@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.4] - 2026-07-25
+
+This corrective prerelease closes the live terminal copy regression that remained after alpha.3.
+
+### Changed
+
+- **Workbook pane actions are focused on finished workflows.** The incomplete terminal-backed “Switch to view” menu and empty-pane structured views were removed: they duplicated the full Tasks workspace, produced ephemeral blank panes, and introduced hidden-terminal focus and geometry races. Agent work stays in the canonical Tasks experience, while terminal panes retain the dependable session, copy, mirror, move, and lifecycle actions.
+- **The alpha.3 visual hierarchy is now the default path throughout the shell.** Workbench, Sessions, Tasks, and the centralized System/Myrlin Dark/Myrlin Light theme registry remain primary; secondary utilities stay behind More and pane-specific menus no longer compete with unfinished embedded views.
+
+### Fixed
+
+- **Ctrl+C now uses Chromium/xterm's trusted native copy event.** A selected shortcut is withheld from the PTY so it cannot become ETX/SIGINT, but Workbook no longer cancels the browser default or depends on permission-gated `navigator.clipboard.writeText`. The exact selection copies on localhost, insecure HTTP origins, and embedded browsers that deny the programmatic Clipboard API; the highlight remains available after copying. Explicit menu and button copies keep the universal Clipboard API plus `execCommand` fallback.
+- **Right-click preserves highlighted text through any-motion TUIs.** Workbook blocks the zero-button hover and both right-button edges that Claude Code's `DECSET 1003` mouse mode could consume before `contextmenu`, captures the selection before xterm target handlers run, and binds Copy and Save to Notes to that exact snapshot.
+- **Select-mode drag no longer double-focuses or resizes the pane.** The synthetic Shift-mousedown restarts ancestor capture; the app now recognizes an already-active terminal surface and avoids a second focus/activate cycle that could trigger a TUI redraw and erase the selection. Clicking active pane chrome still retains the existing click-anywhere-to-focus behavior.
+- **Moved and cached terminals keep the correct host.** Pane swaps and tab-group cache restores now detach and rebind Select controls, capture listeners, touch handlers, resize observation, focus ownership, provider chrome, and xterm owner identity to the destination slot instead of leaving stale controls and cross-pane routing behind.
+- **Shared pane slots reject stale asynchronous work.** Deferred mounts, voice punctuation/restarts, image uploads, context-menu actions, fatal errors, provider state, attention/activity markers, and auto-trust updates are fenced to the pane and tab group that initiated them. Closing, moving, caching, or reusing a slot cannot write into or activate its new owner.
+- **Mobile terminal and mirror state survives tab-group changes.** The mobile selector is rebuilt from the active group, clears stale active classes, remembers a selected mirror, hides terminal-only controls for mirrors, and restores each mirror’s pinned-to-bottom or manual scroll position after switching away and back.
+- **Fresh builds cannot reuse stale copy assets.** Terminal, shell, and mirror scripts carry a new cache token so a browser that previously loaded the broken event path receives this release’s copy and host-ownership code.
+
+### Testing
+
+- The Windows Chromium/xterm acceptance fixture now enables true any-motion mouse reporting (`DECSET 1003`), proves unselected hover reaches the PTY, and proves selected hover plus right-click do not. It verifies trusted native Ctrl+C, exact OS clipboard text, retained selection, zero SIGINT, denied programmatic Clipboard API behavior, explicit menu-copy failure truthfulness, and both secure and genuinely insecure origins.
+- Added executable event-order and host-ownership regressions for active versus inactive Select-mode drag, pane swaps, group-cache restoration, and stale-slot event routing, plus mobile mirror-selection and scroll-state coverage.
+
 ## [1.3.0-alpha.3] - 2026-07-25
 
 This prerelease consolidates the 1.3 alpha work into a calmer, more dependable Workbook:

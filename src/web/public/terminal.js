@@ -472,13 +472,16 @@ class TerminalPane {
    * on insecure origins, which is why the paste path can only degrade to a
    * "press Ctrl+V" hint while this helper has a real universal fallback.
    *
-   * Feature-detects the writeText FUNCTION, not just the clipboard object:
-   * some engines expose a navigator.clipboard object without writeText, and
-   * calling through a mere object check would reintroduce the throw.
+   * Gesture ordering matters: an embedded browser may expose writeText but
+   * reject it only after the trusted click has expired. Explicit copy actions
+   * therefore try the synchronous execCommand path FIRST, while user
+   * activation is unquestionably live, then use writeText when that path is
+   * unavailable (for example, an async action outside a click). The function
+   * check remains required because some engines expose a clipboard object
+   * without writeText.
    *
    * Contract: NEVER throws and the returned promise NEVER rejects, under any
-   * circumstance, so callers inside key and click handlers stay
-   * exception-safe.
+   * circumstance, so callers inside click handlers stay exception-safe.
    *
    * @param {string} text - Text to place on the clipboard ('' when nullish).
    * @returns {Promise<boolean>} Resolves true when the copy succeeded, false
@@ -487,14 +490,22 @@ class TerminalPane {
   static copyTextToClipboard(text) {
     const value = (text === null || text === undefined) ? '' : String(text);
     try {
+      // Preserve the trusted user gesture. If this helper was entered from a
+      // menu/button click, execCommand(copy) runs synchronously in that same
+      // stack and cannot lose activation while an async permission check is
+      // settling. When the helper is called outside a gesture it simply
+      // reports false and the modern Clipboard API remains available below.
+      try {
+        if (TerminalPane._copyViaExecCommand(value)) {
+          return Promise.resolve(true);
+        }
+      } catch (_) {}
+
       if (typeof navigator !== 'undefined' && navigator.clipboard &&
           typeof navigator.clipboard.writeText === 'function') {
-        // Secure context: async Clipboard API. Map BOTH outcomes so the
-        // promise can never reject. On rejection (Safari and some mobile
-        // browsers deny programmatic writes even on https) attempt the
-        // execCommand fallback before giving up; by the time the rejection
-        // lands the user gesture may have expired, in which case execCommand
-        // simply reports false, so trying is harmless.
+        // Modern async fallback. Map BOTH outcomes so the promise can never
+        // reject. A second execCommand attempt on rejection is harmless and
+        // can still help engines that retain activation for the microtask.
         return navigator.clipboard.writeText(value).then(
           () => true,
           () => {
@@ -502,42 +513,10 @@ class TerminalPane {
           }
         );
       }
-      // Insecure origin (or clipboard API absent): synchronous fallback.
-      return Promise.resolve(TerminalPane._copyViaExecCommand(value));
-    } catch (_) {
-      // Belt and braces: nothing above should throw, but the whole point of
-      // this helper is that callers NEVER see an exception. A throw escaping
-      // a key handler is exactly the bug that sent SIGINT to running CLIs.
       return Promise.resolve(false);
-    }
-  }
-
-  /**
-   * Return a stable identity for the terminal's current xterm selection range.
-   *
-   * Clipboard writes can settle asynchronously. Text alone is insufficient
-   * to decide whether it is still safe to clear the old selection because the
-   * user may select an identical string elsewhere while the write is pending.
-   * xterm exposes a public 1-based range; collapse it to a scalar key so the
-   * key handler can compare the exact start/end coordinates.
-   *
-   * @param {Object} term - xterm Terminal instance (or a test double).
-   * @returns {string|null} Range key, empty string for no range, or null when
-   *   the installed xterm API does not expose a readable range.
-   */
-  static _selectionPositionKey(term) {
-    if (!term || typeof term.getSelectionPosition !== 'function') return null;
-    try {
-      const range = term.getSelectionPosition();
-      if (!range) return '';
-      return [
-        range.start && range.start.x,
-        range.start && range.start.y,
-        range.end && range.end.x,
-        range.end && range.end.y,
-      ].join(':');
     } catch (_) {
-      return null;
+      // Belt and braces: callers never see a gesture-handler exception.
+      return Promise.resolve(false);
     }
   }
 
@@ -704,6 +683,9 @@ class TerminalPane {
     this._selMouseHandler = null;
     this._selInterceptorContainer = null;
     this._selectDragging = false;
+    this._hostMobileTypeMode = undefined;
+    this._mobileSelectionResetTimer = null;
+    this._copyHintShown = false;
     // Issue #41: true while a mobile touch gesture (or its momentum tail) is
     // driving term.scrollLines() directly. xterm's smoothScrollDuration is
     // zeroed for that window so the engine's per-frame interpolation is not
@@ -715,6 +697,14 @@ class TerminalPane {
     // dimensions really changed (see _sendResizeIfChanged).
     this._lastSentCols = null;
     this._lastSentRows = null;
+    // Mount has two deferred animation frames plus a delayed refit. Track a
+    // generation and every handle so dispose-before-frame cannot resurrect a
+    // closed pane or connect a stale WebSocket.
+    this._disposed = false;
+    this._mountGeneration = 0;
+    this._mountRafOuter = null;
+    this._mountRafInner = null;
+    this._mountRefitTimer = null;
     // Plan 19-02 (PTY-04, PTY-05): per-pane provider context. Both fields are
     // populated in mount() after the pane DOM exists. _providerId drives idle
     // detection and Shift+Enter dispatch; defaults to the back-compat provider
@@ -726,6 +716,24 @@ class TerminalPane {
 
   _log(msg) {
     console.log('[Terminal]', msg);
+  }
+
+  /**
+   * Resolve the fixed DOM container only while it still renders this exact
+   * TerminalPane. Cached groups keep their WebSocket alive while the same
+   * container id hosts another session, so id lookup alone is never proof of
+   * ownership.
+   */
+  _getOwnedContainer() {
+    if (typeof document === 'undefined' ||
+        !this.term || !this.term.element) return null;
+    const container = document.getElementById(this.containerId);
+    if (!container ||
+        this.term.element.parentElement !== container ||
+        this.term.element.__cwmTerminalPane !== this) {
+      return null;
+    }
+    return container;
   }
 
   /** Write a colored status message through the batching pipeline to avoid freezing */
@@ -742,6 +750,8 @@ class TerminalPane {
   }
 
   mount() {
+    if (this._disposed) return;
+    const mountGeneration = ++this._mountGeneration;
     const container = document.getElementById(this.containerId);
     if (!container) {
       console.error('[Terminal] Container not found:', this.containerId);
@@ -784,6 +794,11 @@ class TerminalPane {
       }
 
       this.term.open(container);
+      // Stamp the live xterm root with its owning TerminalPane. Fixed grid
+      // slots can be reused while cached panes and deferred mounts overlap;
+      // event routing must follow the terminal that actually rendered the
+      // target, not merely whichever object is currently in a slot array.
+      if (this.term.element) this.term.element.__cwmTerminalPane = this;
       this._log('xterm opened in ' + this.containerId + ' for session ' + this.sessionId);
 
       // Plan 19-02 (PTY-04, PTY-05): read this pane's provider tag once at
@@ -819,8 +834,12 @@ class TerminalPane {
       // the display and forces users to type "reset".
       //
       // Double-rAF ensures the grid layout is fully calculated before fit.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+      this._mountRafOuter = requestAnimationFrame(() => {
+        this._mountRafOuter = null;
+        if (this._disposed || this._mountGeneration !== mountGeneration) return;
+        this._mountRafInner = requestAnimationFrame(() => {
+          this._mountRafInner = null;
+          if (this._disposed || this._mountGeneration !== mountGeneration) return;
           try {
             this.fitAddon.fit();
             this._log('Fitted: ' + this.term.cols + 'x' + this.term.rows);
@@ -836,8 +855,11 @@ class TerminalPane {
           // is still settling (e.g., CSS transitions, slow layout).
           // Deduplicated: only notifies the server when dims really changed,
           // so the common already-settled case sends nothing.
-          setTimeout(() => {
-            if (this.fitAddon) {
+          this._mountRefitTimer = setTimeout(() => {
+            this._mountRefitTimer = null;
+            if (!this._disposed &&
+                this._mountGeneration === mountGeneration &&
+                this.fitAddon) {
               try {
                 this.fitAddon.fit();
                 this._sendResizeIfChanged(false);
@@ -856,70 +878,21 @@ class TerminalPane {
         // to xterm's control-character path merely because letter case changed.
         const shortcutKey = typeof e.key === 'string' ? e.key.toLowerCase() : '';
 
-        // Ctrl+C / Cmd+C: copy selected text to clipboard (if selection exists)
-        // Without selection, fall through so xterm sends \x03 (SIGINT) normally.
+        // Ctrl+C / Cmd+C with an xterm selection belongs to the browser's
+        // trusted native copy path. Returning false keeps xterm from turning
+        // the shortcut into ETX/SIGINT, while deliberately NOT calling
+        // preventDefault lets Chromium dispatch its trusted `copy` event.
+        // xterm owns that event on the terminal element and synchronously
+        // writes its selection through ClipboardEvent.clipboardData.
         //
-        // WHY the try/catch bracket and the helper (user report, 2026-07-24):
-        // this branch used to call the async Clipboard API directly with a
-        // chained .catch(). On insecure origins (plain http to a LAN IP or
-        // hostname, the documented remote-access mode) navigator.clipboard is
-        // undefined, so the PROPERTY ACCESS threw a synchronous TypeError
-        // that .catch() could not see (.catch only intercepts promise
-        // rejections, not a throw during property lookup). The exception
-        // escaped this handler BEFORE clearSelection() and `return false`
-        // ran, xterm treated the key as unhandled, and the "copy" keystroke
-        // sent \x03 (SIGINT) that interrupted the user's running CLI
-        // session. Same secure-context trap as paste issue #64, which was
-        // fixed on the Ctrl+V branch below but never applied here.
-        //
-        // TerminalPane.copyTextToClipboard never throws by contract and uses
-        // execCommand as a best-effort fallback on every origin. Its boolean
-        // result still matters: clear the selection only after a confirmed
-        // copy. If every browser path fails, keep the selection recoverable
-        // and tell the app shell to show an honest error.
-        //
-        // The bracket below makes the SIGINT fall-through STRUCTURALLY
-        // impossible even if a future edit regresses the helper's no-throw
-        // guarantee: once a selection exists this branch always reaches
-        // `return false` and consumes the key. Do not lift the copy call out
-        // of the try.
-        if (mod && shortcutKey === 'c' && this.term.hasSelection()) {
-          try {
-            // Returning false tells xterm not to forward Ctrl+C to the PTY,
-            // but it does not cancel Chromium's native copy/default action.
-            // Cancel that second clipboard path before starting our truthful,
-            // success-aware helper. This is intentionally selection-only:
-            // plain Ctrl+C must still reach the terminal as SIGINT.
-            if (typeof e.preventDefault === 'function') e.preventDefault();
-            const selectedText = this.term.getSelection();
-            const selectedPositionKey = TerminalPane._selectionPositionKey(this.term);
-            Promise.resolve(TerminalPane.copyTextToClipboard(selectedText)).then(
-              (copied) => {
-                if (copied) {
-                  try {
-                    // Do not erase a newer selection made while an async
-                    // Clipboard API write was settling. Compare both its text
-                    // and exact xterm range: identical text may occur twice.
-                    const currentPositionKey = TerminalPane._selectionPositionKey(this.term);
-                    const samePosition = selectedPositionKey === null ||
-                      currentPositionKey === selectedPositionKey;
-                    if (this.term && this.term.getSelection() === selectedText && samePosition) {
-                      this.term.clearSelection();
-                    }
-                  } catch (_) {
-                    // The copy itself succeeded; a stale/disposed terminal
-                    // should not turn that into a misleading failure toast.
-                  }
-                } else {
-                  this._emitCopyUnavailable('failed');
-                }
-              },
-              () => this._emitCopyUnavailable('failed')
-            );
-          } catch (_) {
-            this._emitCopyUnavailable('failed');
-          }
-          return false;
+        // This is more reliable than an async navigator.clipboard.writeText
+        // call: embedded browsers can expose the API while denying the
+        // permission, and preventDefault previously disabled the native path
+        // that would still have worked. With no selection this branch is
+        // skipped, preserving ordinary terminal Ctrl+C/SIGINT.
+        if (mod && shortcutKey === 'c') {
+          const copySelection = this.getCopySelection();
+          if (copySelection.hasSelection) return false;
         }
 
         // Ctrl+V / Cmd+V always stays on the browser's trusted native paste
@@ -1130,7 +1103,7 @@ class TerminalPane {
     this._log('Opening WebSocket: ' + wsUrl.substring(0, 80) + '...');
 
     // Add loading animation to the pane
-    const container = document.getElementById(this.containerId);
+    const container = this._getOwnedContainer();
     const paneEl = container ? container.closest('.terminal-pane') : null;
     if (paneEl) paneEl.classList.add('terminal-pane-loading');
 
@@ -1145,7 +1118,7 @@ class TerminalPane {
 
     this.ws.onopen = () => {
       // Remove loading animation
-      const paneEl = document.getElementById(this.containerId)?.closest('.terminal-pane');
+      const paneEl = this._getOwnedContainer()?.closest('.terminal-pane');
       if (paneEl) paneEl.classList.remove('terminal-pane-loading');
 
       this.connected = true;
@@ -1222,7 +1195,7 @@ class TerminalPane {
 
     this.ws.onclose = (event) => {
       // Remove loading animation
-      const paneEl = document.getElementById(this.containerId)?.closest('.terminal-pane');
+      const paneEl = this._getOwnedContainer()?.closest('.terminal-pane');
       if (paneEl) paneEl.classList.remove('terminal-pane-loading');
 
       this.connected = false;
@@ -1259,14 +1232,13 @@ class TerminalPane {
     if (!this.term) return;
     // On mobile in scroll mode, don't focus textarea (prevents keyboard popup)
     if (this._isMobile() && !this._mobileTypeMode) return;
+    const container = this._getOwnedContainer();
+    if (!container || container.hidden) return;
     this.term.focus();
     // Also explicitly focus the hidden textarea - xterm.js's focus()
     // sometimes doesn't propagate in multi-instance setups
-    const container = document.getElementById(this.containerId);
-    if (container) {
-      const textarea = container.querySelector('.xterm-helper-textarea');
-      if (textarea) textarea.focus({ preventScroll: true });
-    }
+    const textarea = container.querySelector('.xterm-helper-textarea');
+    if (textarea) textarea.focus({ preventScroll: true });
   }
 
   blur() {
@@ -1327,26 +1299,152 @@ class TerminalPane {
   }
 
   /**
-   * Surface a failed Ctrl+C/Cmd+C copy through the app shell.
+   * Read the selection the user can currently copy from this pane.
    *
-   * The key remains consumed so it can never become SIGINT, while the xterm
-   * selection remains intact so the user can retry. Notification dispatch is
-   * best-effort and must never escape back into the terminal key handler.
-   * @param {string} reason - Stable failure reason for the app shell.
+   * xterm normally owns selection state. A native DOM selection is also
+   * accepted when both endpoints live inside this pane; that covers touch/
+   * coarse-pointer and renderer fallback states where the browser visibly
+   * highlights terminal text but xterm's model reports no selection.
+   *
+   * @returns {{hasSelection:boolean,text:string,source:'xterm'|'dom'|null}}
    */
-  _emitCopyUnavailable(reason) {
+  getCopySelection() {
     try {
-      if (typeof document === 'undefined') return;
-      const container = document.getElementById(this.containerId);
-      const target = container || document;
-      if (!target || typeof target.dispatchEvent !== 'function') return;
-      target.dispatchEvent(new CustomEvent('cwm:copy-unavailable', {
-        bubbles: true,
-        detail: { reason, containerId: this.containerId, sessionId: this.sessionId },
-      }));
+      if (this.term && typeof this.term.hasSelection === 'function' &&
+          this.term.hasSelection()) {
+        return {
+          hasSelection: true,
+          text: typeof this.term.getSelection === 'function'
+            ? String(this.term.getSelection())
+            : '',
+          source: 'xterm',
+        };
+      }
+    } catch (_) {}
+
+    try {
+      if (typeof document === 'undefined' ||
+          typeof document.getSelection !== 'function') {
+        return { hasSelection: false, text: '', source: null };
+      }
+      const selection = document.getSelection();
+      const pane = this.paneEl ||
+        this._getOwnedContainer()?.closest('.terminal-pane');
+      if (!selection || selection.isCollapsed || !pane ||
+          !selection.anchorNode || !selection.focusNode ||
+          !pane.contains(selection.anchorNode) ||
+          !pane.contains(selection.focusNode)) {
+        return { hasSelection: false, text: '', source: null };
+      }
+      return {
+        hasSelection: true,
+        text: String(selection.toString()),
+        source: 'dom',
+      };
     } catch (_) {
-      // Never let a notification failure escape into the Ctrl+C key path.
+      return { hasSelection: false, text: '', source: null };
     }
+  }
+
+  /**
+   * Detach every slot-owned listener/control while keeping the live xterm,
+   * WebSocket, buffer, and selection intact.
+   *
+   * Terminal tab groups reuse fixed slot containers. Cached panes therefore
+   * must release their host bindings before another group mounts in the same
+   * DOM, otherwise Select buttons and capture listeners control a hidden
+   * TerminalPane. Pane drag/reorder uses the same lifecycle before rebinding
+   * a live terminal to its destination slot.
+   *
+   * @returns {boolean} true when host bindings were detached.
+   */
+  detachHostBindings() {
+    if (this._hostMobileTypeMode === undefined) {
+      this._hostMobileTypeMode = !!this._mobileTypeMode;
+    }
+
+    if (this._touchScrollCleanup) {
+      try { this._touchScrollCleanup(); } catch (_) {}
+      this._touchScrollCleanup = null;
+    }
+    this._xtermTextarea = null;
+    this._xtermScreen = null;
+    this._xtermViewport = null;
+    this._mobileSelecting = false;
+    if (this._mobileSelectionResetTimer) {
+      clearTimeout(this._mobileSelectionResetTimer);
+      this._mobileSelectionResetTimer = null;
+    }
+
+    if (this._resizeObserver) this._resizeObserver.disconnect();
+
+    if (this._copyHintTimer) {
+      clearTimeout(this._copyHintTimer);
+      this._copyHintTimer = null;
+    }
+    if (this._selInterceptorContainer && this._selMouseHandler) {
+      try {
+        this._selInterceptorContainer.removeEventListener('mousedown', this._selMouseHandler, true);
+        this._selInterceptorContainer.removeEventListener('mousemove', this._selMouseHandler, true);
+        this._selInterceptorContainer.removeEventListener('mouseup', this._selMouseHandler, true);
+      } catch (_) {}
+    }
+    this._selMouseHandler = null;
+    this._selInterceptorContainer = null;
+
+    if (this.paneEl) this.paneEl.classList.remove('select-mode-on');
+    if (this._selectModeBtn) {
+      try { this._selectModeBtn.remove(); } catch (_) {}
+      this._selectModeBtn = null;
+    }
+    if (this._selStrip) {
+      try { this._selStrip.remove(); } catch (_) {}
+      this._selStrip = null;
+    }
+    if (this._copyHint) {
+      try { this._copyHint.remove(); } catch (_) {}
+      this._copyHint = null;
+    }
+    this.paneEl = null;
+    return true;
+  }
+
+  /**
+   * Rebind a live TerminalPane to the fixed DOM host for its current slot.
+   *
+   * @param {string} containerId - Destination terminal-container id.
+   * @returns {boolean} true when the destination exists and was rebound.
+   */
+  rebindHost(containerId) {
+    const container = typeof document !== 'undefined'
+      ? document.getElementById(containerId)
+      : null;
+    if (!container) return false;
+
+    this.detachHostBindings();
+    const restoreMobileTypeMode = !!this._hostMobileTypeMode;
+    this._hostMobileTypeMode = undefined;
+    this.containerId = containerId;
+    this.paneEl = container.closest('.terminal-pane');
+
+    if (this.term && this.term.element &&
+        this.term.element.parentElement !== container) {
+      container.appendChild(this.term.element);
+    }
+    if (this.term && this.term.element) {
+      this.term.element.__cwmTerminalPane = this;
+    }
+
+    if (this.term) {
+      this._installSelectModeInterceptor();
+      this._injectCopyControls();
+      if (this._resizeObserver) this._resizeObserver.observe(container);
+      if (this._isMobile()) {
+        this.initMobileInputMode();
+        if (restoreMobileTypeMode) this.setMobileTypeMode();
+      }
+    }
+    return true;
   }
 
   /**
@@ -1364,7 +1462,7 @@ class TerminalPane {
   _emitPasteUnavailable(reason) {
     try {
       if (typeof document === 'undefined') return;
-      const container = document.getElementById(this.containerId);
+      const container = this._getOwnedContainer();
       const target = container || document;
       if (!target || typeof target.dispatchEvent !== 'function') return;
       target.dispatchEvent(new CustomEvent('cwm:paste-unavailable', {
@@ -1401,7 +1499,7 @@ class TerminalPane {
     // pass (the container is visible, just hosting someone else) and a fit
     // against the detached element would send bogus dims to this pane's PTY.
     if (!this.term.element || !this.term.element.isConnected) return;
-    const container = document.getElementById(this.containerId);
+    const container = this._getOwnedContainer();
     if (!container) return;
     const rect = container.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
@@ -1524,7 +1622,7 @@ class TerminalPane {
     this._mobileTypeMode = false;
     this._mobileSelecting = false;
 
-    const container = document.getElementById(this.containerId);
+    const container = this._getOwnedContainer();
     if (!container) return;
     const textarea = container.querySelector('.xterm-helper-textarea');
     if (!textarea) return;
@@ -1702,7 +1800,13 @@ class TerminalPane {
         // Long-press converted this gesture into selection; no momentum will
         // run, so this is also a gesture-end path (issue #41).
         restoreSmoothScroll();
-        setTimeout(() => this._disableMobileSelection(), 300);
+        if (this._mobileSelectionResetTimer) {
+          clearTimeout(this._mobileSelectionResetTimer);
+        }
+        this._mobileSelectionResetTimer = setTimeout(() => {
+          this._mobileSelectionResetTimer = null;
+          this._disableMobileSelection();
+        }, 300);
         return;
       }
 
@@ -1745,6 +1849,10 @@ class TerminalPane {
    * but keeps textarea pointer-events disabled to prevent keyboard popup.
    */
   _enableMobileSelection() {
+    if (this._mobileSelectionResetTimer) {
+      clearTimeout(this._mobileSelectionResetTimer);
+      this._mobileSelectionResetTimer = null;
+    }
     this._mobileSelecting = true;
     if (this._xtermScreen) this._xtermScreen.style.pointerEvents = 'auto';
     // Haptic feedback if available (subtle vibration signals selection mode)
@@ -1942,9 +2050,9 @@ class TerminalPane {
     if (newActivity && (!this._currentActivity || this._currentActivity.type !== newActivity.type || this._currentActivity.detail !== newActivity.detail)) {
       this._currentActivity = newActivity;
       // Dispatch custom event for the app layer
-      const container = document.getElementById(this.containerId);
-      if (container) {
-        container.dispatchEvent(new CustomEvent('terminal-activity', {
+      const eventTarget = this._getOwnedContainer() || document;
+      if (eventTarget && typeof eventTarget.dispatchEvent === 'function') {
+        eventTarget.dispatchEvent(new CustomEvent('terminal-activity', {
           bubbles: true,
           detail: { sessionId: this.sessionId, activity: newActivity }
         }));
@@ -1976,8 +2084,10 @@ class TerminalPane {
       this._needsInputTimer = setTimeout(() => {
         if (this._needsInput) {
           this._needsInput = false;
-          const el = document.getElementById(this.containerId);
-          if (el) el.dispatchEvent(new CustomEvent('terminal-needs-input', { bubbles: true, detail: { sessionId: this.sessionId, needsInput: false } }));
+          const eventTarget = this._getOwnedContainer() || document;
+          if (eventTarget && typeof eventTarget.dispatchEvent === 'function') {
+            eventTarget.dispatchEvent(new CustomEvent('terminal-needs-input', { bubbles: true, detail: { sessionId: this.sessionId, needsInput: false } }));
+          }
         }
       }, 5000);
     }
@@ -2037,9 +2147,9 @@ class TerminalPane {
       // Update activity to idle when prompt is detected
       this._currentActivity = { type: 'idle', detail: 'Waiting for input' };
       this._activityBuffer = '';
-      const idleContainer = document.getElementById(this.containerId);
-      if (idleContainer) {
-        idleContainer.dispatchEvent(new CustomEvent('terminal-activity', {
+      const idleTarget = this._getOwnedContainer() || document;
+      if (idleTarget && typeof idleTarget.dispatchEvent === 'function') {
+        idleTarget.dispatchEvent(new CustomEvent('terminal-activity', {
           bubbles: true,
           detail: { sessionId: this.sessionId, activity: this._currentActivity }
         }));
@@ -2060,9 +2170,9 @@ class TerminalPane {
       this._lastIdleFiredAt = Date.now();
 
       // Dispatch custom event for the app to handle
-      const container = document.getElementById(this.containerId);
-      if (container) {
-        container.dispatchEvent(new CustomEvent('terminal-idle', {
+      const idleEventTarget = this._getOwnedContainer() || document;
+      if (idleEventTarget && typeof idleEventTarget.dispatchEvent === 'function') {
+        idleEventTarget.dispatchEvent(new CustomEvent('terminal-idle', {
           bubbles: true,
           detail: { sessionId: this.sessionId, sessionName: this.sessionName }
         }));
@@ -2132,9 +2242,9 @@ class TerminalPane {
       // Dangerous prompt: always require human input regardless of auto-trust setting
       if (!this._needsInput) {
         this._needsInput = true;
-        const el = document.getElementById(this.containerId);
-        if (el) {
-          el.dispatchEvent(new CustomEvent('terminal-needs-input', {
+        const eventTarget = this._getOwnedContainer() || document;
+        if (eventTarget && typeof eventTarget.dispatchEvent === 'function') {
+          eventTarget.dispatchEvent(new CustomEvent('terminal-needs-input', {
             bubbles: true,
             detail: { sessionId: this.sessionId, needsInput: true }
           }));
@@ -2157,9 +2267,9 @@ class TerminalPane {
       // Auto-trust not enabled: flag as needing human input
       if (!this._needsInput) {
         this._needsInput = true;
-        const el = document.getElementById(this.containerId);
-        if (el) {
-          el.dispatchEvent(new CustomEvent('terminal-needs-input', {
+        const eventTarget = this._getOwnedContainer() || document;
+        if (eventTarget && typeof eventTarget.dispatchEvent === 'function') {
+          eventTarget.dispatchEvent(new CustomEvent('terminal-needs-input', {
             bubbles: true,
             detail: { sessionId: this.sessionId, needsInput: true }
           }));
@@ -2267,7 +2377,7 @@ class TerminalPane {
    * there is no selection and the toggle is off.
    */
   _installSelectModeInterceptor() {
-    const container = document.getElementById(this.containerId);
+    const container = this._getOwnedContainer();
     if (!container) return;
     // Idempotent: a remount into the same slot must not stack interceptors.
     if (this._selInterceptorContainer && this._selMouseHandler) {
@@ -2279,13 +2389,19 @@ class TerminalPane {
     }
     this._selectDragging = false;
     const handler = (e) => {
-      // A right-button press over a genuine xterm selection belongs to the
-      // Workbook context menu, not the mouse-reporting TUI. Block xterm's
-      // same-event listener before the TUI can redraw or mutate the selected
-      // buffer, but do not preventDefault: the later contextmenu event must
-      // still open app.js's truthful Copy action.
-      if (e.type === 'mousedown' && e.button === 2 &&
-          this.term && this.term.hasSelection()) {
+      // Once text is selected, mouse-reporting TUIs must not see the hover
+      // move that precedes a physical right-click, nor either right-button
+      // edge. Full mouse mode reports even zero-button movement; Claude Code
+      // can redraw on that hover and clear xterm's selection before the later
+      // contextmenu event. Keep the selected buffer frozen through the whole
+      // gesture, but do not preventDefault so contextmenu still opens.
+      const selectedForCopy = this.getCopySelection().hasSelection;
+      const selectedHover =
+        e.type === 'mousemove' && !this._selectDragging &&
+        (e.buttons === 0 || e.buttons === undefined);
+      const selectedRightEdge =
+        (e.type === 'mousedown' || e.type === 'mouseup') && e.button === 2;
+      if (selectedForCopy && (selectedHover || selectedRightEdge)) {
         e.stopImmediatePropagation();
         return;
       }
@@ -2466,7 +2582,7 @@ class TerminalPane {
     try {
       if (localStorage.getItem('cwm_copyhint_v1')) return;
     } catch (_) { return; }
-    if (!this.paneEl || this._copyHint) return;
+    if (!this.paneEl || this._copyHint || this._copyHintShown) return;
     const h = document.createElement('div');
     h.className = 'terminal-copy-hint';
     h.style.cssText = 'position:absolute;top:36px;right:8px;z-index:30;max-width:248px;'
@@ -2485,6 +2601,11 @@ class TerminalPane {
     const x = h.querySelector('.terminal-copy-hint-x');
     if (x) x.addEventListener('click', (e) => { e.stopPropagation(); this._dismissCopyHint(); });
     this._copyHint = h;
+    this._copyHintShown = true;
+    // "One-time" means once shown, not once its 14-second timer eventually
+    // completes. Persist immediately so a swap, group-cache rebind, reload, or
+    // crash cannot resurrect the same onboarding card.
+    try { localStorage.setItem('cwm_copyhint_v1', '1'); } catch (_) {}
     this._copyHintTimer = setTimeout(() => this._dismissCopyHint(), 14000);
   }
 
@@ -2501,6 +2622,14 @@ class TerminalPane {
   }
 
   dispose() {
+    this._disposed = true;
+    this._mountGeneration++;
+    if (this._mountRafOuter) cancelAnimationFrame(this._mountRafOuter);
+    if (this._mountRafInner) cancelAnimationFrame(this._mountRafInner);
+    clearTimeout(this._mountRefitTimer);
+    this._mountRafOuter = null;
+    this._mountRafInner = null;
+    this._mountRefitTimer = null;
     clearTimeout(this.reconnectTimer);
     clearTimeout(this._fitTimer);
     clearTimeout(this._idleCheckTimer);
@@ -2513,24 +2642,15 @@ class TerminalPane {
     if (this._writeRaf) cancelAnimationFrame(this._writeRaf);
     this._writeBuf = '';
     this._activitySample = '';
-    if (this._touchScrollCleanup) this._touchScrollCleanup();
-    // Copy-mode teardown: remove the capture-phase mouse interceptor and any
-    // injected controls/hints so a remount into the same slot starts clean.
-    if (this._copyHintTimer) { clearTimeout(this._copyHintTimer); this._copyHintTimer = null; }
-    if (this._selInterceptorContainer && this._selMouseHandler) {
-      try {
-        this._selInterceptorContainer.removeEventListener('mousedown', this._selMouseHandler, { capture: true });
-        this._selInterceptorContainer.removeEventListener('mousemove', this._selMouseHandler, { capture: true });
-        this._selInterceptorContainer.removeEventListener('mouseup', this._selMouseHandler, { capture: true });
-      } catch (_) {}
-    }
-    this._selMouseHandler = null;
-    this._selInterceptorContainer = null;
-    if (this._selectModeBtn) { try { this._selectModeBtn.remove(); } catch (_) {} this._selectModeBtn = null; }
-    if (this._selStrip) { try { this._selStrip.remove(); } catch (_) {} this._selStrip = null; }
-    if (this._copyHint) { try { this._copyHint.remove(); } catch (_) {} this._copyHint = null; }
-    if (this._resizeObserver) this._resizeObserver.disconnect();
+    // Release every fixed-slot listener/control before disposing the live
+    // terminal. This is the same ownership boundary used by pane moves and
+    // tab-group caching, so teardown cannot drift from rebind behavior.
+    this.detachHostBindings();
     if (this.ws) { this.ws.onmessage = null; this.ws.onclose = null; this.ws.close(); }
+    if (this.term && this.term.element &&
+        this.term.element.__cwmTerminalPane === this) {
+      try { delete this.term.element.__cwmTerminalPane; } catch (_) {}
+    }
     if (this.term) this.term.dispose();
     this.term = null;
     this.ws = null;

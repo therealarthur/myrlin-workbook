@@ -414,7 +414,10 @@ check('P1-4: pane context menu offers Move to Tab...', () => {
   const body = methodBody(appJs, 'showTerminalContextMenu');
   assert.ok(body, 'showTerminalContextMenu must exist');
   assert.ok(/label: 'Move to Tab\.\.\.'/.test(body), 'Move to Tab entry missing');
-  assert.ok(/moveTerminalToGroup\(slotIdx, g\.id\)/.test(body), 'Move to Tab must call moveTerminalToGroup');
+  assert.ok(
+    /const liveSlot = resolveLiveOwnerSlot\(\);[\s\S]*moveTerminalToGroup\(liveSlot, g\.id\)/.test(body),
+    'Move to Tab must resolve and move the current TerminalPane owner'
+  );
   assert.ok(/g\.id !== this\._activeGroupId/.test(body), 'submenu must exclude the current group');
 });
 
@@ -460,8 +463,12 @@ check('P2: mobile terminal tab avoids nested buttons and names its close control
     'terminal selector and close controls must be sibling buttons'
   );
   assert.ok(
-    /class="terminal-tab-close"[\s\S]{0,200}aria-label="Close \$\{terminalName\} terminal"/.test(body),
-    'terminal close button must have a terminal-specific accessible name'
+    /class="terminal-tab-close"[\s\S]{0,200}aria-label="Close \$\{paneName\} pane"/.test(body),
+    'pane close button must have a pane-specific accessible name'
+  );
+  assert.ok(
+    /this\._mirrorPanes[\s\S]*activePanes\.push\(\{ idx: i, tp, mirror \}\)/.test(body),
+    'mobile pane selector must include standalone mirrors'
   );
   assert.ok(
     /querySelectorAll\('\.terminal-tab-item'\)[\s\S]{0,220}classList\.toggle\('active'/.test(

@@ -56,6 +56,8 @@ class MirrorPaneView {
    *   never a literal).
    * @param {string} opts.providerSessionId - Upstream session id to mirror.
    * @param {string} [opts.title] - Display title for the header.
+   * @param {{pinnedToBottom:boolean,scrollTop:number}|null} [opts.scrollState]
+   *   Saved reading position from a tab-group or layout transition.
    * @param {(method: string, path: string, body?: object) => Promise<object>} opts.api
    *   CWMApp.api bound to the app (carries auth).
    * @param {(str: string) => string} opts.escapeHtml - HTML escaper.
@@ -67,6 +69,7 @@ class MirrorPaneView {
     this.provider = String(o.provider || '');
     this.providerSessionId = String(o.providerSessionId || '');
     this.title = o.title || this.providerSessionId;
+    this._restoreScrollState = o.scrollState || null;
     this._api = o.api;
     this._esc = o.escapeHtml;
     this.deviceId = String(o.deviceId || '');
@@ -103,13 +106,15 @@ class MirrorPaneView {
    * Serializable descriptor used by the pane-layout persistence so a
    * restored layout can re-open this exact mirror.
    *
-   * @returns {{provider:string, providerSessionId:string, title:string}}
+   * @returns {{provider:string, providerSessionId:string, title:string,
+   *   scrollState:{pinnedToBottom:boolean,scrollTop:number}}}
    */
   descriptor() {
     return {
       provider: this.provider,
       providerSessionId: this.providerSessionId,
       title: this.title,
+      scrollState: this._captureScrollState(),
     };
   }
 
@@ -126,6 +131,9 @@ class MirrorPaneView {
    */
   async open() {
     if (this._disposed) return;
+    const scrollState = this._openedOnce
+      ? this._captureScrollState()
+      : this._restoreScrollState;
     this._renderSkeleton();
     let res;
     try {
@@ -146,7 +154,8 @@ class MirrorPaneView {
     this._setLive(!!res.live);
     this._elMessages.innerHTML = this._renderMessagesHtml(res.history || []);
     this._updateLoadEarlier();
-    this._scrollToBottom();
+    this._restoreScrollPosition(scrollState);
+    this._restoreScrollState = null;
   }
 
   /**
@@ -379,6 +388,28 @@ class MirrorPaneView {
     const el = this._elMessages;
     if (!el) return true;
     return el.scrollHeight - (el.scrollTop + el.clientHeight) <= MIRROR_VIEW_AUTOSCROLL_SLACK_PX;
+  }
+
+  /** Capture enough state to preserve whether the user is reading history. */
+  _captureScrollState() {
+    const el = this._elMessages;
+    if (!el) return { pinnedToBottom: true, scrollTop: 0 };
+    return {
+      pinnedToBottom: this._isPinnedToBottom(),
+      scrollTop: Number.isFinite(el.scrollTop) ? el.scrollTop : 0,
+    };
+  }
+
+  /** Restore a saved reading position, or follow the live tail by default. */
+  _restoreScrollPosition(state) {
+    if (!this._elMessages || !state || state.pinnedToBottom !== false) {
+      this._scrollToBottom();
+      return;
+    }
+    const requested = Number(state.scrollTop);
+    this._elMessages.scrollTop = Number.isFinite(requested)
+      ? Math.max(0, requested)
+      : 0;
   }
 
   /** Jump the message list to its bottom (newest content). */

@@ -233,6 +233,9 @@ class CWMApp {
     this.terminalPanes = new Array(CWMApp.MAX_PANES).fill(null);
     this._activeTerminalSlot = null;
     this._paneRefreshTimers = {};
+    // Generation counters fence asynchronous structured-view renders from
+    // fixed slots that have since been reused by a swap or tab-group switch.
+    this._paneViewGenerations = new Array(CWMApp.MAX_PANES).fill(0);
     // Issue #10 Phase 4: MirrorPaneView instances by slot index. Mirror
     // panes are standalone (no TerminalPane in the slot), so occupancy
     // checks route through _isSlotOccupied / _findEmptyPaneSlot instead of
@@ -969,7 +972,9 @@ class CWMApp {
       this.els.imageUploadInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        this.handleImageUpload(file, this._uploadTargetSlot);
+        const target = this._uploadTarget;
+        this._uploadTarget = null;
+        this.handleImageUpload(file, target);
         e.target.value = ''; // Reset so same file can be re-selected
       });
     }
@@ -1420,15 +1425,6 @@ class CWMApp {
       this.showToast(msg, 'warning');
     });
 
-    // ─── Clipboard Copy Unavailable ──────────────────────────
-    // Selected Ctrl+C is always consumed so it cannot become SIGINT. When
-    // both Clipboard API and execCommand paths fail, TerminalPane keeps the
-    // selection and dispatches this event instead of silently claiming
-    // success or discarding the user's only recoverable copy.
-    document.addEventListener('cwm:copy-unavailable', () => {
-      this.showToast('Copy was blocked by the browser. Selection kept.', 'error');
-    });
-
     // ─── Terminal Needs-Input Badge ─────────────────────────
     // When auto-trust detects a question it won't auto-answer, show/hide
     // an amber "Needs input" badge on the terminal pane header.
@@ -1626,7 +1622,10 @@ class CWMApp {
 
         // Image upload trigger
         if (key === 'upload') {
-          this._uploadTargetSlot = this._activeTerminalSlot;
+          this._uploadTarget = {
+            terminalPane: activePane,
+            groupId: this._activeGroupId,
+          };
           if (this.els.imageUploadInput) this.els.imageUploadInput.click();
           return;
         }
@@ -1643,10 +1642,8 @@ class CWMApp {
             // Closing: hide input row
             if (inputRow) inputRow.classList.remove('active');
             if (inputField) inputField.blur();
-            document.querySelectorAll('.toolbar-keyboard').forEach(kb => {
-              kb.classList.remove('toolbar-active');
-              kb.textContent = '\u2328 Type';
-            });
+            btn.classList.remove('toolbar-active');
+            btn.textContent = '\u2328 Type';
           } else {
             // Opening: show input row and focus
             if (inputRow) inputRow.classList.add('active');
@@ -1654,10 +1651,8 @@ class CWMApp {
               inputField.value = '';
               inputField.focus();
             }
-            document.querySelectorAll('.toolbar-keyboard').forEach(kb => {
-              kb.classList.add('toolbar-active');
-              kb.textContent = '\u2328 Typing';
-            });
+            btn.classList.add('toolbar-active');
+            btn.textContent = '\u2328 Typing';
           }
           return;
         }
@@ -1665,9 +1660,21 @@ class CWMApp {
         // Copy terminal content to clipboard (mobile copy button)
         if (key === 'copy') {
           let textToCopy = '';
-          // If there's an active selection in the terminal, copy that
-          if (activePane.term && activePane.term.hasSelection()) {
-            textToCopy = activePane.term.getSelection();
+          // Prefer the same pane-scoped selection truth used by Ctrl+C and
+          // right-click. On coarse-pointer/rendering fallbacks the browser can
+          // visibly highlight DOM text while xterm reports no model selection;
+          // the mobile toolbar is the reachable copy action in that state.
+          const copySelection = typeof activePane.getCopySelection === 'function'
+            ? activePane.getCopySelection()
+            : {
+                hasSelection: !!(activePane.term &&
+                  activePane.term.hasSelection()),
+                text: activePane.term && activePane.term.hasSelection()
+                  ? activePane.term.getSelection()
+                  : '',
+              };
+          if (copySelection.hasSelection) {
+            textToCopy = String(copySelection.text);
           } else if (activePane.term) {
             // No selection - copy all visible terminal content
             const buffer = activePane.term.buffer.active;
@@ -6003,10 +6010,18 @@ class CWMApp {
       headerStats.style.display = this.state.settings.sessionCountInHeader ? '' : 'none';
     }
 
-    // Sync auto-trust setting to all open terminals
+    // Sync auto-trust setting to every live terminal, including panes cached
+    // in inactive groups. This is a safety policy: disabling it must take
+    // effect immediately even while a pane's DOM is detached.
     const autoTrust = !!this.state.settings.autoTrustDialogs;
-    this.terminalPanes.forEach(tp => {
+    const syncAutoTrust = (tp) => {
       if (tp) tp._autoTrustEnabled = autoTrust;
+    };
+    this.terminalPanes.forEach(syncAutoTrust);
+    Object.values(this._groupPaneCache || {}).forEach(cached => {
+      if (cached && Array.isArray(cached.panes)) {
+        cached.panes.forEach(syncAutoTrust);
+      }
     });
 
     // Sync smooth-scroll setting to every live pane, including panes cached
@@ -6327,7 +6342,7 @@ class CWMApp {
    * @param {HTMLElement} toolbar
    * @param {string} currentDir - the currently shown repo dir
    */
-  _renderTdToolbar(toolbar, currentDir) {
+  _renderTdToolbar(toolbar, currentDir, panel = null) {
     toolbar.textContent = '';
     const label = document.createElement('span');
     label.className = 'tasks-td-toolbar-label';
@@ -6356,7 +6371,7 @@ class CWMApp {
       this._tdPanelDir = sel.value;
       // Mark as manually pinned so pane focus changes don't override the selection
       this._tdPanelDirPinned = (sel.value !== this._getTdPanelDir());
-      this.renderTasksTdPanel();
+      this.renderTasksTdPanel(panel);
     });
 
     toolbar.appendChild(sel);
@@ -6366,7 +6381,7 @@ class CWMApp {
     refreshBtn.className = 'btn btn-ghost btn-icon btn-sm tasks-td-refresh';
     refreshBtn.title = 'Refresh';
     refreshBtn.innerHTML = '&#8635;';
-    refreshBtn.addEventListener('click', () => this.renderTasksTdPanel());
+    refreshBtn.addEventListener('click', () => this.renderTasksTdPanel(panel));
     toolbar.appendChild(refreshBtn);
   }
 
@@ -6423,7 +6438,7 @@ class CWMApp {
       this._tdProjects = projectsData.projects || [];
       // Re-render toolbar if panel is still showing the td view
       const toolbar = panel.querySelector('.tasks-td-toolbar');
-      if (toolbar) this._renderTdToolbar(toolbar, dir);
+      if (toolbar) this._renderTdToolbar(toolbar, dir, panel);
     }).catch(() => {});
 
     try {
@@ -6433,7 +6448,7 @@ class CWMApp {
       panel.textContent = '';
       const toolbar = document.createElement('div');
       toolbar.className = 'tasks-td-toolbar';
-      this._renderTdToolbar(toolbar, dir);
+      this._renderTdToolbar(toolbar, dir, panel);
       panel.appendChild(toolbar);
 
       if (issues.length === 0) {
@@ -6519,7 +6534,7 @@ class CWMApp {
         panel.textContent = '';
         const toolbar = document.createElement('div');
         toolbar.className = 'tasks-td-toolbar';
-        this._renderTdToolbar(toolbar, dir);
+        this._renderTdToolbar(toolbar, dir, panel);
         panel.appendChild(toolbar);
         const wrap = document.createElement('div');
         wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;padding:32px 24px;';
@@ -6545,7 +6560,7 @@ class CWMApp {
               // Fallback: run td init via a generic endpoint if workspace isn't known
               throw new Error('No active workspace to run td init against. Run `td init` manually in ' + dir);
             }
-            this.renderTasksTdPanel();
+            this.renderTasksTdPanel(panel);
           } catch (e) {
             initBtn.disabled = false;
             initBtn.textContent = 'Run td init';
@@ -14862,7 +14877,10 @@ class CWMApp {
             e.stopPropagation();
             const tp = this.terminalPanes[slotIdx];
             if (!tp) return;
-            this._uploadTargetSlot = slotIdx;
+            this._uploadTarget = {
+              terminalPane: tp,
+              groupId: this._activeGroupId,
+            };
             if (this.els.imageUploadInput) this.els.imageUploadInput.click();
           });
         }
@@ -14943,10 +14961,8 @@ class CWMApp {
         }
 
         // Click-to-focus: clicking/tapping anywhere in a pane focuses its terminal
-        const focusPane = () => {
-          if (this.terminalPanes[slotIdx]) {
-            this.setActiveTerminalPane(slotIdx);
-          }
+        const focusPane = (event) => {
+          this._focusTerminalPaneFromPointer(slotIdx, event);
         };
         pane.addEventListener('mousedown', focusPane, true); // capture phase
         pane.addEventListener('touchstart', focusPane, { passive: true, capture: true });
@@ -14961,12 +14977,26 @@ class CWMApp {
 
         // Right-click context menu on terminal pane
         pane.addEventListener('contextmenu', (e) => {
-          const tp = this.terminalPanes[slotIdx];
-          if (!tp) { e.preventDefault(); e.stopPropagation(); this._showEmptyPaneContextMenu(slotIdx, e.clientX, e.clientY); return; }
+          const tp = this._terminalPaneFromPointerEvent(slotIdx, e);
+          // Structured views are terminal-backed. An empty slot has no
+          // persistent owner, so leave its native context menu alone instead
+          // of exposing ephemeral views that disappear on the next layout.
+          if (!tp) return;
+          const copySelection = typeof tp.getCopySelection === 'function'
+            ? tp.getCopySelection()
+            : {
+                hasSelection: !!(tp.term && tp.term.hasSelection()),
+                text: tp.term && tp.term.hasSelection() ? tp.term.getSelection() : '',
+                source: 'xterm',
+              };
           e.preventDefault();
           e.stopPropagation();
-          this.showTerminalContextMenu(slotIdx, e.clientX, e.clientY);
-        });
+          // Capture before xterm's target-level contextmenu handler moves and
+          // selects its hidden textarea. The menu is Workbook-owned, so xterm
+          // has no useful native context-menu work to do here; preserving this
+          // snapshot keeps both xterm and visible DOM selections truthful.
+          this.showTerminalContextMenu(slotIdx, e.clientX, e.clientY, copySelection, tp);
+        }, true);
 
         // Long-press for mobile terminal context menu
         let termLongPress = null;
@@ -15026,7 +15056,86 @@ class CWMApp {
   // (wrong pane on reconnect, unclosable panes, broken layout). Panes now connect
   // directly on restore and close cleanly on fatal error.
 
+  _mountTerminalPaneOnNextFrame(tp, ownerGroupId, activate = true) {
+    const activationGeneration = tp._mountActivationGeneration || 0;
+    return requestAnimationFrame(() => {
+      if (this._activeGroupId !== ownerGroupId) return;
+      const liveSlot = this.terminalPanes.indexOf(tp);
+      if (liveSlot < 0) return;
+      this._syncTerminalPaneHost(liveSlot, tp);
+      // A rapid away/back group cycle can queue a second restore callback for
+      // the same not-yet-mounted pane. The first callback owns construction;
+      // later callbacks may rebind/activate but must not create another xterm
+      // or WebSocket.
+      if (!tp.term) tp.mount();
+      const shouldActivate = activate === true ||
+        (activate === 'if-active' && this._activeTerminalSlot === liveSlot);
+      if (shouldActivate &&
+          (tp._mountActivationGeneration || 0) === activationGeneration &&
+          this._activeGroupId === ownerGroupId &&
+          this.terminalPanes[liveSlot] === tp) {
+        this.setActiveTerminalPane(liveSlot);
+      }
+    });
+  }
+
+  /**
+   * Tear down a TerminalPane that exhausted its connection retries.
+   * The pane may be visible or cached in an inactive terminal group.
+   */
+  _handleTerminalPaneFatal(tp) {
+    if (!tp) return false;
+
+    const liveSlot = this.terminalPanes.indexOf(tp);
+    if (liveSlot >= 0) {
+      tp.dispose();
+      this.terminalPanes[liveSlot] = null;
+      this._resetTerminalPaneHost(liveSlot);
+      if (this._activeTerminalSlot === liveSlot) {
+        const nextSlot = this.terminalPanes.findIndex(candidate => candidate);
+        this._activeTerminalSlot = nextSlot >= 0 ? nextSlot : null;
+        if (nextSlot >= 0) this.setActiveTerminalPane(nextSlot);
+      }
+      this.updateTerminalGridLayout();
+      this.saveTerminalLayout();
+      return true;
+    }
+
+    for (const [groupId, cached] of Object.entries(this._groupPaneCache || {})) {
+      if (!cached || !Array.isArray(cached.panes)) continue;
+      const cachedSlot = cached.panes.indexOf(tp);
+      if (cachedSlot < 0) continue;
+
+      tp.dispose();
+      cached.panes[cachedSlot] = null;
+      if (Array.isArray(cached.domFragments)) {
+        cached.domFragments[cachedSlot] = null;
+      }
+      if (cached.activePane === tp) cached.activePane = null;
+      if (cached.activeSlot === cachedSlot) {
+        const nextSlot = cached.panes.findIndex(candidate => candidate);
+        cached.activeSlot = nextSlot >= 0 ? nextSlot : null;
+        cached.activePane = nextSlot >= 0 ? cached.panes[nextSlot] : null;
+      }
+
+      const group = (this._tabGroups || []).find(candidate => candidate.id === groupId);
+      if (group && Array.isArray(group.panes)) {
+        group.panes = group.panes.filter(record =>
+          !(record && record.slot === cachedSlot &&
+            record.sessionId === tp.sessionId)
+        );
+      }
+      this.saveTerminalLayout();
+      return true;
+    }
+    return false;
+  }
+
   openTerminalInPane(slotIdx, sessionId, sessionName, spawnOpts) {
+    // A terminal belongs to the tab group that initiated the open. The actual
+    // xterm mount is deferred one frame so the grid has dimensions; keep that
+    // deferred work from crossing a group switch into a reused fixed slot.
+    const ownerGroupId = this._activeGroupId;
     // Check localStorage for a previously saved name for this session
     const savedTitle = this.getProjectSessionTitle(sessionId);
     if (savedTitle && (!sessionName || sessionName === sessionId)) {
@@ -15040,6 +15149,7 @@ class CWMApp {
         slotIdx = emptySlot;
       } else {
         // All slots full, replace the target slot
+        this._discardVoiceRecognition(slotIdx, this.terminalPanes[slotIdx]);
         this.terminalPanes[slotIdx].dispose();
         this.terminalPanes[slotIdx] = null;
       }
@@ -15063,6 +15173,10 @@ class CWMApp {
         delete mirrorPaneEl.dataset.viewData;
       }
     }
+    // A normal tasks/doc view is fixed-host state too. Opening a different
+    // terminal into this slot invalidates any in-flight render/timer and
+    // restores the terminal surface before new ownership is attached.
+    this._resetTerminalPaneHost(slotIdx);
 
     const containerId = `term-container-${slotIdx}`;
     const paneEl = document.getElementById(`term-pane-${slotIdx}`);
@@ -15084,9 +15198,14 @@ class CWMApp {
       .concat(Object.values(this.state.sessions || {}))
       .find(_s => _s && _s.id === sessionId);
     const _explicitProvider = spawnOpts && spawnOpts.provider;
-    paneEl.dataset.provider = _explicitProvider
+    const _resolvedProvider = _explicitProvider
       || (_sessForProvider && _sessForProvider.provider)
       || 'claude'; /* gsd:provider-literal-allowed (Phase 18 default) */
+    paneEl.dataset.provider = _resolvedProvider;
+    // Keep the resolved provider on the TerminalPane itself. Deferred host
+    // sync runs before mount, so relying on the constructor's temporary
+    // _providerId default would overwrite a correct Codex pane as Claude.
+    spawnOpts = { ...(spawnOpts || {}), provider: _resolvedProvider };
 
     // Update pane state
     paneEl.classList.remove('terminal-pane-empty');
@@ -15144,40 +15263,8 @@ class CWMApp {
       this._attentionStateForSession(sessionId, rosterSession && rosterSession.status)
     );
 
-    // Wire up mobile mode change callback to sync keyboard toggle button
-    tp.onMobileModeChange = (mode) => {
-      document.querySelectorAll('.toolbar-keyboard').forEach(kb => {
-        kb.classList.toggle('toolbar-active', mode === 'type');
-        kb.textContent = mode === 'type' ? '\u2328 Typing' : '\u2328 Type';
-      });
-    };
-
     // On fatal connection error, close the pane cleanly.
-    tp.onFatalError = (failedSessionId) => {
-      const idx = this.terminalPanes.indexOf(tp);
-      if (idx === -1) return;
-      tp.dispose();
-      this.terminalPanes[idx] = null;
-      const deadPane = document.getElementById(`term-pane-${idx}`);
-      if (deadPane) {
-        // Close the schedule popover if it was anchored to this pane.
-        if (window.SchedulePopover && window.SchedulePopover.anchor && deadPane.contains(window.SchedulePopover.anchor)) {
-          window.SchedulePopover.close();
-        }
-        deadPane.classList.add('terminal-pane-empty');
-        deadPane.removeAttribute('data-provider');
-        const header = deadPane.querySelector('.terminal-pane-title');
-        if (header) header.textContent = 'Drop a session here';
-        const closeBtn2 = deadPane.querySelector('.terminal-pane-close');
-        if (closeBtn2) closeBtn2.hidden = true;
-        const scheduleBtn3 = deadPane.querySelector('.terminal-pane-schedule');
-        if (scheduleBtn3) scheduleBtn3.hidden = true;
-        // Plan 22-02: hide the provider pill when the pane goes empty.
-        const pillElDead = deadPane.querySelector('.pane-provider-pill');
-        if (pillElDead) { pillElDead.hidden = true; pillElDead.textContent = ''; pillElDead.removeAttribute('data-provider'); }
-      }
-      this.updateTerminalGridLayout();
-    };
+    tp.onFatalError = () => this._handleTerminalPaneFatal(tp);
 
     // Enable auto-trust if the setting is on
     tp._autoTrustEnabled = !!this.state.settings.autoTrustDialogs;
@@ -15186,11 +15273,11 @@ class CWMApp {
     // then mount the terminal so fitAddon.fit() gets real dimensions.
     this.updateTerminalGridLayout();
 
-    // Use rAF to let the browser paint the grid before mounting terminal
-    requestAnimationFrame(() => {
-      tp.mount();
-      this.setActiveTerminalPane(slotIdx);
-    });
+    // Use rAF to let the browser paint the grid before mounting terminal.
+    // Resolve the pane by identity at execution time: a same-group drag may
+    // legitimately move it before this frame, while close/group-switch must
+    // cancel the stale mount instead of resurrecting it in a reused host.
+    this._mountTerminalPaneOnNextFrame(tp, ownerGroupId, true);
 
     // Clear activity indicator for the new pane
     const activityEl = document.getElementById(`term-activity-${slotIdx}`);
@@ -15211,10 +15298,66 @@ class CWMApp {
   }
 
   /**
+   * Invalidate asynchronous work owned by a pane view.
+   * @returns {number} the new generation for this fixed slot.
+   */
+  _invalidatePaneView(slotIdx) {
+    if (!this._paneViewGenerations) {
+      this._paneViewGenerations = new Array(CWMApp.MAX_PANES).fill(0);
+    }
+    this._paneViewGenerations[slotIdx] =
+      (this._paneViewGenerations[slotIdx] || 0) + 1;
+    if (this._paneRefreshTimers && this._paneRefreshTimers[slotIdx]) {
+      clearInterval(this._paneRefreshTimers[slotIdx]);
+      delete this._paneRefreshTimers[slotIdx];
+    }
+    return this._paneViewGenerations[slotIdx];
+  }
+
+  _isPaneViewTokenCurrent(slotIdx, token) {
+    if (!token || !this._paneViewGenerations) return false;
+    const paneEl = document.getElementById(`term-pane-${slotIdx}`);
+    return this._activeGroupId === token.groupId &&
+      this._paneViewGenerations[slotIdx] === token.generation &&
+      this.terminalPanes[slotIdx] === token.terminalPane &&
+      !!paneEl &&
+      paneEl.dataset.viewType === token.viewType;
+  }
+
+  /**
+   * Clear all structured-view state owned by a reusable fixed host.
+   * TerminalPane/xterm ownership is handled separately.
+   */
+  _clearPaneViewHost(slotIdx, options = {}) {
+    const disposeMirror = options.disposeMirror !== false;
+    this._invalidatePaneView(slotIdx);
+    if (disposeMirror && this._mirrorPanes && this._mirrorPanes[slotIdx]) {
+      try { this._mirrorPanes[slotIdx].dispose(); } catch (_) { /* already gone */ }
+      delete this._mirrorPanes[slotIdx];
+    }
+    const paneEl = document.getElementById(`term-pane-${slotIdx}`);
+    const termContainer = document.getElementById(`term-container-${slotIdx}`);
+    const viewContainer = document.getElementById(`pane-view-${slotIdx}`);
+    if (viewContainer) {
+      viewContainer.hidden = true;
+      viewContainer.replaceChildren();
+    }
+    if (termContainer) termContainer.hidden = false;
+    if (paneEl) {
+      const badge = paneEl.querySelector('.pane-view-badge');
+      const backBtn = paneEl.querySelector('.pane-view-back');
+      if (badge) { badge.hidden = true; badge.textContent = ''; }
+      if (backBtn) backBtn.hidden = true;
+      delete paneEl.dataset.viewType;
+      delete paneEl.dataset.viewData;
+    }
+  }
+
+  /**
    * Replace the terminal in a pane with a structured view (tasks, doc, etc.).
    * The terminal is hidden but not disposed; restoreTerminalInPane() brings it back.
    * @param {number} slotIdx - The pane slot index
-   * @param {string} viewType - One of: 'tasks-git', 'tasks-td', 'tasks-worktree', 'tasks-files', 'doc'
+   * @param {string} viewType - One of: 'tasks-git', 'tasks-td', 'tasks-files', 'doc'
    * @param {Object} [viewData={}] - Optional view-specific data (e.g. { docId } for doc views)
    */
   async openViewInPane(slotIdx, viewType, viewData = {}) {
@@ -15224,14 +15367,19 @@ class CWMApp {
     const viewContainer = document.getElementById(`pane-view-${slotIdx}`);
     if (!termContainer || !viewContainer) return;
 
+    this._clearPaneViewHost(slotIdx);
+    const token = {
+      generation: this._paneViewGenerations[slotIdx],
+      groupId: this._activeGroupId,
+      terminalPane: this.terminalPanes[slotIdx],
+      viewType,
+    };
     termContainer.hidden = true;
     viewContainer.hidden = false;
-    viewContainer.replaceChildren();
 
     const labels = {
       'tasks-git': 'Git',
       'tasks-td': 'Issues',
-      'tasks-worktree': 'Agent Tasks',
       'tasks-files': 'Files',
       'doc': 'Markdown',
       'mirror': 'Mirror'
@@ -15244,7 +15392,14 @@ class CWMApp {
     paneEl.dataset.viewType = viewType;
     paneEl.dataset.viewData = JSON.stringify(viewData);
 
-    await this._renderPaneView(slotIdx, viewType, viewData, viewContainer);
+    const rendered = await this._renderPaneView(
+      slotIdx,
+      viewType,
+      viewData,
+      viewContainer,
+      token
+    );
+    if (!rendered || !this._isPaneViewTokenCurrent(slotIdx, token)) return;
     this.saveTerminalLayout();
   }
 
@@ -15256,31 +15411,7 @@ class CWMApp {
   restoreTerminalInPane(slotIdx) {
     const paneEl = document.getElementById(`term-pane-${slotIdx}`);
     if (!paneEl) return;
-    const termContainer = document.getElementById(`term-container-${slotIdx}`);
-    const viewContainer = document.getElementById(`pane-view-${slotIdx}`);
-
-    // Issue #10 Phase 4: a mirror view holds a server-side subscription;
-    // release it (POSTs /api/mirror/close) before the container is cleared.
-    if (this._mirrorPanes[slotIdx]) {
-      try { this._mirrorPanes[slotIdx].dispose(); } catch (_) { /* already gone */ }
-      delete this._mirrorPanes[slotIdx];
-    }
-
-    if (viewContainer) { viewContainer.hidden = true; viewContainer.replaceChildren(); }
-    if (termContainer) termContainer.hidden = false;
-
-    const badge = paneEl.querySelector('.pane-view-badge');
-    const backBtn = paneEl.querySelector('.pane-view-back');
-    if (badge) badge.hidden = true;
-    if (backBtn) backBtn.hidden = true;
-
-    delete paneEl.dataset.viewType;
-    delete paneEl.dataset.viewData;
-
-    if (this._paneRefreshTimers[slotIdx]) {
-      clearInterval(this._paneRefreshTimers[slotIdx]);
-      delete this._paneRefreshTimers[slotIdx];
-    }
+    this._clearPaneViewHost(slotIdx);
 
     const tp = this.terminalPanes[slotIdx];
     if (tp && tp.safeFit) tp.safeFit();
@@ -15305,40 +15436,61 @@ class CWMApp {
    * @param {Object} viewData - View-specific data
    * @param {HTMLElement} container - The container element to render into
    */
-  async _renderPaneView(slotIdx, viewType, viewData, container) {
-    if (this._paneRefreshTimers[slotIdx]) {
-      clearInterval(this._paneRefreshTimers[slotIdx]);
-      delete this._paneRefreshTimers[slotIdx];
+  async _renderPaneView(slotIdx, viewType, viewData, container, token) {
+    if (!this._isPaneViewTokenCurrent(slotIdx, token)) return false;
+    if (viewType === 'mirror') {
+      const view = await this._renderMirrorInPane(slotIdx, container, viewData);
+      if (!this._isPaneViewTokenCurrent(slotIdx, token)) {
+        if (view && this._mirrorPanes[slotIdx] === view) {
+          try { view.dispose(); } catch (_) { /* already gone */ }
+          delete this._mirrorPanes[slotIdx];
+        }
+        return false;
+      }
+      return true;
     }
+
+    // Render into a detached staging element. Async view renderers may finish
+    // after a group switch; only the current owner generation may commit DOM
+    // into the shared fixed-slot container.
+    const staging = document.createElement('div');
     switch (viewType) {
       case 'tasks-git':
-        await this.renderTasksGitPanel(container);
-        // Same guard as the git tasks tab: never poll while the browser tab is
-        // hidden, and use the shared, less-aggressive cadence, so a parked
-        // git pane stops spawning git.exe + conhost every 10s on Windows.
-        this._paneRefreshTimers[slotIdx] = setInterval(() => {
-          if (document.hidden) return;
-          this.renderTasksGitPanel(container);
-        }, CWMApp.GIT_PANEL_POLL_MS);
+        await this.renderTasksGitPanel(staging);
         break;
       case 'tasks-td':
-        await this.renderTasksTdPanel(container);
-        break;
-      case 'tasks-worktree':
-        await this.renderTasksView(container);
+        // Keep the rendered panel node itself. Toolbar callbacks capture this
+        // owner and continue to update the visible pane after staging commits.
+        const tdPanel = document.createElement('div');
+        staging.appendChild(tdPanel);
+        await this.renderTasksTdPanel(tdPanel);
         break;
       case 'tasks-files':
-        await this.renderTasksFilesPanel(container);
+        await this.renderTasksFilesPanel(staging);
         break;
       case 'doc':
-        await this._renderDocInPane(container, viewData);
-        break;
-      case 'mirror':
-        // Issue #10 Phase 4: read-only live mirror of an externally-started
-        // provider session. No refresh timer: updates arrive over SSE.
-        await this._renderMirrorInPane(slotIdx, container, viewData);
+        await this._renderDocInPane(staging, viewData);
         break;
     }
+    if (!this._isPaneViewTokenCurrent(slotIdx, token)) return false;
+    container.replaceChildren(...Array.from(staging.childNodes));
+
+    if (viewType === 'tasks-git') {
+      // Poll through a staging container too, so an in-flight refresh can
+      // never paint into a slot whose owner changed while the request ran.
+      const refresh = async () => {
+        if (document.hidden || !this._isPaneViewTokenCurrent(slotIdx, token)) return;
+        const refreshStaging = document.createElement('div');
+        await this.renderTasksGitPanel(refreshStaging);
+        if (!this._isPaneViewTokenCurrent(slotIdx, token)) return;
+        container.replaceChildren(...Array.from(refreshStaging.childNodes));
+      };
+      this._paneRefreshTimers[slotIdx] = setInterval(
+        refresh,
+        CWMApp.GIT_PANEL_POLL_MS
+      );
+    }
+    return true;
   }
 
   /**
@@ -15367,6 +15519,7 @@ class CWMApp {
       provider: vd.provider,
       providerSessionId: vd.providerSessionId,
       title: vd.title || vd.providerSessionId,
+      scrollState: vd.scrollState || null,
       api: (method, path, body) => this.api(method, path, body),
       escapeHtml: (s) => this.escapeHtml(s),
       deviceId: this.deviceId,
@@ -15379,6 +15532,7 @@ class CWMApp {
       // the miss is visible even if the pane is small.
       this.showToast((err && err.message) || 'Failed to open mirror', 'error');
     }
+    return view;
   }
 
   /**
@@ -15397,7 +15551,12 @@ class CWMApp {
     paneEl.classList.remove('terminal-pane-empty');
     const titleEl = paneEl.querySelector('.terminal-pane-title');
     if (titleEl) titleEl.textContent = (viewData && viewData.title) || 'Mirror';
-    await this.openViewInPane(slotIdx, 'mirror', viewData || {});
+    const opening = this.openViewInPane(slotIdx, 'mirror', viewData || {});
+    if (this.isMobile) {
+      this._activeTerminalSlot = slotIdx;
+      this.updateTerminalTabs();
+    }
+    await opening;
     this.updateTerminalGridLayout();
   }
 
@@ -15757,20 +15916,6 @@ class CWMApp {
   }
 
   /**
-   * Context menu shown when right-clicking an empty (no terminal) pane slot.
-   * Offers quick access to all pane view types.
-   */
-  _showEmptyPaneContextMenu(slotIdx, x, y) {
-    const items = [
-      { label: 'Agent Tasks', action: () => this.openViewInPane(slotIdx, 'tasks-worktree') },
-      { label: 'Issues', action: () => this.openViewInPane(slotIdx, 'tasks-td') },
-      { type: 'sep' },
-      { label: 'Project Markdown', action: () => this.openViewInPane(slotIdx, 'doc') },
-    ];
-    this._renderContextItems('Open View', items, x, y);
-  }
-
-  /**
    * Build the "Codex settings" submenu (Plan 21-01).
    *
    * Pure factory: returns an array of menu items suitable for the existing
@@ -16083,36 +16228,58 @@ class CWMApp {
     this._renderContextItems(matchLabel, item.submenu, rect.left, rect.bottom);
   }
 
-  showTerminalContextMenu(slotIdx, x, y) {
-    const tp = this.terminalPanes[slotIdx];
+  showTerminalContextMenu(slotIdx, x, y, copySelection, terminalPane) {
+    const tp = terminalPane || this.terminalPanes[slotIdx];
     if (!tp) return;
+    // Every action in this menu must address the same live owner used for the
+    // copy snapshot. During a pane move/cache transition the fixed DOM
+    // listener's slot can briefly disagree with the stamped xterm owner; using
+    // that stale slot for Restart/Close/Move would mutate a neighboring pane.
+    const ownerSlot = this.terminalPanes
+      ? this.terminalPanes.indexOf(tp)
+      : -1;
+    if (ownerSlot >= 0) slotIdx = ownerSlot;
+    const ownerGroupId = this._activeGroupId;
+    const resolveLiveOwnerSlot = () => {
+      if (this._activeGroupId !== ownerGroupId || !this.terminalPanes) return -1;
+      return this.terminalPanes.indexOf(tp);
+    };
+    const warnStaleOwner = () => {
+      this.showToast('Pane changed while the action was running; no other pane was modified', 'warning');
+    };
 
     const items = [];
+    const selection = copySelection && typeof copySelection === 'object'
+      ? copySelection
+      : (typeof tp.getCopySelection === 'function'
+          ? tp.getCopySelection()
+          : {
+              hasSelection: !!(tp.term && tp.term.hasSelection()),
+              text: tp.term && tp.term.hasSelection() ? tp.term.getSelection() : '',
+              source: 'xterm',
+            });
+    const selectedText = selection.hasSelection ? String(selection.text) : '';
 
     // ── Terminal-specific actions ──────────────────────────────
 
     // Copy selected text (only show when there's a selection)
-    if (tp.term && tp.term.hasSelection()) {
+    if (selection.hasSelection) {
       items.push({
         label: 'Copy', icon: '&#128203;', action: () => {
-          const selected = tp.term.getSelection();
-          if (selected) {
-            this._copyWithToast(selected, 'Copied to clipboard');
-          }
+          this._copyWithToast(selectedText, 'Copied to clipboard');
         },
       });
     }
 
     // Save to Notes (only show when there's a selection)
-    if (tp.term && tp.term.hasSelection()) {
+    if (selection.hasSelection) {
       items.push({
         label: 'Save to Notes', icon: '&#128221;', action: async () => {
-          const selected = tp.term.getSelection();
           const ws = this.state.activeWorkspace;
           if (!ws) { this.showToast('No active workspace', 'error'); return; }
           const result = await this.showPromptModal({
             title: 'Save to Notes',
-            fields: [{ key: 'text', type: 'textarea', value: selected }],
+            fields: [{ key: 'text', type: 'textarea', value: selectedText }],
             confirmText: 'Save Note'
           });
           if (!result) return;
@@ -16166,9 +16333,11 @@ class CWMApp {
         } catch (_) {
           // Session may already be dead, continue with relaunch
         }
-        this.closeTerminalPane(slotIdx);
+        const liveSlot = resolveLiveOwnerSlot();
+        if (liveSlot < 0) { warnStaleOwner(); return; }
+        this.closeTerminalPane(liveSlot);
         // Reopen in the same slot with the same options (resumes the session)
-        this.openTerminalInPane(slotIdx, sid, sName, oldOpts);
+        this.openTerminalInPane(liveSlot, sid, sName, oldOpts);
         this.showToast('Session restarted', 'success');
       },
     });
@@ -16180,7 +16349,9 @@ class CWMApp {
           await this.api('POST', `/api/pty/${encodeURIComponent(tp.sessionId)}/kill`);
           this.showToast('Session killed - drop again to restart', 'warning');
           // Close the terminal pane since the process is dead
-          this.closeTerminalPane(slotIdx);
+          const liveSlot = resolveLiveOwnerSlot();
+          if (liveSlot < 0) { warnStaleOwner(); return; }
+          this.closeTerminalPane(liveSlot);
         } catch (err) {
           this.showToast(err.message || 'Failed to kill session', 'error');
         }
@@ -16217,10 +16388,12 @@ class CWMApp {
           } catch (_) {
             // Session may already be dead, continue with relaunch
           }
-          this.closeTerminalPane(slotIdx);
+          const liveSlot = resolveLiveOwnerSlot();
+          if (liveSlot < 0) { warnStaleOwner(); return; }
+          this.closeTerminalPane(liveSlot);
           // Reopen in the same slot with the new shell
           const newOpts = { ...oldOpts, shell: opt.id };
-          this.openTerminalInPane(slotIdx, sid, sName, newOpts);
+          this.openTerminalInPane(liveSlot, sid, sName, newOpts);
           this.showToast(`Switched to ${opt.label}`, 'success');
         },
       });
@@ -16284,26 +16457,34 @@ class CWMApp {
     const otherGroups = (this._tabGroups || []).filter(g => g.id !== this._activeGroupId);
     if (otherGroups.length > 0) {
       items.push({
-        label: 'Move to Tab...',
-        icon: '&#8594;',
-        submenu: otherGroups.map(g => ({
-          label: g.name,
-          action: () => this.moveTerminalToGroup(slotIdx, g.id),
-        })),
-      });
-    }
+          label: 'Move to Tab...',
+          icon: '&#8594;',
+          submenu: otherGroups.map(g => ({
+            label: g.name,
+            action: () => {
+              const liveSlot = resolveLiveOwnerSlot();
+              if (liveSlot < 0) { warnStaleOwner(); return; }
+              this.moveTerminalToGroup(liveSlot, g.id);
+            },
+          })),
+        });
+      }
 
     // Close pane
     items.push({
       label: 'Close Pane', icon: '&#10005;', action: () => {
-        this.closeTerminalPane(slotIdx);
+        const liveSlot = resolveLiveOwnerSlot();
+        if (liveSlot < 0) { warnStaleOwner(); return; }
+        this.closeTerminalPane(liveSlot);
       },
     });
 
     // Inspect Element - select element in DevTools or log to console
     items.push({
       label: 'Inspect Element', icon: '&#128269;', action: () => {
-        const paneEl = document.getElementById(`term-pane-${slotIdx}`);
+        const liveSlot = resolveLiveOwnerSlot();
+        if (liveSlot < 0) { warnStaleOwner(); return; }
+        const paneEl = document.getElementById(`term-pane-${liveSlot}`);
         if (typeof inspect === 'function') {
           inspect(paneEl);
         } else {
@@ -16313,51 +16494,10 @@ class CWMApp {
       },
     });
 
-    // ── Switch to view ────────────────────────────────────────
-    items.push({ type: 'sep' });
-    items.push({
-      label: 'Switch to view',
-      submenu: [
-        { label: 'Agent Tasks', action: () => this.openViewInPane(slotIdx, 'tasks-worktree') },
-        { label: 'Issues', action: () => this.openViewInPane(slotIdx, 'tasks-td') },
-        { label: 'Project Markdown', action: () => this.openViewInPane(slotIdx, 'doc') },
-      ],
-    });
-
     this._renderContextItems(tp.sessionName || 'Terminal', items, x, y);
   }
 
   closeTerminalPane(slotIdx) {
-    // If our schedule popover is anchored on this pane's clock, close it.
-    if (window.SchedulePopover && window.SchedulePopover.anchor) {
-      const paneElForPopover = document.getElementById(`term-pane-${slotIdx}`);
-      if (paneElForPopover && paneElForPopover.contains(window.SchedulePopover.anchor)) {
-        window.SchedulePopover.close();
-      }
-    }
-    if (this._paneRefreshTimers[slotIdx]) {
-      clearInterval(this._paneRefreshTimers[slotIdx]);
-      delete this._paneRefreshTimers[slotIdx];
-    }
-
-    // Issue #10 Phase 4: release any mirror subscription living in this
-    // slot and clear its view chrome (badge, back button, container).
-    if (this._mirrorPanes[slotIdx]) {
-      try { this._mirrorPanes[slotIdx].dispose(); } catch (_) { /* already gone */ }
-      delete this._mirrorPanes[slotIdx];
-      const paneElMirror = document.getElementById(`term-pane-${slotIdx}`);
-      if (paneElMirror) {
-        const viewContainer = document.getElementById(`pane-view-${slotIdx}`);
-        if (viewContainer) { viewContainer.hidden = true; viewContainer.replaceChildren(); }
-        const mBadge = paneElMirror.querySelector('.pane-view-badge');
-        const mBack = paneElMirror.querySelector('.pane-view-back');
-        if (mBadge) mBadge.hidden = true;
-        if (mBack) mBack.hidden = true;
-        delete paneElMirror.dataset.viewType;
-        delete paneElMirror.dataset.viewData;
-      }
-    }
-
     const tp = this.terminalPanes[slotIdx];
     const sessionName = tp ? tp.sessionName : '';
 
@@ -16369,43 +16509,7 @@ class CWMApp {
 
     const paneEl = document.getElementById(`term-pane-${slotIdx}`);
     if (!paneEl) return;
-
-    // Reset to empty state
-    paneEl.classList.remove('terminal-pane-active');
-    paneEl.classList.add('terminal-pane-empty');
-    paneEl.removeAttribute('data-provider');
-    const titleEl = paneEl.querySelector('.terminal-pane-title');
-    if (titleEl) titleEl.textContent = 'Drop a session here';
-    // Plan 22-02: hide and clear the provider pill when the pane empties.
-    const pillElClose = paneEl.querySelector('.pane-provider-pill');
-    if (pillElClose) { pillElClose.hidden = true; pillElClose.textContent = ''; pillElClose.removeAttribute('data-provider'); }
-    const closeBtn = paneEl.querySelector('.terminal-pane-close');
-    if (closeBtn) closeBtn.hidden = true;
-    const uploadBtn3 = paneEl.querySelector('.terminal-pane-upload');
-    if (uploadBtn3) uploadBtn3.hidden = true;
-    const scheduleBtn3 = paneEl.querySelector('.terminal-pane-schedule');
-    if (scheduleBtn3) {
-      scheduleBtn3.hidden = true;
-      const badge = scheduleBtn3.querySelector('.pane-schedule-count');
-      if (badge) { badge.textContent = ''; badge.hidden = true; }
-    }
-    // Collapse any active expansion before closing
-    this._collapseExpandPane(slotIdx);
-    const expandBtn3 = paneEl.querySelector('.terminal-pane-expand');
-    if (expandBtn3) expandBtn3.hidden = true;
-    const collapseBtn3 = paneEl.querySelector('.terminal-pane-collapse');
-    if (collapseBtn3) collapseBtn3.hidden = true;
-    // Stop any active voice recognition and hide mic button on pane close
-    this._stopVoiceRecognition(slotIdx);
-    const micBtn3 = paneEl.querySelector('.terminal-pane-mic');
-    if (micBtn3) { micBtn3.hidden = true; micBtn3.classList.remove('mic-active'); }
-    // Remove any interim transcript overlay
-    const interimOverlay = paneEl.querySelector('.voice-interim-overlay');
-    if (interimOverlay) interimOverlay.remove();
-    const activityEl = document.getElementById(`term-activity-${slotIdx}`);
-    if (activityEl) activityEl.innerHTML = '';
-    const container = document.getElementById(`term-container-${slotIdx}`);
-    if (container) container.innerHTML = '';
+    this._resetTerminalPaneHost(slotIdx);
 
     // If closing the active pane, focus another terminal
     if (this._activeTerminalSlot === slotIdx) {
@@ -16500,22 +16604,70 @@ class CWMApp {
   }
 
   /**
+   * Remove the UI and slot mapping for a speech-recognition instance.
+   * The DOM references are captured when recording starts so cleanup follows
+   * the originating pane instead of whichever session later reuses its slot.
+   */
+  _cleanupVoiceRecognition(recognition) {
+    if (!recognition) return;
+    const micBtn = recognition._cwmMicButton;
+    const interimOverlay = recognition._cwmInterimOverlay;
+    if (micBtn) micBtn.classList.remove('mic-active');
+    if (interimOverlay && interimOverlay.parentNode) interimOverlay.remove();
+    const slotIdx = recognition._cwmSlot;
+    if (this._voiceRecognitions &&
+        this._voiceRecognitions[slotIdx] === recognition) {
+      delete this._voiceRecognitions[slotIdx];
+    }
+  }
+
+  /**
+   * Abort voice input without sending its transcript. Fixed pane slots are
+   * reused by swaps and tab-group caching, so lifecycle moves must discard an
+   * in-flight recording before another TerminalPane can inherit the controls.
+   */
+  _discardVoiceRecognition(slotIdx, expectedPane) {
+    const recognition = this._voiceRecognitions &&
+      this._voiceRecognitions[slotIdx];
+    if (!recognition) return false;
+    if (expectedPane && recognition._cwmTerminalPane !== expectedPane) {
+      return false;
+    }
+    recognition._cwmDiscarded = true;
+    this._cleanupVoiceRecognition(recognition);
+    try {
+      if (typeof recognition.abort === 'function') recognition.abort();
+      else if (typeof recognition.stop === 'function') recognition.stop();
+    } catch (_) {
+      // The mapping/UI were already removed; a closed recognizer needs no
+      // further work.
+    }
+    return true;
+  }
+
+  /**
    * Toggle voice input (speech-to-text) for a terminal pane.
    * Uses the Web Speech API (SpeechRecognition) to capture a single utterance,
    * transcribe it, and send it to the terminal's WebSocket as input.
    * @param {number} slotIdx - The terminal pane slot index
    */
   toggleVoiceInput(slotIdx) {
-    // If already recording for this slot, stop, send accumulated text, and return
-    if (this._voiceRecognitions[slotIdx]) {
-      this._stopVoiceRecognition(slotIdx);
-      return;
-    }
-
     const tp = this.terminalPanes[slotIdx];
     if (!tp) {
       this.showToast('No active terminal in this pane', 'warning');
       return;
+    }
+    const existingRecognition = this._voiceRecognitions[slotIdx];
+    if (existingRecognition) {
+      // A second click only sends when it still belongs to this exact pane and
+      // group. A stale fixed-slot recognizer is discarded, then the current
+      // pane may start a fresh recording.
+      if (existingRecognition._cwmTerminalPane === tp &&
+          existingRecognition._cwmGroupId === this._activeGroupId) {
+        this._stopVoiceRecognition(slotIdx);
+        return;
+      }
+      this._discardVoiceRecognition(slotIdx);
     }
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -16528,9 +16680,14 @@ class CWMApp {
     recognition.continuous = true;    // Keep listening until user clicks stop
     recognition.interimResults = true; // Show partial results while speaking
     recognition.lang = 'en-US';
+    recognition._cwmTerminalPane = tp;
+    recognition._cwmGroupId = this._activeGroupId;
+    recognition._cwmSlot = slotIdx;
+    recognition._cwmDiscarded = false;
 
     const paneEl = document.getElementById(`term-pane-${slotIdx}`);
     const micBtn = paneEl ? paneEl.querySelector('.terminal-pane-mic') : null;
+    recognition._cwmMicButton = micBtn;
 
     // Accumulated final transcript segments (sent when user clicks stop)
     let accumulatedTranscript = '';
@@ -16543,6 +16700,7 @@ class CWMApp {
       interimOverlay.textContent = 'Listening... (click mic to send)';
       paneEl.appendChild(interimOverlay);
     }
+    recognition._cwmInterimOverlay = interimOverlay;
 
     // Update the overlay with accumulated + interim text
     const updateOverlay = (interim) => {
@@ -16553,6 +16711,7 @@ class CWMApp {
 
     // Handle speech recognition results (both interim and final)
     recognition.onresult = (event) => {
+      if (recognition._cwmDiscarded) return;
       let interimTranscript = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -16570,6 +16729,7 @@ class CWMApp {
 
     // Handle recognition start
     recognition.onstart = () => {
+      if (recognition._cwmDiscarded) return;
       if (micBtn) micBtn.classList.add('mic-active');
       this.showToast('Listening... click mic again to send', 'info');
     };
@@ -16578,21 +16738,32 @@ class CWMApp {
     // (silence timeout, network drop, etc.). If the user didn't explicitly stop,
     // restart automatically so listening continues until the button is pressed.
     recognition.onend = () => {
+      const stillMapped = this._voiceRecognitions[slotIdx] === recognition;
+      const ownerStillLive = this._activeGroupId === recognition._cwmGroupId &&
+        this.terminalPanes.includes(tp);
+      if (recognition._cwmDiscarded || !stillMapped || !ownerStillLive) {
+        this._cleanupVoiceRecognition(recognition);
+        return;
+      }
       if (recognition._cwmUserStopped) {
         // User clicked stop: send accumulated transcript and clean up
-        if (micBtn) micBtn.classList.remove('mic-active');
-        if (interimOverlay && interimOverlay.parentNode) interimOverlay.remove();
-        delete this._voiceRecognitions[slotIdx];
+        this._cleanupVoiceRecognition(recognition);
 
         const text = accumulatedTranscript.trim();
         if (text) {
-          const currentTp = this.terminalPanes[slotIdx];
-          if (!currentTp || !currentTp.ws || currentTp.ws.readyState !== WebSocket.OPEN) {
+          if (!tp.ws || tp.ws.readyState !== WebSocket.OPEN) {
             this.showToast('Terminal not connected, voice input discarded', 'warning');
           } else {
             // Clean up punctuation and grammar before sending
             this._punctuateVoiceText(text).then(cleaned => {
-              currentTp.ws.send(JSON.stringify({ type: 'input', data: cleaned + '\n' }));
+              const canStillSend = this._activeGroupId === recognition._cwmGroupId &&
+                this.terminalPanes.includes(tp) &&
+                tp.ws && tp.ws.readyState === WebSocket.OPEN;
+              if (!canStillSend) {
+                this.showToast('Pane changed, voice input discarded', 'warning');
+                return;
+              }
+              tp.ws.send(JSON.stringify({ type: 'input', data: cleaned + '\n' }));
               this.showToast('Voice input sent', 'success');
             });
           }
@@ -16603,9 +16774,7 @@ class CWMApp {
           recognition.start();
         } catch (_) {
           // If restart fails, clean up gracefully
-          if (micBtn) micBtn.classList.remove('mic-active');
-          if (interimOverlay && interimOverlay.parentNode) interimOverlay.remove();
-          delete this._voiceRecognitions[slotIdx];
+          this._cleanupVoiceRecognition(recognition);
         }
       }
     };
@@ -16624,9 +16793,7 @@ class CWMApp {
       const msg = errorMessages[event.error] || `Speech recognition error: ${event.error}`;
       this.showToast(msg, 'error');
       recognition._cwmUserStopped = true; // Prevent auto-restart on fatal errors
-      if (micBtn) micBtn.classList.remove('mic-active');
-      if (interimOverlay && interimOverlay.parentNode) interimOverlay.remove();
-      delete this._voiceRecognitions[slotIdx];
+      this._cleanupVoiceRecognition(recognition);
     };
 
     // Store the recognition instance and start listening
@@ -16643,6 +16810,12 @@ class CWMApp {
   _stopVoiceRecognition(slotIdx) {
     const recognition = this._voiceRecognitions[slotIdx];
     if (recognition) {
+      const currentPane = this.terminalPanes[slotIdx];
+      if (recognition._cwmTerminalPane !== currentPane ||
+          recognition._cwmGroupId !== this._activeGroupId) {
+        this._discardVoiceRecognition(slotIdx);
+        return;
+      }
       // Mark as user-stopped so onend sends accumulated text instead of restarting.
       // We use stop() (not abort()) so any pending results still fire before onend.
       recognition._cwmUserStopped = true;
@@ -16650,7 +16823,7 @@ class CWMApp {
         recognition.stop();
       } catch (_) {
         // Fallback: clean up directly if stop() throws
-        delete this._voiceRecognitions[slotIdx];
+        this._cleanupVoiceRecognition(recognition);
       }
     }
   }
@@ -16681,6 +16854,195 @@ class CWMApp {
   }
 
   /**
+   * Return a reusable fixed pane host to a complete, inert empty state.
+   * This is the single lifecycle reset for close, fatal error, group cache,
+   * and moves; it clears every slot-owned control/view/timer without touching
+   * any TerminalPane that a caller may already have detached into a cache.
+   */
+  _resetTerminalPaneHost(slotIdx, options = {}) {
+    const paneEl = document.getElementById(`term-pane-${slotIdx}`);
+    if (!paneEl) return false;
+    const clearTerminal = options.clearTerminal !== false;
+
+    this._discardVoiceRecognition(slotIdx);
+    this._clearPaneViewHost(slotIdx);
+
+    if (window.SchedulePopover && window.SchedulePopover.anchor &&
+        paneEl.contains(window.SchedulePopover.anchor)) {
+      window.SchedulePopover.close();
+    }
+
+    paneEl.classList.remove(
+      'terminal-pane-active',
+      'pane-expanded-stage1',
+      'pane-expanded-stage2',
+      'pane-nav-pulse',
+      'terminal-pane-dragging',
+      'drag-over',
+      'terminal-pane-loading',
+      'terminal-pane-done',
+      'mobile-active'
+    );
+    paneEl.classList.add('terminal-pane-empty');
+    paneEl.removeAttribute('data-provider');
+    delete paneEl.dataset.attentionState;
+    delete paneEl.dataset.needsInput;
+
+    const titleEl = paneEl.querySelector('.terminal-pane-title');
+    if (titleEl) titleEl.textContent = 'Drop a session here';
+    const headerEl = paneEl.querySelector('.terminal-pane-header');
+    if (headerEl) {
+      headerEl.classList.remove('attention-state');
+      delete headerEl.dataset.attentionState;
+      delete headerEl.dataset.needsInput;
+    }
+    const pillEl = paneEl.querySelector('.pane-provider-pill');
+    if (pillEl) {
+      pillEl.hidden = true;
+      pillEl.textContent = '';
+      pillEl.removeAttribute('data-provider');
+    }
+    for (const selector of [
+      '.terminal-pane-close',
+      '.terminal-pane-upload',
+      '.terminal-pane-expand',
+      '.terminal-pane-collapse',
+      '.terminal-pane-mic',
+      '.terminal-pane-pinnedoc',
+    ]) {
+      const control = paneEl.querySelector(selector);
+      if (control) control.hidden = true;
+    }
+    const expandBtn = paneEl.querySelector('.terminal-pane-expand');
+    if (expandBtn) {
+      expandBtn.classList.remove(
+        'terminal-pane-expand-stage1',
+        'terminal-pane-expand-stage2'
+      );
+      expandBtn.title = 'Expand pane';
+    }
+    const micBtn = paneEl.querySelector('.terminal-pane-mic');
+    if (micBtn) micBtn.classList.remove('mic-active');
+    const scheduleBtn = paneEl.querySelector('.terminal-pane-schedule');
+    if (scheduleBtn) {
+      scheduleBtn.hidden = true;
+      const badge = scheduleBtn.querySelector('.pane-schedule-count');
+      if (badge) { badge.textContent = ''; badge.hidden = true; }
+    }
+    const pinCount = paneEl.querySelector('.pane-pin-count');
+    if (pinCount) pinCount.textContent = '';
+    const interimOverlay = paneEl.querySelector('.voice-interim-overlay');
+    if (interimOverlay) interimOverlay.remove();
+    const mobileInputRow = paneEl.querySelector('.terminal-mobile-input-row');
+    if (mobileInputRow) mobileInputRow.classList.remove('active');
+    const mobileInput = paneEl.querySelector('.mobile-type-input');
+    if (mobileInput) {
+      mobileInput.value = '';
+      if (document.activeElement === mobileInput &&
+          typeof mobileInput.blur === 'function') {
+        mobileInput.blur();
+      }
+    }
+    const keyboardBtn = paneEl.querySelector('.toolbar-keyboard');
+    if (keyboardBtn) {
+      keyboardBtn.classList.remove('toolbar-active');
+      keyboardBtn.textContent = '\u2328 Type';
+    }
+    const activityEl = document.getElementById(`term-activity-${slotIdx}`);
+    if (activityEl) {
+      activityEl.innerHTML = '';
+      delete activityEl.dataset.activityKey;
+    }
+    const container = document.getElementById(`term-container-${slotIdx}`);
+    if (container) {
+      container.hidden = false;
+      if (clearTerminal) container.replaceChildren();
+    }
+    if (typeof this._renderCodexStatusStrip === 'function') {
+      this._renderCodexStatusStrip(slotIdx);
+    }
+    return true;
+  }
+
+  /**
+   * Rebind a live TerminalPane and its provider chrome to a fixed grid slot.
+   *
+   * @param {number} slotIdx - Destination pane slot.
+   * @param {TerminalPane} tp - Live pane now occupying that slot.
+   * @returns {boolean} true when the destination host exists.
+   */
+  _syncTerminalPaneHost(slotIdx, tp) {
+    if (!tp) return false;
+    const paneEl = document.getElementById(`term-pane-${slotIdx}`);
+    const containerId = `term-container-${slotIdx}`;
+    const container = document.getElementById(containerId);
+    if (!paneEl || !container) return false;
+
+    if (typeof tp.rebindHost === 'function') {
+      tp.rebindHost(containerId);
+    } else {
+      // Backward-compatible fallback for a mixed cached instance created
+      // before TerminalPane.rebindHost was available.
+      tp.containerId = containerId;
+      tp.paneEl = paneEl;
+      if (typeof tp._installSelectModeInterceptor === 'function') {
+        tp._installSelectModeInterceptor();
+      }
+      if (typeof tp._injectCopyControls === 'function') tp._injectCopyControls();
+    }
+
+    const provider = (tp.spawnOpts && tp.spawnOpts.provider) ||
+      tp._providerId || 'claude'; /* gsd:provider-literal-allowed */
+    paneEl.hidden = false;
+    paneEl.classList.remove('terminal-pane-empty');
+    const titleEl = paneEl.querySelector('.terminal-pane-title');
+    if (titleEl) titleEl.textContent = tp.sessionName || tp.sessionId;
+    paneEl.dataset.provider = provider;
+    const pillEl = paneEl.querySelector('.pane-provider-pill');
+    if (pillEl) {
+      pillEl.dataset.provider = provider;
+      const registered = this._getProviderById ? this._getProviderById(provider) : null;
+      pillEl.textContent = (registered && registered.displayName) ||
+        (provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : '');
+      pillEl.hidden = !provider;
+    }
+    const closeBtn = paneEl.querySelector('.terminal-pane-close');
+    if (closeBtn) closeBtn.hidden = false;
+    const uploadBtn = paneEl.querySelector('.terminal-pane-upload');
+    if (uploadBtn) uploadBtn.hidden = false;
+    const scheduleBtn = paneEl.querySelector('.terminal-pane-schedule');
+    if (scheduleBtn) scheduleBtn.hidden = false;
+    const micBtn = paneEl.querySelector('.terminal-pane-mic');
+    if (micBtn) micBtn.hidden = !this._speechRecognitionAvailable;
+    const expandBtn = paneEl.querySelector('.terminal-pane-expand');
+    if (expandBtn) expandBtn.hidden = false;
+    const collapseBtn = paneEl.querySelector('.terminal-pane-collapse');
+    if (collapseBtn) collapseBtn.hidden = true;
+    container.hidden = !!paneEl.dataset.viewType;
+    if (typeof this._renderCodexStatusStrip === 'function') {
+      this._renderCodexStatusStrip(slotIdx);
+    }
+    if (this._attentionState &&
+        typeof this._applyAttentionStateToDom === 'function') {
+      const state = tp._needsInput
+        ? 'needs-input'
+        : this._attentionStateForSession(tp.sessionId);
+      this._applyAttentionStateToDom(tp.sessionId, state);
+    }
+    const headerEl = paneEl.querySelector('.terminal-pane-header');
+    if (headerEl) {
+      headerEl.dataset.needsInput = tp._needsInput ? 'true' : 'false';
+    }
+    if (typeof this.updatePaneActivity === 'function') {
+      this.updatePaneActivity(slotIdx, tp._currentActivity || null);
+    }
+    if (this.state && typeof this._refreshPanePin === 'function') {
+      Promise.resolve(this._refreshPanePin(slotIdx)).catch(() => {});
+    }
+    return true;
+  }
+
+  /**
    * Swap two terminal panes in the grid.
    * Swaps the xterm DOM nodes and the terminalPanes array entries.
    * If one slot is empty, it becomes a move instead of a swap.
@@ -16689,6 +17051,23 @@ class CWMApp {
     console.log(`[DnD] Swapping panes: slot ${srcSlot} <-> slot ${dstSlot}`);
     const srcTp = this.terminalPanes[srcSlot];
     const dstTp = this.terminalPanes[dstSlot];
+    // Voice capture and structured views are fixed-host resources. End them
+    // before the TerminalPane identities move so no transcript, timer, or
+    // late async view render can remain attached to the old slot.
+    [srcSlot, dstSlot].forEach(slot => {
+      const tp = this.terminalPanes[slot];
+      if (tp && typeof tp.blur === 'function') tp.blur();
+      this._resetTerminalPaneHost(slot, { clearTerminal: false });
+    });
+    // Host rebinding can focus a mobile type-mode textarea, whose focusin
+    // listener mutates _activeTerminalSlot while the swap is half complete.
+    // Remember the active TerminalPane itself before any DOM/listener work so
+    // the final active slot follows that immutable owner, not an intermediate
+    // focus side effect.
+    const activeTpBeforeSwap = Number.isInteger(this._activeTerminalSlot)
+      ? this.terminalPanes[this._activeTerminalSlot]
+      : null;
+    const activeSlotBeforeSwap = this._activeTerminalSlot;
 
     // Swap in the array
     this.terminalPanes[srcSlot] = dstTp;
@@ -16724,27 +17103,51 @@ class CWMApp {
           }
         }
       } else {
-        // Empty pane - reset to drop target
-        paneEl.classList.remove('terminal-pane-active');
-        paneEl.classList.add('terminal-pane-empty');
-        if (titleEl) titleEl.textContent = 'Drop a session here';
-        if (closeBtn) closeBtn.hidden = true;
-        if (uploadBtnEl) uploadBtnEl.hidden = true;
-        if (scheduleBtnEl) {
-          scheduleBtnEl.hidden = true;
-          const badge = scheduleBtnEl.querySelector('.pane-schedule-count');
-          if (badge) { badge.textContent = ''; badge.hidden = true; }
-        }
-        if (micBtnEl) { micBtnEl.hidden = true; micBtnEl.classList.remove('mic-active'); }
-        if (container) container.innerHTML = '';
+        // Empty pane - reset every slot-owned control/view/timer.
+        this._resetTerminalPaneHost(slot);
       }
     });
 
+    // Moving only tp.term.element leaves every slot-owned listener, Select
+    // control, resize observer, focus lookup, and provider tag pointed at the
+    // old host. Rebind both entries after their xterm DOM has moved.
+    [srcSlot, dstSlot].forEach(slot => {
+      const tp = this.terminalPanes[slot];
+      if (tp) this._syncTerminalPaneHost(slot, tp);
+    });
+
     // Update active pane tracking
-    if (this._activeTerminalSlot === srcSlot) {
-      this._activeTerminalSlot = dstSlot;
-    } else if (this._activeTerminalSlot === dstSlot) {
-      this._activeTerminalSlot = srcSlot;
+    const relocatedActiveSlot = activeTpBeforeSwap
+      ? this.terminalPanes.indexOf(activeTpBeforeSwap)
+      : -1;
+    this._activeTerminalSlot = relocatedActiveSlot >= 0
+      ? relocatedActiveSlot
+      : activeSlotBeforeSwap;
+    [srcSlot, dstSlot].forEach(slot => {
+      const paneEl = document.getElementById(`term-pane-${slot}`);
+      if (paneEl) paneEl.classList.remove('terminal-pane-active');
+    });
+    const activePaneEl = Number.isInteger(this._activeTerminalSlot)
+      ? document.getElementById(`term-pane-${this._activeTerminalSlot}`)
+      : null;
+    if (activePaneEl && this.terminalPanes[this._activeTerminalSlot]) {
+      activePaneEl.classList.add('terminal-pane-active');
+    }
+    this.terminalPanes.forEach((tp, index) => {
+      if (!tp) return;
+      if (typeof tp.setFocused === 'function') {
+        tp.setFocused(index === this._activeTerminalSlot);
+      }
+      if (index !== this._activeTerminalSlot &&
+          typeof tp.blur === 'function') {
+        tp.blur();
+      }
+    });
+    const activeTpAfterSwap = Number.isInteger(this._activeTerminalSlot)
+      ? this.terminalPanes[this._activeTerminalSlot]
+      : null;
+    if (activeTpAfterSwap && typeof activeTpAfterSwap.focus === 'function') {
+      activeTpAfterSwap.focus();
     }
 
     // Update grid layout and refit terminals
@@ -17050,6 +17453,105 @@ class CWMApp {
   /* ═══════════════════════════════════════════════════════════
      TERMINAL FOCUS & RESIZE
      ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Resolve the TerminalPane that owns the actual pointer target.
+   *
+   * @param {number} slotIdx - Fixed grid slot under the pointer.
+   * @param {Event} event - Pointer/context-menu event.
+   * @returns {TerminalPane|null} Live event owner or the slot fallback.
+   */
+  _terminalPaneFromPointerEvent(slotIdx, event) {
+    const slotPane = this.terminalPanes && this.terminalPanes[slotIdx];
+    const eventTarget = event && event.target;
+    if (!eventTarget) return slotPane || null;
+
+    const xtermRoot = eventTarget.closest
+      ? eventTarget.closest('.xterm')
+      : null;
+    if (xtermRoot && xtermRoot.__cwmTerminalPane) {
+      return xtermRoot.__cwmTerminalPane;
+    }
+
+    if (this.terminalPanes) {
+      const mountedPane = this.terminalPanes.find(candidate =>
+        candidate && candidate.term && candidate.term.element &&
+        (candidate.term.element === eventTarget ||
+          candidate.term.element.contains(eventTarget)));
+      if (mountedPane) return mountedPane;
+    }
+    return slotPane || null;
+  }
+
+  /**
+   * Focus a pane from its ancestor capture-phase pointer listener.
+   *
+   * A selected-text right click is intentionally different from an ordinary
+   * pane click. The pane-level capture listener runs before TerminalPane's
+   * descendant capture listener. Calling setActiveTerminalPane here can
+   * refocus/refit xterm and clear its selection before the descendant
+   * right-button guard or the later contextmenu handler can read it. The
+   * visible result is exactly what the live GUI exposed: highlighted text
+   * disappears, the menu omits Copy, and a subsequent Ctrl+C has no selection.
+   *
+   * Preserve the existing xterm selection on right-button mousedown and let
+   * TerminalPane's capture guard stop the event before it reaches the
+   * mouse-reporting TUI. Normal left clicks and unselected right clicks keep
+   * the existing focus behavior.
+   *
+   * @param {number} slotIdx - Terminal pane slot.
+   * @param {MouseEvent|TouchEvent} event - Captured pointer event.
+   * @returns {boolean} true when focus ran, false when skipped or unavailable.
+   */
+  _focusTerminalPaneFromPointer(slotIdx, event) {
+    const tp = this._terminalPaneFromPointerEvent(slotIdx, event);
+    if (!tp) return false;
+
+    const copySelection = typeof tp.getCopySelection === 'function'
+      ? tp.getCopySelection()
+      : {
+          hasSelection: !!(tp.term && typeof tp.term.hasSelection === 'function' &&
+            tp.term.hasSelection()),
+        };
+    const selectedRightPress =
+      event && event.type === 'mousedown' && event.button === 2 &&
+      copySelection.hasSelection;
+    if (selectedRightPress) {
+      // Stop the right-button press here, at the first pane capture listener.
+      // TerminalPane normally repeats this guard on the terminal container,
+      // but a pane that has been reordered or restored from the live group
+      // cache may still have an older container binding. Letting the press
+      // continue in that state allows xterm to report it to the mouse-aware
+      // TUI, whose redraw clears the selection before `contextmenu` runs.
+      //
+      // Do not preventDefault: the separate contextmenu event must still
+      // reach showTerminalContextMenu and expose the selected-text actions.
+      if (typeof event.stopPropagation === 'function') event.stopPropagation();
+      return false;
+    }
+
+    // The pane capture listener also sees the synthetic Shift+mousedown that
+    // Select mode re-dispatches. Re-activating an already-active pane for the
+    // raw event and again for its clone calls focus()+activate() twice; activate
+    // can reassert PTY geometry, redraw a mouse-aware TUI, and race the xterm
+    // selection that the same gesture is trying to create. A normal xterm
+    // mousedown already keeps its textarea focused, so an active owner needs no
+    // app-level focus work. Inactive panes still activate exactly once.
+    const ownerSlot = this.terminalPanes
+      ? this.terminalPanes.indexOf(tp)
+      : -1;
+    const focusSlot = ownerSlot >= 0 ? ownerSlot : slotIdx;
+    const eventTarget = event && event.target;
+    const onTerminalSurface = !!(eventTarget && eventTarget.closest &&
+      eventTarget.closest('.xterm'));
+    if (this._activeTerminalSlot === focusSlot &&
+        (onTerminalSurface || (event && event.__cwmSelSynthetic))) {
+      return false;
+    }
+
+    this.setActiveTerminalPane(focusSlot);
+    return true;
+  }
 
   /**
    * Set the active terminal pane - blurs all others, focuses target, highlights it.
@@ -17816,9 +18318,18 @@ class CWMApp {
       return;
     }
 
-    const activePanes = this.terminalPanes.map((tp, i) => tp ? { idx: i, tp } : null).filter(Boolean);
+    const activePanes = [];
+    for (let i = 0; i < CWMApp.MAX_PANES; i++) {
+      const tp = this.terminalPanes[i];
+      const mirror = this._mirrorPanes && this._mirrorPanes[i];
+      if (tp || mirror) activePanes.push({ idx: i, tp, mirror });
+    }
 
     if (activePanes.length === 0) {
+      for (let i = 0; i < CWMApp.MAX_PANES; i++) {
+        const pane = document.getElementById(`term-pane-${i}`);
+        if (pane) pane.classList.remove('mobile-active');
+      }
       strip.hidden = true;
       return;
     }
@@ -17826,24 +18337,35 @@ class CWMApp {
     strip.hidden = false;
 
     // Find which pane is currently mobile-active
-    let activeIdx = activePanes[0].idx;
-    for (const p of activePanes) {
-      const el = document.getElementById(`term-pane-${p.idx}`);
-      if (el && el.classList.contains('mobile-active')) {
-        activeIdx = p.idx;
-        break;
+    const requestedActive = activePanes.some(
+      p => p.idx === this._activeTerminalSlot
+    );
+    let activeIdx = requestedActive
+      ? this._activeTerminalSlot
+      : activePanes[0].idx;
+    if (!requestedActive) {
+      for (const p of activePanes) {
+        const el = document.getElementById(`term-pane-${p.idx}`);
+        if (el && el.classList.contains('mobile-active')) {
+          activeIdx = p.idx;
+          break;
+        }
       }
     }
 
     strip.innerHTML = activePanes.map(p => {
       const isActive = p.idx === activeIdx;
-      const terminalName = this.escapeHtml(p.tp.sessionName || 'Terminal');
+      const paneName = this.escapeHtml(
+        p.tp
+          ? (p.tp.sessionName || 'Terminal')
+          : (p.mirror.title || p.mirror.providerSessionId || 'Mirror')
+      );
       return `<div class="terminal-tab-item${isActive ? ' active' : ''}" data-slot="${p.idx}">
         <button type="button" class="terminal-tab${isActive ? ' active' : ''}" data-slot="${p.idx}">
-          ${terminalName}
+          ${paneName}
         </button>
         <button type="button" class="terminal-tab-close" data-slot="${p.idx}"
-          title="Close terminal" aria-label="Close ${terminalName} terminal">&times;</button>
+          title="Close pane" aria-label="Close ${paneName} pane">&times;</button>
       </div>`;
     }).join('') + `<button class="terminal-tab terminal-tab-add" title="Open terminal">+</button>`;
 
@@ -17880,7 +18402,12 @@ class CWMApp {
     strip.querySelectorAll('.terminal-tab-close').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.closeTerminalPane(parseInt(btn.dataset.slot, 10));
+        const slot = parseInt(btn.dataset.slot, 10);
+        if (this.terminalPanes[slot]) {
+          this.closeTerminalPane(slot);
+        } else if (this._mirrorPanes && this._mirrorPanes[slot]) {
+          this.restoreTerminalInPane(slot);
+        }
         this.updateTerminalTabs();
       });
     });
@@ -17951,18 +18478,33 @@ class CWMApp {
       });
     }
 
-    // Reset keyboard toggle button to match new pane's input mode
-    if (tp && tp._isMobile && tp._isMobile()) {
-      const isTypeMode = !!tp._mobileTypeMode;
-      document.querySelectorAll('.toolbar-keyboard').forEach(kb => {
-        kb.classList.toggle('toolbar-active', isTypeMode);
-        kb.textContent = isTypeMode ? '\u2328 Typing' : '\u2328 Type';
-      });
+    // The dedicated input row is the per-pane source of truth. Do not mirror
+    // one pane's state onto every fixed-slot toolbar.
+    if (activeEl) {
+      const mobileToolbar = activeEl.querySelector('.terminal-mobile-toolbar');
+      const inputRow = activeEl.querySelector('.terminal-mobile-input-row');
+      const keyboardBtn = activeEl.querySelector('.toolbar-keyboard');
+      if (mobileToolbar) mobileToolbar.hidden = !tp;
+      if (inputRow) {
+        inputRow.hidden = !tp;
+        if (!tp) inputRow.classList.remove('active');
+      }
+      const isTyping = !!(inputRow && inputRow.classList.contains('active'));
+      if (keyboardBtn) {
+        keyboardBtn.classList.toggle('toolbar-active', isTyping);
+        keyboardBtn.textContent = isTyping ? '\u2328 Typing' : '\u2328 Type';
+      }
     }
 
     // Update pane indicator dots
     if (this.els.terminalTabStrip) {
-      const activePanes = this.terminalPanes.map((tp, i) => tp ? i : -1).filter(i => i !== -1);
+      const activePanes = [];
+      for (let i = 0; i < CWMApp.MAX_PANES; i++) {
+        if (this.terminalPanes[i] ||
+            (this._mirrorPanes && this._mirrorPanes[i])) {
+          activePanes.push(i);
+        }
+      }
       const dots = this.els.terminalTabStrip.querySelectorAll('.indicator-dot');
       dots.forEach((dot, i) => {
         dot.classList.toggle('active', activePanes[i] === slotIdx);
@@ -19300,9 +19842,6 @@ class CWMApp {
           const opts = { ...(p.spawnOpts || {}) };
           if (p.provider && !opts.provider) opts.provider = p.provider;
           this.openTerminalInPane(p.slot, p.sessionId, p.sessionName || 'Terminal', opts);
-          if (p.viewType) {
-            setTimeout(() => this.openViewInPane(p.slot, p.viewType, p.viewData || {}), 100);
-          }
         } else if (p.viewType === 'mirror' && !p.sessionId && !this._isSlotOccupied(p.slot)) {
           // Issue #10 Phase 4: standalone mirror pane (no PTY session).
           // Re-open from the persisted descriptor; openMirrorInSlot owns
@@ -19658,10 +20197,38 @@ class CWMApp {
     // so we can reattach instantly when switching back.
     const prevGroupId = this._activeGroupId;
     if (prevGroupId) {
-      const cached = { panes: new Array(CWMApp.MAX_PANES).fill(null), domFragments: new Array(CWMApp.MAX_PANES).fill(null) };
+      const activeSlotForCache = this._activeTerminalSlot;
+      const cached = {
+        panes: new Array(CWMApp.MAX_PANES).fill(null),
+        domFragments: new Array(CWMApp.MAX_PANES).fill(null),
+        activePane: Number.isInteger(activeSlotForCache)
+          ? this.terminalPanes[activeSlotForCache] || null
+          : null,
+        activeSlot: Number.isInteger(activeSlotForCache)
+          ? activeSlotForCache
+          : null,
+      };
       for (let i = 0; i < CWMApp.MAX_PANES; i++) {
         if (this.terminalPanes[i]) {
           cached.panes[i] = this.terminalPanes[i];
+          if (typeof cached.panes[i].setFocused === 'function') {
+            cached.panes[i].setFocused(false);
+          }
+          // Invalidate any unconditional activation queued when this pane was
+          // first opened. An A -> B -> A cycle may complete before that rAF;
+          // mounting may still proceed, but it must not override A's restored
+          // remembered active pane.
+          cached.panes[i]._mountActivationGeneration =
+            (cached.panes[i]._mountActivationGeneration || 0) + 1;
+          if (typeof cached.panes[i].blur === 'function') {
+            cached.panes[i].blur();
+          }
+          // Static grid slots are shared by every tab group. Release this
+          // pane's Select UI, pointer/touch capture, focus host, and resize
+          // observation before another group's TerminalPane occupies them.
+          if (typeof cached.panes[i].detachHostBindings === 'function') {
+            cached.panes[i].detachHostBindings();
+          }
           // Detach xterm DOM into a fragment (preserves WebSocket + state)
           const termContainer = document.getElementById(`term-container-${i}`);
           if (termContainer && termContainer.childNodes.length > 0) {
@@ -19671,38 +20238,10 @@ class CWMApp {
           }
         }
         this.terminalPanes[i] = null;
-        // Issue #10 Phase 4: standalone mirror panes are not cacheable like
-        // xterm DOM (the subscription is server-side state, not a canvas).
-        // Dispose on switch-away; saveCurrentGroupPanes() above already
-        // persisted the descriptor, and _restoreGroupMirrorPanes re-opens
-        // it (idempotent, fresh history) when this group activates again.
-        if (this._mirrorPanes[i]) {
-          try { this._mirrorPanes[i].dispose(); } catch (_) { /* already gone */ }
-          delete this._mirrorPanes[i];
-          const mirrorViewContainer = document.getElementById(`pane-view-${i}`);
-          if (mirrorViewContainer) { mirrorViewContainer.hidden = true; mirrorViewContainer.replaceChildren(); }
-        }
-        // Reset pane DOM to empty visual state
-        const paneEl = document.getElementById(`term-pane-${i}`);
-        if (paneEl) {
-          paneEl.classList.add('terminal-pane-empty');
-          const header = paneEl.querySelector('.terminal-pane-title');
-          if (header) header.textContent = 'Drop a session here';
-          const closeBtn = paneEl.querySelector('.terminal-pane-close');
-          if (closeBtn) closeBtn.hidden = true;
-          const uploadBtnG = paneEl.querySelector('.terminal-pane-upload');
-          if (uploadBtnG) uploadBtnG.hidden = true;
-          // Clear stale mirror view chrome so the incoming group's slot
-          // starts clean (only when the slot hosted a standalone mirror).
-          if (paneEl.dataset.viewType === 'mirror') {
-            const mBadge = paneEl.querySelector('.pane-view-badge');
-            const mBack = paneEl.querySelector('.pane-view-back');
-            if (mBadge) mBadge.hidden = true;
-            if (mBack) mBack.hidden = true;
-            delete paneEl.dataset.viewType;
-            delete paneEl.dataset.viewData;
-          }
-        }
+        // Standalone mirrors, structured views, voice capture, timers, and
+        // all chrome are fixed-host state. The descriptor was persisted by
+        // saveCurrentGroupPanes(), so reset the shared slot completely.
+        this._resetTerminalPaneHost(i);
       }
       this._groupPaneCache[prevGroupId] = cached;
     }
@@ -19711,6 +20250,19 @@ class CWMApp {
 
     // ── Restore this tab group's split ratios (or reset to equal) ──
     const targetGroup = this._tabGroups.find(g => g.id === groupId);
+    // openTerminalInPane persists after each fresh attach. Keep an immutable
+    // copy of the incoming descriptors so those saves cannot erase structured
+    // views or mirrors before their owners are restored below.
+    const targetPaneRecords = targetGroup && Array.isArray(targetGroup.panes)
+      ? targetGroup.panes.map(record => ({
+          ...record,
+          spawnOpts: { ...((record && record.spawnOpts) || {}) },
+          viewData: { ...((record && record.viewData) || {}) },
+        }))
+      : [];
+    const restoreGroup = targetGroup
+      ? { ...targetGroup, panes: targetPaneRecords }
+      : null;
     if (targetGroup && targetGroup.gridColSizes) {
       this._gridColSizes = [...targetGroup.gridColSizes];
     } else {
@@ -19724,6 +20276,8 @@ class CWMApp {
 
     // ── Restore target group: try cache first, fall back to fresh connections ──
     const cached = this._groupPaneCache[groupId];
+    let preferredActiveSlot = null;
+    let rememberedActiveSlot = null;
     if (cached) {
       // Reattach cached panes instantly (no reconnection needed)
       for (let i = 0; i < CWMApp.MAX_PANES; i++) {
@@ -19744,12 +20298,33 @@ class CWMApp {
           // Reattach xterm DOM, or re-render placeholder for disconnected panes
           if (cached.domFragments[i]) {
             const termContainer = document.getElementById(`term-container-${i}`);
-            if (termContainer) termContainer.appendChild(cached.domFragments[i]);
+            if (termContainer) {
+              termContainer.appendChild(cached.domFragments[i]);
+              this._syncTerminalPaneHost(i, cached.panes[i]);
+            }
           } else if (cached.panes[i].sessionId) {
-            // Cached pane had no DOM fragment (was disconnected), reconnect directly
-            this.openTerminalInPane(i, cached.panes[i].sessionId, cached.panes[i].sessionName, cached.panes[i].spawnOpts);
+            // The pane may have been switched away during its one-frame
+            // deferred mount. Reuse the same TerminalPane identity and mount
+            // it only if this group still owns it when the next frame runs.
+            this._syncTerminalPaneHost(i, cached.panes[i]);
+            if (!cached.panes[i].term) {
+              this._mountTerminalPaneOnNextFrame(
+                cached.panes[i],
+                groupId,
+                'if-active'
+              );
+            }
           }
         }
+      }
+      const activePaneSlot = cached.activePane
+        ? this.terminalPanes.indexOf(cached.activePane)
+        : -1;
+      if (activePaneSlot >= 0) {
+        preferredActiveSlot = activePaneSlot;
+      }
+      if (Number.isInteger(cached.activeSlot)) {
+        rememberedActiveSlot = cached.activeSlot;
       }
       delete this._groupPaneCache[groupId];
       // Recalculate grid layout for restored pane count, then refit.
@@ -19759,6 +20334,7 @@ class CWMApp {
       // same-size restores produce blank canvases without an explicit refresh.
       this.updateTerminalGridLayout();
       requestAnimationFrame(() => {
+        if (this._activeGroupId !== groupId) return;
         for (let j = 0; j < CWMApp.MAX_PANES; j++) {
           const tp = this.terminalPanes[j];
           if (tp && tp.term) {
@@ -19771,18 +20347,27 @@ class CWMApp {
         // the cached pane's own fits were suppressed by the isConnected
         // guard. Fall back to the first restored pane when the remembered
         // active slot is empty in this group.
-        const restoredTp = (this._activeTerminalSlot !== null && this._activeTerminalSlot !== undefined && this.terminalPanes[this._activeTerminalSlot])
+        const selectedSlotOccupied =
+          Number.isInteger(this._activeTerminalSlot) &&
+          this._isSlotOccupied(this._activeTerminalSlot);
+        const restoredTp = selectedSlotOccupied
           ? this.terminalPanes[this._activeTerminalSlot]
           : this.terminalPanes.find(p => p);
         if (restoredTp && typeof restoredTp.activate === 'function') restoredTp.activate();
       });
     } else {
       // No cache, create fresh connections (first time opening this group)
-      const group = this._tabGroups.find(g => g.id === groupId);
-      if (group && group.panes) {
-        group.panes.forEach(p => {
+      if (restoreGroup && restoreGroup.panes) {
+        restoreGroup.panes.forEach(p => {
           if (p.sessionId && !this.terminalPanes[p.slot]) {
-            this.openTerminalInPane(p.slot, p.sessionId, p.sessionName || 'Terminal', p.spawnOpts || {});
+            const opts = { ...(p.spawnOpts || {}) };
+            if (p.provider && !opts.provider) opts.provider = p.provider;
+            this.openTerminalInPane(
+              p.slot,
+              p.sessionId,
+              p.sessionName || 'Terminal',
+              opts
+            );
           }
         });
       }
@@ -19792,15 +20377,60 @@ class CWMApp {
     // Runs after BOTH restore branches: the pane cache only carries
     // TerminalPane instances (mirror subscriptions were disposed on
     // switch-away), so mirrors always restore from their descriptors.
-    this._restoreGroupMirrorPanes(this._tabGroups.find(g => g.id === groupId));
+    this._restoreGroupMirrorPanes(restoreGroup);
+    if (preferredActiveSlot === null &&
+        Number.isInteger(rememberedActiveSlot) &&
+        this._isSlotOccupied(rememberedActiveSlot)) {
+      preferredActiveSlot = rememberedActiveSlot;
+    }
 
     // Re-point the active-slot suppression at a pane that actually exists
     // in the NEW group (runs after both the cached and fresh branches).
     // Without this, onTerminalIdle compared incoming idle events against
     // the PREVIOUS group's slot index, so every pane in the restored group
     // looked "inactive" and could toast even while fully on screen.
-    const firstFilledSlot = this.terminalPanes.findIndex(p => p);
-    this._activeTerminalSlot = firstFilledSlot !== -1 ? firstFilledSlot : null;
+    let firstFilledSlot = -1;
+    for (let i = 0; i < CWMApp.MAX_PANES; i++) {
+      if (this._isSlotOccupied(i)) {
+        firstFilledSlot = i;
+        break;
+      }
+    }
+    this._activeTerminalSlot = preferredActiveSlot !== null
+      ? preferredActiveSlot
+      : (firstFilledSlot !== -1 ? firstFilledSlot : null);
+    for (let i = 0; i < CWMApp.MAX_PANES; i++) {
+      const paneEl = document.getElementById(`term-pane-${i}`);
+      if (paneEl) paneEl.classList.remove('terminal-pane-active');
+    }
+    if (this._activeTerminalSlot !== null) {
+      const activePaneEl = document.getElementById(
+        `term-pane-${this._activeTerminalSlot}`
+      );
+      if (activePaneEl && this.terminalPanes[this._activeTerminalSlot]) {
+        activePaneEl.classList.add('terminal-pane-active');
+      }
+    }
+    this.terminalPanes.forEach((tp, index) => {
+      if (!tp) return;
+      if (typeof tp.setFocused === 'function') {
+        tp.setFocused(index === this._activeTerminalSlot);
+      }
+      if (index !== this._activeTerminalSlot &&
+          typeof tp.blur === 'function') {
+        tp.blur();
+      }
+    });
+    const activeTp = Number.isInteger(this._activeTerminalSlot)
+      ? this.terminalPanes[this._activeTerminalSlot]
+      : null;
+    const activePaneHost = Number.isInteger(this._activeTerminalSlot)
+      ? document.getElementById(`term-pane-${this._activeTerminalSlot}`)
+      : null;
+    if (activeTp && !activePaneHost?.dataset?.viewType &&
+        typeof activeTp.focus === 'function') {
+      activeTp.focus();
+    }
 
     // Always reset grid layout for the new group's pane count.
     // Without this, switching to an empty tab group keeps the
@@ -19808,6 +20438,7 @@ class CWMApp {
     this.updateTerminalGridLayout();
 
     this.renderTerminalGroupTabs();
+    if (this.isMobile) this.updateTerminalTabs();
 
     // Clear notification dot on the now-active tab AFTER render, since
     // renderTerminalGroupTabs() replaces all tab button DOM elements.
@@ -20285,23 +20916,12 @@ class CWMApp {
     };
 
     // Dispose the terminal in the current tab (WebSocket disconnects, PTY stays alive)
+    this._discardVoiceRecognition(srcSlot, tp);
     tp.dispose();
     this.terminalPanes[srcSlot] = null;
 
-    // Reset the pane DOM to empty drop-target state
-    const paneEl = document.getElementById(`term-pane-${srcSlot}`);
-    if (paneEl) {
-      paneEl.classList.add('terminal-pane-empty');
-      paneEl.classList.remove('terminal-pane-active');
-      const header = paneEl.querySelector('.terminal-pane-title');
-      if (header) header.textContent = 'Drop a session here';
-      const closeBtn = paneEl.querySelector('.terminal-pane-close');
-      if (closeBtn) closeBtn.hidden = true;
-      const uploadBtn = paneEl.querySelector('.terminal-pane-upload');
-      if (uploadBtn) uploadBtn.hidden = true;
-      const termContainer = paneEl.querySelector('.terminal-container');
-      if (termContainer) termContainer.innerHTML = '';
-    }
+    // Reset every fixed-host resource before the slot is reused.
+    this._resetTerminalPaneHost(srcSlot);
 
     // Update grid layout for current tab
     this.updateTerminalGridLayout();
@@ -22854,11 +23474,22 @@ class CWMApp {
    * Upload an image file and send its path to a terminal session.
    * Shows a preview + optional message prompt before injecting.
    * @param {File} file - Image file from file input or drag-and-drop
-   * @param {number} slotIdx - Terminal pane slot index
+   * @param {number|Object} target - Slot index for immediate drops, or the
+   *   stable {terminalPane, groupId} captured before a native file picker.
    */
-  async handleImageUpload(file, slotIdx) {
-    const tp = this.terminalPanes[slotIdx];
-    if (!tp || !tp.sessionId) {
+  async handleImageUpload(file, target) {
+    const uploadTarget = typeof target === 'number'
+      ? {
+          terminalPane: this.terminalPanes[target],
+          groupId: this._activeGroupId,
+        }
+      : target;
+    const tp = uploadTarget && uploadTarget.terminalPane;
+    const ownerGroupId = uploadTarget && uploadTarget.groupId;
+    const ownerStillLive = () =>
+      this._activeGroupId === ownerGroupId &&
+      this.terminalPanes.includes(tp);
+    if (!tp || !tp.sessionId || !ownerStillLive()) {
       this.showToast('No active session in this pane', 'warning');
       return;
     }
@@ -22896,6 +23527,10 @@ class CWMApp {
       this.showToast('Upload failed: ' + err.message, 'error');
       return;
     }
+    if (!ownerStillLive()) {
+      this.showToast('Pane changed, image upload canceled', 'warning');
+      return;
+    }
 
     // Show prompt modal with image thumbnail preview
     const thumbUrl = URL.createObjectURL(file);
@@ -22919,7 +23554,8 @@ class CWMApp {
     if (!result) return; // User cancelled
 
     // Inject into PTY via WebSocket
-    if (!tp.ws || tp.ws.readyState !== WebSocket.OPEN) {
+    if (!ownerStillLive() ||
+        !tp.ws || tp.ws.readyState !== WebSocket.OPEN) {
       this.showToast('Terminal not connected', 'warning');
       return;
     }
