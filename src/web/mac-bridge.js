@@ -342,6 +342,24 @@ function profileSlug(snapshot) {
  * @returns {{snap: object}|{result: {mirrored: boolean, installed: boolean, error: string, message: string}}}
  */
 function _gateSnapshotForMac(manager, cfg, accountUuid) {
+  // Defense in depth for non-route callers: passive mode forbids writing a
+  // credential snapshot to either the local or remote live/profile files.
+  // The manager supplies the canonical typed conflict and marker-aware
+  // message; convert it to this module's result shape without spawning.
+  if (manager && typeof manager.assertCredentialPoolWritable === 'function') {
+    try {
+      manager.assertCredentialPoolWritable('Mac credential apply');
+    } catch (err) {
+      return {
+        result: {
+          mirrored: false,
+          installed: false,
+          error: (err && err.code) || 'CRED_POOL_EXTERNAL_OWNER',
+          message: (err && err.message) || 'Credential pool is externally owned and read-only.',
+        },
+      };
+    }
+  }
   try {
     validateMacTarget(cfg);
   } catch (err) {

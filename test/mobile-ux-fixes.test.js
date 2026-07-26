@@ -10,8 +10,9 @@
  *   P0-1  Tab strip is touch-scrollable (no touch-action:none on the tab; the
  *         strip and folder header opt into pan-x) and scroll is preserved
  *         across re-renders with the active tab scrolled into view.
- *   P0-2  The More sheet exposes Settings / Theme / Pair Device / Sessions.
- *   P0-3  The More sheet routes to the Tasks / Recent / Resources views.
+ *   P0-2  The More sheet exposes Settings / Appearance / Pair / All sessions.
+ *   P0-3  The More sheet routes to secondary, contextual views. Tasks is a
+ *          first-level destination in the focused mobile shell.
  *   P1-1  The Settings panel becomes a full-screen sheet on phones.
  *   P1-2  Pane long-press skips the terminal surface; sidebar long-press timers
  *         are cleared on dragstart.
@@ -43,7 +44,35 @@ function stripCssComments(css) {
 
 const styles = stripCssComments(fs.readFileSync(path.join(PUBLIC, 'styles.css'), 'utf8'));
 const stylesMobile = stripCssComments(fs.readFileSync(path.join(PUBLIC, 'styles-mobile.css'), 'utf8'));
+const focusedCss = stripCssComments(fs.readFileSync(path.join(PUBLIC, 'focused-shell.css'), 'utf8'));
 const appJs = fs.readFileSync(path.join(PUBLIC, 'app.js'), 'utf8');
+const terminalJs = fs.readFileSync(path.join(PUBLIC, 'terminal.js'), 'utf8');
+
+/**
+ * Extract the body of a JS method by name from terminal.js (brace-balanced
+ * slice starting at `name(`). Used to assert selection-mode detection logic
+ * lives inside the intended method, not merely somewhere in the file. Returns
+ * '' when the method cannot be located or balanced.
+ * @param {string} src Full source text.
+ * @param {string} name Method name preceding the parameter list.
+ * @returns {string} The method body between its outermost braces, or ''.
+ */
+function methodBody(src, name) {
+  const sig = src.indexOf(name + '(');
+  if (sig === -1) return '';
+  const open = src.indexOf('{', sig);
+  if (open === -1) return '';
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return src.slice(open + 1, i);
+    }
+  }
+  return '';
+}
 
 let passed = 0;
 let failed = 0;
@@ -160,13 +189,68 @@ function methodBody(src, methodName) {
   return src.slice(start, i + 1);
 }
 
-check('P0-2: More sheet exposes Settings / Theme / Pair Device / Sessions', () => {
+check('P0-2: More sheet exposes Settings / Appearance / Pair / All sessions', () => {
   const body = methodBody(appJs, 'showMoreMenu');
   assert.ok(body, 'showMoreMenu must exist');
   assert.ok(/label: 'Settings'.*this\.openSettings\(\)/s.test(body), 'Settings entry missing');
-  assert.ok(/label: 'Theme'.*_buildThemeMenuItems\(\)/s.test(body), 'Theme submenu missing');
-  assert.ok(/label: 'Pair Device'.*showPairMobileModal\(\)/s.test(body), 'Pair Device entry missing');
-  assert.ok(/label: 'Sessions'.*toggleSessionManager\(/s.test(body), 'Sessions entry missing');
+  assert.ok(
+    /label: 'Appearance'.*this\.openAppearance\(\)/s.test(body),
+    'Appearance gallery entry missing'
+  );
+  assert.ok(/label: 'Pair device'.*showPairMobileModal\(\)/s.test(body), 'Pair device entry missing');
+  assert.ok(/label: 'All sessions'.*toggleSessionManager\(/s.test(body), 'All sessions entry missing');
+});
+
+check('P0-2: More commands use labeled groups without platform emoji icons', () => {
+  const body = methodBody(appJs, 'showMoreMenu');
+  for (const label of ['Views', 'Session tools', 'Preferences', 'Operations', 'Account']) {
+    assert.ok(
+      new RegExp(`type: 'sep', label: '${label}'`).test(body),
+      `More menu must include the ${label} group`
+    );
+  }
+  assert.ok(!/\bicon\s*:/.test(body), 'More commands must not use platform-dependent icons');
+});
+
+check('P0-2: mobile submenus open a second sheet instead of flattening', () => {
+  const body = methodBody(appJs, 'showActionSheet');
+  assert.ok(
+    /item\.submenu[\s\S]*this\.showActionSheet\(item\.label,\s*item\.submenu\)/.test(body),
+    'submenu rows must open their own action sheet'
+  );
+  assert.ok(
+    !/item\.submenu\.forEach/.test(body),
+    'submenus must not be expanded inline into the parent sheet'
+  );
+  assert.ok(
+    /actionSheetOverlay\.hidden\s*=\s*false[\s\S]*actionSheet\.scrollTop\s*=\s*0[\s\S]*requestAnimationFrame/.test(body),
+    'each nested sheet must start at its header and first option'
+  );
+  assert.ok(/_actionSheetReturnFocus/.test(body), 'the sheet must remember its trigger');
+  assert.ok(
+    /firstItem\.focus\(\{\s*preventScroll:\s*true\s*\}\)/.test(body),
+    'each sheet must focus its first enabled command'
+  );
+  assert.ok(
+    /separatorLabel\s*=\s*this\.escapeHtml\(String\(item\.label\)\)/.test(body),
+    'labeled separators must escape their visible text'
+  );
+  assert.ok(
+    /class="action-sheet-sep action-sheet-sep-labeled"[\s\S]*class="as-sep-label"/.test(body),
+    'labeled separators must render a visible section heading'
+  );
+  assert.ok(
+    /class="context-menu-sep context-menu-sep-labeled"[\s\S]*class="ctx-sep-label"/.test(appJs),
+    'desktop labeled separators must render a real section-heading row'
+  );
+  assert.ok(
+    /\.context-menu-sep-labeled[\s\S]*height:\s*auto/.test(focusedCss),
+    'desktop section headings must not inherit the one-pixel separator height'
+  );
+  assert.ok(
+    /\.action-sheet-sep-labeled[\s\S]*\.as-sep-label/.test(stylesMobile),
+    'mobile CSS must style labeled More sections'
+  );
 });
 
 check('P0-2: Conflicts entry is conditional on active conflict count', () => {
@@ -178,14 +262,46 @@ check('P0-2: Conflicts entry is conditional on active conflict count', () => {
   assert.ok(/Conflicts \(\$\{conflictCount\}\)/.test(body), 'Conflicts label must show the count');
 });
 
-check('P0-3: More sheet routes to Tasks / Recent / Resources views', () => {
+check('P0-3: More sheet routes to secondary and contextual views', () => {
   const body = methodBody(appJs, 'showMoreMenu');
-  assert.ok(/label: 'Tasks'.*setViewMode\('tasks'\)/s.test(body), 'Tasks view entry missing');
-  assert.ok(/label: 'Recent'.*setViewMode\('recent'\)/s.test(body), 'Recent view entry missing');
-  assert.ok(/label: 'Resources'.*setViewMode\('resources'\)/s.test(body), 'Resources view entry missing');
+  assert.ok(/label: 'Recent activity'.*setViewMode\('recent'\)/s.test(body), 'Recent activity entry missing');
+  assert.ok(/label: 'Costs'.*setViewMode\('costs'\)/s.test(body), 'Costs entry missing');
+  assert.ok(/label: 'System resources'.*setViewMode\('resources'\)/s.test(body), 'System resources entry missing');
+  assert.ok(/Project notes.*setViewMode\('docs'\)/s.test(body), 'Project notes entry missing');
 });
 
 // ─── P1-1: settings full-screen sheet ────────────────────────────────────────
+
+check('P0-3: secondary mobile views cannot leak terminal or keyboard state', () => {
+  assert.ok(
+    /\.terminal-grid\[hidden\]\s*\{[^}]*display:\s*none\s*!important/s.test(stylesMobile),
+    'the mobile flex terminal grid must still honor its hidden attribute'
+  );
+  const body = methodBody(appJs, 'setViewMode');
+  assert.ok(
+    /else\s*\{[\s\S]*classList\.remove\('terminal-active'\)[\s\S]*classList\.remove\('keyboard-open'\)/.test(body),
+    'leaving Workbench must clear stale terminal and soft-keyboard layout state'
+  );
+  assert.ok(
+    /tab\.dataset\.view\s*===\s*'more'\s*&&\s*isMoreDestination/.test(body),
+    'routes reached through More must leave that bottom destination selected'
+  );
+});
+
+check('P0-3: focused mobile Sessions opens the list, not the project drawer', () => {
+  assert.ok(
+    /view === 'workspace'[\s\S]{0,300}dataset\.uiShell === 'focused'/.test(appJs),
+    'the workspace handler must distinguish the focused Sessions destination'
+  );
+  assert.ok(
+    /this\.isMobile && focusedShell && this\.state\.sidebarOpen[\s\S]{0,80}this\.toggleSidebar\(\)/.test(appJs),
+    'focused Sessions must close an open project drawer'
+  );
+  assert.ok(
+    /this\.isMobile && !focusedShell && !this\.state\.sidebarOpen/.test(appJs),
+    'classic mobile must retain its legacy workspace-drawer behavior'
+  );
+});
 
 check('P1-1: settings panel becomes a full-screen sheet on mobile', () => {
   assert.ok(
@@ -260,14 +376,35 @@ check('P1-3: tab context menu routes through _renderContextItems (not the sessio
   );
 });
 
-check('P1-3: taller tab + visible close on mobile', () => {
+check('P1-3: tab and close affordance both meet the 44px mobile target', () => {
   assert.ok(
-    /\.terminal-group-tab-close\s*\{[^}]*opacity:\s*0\.5/s.test(stylesMobile),
-    'terminal-group-tab-close must be visible (opacity 0.5) on mobile'
+    /\.terminal-group-tab-close\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px[^}]*opacity:\s*0\.5/s.test(stylesMobile),
+    'terminal-group-tab-close must be visible and at least 44px in each dimension'
   );
   assert.ok(
-    /\.terminal-group-tab\s*\{[^}]*min-height:\s*40px/s.test(stylesMobile),
-    'terminal-group-tab must have a taller touch target on mobile'
+    /\.terminal-group-tab\s*\{[^}]*min-height:\s*44px/s.test(stylesMobile),
+    'terminal-group-tab must meet the 44px mobile touch target'
+  );
+});
+
+check('P1-3: terminal group close is a sibling semantic button', () => {
+  const body = methodBody(appJs, '_renderTabButtonHtml');
+  assert.ok(body, '_renderTabButtonHtml must exist');
+  assert.ok(
+    /<div class="terminal-group-tab-item[\s\S]*?<button type="button" class="terminal-group-tab[\s\S]*?<\/button>\s*<button type="button" class="terminal-group-tab-close"/.test(body),
+    'group tab and close controls must be sibling buttons inside a non-interactive wrapper'
+  );
+  assert.ok(
+    /class="terminal-group-tab-close"[\s\S]{0,180}aria-label="Close \$\{escapedName\} tab"/.test(body),
+    'group close button must have a tab-specific accessible name'
+  );
+  assert.ok(
+    !/<span class="terminal-group-tab-close"/.test(body),
+    'group close control must not regress to an unfocusable span'
+  );
+  assert.ok(
+    /\.terminal-group-tab-close:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--accent\)/s.test(styles),
+    'group close button needs a visible keyboard focus indicator'
   );
 });
 
@@ -306,8 +443,70 @@ check('P2: breakpoint-crossing listener rebuilds both tab strips', () => {
 
 check('P2: mobile tab-close has an enlarged hit area', () => {
   assert.ok(
-    /\.terminal-tab-close::before\s*\{[^}]*inset:\s*-12px/s.test(stylesMobile),
-    'terminal-tab-close::before must extend the tap target by 12px'
+    /\.terminal-tab-close::before\s*\{[^}]*inset:\s*-13px/s.test(stylesMobile),
+    'terminal-tab-close::before must extend the 18px control to a 44px tap target'
+  );
+  assert.ok(
+    /\.terminal-tab-close:focus-visible\s*\{[^}]*opacity:\s*1/s.test(stylesMobile),
+    'an inactive keyboard-focused close control must become visible'
+  );
+});
+
+check('P2: mobile terminal tab avoids nested buttons and names its close control', () => {
+  const body = methodBody(appJs, 'updateTerminalTabs');
+  assert.ok(body, 'updateTerminalTabs must exist');
+  assert.ok(
+    /<div class="terminal-tab-item[\s\S]*?<button type="button" class="terminal-tab[\s\S]*?<\/button>\s*<button type="button" class="terminal-tab-close"/.test(body),
+    'terminal selector and close controls must be sibling buttons'
+  );
+  assert.ok(
+    /class="terminal-tab-close"[\s\S]{0,200}aria-label="Close \$\{terminalName\} terminal"/.test(body),
+    'terminal close button must have a terminal-specific accessible name'
+  );
+  assert.ok(
+    /querySelectorAll\('\.terminal-tab-item'\)[\s\S]{0,220}classList\.toggle\('active'/.test(
+      methodBody(appJs, 'switchTerminalTab')
+    ),
+    'switching terminals must keep the non-interactive wrapper active state synchronized'
+  );
+});
+
+// ─── P3: desktop mouse selection + copy regression (2026-07-25) ─────────────
+// _isMobile() must NOT treat a fine-pointer desktop as mobile. The old test
+// used `'ontouchstart' in window`, which is true on desktop Chrome/Edge with
+// zero touch hardware. That flipped mobile mode on, which set
+// `.xterm-screen { pointer-events: none }` and killed xterm's mousedown-based
+// selection, so hasSelection() stayed false, a native highlight could not be
+// copied, and Ctrl+C fell through to SIGINT. Lock the tightened detection.
+
+check('P3: _isMobile requires a coarse primary pointer (no ontouchstart-only)', () => {
+  const body = methodBody(terminalJs, '_isMobile');
+  assert.ok(body, '_isMobile method must exist in terminal.js');
+  assert.ok(
+    /matchMedia\(\s*['"]\(pointer:\s*coarse\)['"]\s*\)/.test(body),
+    '_isMobile must gate on matchMedia("(pointer: coarse)")'
+  );
+  assert.ok(
+    /maxTouchPoints\s*>\s*0/.test(body),
+    '_isMobile must still require real touch points (maxTouchPoints > 0)'
+  );
+  // Strip JS comments before the negative assertion: the method's own
+  // explanatory comment quotes the retired `'ontouchstart' in window`
+  // expression, and we must assert on executable code, not prose.
+  const code = body
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  assert.ok(
+    !/['"]ontouchstart['"]\s+in\s+window/.test(code),
+    '_isMobile must NOT use `\'ontouchstart\' in window` (true on no-touch desktops)'
+  );
+});
+
+check('P3: _isMobile combines coarse pointer AND touch points (not OR)', () => {
+  const body = methodBody(terminalJs, '_isMobile');
+  assert.ok(
+    /coarsePrimary\s*&&\s*hasTouchPoints/.test(body),
+    '_isMobile must return coarsePrimary && hasTouchPoints so a mouse desktop is never mobile'
   );
 });
 

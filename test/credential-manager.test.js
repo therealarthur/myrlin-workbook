@@ -32,10 +32,19 @@ const {
   validateAccountUuid,
   writeFileAtomic,
   displayNameFor,
+  healthFor,
+  DEFAULT_CRED_SETTINGS,
   TOKEN_STATE_OK,
   TOKEN_STATE_NEEDS_LOGIN,
   TOKEN_STATE_UNVERIFIED,
   REFRESH_TIMEOUT_MS,
+  SUSPECT_ESCALATE_COUNT,
+  DEAD_RETRY_MIN,
+  PROACTIVE_REFRESH_WINDOW_MIN,
+  PROACTIVE_REFRESH_FLOOR_MIN,
+  POOL_OWNER_MARKER_FILE,
+  EXTERNAL_BRIDGE_OWNER,
+  CRED_POOL_EXTERNAL_OWNER_CODE,
 } = require('../src/web/credential-manager');
 
 let passed = 0;
@@ -129,6 +138,23 @@ function makeIdentity(uuid, email) {
     organizationName: 'Fixture Org',
     organizationRole: 'admin',
   };
+}
+
+/**
+ * Write the exact v1 marker shape owned by Myrlin's bridge router.
+ * @param {string} accountsDir - Credential snapshot pool root.
+ * @returns {string} Marker path.
+ */
+function writePoolOwnerMarker(accountsDir) {
+  const markerPath = path.join(accountsDir, POOL_OWNER_MARKER_FILE);
+  fs.writeFileSync(markerPath, JSON.stringify({
+    version: 1,
+    owner: EXTERNAL_BRIDGE_OWNER,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    leaseId: 'a'.repeat(32),
+  }), 'utf-8');
+  return markerPath;
 }
 
 let fixtureSeq = 0;
@@ -376,6 +402,114 @@ let stubBase = '';
     assertEqual(read2.label, 'Work', 'label carried forward');
     assertEqual(read2.credentials.accessToken, 'at-FIXTURE-B2', 'credentials updated');
     assertEqual(read2.tokenState, TOKEN_STATE_OK, 'tokenState carried forward');
+  });
+
+  await test('bridge marker alone does not change the default-off credential behavior', async () => {
+    const fx = makeFixture();
+    writePoolOwnerMarker(fx.accountsDir);
+    const state = fx.manager.getCredentialPoolState();
+    assertEqual(state.configured, false, 'external ownership remains opt-in');
+    assertEqual(state.readOnly, false, 'marker presence alone does not enable passive mode');
+    assertEqual(state.marker.valid, true, 'router marker shape is recognized');
+    assertEqual(state.marker.owner, EXTERNAL_BRIDGE_OWNER);
+    const captured = await fx.manager.captureCurrent({ label: 'Default still writable' });
+    assertEqual(captured.accountUuid, UUID_A, 'legacy capture behavior is preserved when the flag is off');
+    const priorEnv = process.env.CWM_CRED_EXTERNAL_BRIDGE_OWNER;
+    try {
+      process.env.CWM_CRED_EXTERNAL_BRIDGE_OWNER = '1';
+      assertEqual(fx.manager.isCredentialPoolReadOnly(), true, 'strict env opt-in enables passive mode');
+    } finally {
+      if (priorEnv === undefined) delete process.env.CWM_CRED_EXTERNAL_BRIDGE_OWNER;
+      else process.env.CWM_CRED_EXTERNAL_BRIDGE_OWNER = priorEnv;
+    }
+  });
+
+  await test('external bridge ownership is fail-closed across refresh, sync, seed, snapshot, and live-file writes', async () => {
+    resetStub();
+    const settings = { externalBridgeOwner: false };
+    const fx = makeFixture({ settings });
+    const cachedUsage = {
+      five_hour: { utilization: 17, resets_at: '2026-07-25T00:00:00Z' },
+      seven_day: { utilization: 29, resets_at: '2026-07-31T00:00:00Z' },
+      fetchedAt: '2026-07-24T00:00:00.000Z',
+    };
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B,
+      email: EMAIL_B,
+      label: 'Externally owned',
+      credentials: makeOauth('PASSIVE-B', Date.now() - HOUR_MS),
+      identity: makeIdentity(UUID_B, EMAIL_B),
+      usage: cachedUsage,
+      tokenState: TOKEN_STATE_OK,
+    });
+    const markerPath = writePoolOwnerMarker(fx.accountsDir);
+    const snapshotFile = path.join(fx.accountsDir, UUID_B + '.json');
+    const snapshotBefore = fs.readFileSync(snapshotFile, 'utf-8');
+    const liveCredBefore = fs.readFileSync(fx.credPath, 'utf-8');
+    const liveIdentityBefore = fs.readFileSync(fx.claudeJsonPath, 'utf-8');
+    settings.externalBridgeOwner = true;
+
+    const state = fx.manager.getCredentialPoolState();
+    assertEqual(state.readOnly, true);
+    assertEqual(state.marker.path, markerPath);
+    assertEqual(state.marker.valid, true);
+    assertEqual(state.marker.owner, EXTERNAL_BRIDGE_OWNER);
+    assertEqual(state.marker.pid, process.pid);
+    fs.unlinkSync(markerPath);
+    assertEqual(fx.manager.getCredentialPoolState().readOnly, true,
+      'configured ownership stays fail-closed when the marker is absent');
+    fs.writeFileSync(markerPath, '{"owner":"unexpected"}', 'utf-8');
+    const malformedState = fx.manager.getCredentialPoolState();
+    assertEqual(malformedState.readOnly, true, 'malformed marker cannot reopen writes');
+    assertEqual(malformedState.marker.valid, false);
+    writePoolOwnerMarker(fx.accountsDir);
+
+    const list = fx.manager.getSafeList();
+    const row = list.profiles.find((p) => p.profileId === UUID_B);
+    assert(row && row.usage, 'cached read-only usage remains visible');
+    assertEqual(row.usage.five_hour.utilization, 17);
+    const usageResult = await fx.manager.updateSnapshotUsage(UUID_B, { force: true });
+    assertEqual(usageResult.usage.five_hour.utilization, 17, 'usage refresh degrades to cached data');
+    assertEqual(stub.usageHits, 0, 'passive usage never calls the usage endpoint');
+    assertEqual(stub.tokenHits, 0, 'passive usage never calls the token endpoint');
+
+    assertEqual(await fx.manager.syncActiveTokenToProfile(), null, 'PC sync is a no-op');
+    const macSync = await fx.manager.syncBackFromMac(
+      UUID_B,
+      serializeCredentialsFile(makeOauth('MAC-NEWER', Date.now() + 12 * HOUR_MS)),
+    );
+    assertEqual(macSync.synced, false, 'Mac sync-back is a no-op');
+    assert(macSync.reason && macSync.reason.indexOf('read-only') !== -1, 'Mac sync-back reports passive mode');
+    const seed = await fx.manager.seedFromClaudeSwap();
+    assertEqual(seed.readOnly, true, 'seed is explicitly skipped');
+    assert(!fs.existsSync(path.join(fx.accountsDir, '.seeded')), 'passive seed writes no sentinel');
+
+    const blocked = [
+      () => fx.manager.saveSnapshot({ accountUuid: UUID_C }),
+      () => fx.manager.captureCurrent({}),
+      () => fx.manager.setLabel(UUID_B, 'blocked'),
+      () => fx.manager.deleteSnapshot(UUID_B),
+      () => fx.manager.applyCredential(UUID_B),
+      () => fx.manager.refreshInactiveToken('rt-FIXTURE-BLOCKED'),
+      () => fx.manager.backupLiveFile(fx.credPath),
+    ];
+    for (const invoke of blocked) {
+      let err = null;
+      try { await invoke(); } catch (caught) { err = caught; }
+      assert(err, 'mutation must throw a typed conflict');
+      assertEqual(err.status, 409);
+      assertEqual(err.code, CRED_POOL_EXTERNAL_OWNER_CODE);
+      assert(err.message.indexOf(EXTERNAL_BRIDGE_OWNER) !== -1, 'conflict names the bridge owner');
+    }
+
+    fx.manager.startCredentialWatcher();
+    await sleep(50);
+    fx.manager.stopCredentialWatcher();
+    assertEqual(fs.readFileSync(snapshotFile, 'utf-8'), snapshotBefore, 'snapshot bytes stay unchanged');
+    assertEqual(fs.readFileSync(fx.credPath, 'utf-8'), liveCredBefore, 'live credential bytes stay unchanged');
+    assertEqual(fs.readFileSync(fx.claudeJsonPath, 'utf-8'), liveIdentityBefore, 'live identity bytes stay unchanged');
+    assert(!fs.existsSync(fx.manager.backupsDir), 'no credential backup file was written');
+    assertEqual(stub.tokenHits, 0, 'direct token refresh was blocked before network');
   });
 
   await test('legacy tokenDead files normalize to unverified, never needs_login', async () => {
@@ -703,8 +837,8 @@ let stubBase = '';
     assertEqual(REFRESH_TIMEOUT_MS, 15000, 'default refresh timeout is 15s, not 5s');
   });
 
-  await test('ONLY definitive rejections set needs_login (invalid_grant 400/401, bare 401, 403)', async () => {
-    for (const mode of ['invalid_grant_400', 'invalid_grant_401', '401_nobody', '403']) {
+  await test('ONLY invalid_grant is a one-shot death verdict, WITH evidence preserved', async () => {
+    for (const mode of ['invalid_grant_400', 'invalid_grant_401']) {
       resetStub();
       stub.tokenMode = mode;
       const fx = makeFixture();
@@ -718,7 +852,75 @@ let stubBase = '';
       const snap = await fx.manager.updateSnapshotUsage(UUID_B, { force: true });
       assertEqual(snap.tokenState, TOKEN_STATE_NEEDS_LOGIN, mode + ' is a definitive death verdict');
       assertEqual(stub.usageHits, 0, 'no usage call for a dead token');
+      // Expiry-fix spec Phase 1 item 2: the old code wrote null here and
+      // erased the diagnosability story. Evidence must now survive.
+      assert(snap.lastRefreshError, mode + ': lastRefreshError must NEVER be null on a rejection');
+      assertEqual(snap.lastRefreshError.kind, 'auth', mode + ': rejection kind is auth');
+      assertEqual(snap.lastRefreshError.status, mode === 'invalid_grant_400' ? 400 : 401);
+      assert(Number.isFinite(Date.parse(snap.lastRefreshError.at)), 'evidence carries a parseable timestamp');
+      assertEqual(snap.lastRefreshError.detail, 'invalid_grant');
     }
+  });
+
+  await test('SUSPECT responses (403, bodyless 401) climb the ladder: needs_login only on the 3rd consecutive', async () => {
+    for (const mode of ['403', '401_nobody']) {
+      resetStub();
+      stub.tokenMode = mode;
+      const fx = makeFixture();
+      fx.manager.saveSnapshot({
+        accountUuid: UUID_B,
+        email: EMAIL_B,
+        credentials: makeOauth('B-SUS', Date.now() - HOUR_MS),
+        identity: makeIdentity(UUID_B, EMAIL_B),
+        tokenState: TOKEN_STATE_OK,
+      });
+      // Rungs 1 and 2: prior state kept, auth_suspect evidence recorded.
+      for (let rung = 1; rung < SUSPECT_ESCALATE_COUNT; rung++) {
+        const snap = await fx.manager.updateSnapshotUsage(UUID_B, { force: true });
+        assertEqual(snap.tokenState, TOKEN_STATE_OK, mode + ' rung ' + rung + ': a suspect never nukes the row');
+        assertEqual(snap.lastRefreshError.kind, 'auth_suspect', mode + ' rung ' + rung + ': suspect evidence recorded');
+        assertEqual(snap.lastRefreshError.count, rung, mode + ' rung ' + rung + ': consecutive counter');
+        assertEqual(snap.lastRefreshError.status, mode === '403' ? 403 : 401);
+        // Health mapping (spec item 5): ok + auth_suspect renders amber.
+        const row = fx.manager.getSafeList().profiles.find((p) => p.profileId === UUID_B);
+        assertEqual(row.health, 'needs-attention', mode + ' rung ' + rung + ': amber, not healthy, not red');
+        assertEqual(row.tokenDead, false, mode + ' rung ' + rung + ': not dead yet');
+      }
+      // Rung 3: escalation to needs_login, with the full story preserved.
+      const dead = await fx.manager.updateSnapshotUsage(UUID_B, { force: true });
+      assertEqual(dead.tokenState, TOKEN_STATE_NEEDS_LOGIN, mode + ': 3rd consecutive suspect escalates');
+      assertEqual(dead.lastRefreshError.kind, 'auth');
+      assertEqual(dead.lastRefreshError.count, SUSPECT_ESCALATE_COUNT);
+      assert(dead.lastRefreshError.detail.indexOf('escalated') !== -1, 'escalation story preserved');
+      assertEqual(stub.tokenHits, SUSPECT_ESCALATE_COUNT, mode + ': one token call per rung');
+      assertEqual(stub.usageHits, 0, 'no usage call rode a failed refresh');
+    }
+  });
+
+  await test('a successful refresh RESETS the suspect ladder (only consecutive suspects escalate)', async () => {
+    resetStub();
+    stub.tokenMode = '403';
+    const fx = makeFixture();
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B,
+      email: EMAIL_B,
+      credentials: makeOauth('B-LAD', Date.now() - HOUR_MS),
+      identity: makeIdentity(UUID_B, EMAIL_B),
+      tokenState: TOKEN_STATE_OK,
+    });
+    await fx.manager.updateSnapshotUsage(UUID_B, { force: true }); // suspect 1
+    assertEqual(fx.manager.readSnapshot(UUID_B).lastRefreshError.count, 1);
+    stub.tokenMode = 'ok';
+    const healed = await fx.manager.updateSnapshotUsage(UUID_B, { force: true });
+    assertEqual(healed.tokenState, TOKEN_STATE_OK, 'refresh success heals');
+    assertEqual(healed.lastRefreshError, null, 'success clears the evidence, resetting the counter');
+    // Re-expire the stored pair and go suspect again: the counter must
+    // restart at 1, proving the earlier rung did not survive the success.
+    fx.manager.saveSnapshot({ accountUuid: UUID_B, credentials: makeOauth('B-LAD2', Date.now() - HOUR_MS) });
+    stub.tokenMode = '403';
+    const again = await fx.manager.updateSnapshotUsage(UUID_B, { force: true });
+    assertEqual(again.tokenState, TOKEN_STATE_OK, 'still ok: this is rung 1 of a NEW ladder');
+    assertEqual(again.lastRefreshError.count, 1, 'counter restarted after the healthy refresh');
   });
 
   await test('non-invalid_grant 400 is a PROTOCOL bug: state kept, error recorded', async () => {
@@ -1243,6 +1445,283 @@ let stubBase = '';
     fx.manager.saveSnapshot({ accountUuid: UUID_B, credentials: makeOauth('MACEXP2', Date.now() - HOUR_MS) });
     await fx.manager.updateSnapshotUsage(UUID_B, { force: true });
     assertEqual(stub.tokenHits, 1, 'without the hint the same expired shape refreshes (contrast)');
+  });
+
+  // ─── Expiry-fix spec (2026-07-16): honest states, dead-retry, proactive
+  //     sweep, write-back theft guard ─────────────────────────────────────
+
+  await test('expiry-fix constants and defaults: ladder 3, dead-retry 6h, window 30, floor 10, proactive ON by default', () => {
+    assertEqual(SUSPECT_ESCALATE_COUNT, 3, 'suspect ladder escalates on the 3rd consecutive');
+    assertEqual(DEAD_RETRY_MIN, 6 * 60 * 60 * 1000, 'dead-retry window is 6h in ms');
+    assertEqual(PROACTIVE_REFRESH_WINDOW_MIN, 30, 'proactive refresh window is 30 minutes');
+    assertEqual(PROACTIVE_REFRESH_FLOOR_MIN, 10, 'proactive interval floor is 10 minutes');
+    assertEqual(DEFAULT_CRED_SETTINGS.proactiveRefreshMinutes, 20, 'proactive refresh is ON by default (non-zero)');
+    assertEqual(healthFor(TOKEN_STATE_OK), 'healthy');
+    assertEqual(healthFor(TOKEN_STATE_OK, { kind: 'auth_suspect' }), 'needs-attention', 'ok + auth_suspect renders amber');
+    assertEqual(healthFor(TOKEN_STATE_OK, { kind: 'timeout' }), 'healthy', 'transient evidence never turns a row amber');
+    assertEqual(healthFor(TOKEN_STATE_NEEDS_LOGIN, { kind: 'auth' }), 'needs-re-login');
+    assertEqual(healthFor(TOKEN_STATE_UNVERIFIED), 'needs-attention');
+  });
+
+  await test('no-refresh-token rejection records kind no_refresh_token (never null)', async () => {
+    resetStub();
+    const fx = makeFixture();
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B,
+      email: EMAIL_B,
+      credentials: makeOauth('B-NORT2', Date.now() - HOUR_MS, ''),
+      identity: makeIdentity(UUID_B, EMAIL_B),
+      tokenState: TOKEN_STATE_OK,
+    });
+    const snap = await fx.manager.updateSnapshotUsage(UUID_B, { force: true });
+    assertEqual(snap.tokenState, TOKEN_STATE_NEEDS_LOGIN);
+    assert(snap.lastRefreshError, 'evidence must be recorded, not nulled');
+    assertEqual(snap.lastRefreshError.kind, 'no_refresh_token');
+    assertEqual(stub.tokenHits, 0, 'zero network calls');
+  });
+
+  await test('dead-retry: needs_login with STALE evidence retries WITHOUT force and heals', async () => {
+    resetStub();
+    const fx = makeFixture();
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B,
+      email: EMAIL_B,
+      credentials: makeOauth('B-STALE', Date.now() - HOUR_MS),
+      identity: makeIdentity(UUID_B, EMAIL_B),
+      tokenState: TOKEN_STATE_NEEDS_LOGIN,
+      lastRefreshError: {
+        at: new Date(Date.now() - DEAD_RETRY_MIN - 60000).toISOString(),
+        kind: 'auth', status: 400, detail: 'invalid_grant',
+      },
+    });
+    const snap = await fx.manager.updateSnapshotUsage(UUID_B, { force: false });
+    assertEqual(stub.tokenHits, 1, 'stale evidence means the dead row IS retried without force');
+    assertEqual(snap.tokenState, TOKEN_STATE_OK, 'a WAF false positive self-heals on the retry');
+    assertEqual(snap.credentials.accessToken, 'at-ROTATED-1', 'rotated pair adopted');
+  });
+
+  await test('dead-retry: FRESH rejection evidence still skips the round trip (no hammering)', async () => {
+    resetStub();
+    const fx = makeFixture();
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B,
+      email: EMAIL_B,
+      credentials: makeOauth('B-FRESH', Date.now() - HOUR_MS),
+      identity: makeIdentity(UUID_B, EMAIL_B),
+      tokenState: TOKEN_STATE_NEEDS_LOGIN,
+      lastRefreshError: {
+        at: new Date(Date.now() - HOUR_MS).toISOString(),
+        kind: 'auth', status: 400, detail: 'invalid_grant',
+      },
+    });
+    const snap = await fx.manager.updateSnapshotUsage(UUID_B, { force: false });
+    assertEqual(stub.tokenHits, 0, 'fresh evidence: no pointless round trip');
+    assertEqual(snap.tokenState, TOKEN_STATE_NEEDS_LOGIN, 'row stays dead until the window lapses');
+  });
+
+  await test('dead-retry: legacy nulled evidence (the old bug) retries immediately', async () => {
+    resetStub();
+    const fx = makeFixture();
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B,
+      email: EMAIL_B,
+      credentials: makeOauth('B-LEGACY', Date.now() - HOUR_MS),
+      identity: makeIdentity(UUID_B, EMAIL_B),
+      tokenState: TOKEN_STATE_NEEDS_LOGIN,
+      lastRefreshError: null, // exactly what the old nulling bug left behind
+    });
+    const snap = await fx.manager.updateSnapshotUsage(UUID_B, { force: false });
+    assertEqual(stub.tokenHits, 1, 'no timestamp means the retry window cannot hold the row back');
+    assertEqual(snap.tokenState, TOKEN_STATE_OK, 'legacy dead rows self-heal on the first sweep');
+  });
+
+  await test('proactiveRefreshSweep refreshes ONLY inactive, non-Mac, ok rows near expiry (persist before use)', async () => {
+    resetStub();
+    const UUID_D = 'dddddddd-1111-2222-3333-444444444404';
+    const UUID_E = 'eeeeeeee-1111-2222-3333-444444444405';
+    const UUID_F = 'ffffffff-1111-2222-3333-444444444406';
+    const fx = makeFixture(); // live PC account is A
+    // A: PC-ACTIVE. Snapshot deliberately near expiry so ONLY the active
+    // gate (not the window gate) can be what skips it.
+    await fx.manager.captureCurrent({});
+    fx.manager.saveSnapshot({ accountUuid: UUID_A, credentials: makeOauth('A-NEAR', Date.now() + 60000) });
+    // B: inactive, ok, 10 minutes from expiry: THE one candidate.
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B, email: EMAIL_B,
+      credentials: makeOauth('B-NEAR', Date.now() + 10 * 60000),
+      identity: makeIdentity(UUID_B, EMAIL_B), tokenState: TOKEN_STATE_OK,
+    });
+    // C: inactive, ok, 5 hours out: outside the 30-minute window.
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_C, email: 'c@example.com',
+      credentials: makeOauth('C-FAR', Date.now() + 5 * HOUR_MS),
+      identity: makeIdentity(UUID_C, 'c@example.com'), tokenState: TOKEN_STATE_OK,
+    });
+    // D: needs_login: the dead-retry path owns it, never this sweep.
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_D, email: 'd@example.com',
+      credentials: makeOauth('D-DEAD', Date.now() - HOUR_MS),
+      identity: makeIdentity(UUID_D, 'd@example.com'), tokenState: TOKEN_STATE_NEEDS_LOGIN,
+      lastRefreshError: { at: new Date().toISOString(), kind: 'auth', status: 400, detail: 'invalid_grant' },
+    });
+    // E: Mac-active lineage: the Mac owns the pair; never rotated from here.
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_E, email: 'e@example.com',
+      credentials: makeOauth('E-MAC', Date.now() - HOUR_MS),
+      identity: makeIdentity(UUID_E, 'e@example.com'), tokenState: TOKEN_STATE_OK,
+    });
+    fx.manager.setMacActiveHint(UUID_E);
+    // F: recent auth_suspect backoff: do not hammer a strange endpoint.
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_F, email: 'f@example.com',
+      credentials: makeOauth('F-SUS', Date.now() + 5 * 60000),
+      identity: makeIdentity(UUID_F, 'f@example.com'), tokenState: TOKEN_STATE_OK,
+      lastRefreshError: { at: new Date(Date.now() - 60000).toISOString(), kind: 'auth_suspect', count: 1, status: 403, detail: 'HTTP 403 from token endpoint' },
+    });
+    // Persist-before-use probe: at the moment the usage endpoint is hit,
+    // the ROTATED pair must already be on disk.
+    let tokenOnDiskAtUsageTime = null;
+    stub.onUsageRequest = () => {
+      const onDisk = fx.manager.readSnapshot(UUID_B);
+      tokenOnDiskAtUsageTime = onDisk && onDisk.credentials ? onDisk.credentials.accessToken : null;
+    };
+    const result = await fx.manager.proactiveRefreshSweep();
+    assertEqual(result.scanned, 6, 'whole roster scanned');
+    assertEqual(result.refreshed, 1, 'exactly one candidate refreshed');
+    assertEqual(result.skipped, 5, 'active, far, dead, Mac-active, and suspect rows all skipped');
+    assertEqual(stub.tokenHits, 1, 'exactly one token-endpoint call');
+    assertEqual(tokenOnDiskAtUsageTime, 'at-ROTATED-1', 'rotated pair persisted BEFORE the usage call');
+    const b = fx.manager.readSnapshot(UUID_B);
+    assertEqual(b.credentials.accessToken, 'at-ROTATED-1', 'B rotated');
+    assertEqual(b.credentials.refreshToken, 'rt-ROTATED-1', 'B refresh token rotated');
+    assert(b.usage, 'freebie usage cached with the fresh token');
+    assertEqual(fx.manager.readSnapshot(UUID_A).credentials.accessToken, 'at-FIXTURE-A-NEAR', 'ACTIVE row untouched');
+    assertEqual(fx.manager.readSnapshot(UUID_C).credentials.accessToken, 'at-FIXTURE-C-FAR', 'far-from-expiry row untouched');
+    assertEqual(fx.manager.readSnapshot(UUID_D).credentials.accessToken, 'at-FIXTURE-D-DEAD', 'dead row untouched');
+    assertEqual(fx.manager.readSnapshot(UUID_E).credentials.accessToken, 'at-FIXTURE-E-MAC', 'Mac-active row untouched');
+    assertEqual(fx.manager.readSnapshot(UUID_F).credentials.accessToken, 'at-FIXTURE-F-SUS', 'suspect-backoff row untouched');
+  });
+
+  await test('proactiveRefreshSweep classifies failures honestly (invalid_grant kills WITH evidence)', async () => {
+    resetStub();
+    stub.tokenMode = 'invalid_grant_400';
+    const fx = makeFixture();
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B, email: EMAIL_B,
+      credentials: makeOauth('B-SWDEAD', Date.now() + 5 * 60000),
+      identity: makeIdentity(UUID_B, EMAIL_B), tokenState: TOKEN_STATE_OK,
+    });
+    const result = await fx.manager.proactiveRefreshSweep();
+    assertEqual(result.rejected, 1, 'rejection counted');
+    const b = fx.manager.readSnapshot(UUID_B);
+    assertEqual(b.tokenState, TOKEN_STATE_NEEDS_LOGIN, 'definitive rejection marks the row');
+    assertEqual(b.lastRefreshError.kind, 'auth', 'evidence preserved by the sweep too');
+    // A 403 on the sweep only climbs the ladder, exactly like the usage path.
+    resetStub();
+    stub.tokenMode = '403';
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_C, email: 'c@example.com',
+      credentials: makeOauth('C-SWSUS', Date.now() + 5 * 60000),
+      identity: makeIdentity(UUID_C, 'c@example.com'), tokenState: TOKEN_STATE_OK,
+    });
+    const result2 = await fx.manager.proactiveRefreshSweep();
+    assertEqual(result2.suspect, 1, 'suspect counted');
+    const c = fx.manager.readSnapshot(UUID_C);
+    assertEqual(c.tokenState, TOKEN_STATE_OK, 'one 403 never nukes a row, sweep included');
+    assertEqual(c.lastRefreshError.kind, 'auth_suspect');
+  });
+
+  await test('write-back guard: live token owned by a DIFFERENT snapshot is never adopted', async () => {
+    resetStub();
+    // Live pair: account A's identity, but the TOKEN is account B's stored
+    // token (a still-running post-switch CLI wrote its rotated old-account
+    // pair into the live file). Adoption must be refused entirely.
+    const theftOauth = makeOauth('THEFT', Date.now() + 12 * HOUR_MS);
+    const fx = makeFixture({ liveOauth: theftOauth, liveIdentity: makeIdentity(UUID_A, EMAIL_A) });
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B, email: EMAIL_B,
+      credentials: { ...makeOauth('B-OWNER', Date.now() + HOUR_MS), accessToken: theftOauth.accessToken },
+      identity: makeIdentity(UUID_B, EMAIL_B), tokenState: TOKEN_STATE_OK,
+    });
+    // A's snapshot: older expiry (a naive merge WOULD adopt) and a dead
+    // state (a naive sync WOULD resurrect). Both must stay untouched.
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_A, email: EMAIL_A,
+      credentials: makeOauth('A-OWN', Date.now() + HOUR_MS),
+      identity: makeIdentity(UUID_A, EMAIL_A), tokenState: TOKEN_STATE_NEEDS_LOGIN,
+      lastRefreshError: { at: new Date().toISOString(), kind: 'auth', status: 400, detail: 'invalid_grant' },
+    });
+    const synced = await fx.manager.syncActiveTokenToProfile();
+    assertEqual(synced, null, 'guard reports nothing synced');
+    const a = fx.manager.readSnapshot(UUID_A);
+    assertEqual(a.credentials.accessToken, 'at-FIXTURE-A-OWN', 'A never adopts B\'s token');
+    assertEqual(a.tokenState, TOKEN_STATE_NEEDS_LOGIN, 'no resurrection on stolen evidence');
+    const b = fx.manager.readSnapshot(UUID_B);
+    assertEqual(b.credentials.accessToken, theftOauth.accessToken, 'B (the real owner) intact');
+    assertEqual(b.tokenState, TOKEN_STATE_OK, 'B state intact');
+  });
+
+  await test('write-back guard: auto-capture of an unknown identity is ALSO refused when the token is owned elsewhere', async () => {
+    resetStub();
+    const UUID_NEW = 'abcd1234-9999-8888-7777-666666666607';
+    const theftOauth = makeOauth('THEFT2', Date.now() + 12 * HOUR_MS);
+    const fx = makeFixture({ liveOauth: theftOauth, liveIdentity: makeIdentity(UUID_NEW, 'new@example.com') });
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B, email: EMAIL_B,
+      credentials: { ...makeOauth('B-OWNER2', Date.now() + HOUR_MS), accessToken: theftOauth.accessToken },
+      identity: makeIdentity(UUID_B, EMAIL_B), tokenState: TOKEN_STATE_OK,
+    });
+    const synced = await fx.manager.syncActiveTokenToProfile();
+    assertEqual(synced, null, 'nothing synced');
+    assertEqual(fx.manager.readSnapshot(UUID_NEW), null, 'no snapshot fabricated around a stolen token');
+  });
+
+  await test('write-back guard does NOT false-trip on legitimate syncs (own token, unique token)', async () => {
+    resetStub();
+    const fx = makeFixture(); // live is A with at-FIXTURE-LIVE-A, expiring +12h
+    // Another saved account with a DIFFERENT token must not interfere.
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B, email: EMAIL_B,
+      credentials: makeOauth('B-BYSTANDER', Date.now() + HOUR_MS),
+      identity: makeIdentity(UUID_B, EMAIL_B), tokenState: TOKEN_STATE_OK,
+    });
+    // A exists with an OLDER pair: the live pair is a legitimate rotation.
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_A, email: EMAIL_A,
+      credentials: makeOauth('A-OLD', Date.now() + HOUR_MS),
+      identity: makeIdentity(UUID_A, EMAIL_A), tokenState: TOKEN_STATE_NEEDS_LOGIN,
+    });
+    const synced = await fx.manager.syncActiveTokenToProfile();
+    assertEqual(synced, UUID_A, 'legitimate sync goes through');
+    const a = fx.manager.readSnapshot(UUID_A);
+    assertEqual(a.credentials.accessToken, 'at-FIXTURE-LIVE-A', 'fresh live rotation adopted');
+    assertEqual(a.tokenState, TOKEN_STATE_OK, 'live login resurrects as before');
+    // Second sync: live token now equals A's OWN stored token; still fine.
+    const again = await fx.manager.syncActiveTokenToProfile();
+    assertEqual(again, UUID_A, 'same-account token match never trips the guard');
+  });
+
+  await test('getSafeList forwards suspect evidence fields but NEVER the detail or token material', async () => {
+    resetStub();
+    stub.tokenMode = '403';
+    const fx = makeFixture();
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B, email: EMAIL_B,
+      credentials: makeOauth('B-SAFE', Date.now() - HOUR_MS),
+      identity: makeIdentity(UUID_B, EMAIL_B), tokenState: TOKEN_STATE_OK,
+    });
+    await fx.manager.updateSnapshotUsage(UUID_B, { force: true });
+    const list = fx.manager.getSafeList();
+    const raw = JSON.stringify(list);
+    assert(raw.indexOf('at-FIXTURE') === -1, 'no access token values leak');
+    assert(raw.indexOf('rt-FIXTURE') === -1, 'no refresh token values leak');
+    assert(raw.indexOf('accessToken') === -1, 'no accessToken key leaks');
+    assert(raw.indexOf('refreshToken') === -1, 'no refreshToken key leaks');
+    const row = list.profiles.find((p) => p.profileId === UUID_B);
+    assertEqual(row.health, 'needs-attention', 'suspect row surfaces amber to the UI');
+    assertEqual(row.lastRefreshError.kind, 'auth_suspect', 'kind forwarded for the frontend copy');
+    assertEqual(row.lastRefreshError.status, 403, 'status forwarded');
+    assertEqual(row.lastRefreshError.detail, undefined, 'detail stays server-side (defense in depth)');
   });
 
   stubServer.close();

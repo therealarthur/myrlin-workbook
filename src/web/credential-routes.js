@@ -16,6 +16,10 @@
 
 'use strict';
 
+// Shared best-effort race helper (observes both outcomes, unref'd timer);
+// lives with the other cross-module credential helpers.
+const { settleWithin } = require('./credential-manager');
+
 // Copy shown after every successful apply (design 4.3): sets restart
 // expectations without auto-restarting anything.
 const RESTART_NOTE = 'New sessions use this account immediately. Running sessions keep the previous account until restarted.';
@@ -23,6 +27,15 @@ const RESTART_NOTE = 'New sessions use this account immediately. Running session
 // A cached Mac inventory sweep older than this is reported as stale; the
 // frontend then auto-refreshes on panel open instead of trusting it.
 const MAC_STATE_TTL_MS = 5 * 60 * 1000;
+
+// Best-effort budget for the serialized pre-list calls on GET
+// /api/credentials (deadlock hardening, 2026-07-24). The roster itself
+// (getSafeList) reads snapshot files directly and never touches the
+// operation mutex, so it can ALWAYS render; only the belt-and-braces
+// seed/sync pass rides the mutex. When that pass has not settled within
+// this window the list is served anyway with degraded:true, so a wedged
+// serialized operation can no longer blank the account switcher.
+const LIST_BEST_EFFORT_MS = 2500;
 
 /**
  * Register the credential switcher routes on the Express app.
@@ -36,9 +49,15 @@ const MAC_STATE_TTL_MS = 5 * 60 * 1000;
  * @param {object} deps.manager - createCredentialManager() instance.
  * @param {object} [deps.macBridge] - mac-bridge module (optional; injectable
  *   for tests, gated by config and CWM_CRED_DISABLE_MAC at request time).
+ * @param {number} [deps.listBestEffortMs] - Override for the GET list
+ *   best-effort window (LIST_BEST_EFFORT_MS). Injectable for fast tests.
  * @returns {void}
  */
-function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structuredError, manager, macBridge }) {
+function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structuredError, manager, macBridge, listBestEffortMs }) {
+  // Effective best-effort window for the list route (tests inject a small
+  // one so a hung-mutex case does not cost 2.5s of wall clock per test).
+  const bestEffortMs = (Number.isFinite(Number(listBestEffortMs)) && Number(listBestEffortMs) > 0)
+    ? Number(listBestEffortMs) : LIST_BEST_EFFORT_MS;
   /**
    * Broadcast wrapper: an SSE failure must never fail a route.
    *
@@ -66,6 +85,36 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   }
 
   /**
+   * Reject a credential mutation when ownership has been handed to the
+   * external Myrlin bridge. Older injected manager fakes do not expose the
+   * guard and retain their historical behavior.
+   *
+   * @param {import('express').Response} res
+   * @param {string} operation - Human-readable operation for the conflict.
+   * @returns {import('express').Response|null} Conflict response, or null.
+   */
+  function rejectExternalOwnerMutation(res, operation) {
+    if (typeof manager.assertCredentialPoolWritable !== 'function') return null;
+    try {
+      manager.assertCredentialPoolWritable(operation);
+      return null;
+    } catch (err) {
+      return mapError(res, err);
+    }
+  }
+
+  /**
+   * Read the manager's passive-mode state without making marker presence an
+   * implicit opt-in. Missing methods on older test fakes mean writable.
+   *
+   * @returns {boolean}
+   */
+  function credentialPoolIsReadOnly() {
+    return typeof manager.isCredentialPoolReadOnly === 'function'
+      && manager.isCredentialPoolReadOnly();
+  }
+
+  /**
    * Summarize the mac mirror config for list responses (no secrets; host
    * and user are already non-secret connection metadata).
    *
@@ -86,11 +135,17 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
    * the mac summary. The ONLY roster shape any route serializes.
    *
    * @param {import('express').Response} res
+   * @param {{degraded?: boolean}} [listOpts] - degraded:true marks a
+   *   response whose best-effort serialized pre-list pass did not finish
+   *   (the roster and cached usage are served anyway; the frontend can
+   *   show a stale indicator instead of a blank switcher).
    * @returns {import('express').Response}
    */
-  function sendList(res) {
+  function sendList(res, listOpts = {}) {
     const list = manager.getSafeList();
-    return res.json({ ...list, mac: macSummary() });
+    const payload = { ...list, mac: macSummary() };
+    if (listOpts.degraded) payload.degraded = true;
+    return res.json(payload);
   }
 
   /**
@@ -190,7 +245,7 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
         activeProfileId: matched.activeProfileId || null,
         profiles: matched.profiles || [],
       };
-    });
+    }, 'mac-inventory-sweep');
     const cached = manager.setMacState(state);
     // Names and uuids only; the setMacState whitelist guarantees no secret
     // field can exist on this payload.
@@ -204,11 +259,33 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // kept as a belt-and-braces path for stores created before that seed
   // existed), and a cheap guarded sync so the active account always appears.
   // NO network usage calls (pure cache read).
+  //
+  // DEGRADED MODE (deadlock hardening, 2026-07-24): both side-effect calls
+  // ride the manager's serialized operation chain. Awaiting them
+  // unconditionally meant one wedged serialized op turned this read-only
+  // list into an infinite hang, which is exactly how the production outage
+  // blanked the switcher and usage meter. They are now raced against
+  // bestEffortMs and the roster is served regardless; degraded:true tells
+  // the frontend the pass did not finish (stale-but-usable data).
   app.get('/api/credentials', requireAuth, async (req, res) => {
     try {
-      try { await manager.seedFromClaudeSwap(); } catch (_) { /* seed is best effort */ }
-      try { await manager.syncActiveTokenToProfile(); } catch (_) { /* sync is best effort */ }
-      return sendList(res);
+      // MERGE NOTE (passive mode x degraded mode): in passive mode this GET
+      // is a true read. No seed sentinel, snapshot import, or live-token
+      // sync-back may ride on a list request, and because nothing is queued
+      // on the serialized chain there is nothing to race a deadline against:
+      // the roster is served directly and is never marked degraded. When CWM
+      // owns the pool, the deadlock hardening applies unchanged: both
+      // best-effort side effects are raced against bestEffortMs so a wedged
+      // chain can only ever make this list stale, never hang it.
+      if (credentialPoolIsReadOnly()) {
+        return sendList(res);
+      }
+      const bestEffort = (async () => {
+        try { await manager.seedFromClaudeSwap(); } catch (_) { /* seed is best effort */ }
+        try { await manager.syncActiveTokenToProfile(); } catch (_) { /* sync is best effort */ }
+      })();
+      const completed = await settleWithin(bestEffort, bestEffortMs);
+      return sendList(res, { degraded: !completed });
     } catch (err) {
       return mapError(res, err);
     }
@@ -219,6 +296,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // snapshot whose cache is stale. Per-profile usage failure is NOT a route
   // error (rows keep their stale cache; dead tokens surface in the list).
   app.post('/api/credentials/refresh-usage', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Usage refresh');
+    if (ownershipConflict) return ownershipConflict;
     try {
       const body = req.body || {};
       if (body.profileId !== undefined) {
@@ -293,6 +372,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   //           which case the historical error statuses are kept.
   // PC always runs first so the Mac push ships the freshest PC state.
   app.post('/api/credentials/apply', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential apply');
+    if (ownershipConflict) return ownershipConflict;
     const body = req.body || {};
     const legacy = body.profileId !== undefined;
     let pcTarget = null;
@@ -369,7 +450,9 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
         ? manager.runMacExclusive : ((fn) => fn());
       let m;
       try {
-        m = await runEx(() => applyFn(manager, cfg, macTarget));
+        // The label rides into the Mac-op deadline error, so a timed-out
+        // apply is diagnosable in logs; injected fakes ignore the 2nd arg.
+        m = await runEx(() => applyFn(manager, cfg, macTarget), 'mac-apply');
       } catch (err) {
         m = { mirrored: false, error: 'MAC_UNREACHABLE', message: (err && err.message) || 'mirror failed' };
       }
@@ -419,6 +502,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // ─── POST /api/credentials/capture ────────────────────────────────────
   // Snapshot the live PC pair with an optional friendly label.
   app.post('/api/credentials/capture', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential capture');
+    if (ownershipConflict) return ownershipConflict;
     try {
       const body = req.body || {};
       const snap = await manager.captureCurrent({ label: body.label });
@@ -432,6 +517,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // ─── PUT /api/credentials/:profileId/label ────────────────────────────
   // Rename. Trim, cap 60 (400 beyond), empty clears back to the fallback.
   app.put('/api/credentials/:profileId/label', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential label update');
+    if (ownershipConflict) return ownershipConflict;
     try {
       const body = req.body || {};
       const snap = await manager.setLabel(req.params.profileId, body.label != null ? body.label : '');
@@ -445,6 +532,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // ─── DELETE /api/credentials/:profileId ───────────────────────────────
   // Removes the snapshot file only (never live files, never remote files).
   app.delete('/api/credentials/:profileId', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential snapshot delete');
+    if (ownershipConflict) return ownershipConflict;
     try {
       const profileId = req.params.profileId;
       await manager.deleteSnapshot(profileId);
@@ -477,6 +566,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // option-injection guard). No connectivity probe here; the probe happens
   // naturally at mirror time with a clean MAC_UNREACHABLE.
   app.put('/api/credentials/mac-config', requireAuth, (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential switcher configuration update');
+    if (ownershipConflict) return ownershipConflict;
     try {
       const body = req.body || {};
       const cur = manager.getSettings().mac;
@@ -531,6 +622,8 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
   // credentials:mac. An offline Mac is a 200 with reachable:false, never an
   // error status: offline is a state the UI renders, not a failure.
   app.post('/api/credentials/mac-state/refresh', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Mac credential-state refresh');
+    if (ownershipConflict) return ownershipConflict;
     try {
       if (!macStateAvailable()) {
         return res.json({

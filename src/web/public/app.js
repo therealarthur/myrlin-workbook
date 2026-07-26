@@ -164,10 +164,17 @@ class CWMApp {
       activeWorkspace: null,
       selectedSession: null,
       viewMode: localStorage.getItem('cwm_viewMode') || 'terminal',       // workspace | all | recent | terminal
+      density: (window.MyrlinExperienceModel
+        ? window.MyrlinExperienceModel.normalizeDensity(localStorage.getItem('cwm_density'))
+        : (localStorage.getItem('cwm_density') === 'informative' ? 'informative' : 'quiet')),
       stats: { totalWorkspaces: 0, totalSessions: 0, runningSessions: 0, activeWorkspace: null },
       notifications: [],
       sidebarOpen: false,
-      projectsCollapsed: false,
+      projectsCollapsed: (() => {
+        const saved = localStorage.getItem('cwm_projectsCollapsed');
+        if (saved !== null) return saved === 'true';
+        return document.documentElement.dataset.uiShell === 'focused';
+      })(),
       docs: null,
       docsRawMode: false,
       hiddenSessions: new Set(JSON.parse(localStorage.getItem('cwm_hiddenSessions') || '[]')),
@@ -188,7 +195,19 @@ class CWMApp {
       // macState: sanitized Mac inventory cache from /api/credentials/
       // mac-state ({checkedAt, reachable, activeName, activeProfileId,
       // profiles}); macStale mirrors the server's TTL verdict.
-      credentials: { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false },
+      // retryingId: profileId of the dead row whose Retry round trip is in
+      // flight (single-flight; disables that row's Retry button).
+      credentials: { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false, retryingId: null, degraded: false },
+      // Provider account switcher roster (the Codex tab in the account
+      // panel), fed by GET /api/provider-accounts/<id>. Shape mirrors the
+      // credentials slice minus the Mac fields (machine sync is Claude-only
+      // in v1). activeAuthMode drives the API-key empty-state notice;
+      // installed drives the login-hint empty state; loginHint carries the
+      // provider-appropriate copy from the server capability.
+      codexAccounts: { list: [], activeId: null, activeAuthMode: null, installed: false, loginHint: '', stagedId: null, loading: false, applying: false, lastListAt: 0 },
+      // Active account-panel tab (a data-provider-tab value); null until
+      // the user switches, meaning "whatever the DOM marks is-active".
+      accountTab: null,
       settings: Object.assign({
         paneColorHighlights: true,
         activityIndicators: true,
@@ -245,6 +264,10 @@ class CWMApp {
     // activity is detected, so each work -> idle transition produces at
     // most one toast/sound per SESSION_NOTIFY_DEDUPE_MS.
     this._sessionNotifyState = new Map();
+    // One provider-neutral presentation state per live session. The header
+    // queue derives its count, order, and labels from this map plus the server
+    // session roster.
+    this._attentionState = new Map();
     // Timestamp of the last audible chime, for the global sound cooldown.
     this._lastChimeAt = 0;
     // Lazily-created shared AudioContext for notification chimes. Reused
@@ -292,6 +315,13 @@ class CWMApp {
     // ─── Boot ──────────────────────────────────────────────────
     this.cacheElements();
     this.bindEvents();
+    this.setProjectsCollapsed(this.state.projectsCollapsed, false);
+    this.setTheme(
+      document.documentElement.dataset.themeChoice ||
+        document.documentElement.dataset.theme ||
+        'system'
+    );
+    this.setDensity(this.state.density, { persist: false });
     this.init();
 
     // Clear the init timeout - we made it
@@ -356,6 +386,9 @@ class CWMApp {
       logoutBtn: document.getElementById('logout-btn'),
       themeToggleBtn: document.getElementById('theme-toggle-btn'),
       themeDropdown: document.getElementById('theme-dropdown'),
+      focusedMoreBtn: document.getElementById('focused-more-btn'),
+      attentionQueueBtn: document.getElementById('attention-queue-btn'),
+      attentionQueueBadge: document.getElementById('attention-queue-badge'),
       vkbToggleBtn: document.getElementById('vkb-toggle-btn'),
       scaleDownBtn: document.getElementById('scale-down-btn'),
       scaleUpBtn: document.getElementById('scale-up-btn'),
@@ -367,6 +400,9 @@ class CWMApp {
       accountChipLabel: document.getElementById('account-chip-label'),
       accountChipMeta: document.getElementById('account-chip-meta'),
       accountPanel: document.getElementById('account-panel'),
+      // Provider tab bar (Claude | Codex) and the retitlable panel header.
+      accountTabs: document.getElementById('account-tabs'),
+      accountPanelTitle: document.getElementById('account-panel-title'),
       accountPanelList: document.getElementById('account-panel-list'),
       accountRefreshBtn: document.getElementById('account-refresh-btn'),
       accountMacConfigBtn: document.getElementById('account-mac-config-btn'),
@@ -451,6 +487,8 @@ class CWMApp {
       // Terminal Grid
       terminalGrid: document.getElementById('terminal-grid'),
       terminalTabStrip: document.getElementById('terminal-tab-strip'),
+      workbenchStartBtn: document.getElementById('workbench-start-btn'),
+      workbenchProjectsBtn: document.getElementById('workbench-projects-btn'),
 
       // Mobile
       mobileTabBar: document.getElementById('mobile-tab-bar'),
@@ -460,6 +498,13 @@ class CWMApp {
       actionSheetItems: document.getElementById('action-sheet-items'),
       actionSheetCancel: document.getElementById('action-sheet-cancel'),
 
+      // Appearance dialog
+      appearanceOverlay: document.getElementById('appearance-overlay'),
+      appearanceDialog: document.getElementById('appearance-dialog'),
+      appearanceClose: document.getElementById('appearance-close'),
+      densityChoices: document.getElementById('density-choices'),
+      themeGallery: document.getElementById('theme-gallery'),
+
       // Sidebar resize & collapse
       sidebarResizeHandle: document.getElementById('sidebar-resize-handle'),
       sidebarCollapseBtn: document.getElementById('sidebar-collapse-btn'),
@@ -467,6 +512,8 @@ class CWMApp {
       // Docs panel
       docsPanel: document.getElementById('docs-panel'),
       docsWorkspaceName: document.getElementById('docs-workspace-name'),
+      docsWorkspaceSelect: document.getElementById('docs-workspace-select'),
+      docsProjectEmpty: document.getElementById('docs-project-empty'),
       docsToggleRaw: document.getElementById('docs-toggle-raw'),
       docsSaveBtn: document.getElementById('docs-save-btn'),
       docsStructured: document.getElementById('docs-structured'),
@@ -681,6 +728,10 @@ class CWMApp {
     if (this.els.themeToggleBtn) {
       this.els.themeToggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (document.documentElement.dataset.uiShell === 'focused') {
+          this.openAppearance(this.els.themeToggleBtn);
+          return;
+        }
         const dd = this.els.themeDropdown;
         if (dd) dd.hidden = !dd.hidden;
       });
@@ -696,6 +747,21 @@ class CWMApp {
       document.addEventListener('click', () => {
         if (this.els.themeDropdown) this.els.themeDropdown.hidden = true;
       });
+    }
+
+    // Keep the adaptive System theme in sync with the operating system.
+    const appearanceMq = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)');
+    if (appearanceMq) {
+      const onAppearanceChange = () => {
+        if (localStorage.getItem('cwm_theme_choice') === 'system') {
+          this.setTheme('system');
+        }
+      };
+      if (typeof appearanceMq.addEventListener === 'function') {
+        appearanceMq.addEventListener('change', onAppearanceChange);
+      } else if (typeof appearanceMq.addListener === 'function') {
+        appearanceMq.addListener(onAppearanceChange);
+      }
     }
 
     // Issue #41: re-apply settings when the OS reduced-motion preference
@@ -755,6 +821,18 @@ class CWMApp {
     this.els.viewTabs.forEach(tab => {
       tab.addEventListener('click', () => this.setViewMode(tab.dataset.mode));
     });
+    if (this.els.focusedMoreBtn) {
+      this.els.focusedMoreBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.showMoreMenu(this.els.focusedMoreBtn);
+      });
+    }
+    if (this.els.attentionQueueBtn) {
+      this.els.attentionQueueBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.showAttentionQueue(this.els.attentionQueueBtn);
+      });
+    }
 
     // Workspaces refresh
     if (this.els.workspacesRefresh) {
@@ -797,6 +875,12 @@ class CWMApp {
     // Launcher button and overlay
     if (this.els.sidebarLaunchBtn) {
       this.els.sidebarLaunchBtn.addEventListener('click', () => this.openLauncher());
+    }
+    if (this.els.workbenchStartBtn) {
+      this.els.workbenchStartBtn.addEventListener('click', () => this.openLauncher());
+    }
+    if (this.els.workbenchProjectsBtn) {
+      this.els.workbenchProjectsBtn.addEventListener('click', () => this.setViewMode('workspace'));
     }
     if (this.els.launcherClose) {
       this.els.launcherClose.addEventListener('click', () => this.closeLauncher());
@@ -867,10 +951,17 @@ class CWMApp {
     document.addEventListener('click', (e) => {
       // Don't dismiss if clicking inside the context menu (submenus need to stay open)
       if (this.els.contextMenu && this.els.contextMenu.contains(e.target)) return;
-      this.hideContextMenu();
+      this.hideContextMenu({ restoreFocus: true });
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.hideContextMenu();
+      if (!this.els.contextMenu || this.els.contextMenu.hidden) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.hideContextMenu({ restoreFocus: true });
+        return;
+      }
+      this._handleContextMenuKeydown(e);
     });
 
     // Image upload - file input change handler
@@ -917,6 +1008,12 @@ class CWMApp {
     if (this.els.docsSaveBtn) {
       this.els.docsSaveBtn.addEventListener('click', () => this.saveDocsRaw());
     }
+    if (this.els.docsWorkspaceSelect) {
+      this.els.docsWorkspaceSelect.addEventListener('change', () => {
+        const workspaceId = this.els.docsWorkspaceSelect.value;
+        this.selectWorkspace(workspaceId || null);
+      });
+    }
     document.querySelectorAll('.docs-add-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -924,12 +1021,24 @@ class CWMApp {
       });
     });
     document.querySelectorAll('.docs-section-header').forEach(header => {
-      header.addEventListener('click', (e) => {
-        if (e.target.closest('.docs-add-btn')) return;
-        const body = header.nextElementSibling;
-        const chevron = header.querySelector('.docs-section-chevron');
-        if (body) body.hidden = !body.hidden;
-        if (chevron) chevron.classList.toggle('open');
+      // Newer markup uses a real disclosure button inside the header so the
+      // adjacent add/refresh buttons remain separate interactive controls.
+      // Keep the header fallback while classic markup is still supported.
+      const disclosure = header.matches('button')
+        ? header
+        : (header.querySelector('.docs-section-toggle') || header);
+      const controlledId = disclosure.getAttribute('aria-controls');
+      const body = (controlledId && document.getElementById(controlledId))
+        || header.closest('.docs-section-heading')?.nextElementSibling
+        || header.nextElementSibling;
+      this._setDocsSectionExpanded(header, body ? !body.hidden : true);
+      disclosure.addEventListener('click', (e) => {
+        // A classic div header contains its action buttons. Those actions must
+        // not also collapse the section; clicks on the disclosure itself do.
+        const clickedButton = e.target.closest('button');
+        if (clickedButton && clickedButton !== disclosure) return;
+        const expanded = disclosure.getAttribute('aria-expanded') === 'true';
+        this._setDocsSectionExpanded(header, !expanded);
       });
     });
 
@@ -943,6 +1052,10 @@ class CWMApp {
         document.querySelectorAll('.docs-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         const view = tab.dataset.tab;
+        if (!this.state.activeWorkspace) {
+          this.renderDocs();
+          return;
+        }
         // Toggle docs structured/raw views vs board
         if (this.els.docsStructured) this.els.docsStructured.hidden = (view === 'board');
         if (this.els.docsRaw) this.els.docsRaw.hidden = true; // always hide raw when switching tabs
@@ -1230,6 +1343,9 @@ class CWMApp {
         if (this.els.diffViewerOverlay && !this.els.diffViewerOverlay.hidden) {
           this.closeDiffViewer();
         } else
+        if (this.els.appearanceOverlay && !this.els.appearanceOverlay.hidden) {
+          this.closeAppearance();
+        } else
         if (this.els.newTaskOverlay && !this.els.newTaskOverlay.hidden) {
           this.closeNewTaskDialog();
         } else
@@ -1272,12 +1388,18 @@ class CWMApp {
       // next work -> idle transition toast again (see onTerminalIdle).
       if (activity && activity.type !== 'idle') {
         this._sessionNotifyState.delete(sessionId);
+        this._setAttentionState(sessionId, 'running');
       }
       // Find which slot has this session
       for (let i = 0; i < CWMApp.MAX_PANES; i++) {
         if (this.terminalPanes[i] && this.terminalPanes[i].sessionId === sessionId) {
+          if (activity && activity.type !== 'idle') {
+            this.terminalPanes[i]._needsInput = false;
+            const paneEl = document.getElementById(`term-pane-${i}`);
+            const header = paneEl && paneEl.querySelector('.terminal-pane-header');
+            if (header) header.dataset.needsInput = 'false';
+          }
           this.updatePaneActivity(i, activity);
-          break;
         }
       }
     });
@@ -1298,13 +1420,24 @@ class CWMApp {
       this.showToast(msg, 'warning');
     });
 
+    // ─── Clipboard Copy Unavailable ──────────────────────────
+    // Selected Ctrl+C is always consumed so it cannot become SIGINT. When
+    // both Clipboard API and execCommand paths fail, TerminalPane keeps the
+    // selection and dispatches this event instead of silently claiming
+    // success or discarding the user's only recoverable copy.
+    document.addEventListener('cwm:copy-unavailable', () => {
+      this.showToast('Copy was blocked by the browser. Selection kept.', 'error');
+    });
+
     // ─── Terminal Needs-Input Badge ─────────────────────────
     // When auto-trust detects a question it won't auto-answer, show/hide
     // an amber "Needs input" badge on the terminal pane header.
     document.addEventListener('terminal-needs-input', (e) => {
       const { sessionId, needsInput } = e.detail;
+      this._setAttentionState(sessionId, needsInput ? 'needs-input' : 'running');
       for (let i = 0; i < CWMApp.MAX_PANES; i++) {
         if (this.terminalPanes[i] && this.terminalPanes[i].sessionId === sessionId) {
+          this.terminalPanes[i]._needsInput = !!needsInput;
           // Pane elements are id'd term-pane-N (was terminal-pane-N, a
           // selector that matched nothing, so the badge never rendered).
           const paneEl = document.getElementById(`term-pane-${i}`);
@@ -1312,7 +1445,6 @@ class CWMApp {
             const header = paneEl.querySelector('.terminal-pane-header');
             if (header) header.dataset.needsInput = needsInput ? 'true' : 'false';
           }
-          break;
         }
       }
     });
@@ -1326,8 +1458,12 @@ class CWMApp {
             this.showMoreMenu();
           } else if (view === 'workspace') {
             this.setViewMode('workspace');
-            // Also open sidebar on mobile for workspace access
-            if (this.isMobile && !this.state.sidebarOpen) {
+            const focusedShell = document.documentElement.dataset.uiShell === 'focused';
+            // In the focused shell, Sessions is a real destination; projects
+            // remain available from the hamburger drawer.
+            if (this.isMobile && focusedShell && this.state.sidebarOpen) {
+              this.toggleSidebar();
+            } else if (this.isMobile && !focusedShell && !this.state.sidebarOpen) {
               this.toggleSidebar();
             }
           } else {
@@ -1350,8 +1486,68 @@ class CWMApp {
     if (this.els.actionSheetCancel) {
       this.els.actionSheetCancel.addEventListener('click', () => this.hideActionSheet());
     }
+    if (this.els.actionSheet) {
+      this.els.actionSheet.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.hideActionSheet();
+          return;
+        }
+        if (e.key !== 'Tab') return;
+        const focusable = Array.from(
+          this.els.actionSheet.querySelectorAll('button:not([disabled])')
+        );
+        if (focusable.length === 0) return;
+        const current = focusable.indexOf(document.activeElement);
+        const next = e.shiftKey
+          ? (current <= 0 ? focusable.length - 1 : current - 1)
+          : (current === focusable.length - 1 ? 0 : current + 1);
+        e.preventDefault();
+        focusable[next].focus();
+      });
+    }
 
     // ─── Mobile: Touch Gestures ─────────────────────────────
+    // Appearance is a dedicated, scrollable dialog instead of a theme
+    // submenu. It keeps density and every palette reachable without turning
+    // the compact More menu into a long catalogue.
+    if (this.els.appearanceClose) {
+      this.els.appearanceClose.addEventListener('click', () => this.closeAppearance());
+    }
+    if (this.els.appearanceOverlay) {
+      this.els.appearanceOverlay.addEventListener('click', (e) => {
+        if (e.target === this.els.appearanceOverlay) this.closeAppearance();
+      });
+    }
+    if (this.els.appearanceDialog) {
+      this.els.appearanceDialog.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.closeAppearance();
+          return;
+        }
+        if (e.key !== 'Tab') return;
+        const focusable = Array.from(
+          this.els.appearanceDialog.querySelectorAll(
+            'button:not([disabled]), summary, [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter(el => !el.hidden && el.getClientRects().length > 0);
+        if (focusable.length === 0) {
+          e.preventDefault();
+          this.els.appearanceDialog.focus();
+          return;
+        }
+        const current = focusable.indexOf(document.activeElement);
+        const next = e.shiftKey
+          ? (current <= 0 ? focusable.length - 1 : current - 1)
+          : (current === focusable.length - 1 ? 0 : current + 1);
+        e.preventDefault();
+        focusable[next].focus();
+      });
+    }
+
     if ('ontouchstart' in window) {
       this.initTouchGestures();
     }
@@ -1487,11 +1683,9 @@ class CWMApp {
             textToCopy = lines.join('\n');
           }
           if (textToCopy) {
-            navigator.clipboard.writeText(textToCopy).then(() => {
-              this.showToast('Copied to clipboard', 'success');
-            }).catch(() => {
-              this.showToast('Failed to copy - check browser permissions', 'error');
-            });
+            // Universal copy helper: works on insecure origins too and never
+            // throws into this click handler (see _copyWithToast WHY).
+            this._copyWithToast(textToCopy, 'Copied to clipboard', 'Failed to copy - check browser permissions');
           } else {
             this.showToast('Nothing to copy', 'info');
           }
@@ -2220,8 +2414,14 @@ class CWMApp {
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
     if (urlToken) {
-      // Always strip token from URL to avoid leaking in browser history/referrer
-      window.history.replaceState({}, '', window.location.pathname);
+      // Always strip only the credential from URL history/referrers. Preserve
+      // benign switches such as ?ui=classic so a reload keeps its shell mode.
+      params.delete('token');
+      const remainingQuery = params.toString();
+      const sanitizedUrl = window.location.pathname +
+        (remainingQuery ? `?${remainingQuery}` : '') +
+        window.location.hash;
+      window.history.replaceState({}, '', sanitizedUrl);
       try {
         await this.tokenLogin(urlToken);
         return; // tokenLogin() handles showApp/loadAll/connectSSE
@@ -2356,7 +2556,10 @@ class CWMApp {
     this._stopAccountTick();
     this._closeAccountPanel();
     if (this.els.accountSwitcher) this.els.accountSwitcher.hidden = true;
-    this.state.credentials = { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false };
+    this.state.credentials = { list: [], activeId: null, stagedId: null, stagedMacId: null, loading: false, applying: false, lastListAt: 0, mac: null, macState: null, macStale: true, macStateLoading: false, retryingId: null };
+    // Provider account roster resets with the login state too, so the next
+    // login re-fetches a fresh Codex-tab roster instead of showing stale rows.
+    this.state.codexAccounts = { list: [], activeId: null, activeAuthMode: null, installed: false, loginHint: '', stagedId: null, loading: false, applying: false, lastListAt: 0 };
     // The usage meter lives outside the switcher subtree, so re-render it
     // against the now-empty roster to hide and clear its bars too.
     this.renderUsageMeter();
@@ -2395,7 +2598,7 @@ class CWMApp {
     // Restore persisted state
     const savedWorkspaceId = localStorage.getItem('cwm_activeWorkspace');
     const savedViewMode = localStorage.getItem('cwm_viewMode');
-    if (savedViewMode && ['workspace', 'all', 'costs', 'recent', 'terminal', 'docs', 'resources'].includes(savedViewMode)) {
+    if (savedViewMode && ['workspace', 'all', 'costs', 'recent', 'terminal', 'docs', 'resources', 'tasks'].includes(savedViewMode)) {
       this.state.viewMode = savedViewMode;
     }
     // Always apply the current view mode (handles default 'terminal' for new users)
@@ -2443,44 +2646,73 @@ class CWMApp {
         });
       }
       this.state.workspaces = workspaces;
-      // Auto-select first workspace if none active
+      if (this.state.activeWorkspace) {
+        this.state.activeWorkspace =
+          this.state.workspaces.find(workspace =>
+            workspace.id === this.state.activeWorkspace.id
+          ) || null;
+      }
+      // Restore the deliberate project context before falling back to the
+      // first project for new users.
       if (!this.state.activeWorkspace && this.state.workspaces.length > 0) {
-        this.state.activeWorkspace = this.state.workspaces[0];
+        const savedWorkspaceId = localStorage.getItem('cwm_activeWorkspace');
+        this.state.activeWorkspace =
+          this.state.workspaces.find(workspace => workspace.id === savedWorkspaceId) ||
+          this.state.workspaces[0];
       }
       this.renderWorkspaces();
+      if (this.state.viewMode === 'docs') {
+        await Promise.all([this.loadDocs(), this.loadTdIssues()]);
+      }
     } catch (err) {
       this.showToast('Failed to load projects', 'error');
     }
   }
 
   async loadSessions() {
-    try {
-      const mode = this.state.viewMode;
+    const requestSequence = (this._sessionsRequestSequence || 0) + 1;
+    this._sessionsRequestSequence = requestSequence;
+    const mode = this.state.viewMode;
+    const requestedWorkspaceId = mode === 'workspace' && this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const requestIsCurrent = () => {
+      if (requestSequence !== this._sessionsRequestSequence) return false;
+      if (this.state.viewMode !== mode) return false;
+      if (mode !== 'workspace') return true;
+      const activeWorkspaceId = this.state.activeWorkspace
+        ? this.state.activeWorkspace.id
+        : null;
+      return activeWorkspaceId === requestedWorkspaceId;
+    };
 
-      // Always fetch ALL sessions for sidebar workspace rendering
+    try {
+      // Fetch into locals and publish atomically. A slower request for project
+      // A must never overwrite a later project-B selection.
       const allData = await this.api('GET', '/api/sessions?mode=all');
-      this.state.allSessions = allData.sessions || [];
+      if (!requestIsCurrent()) return false;
+      const allSessions = allData.sessions || [];
+      let sessions = allSessions;
 
       // If workspace mode but no workspace active, show empty
-      if (mode === 'workspace' && !this.state.activeWorkspace) {
-        this.state.sessions = [];
-        this.renderSessions();
-        this.renderWorkspaces();
-        return;
-      }
-
-      // Fetch mode-specific sessions for the main session list panel
-      if (mode === 'workspace' || mode === 'recent') {
+      if (mode === 'workspace' && !requestedWorkspaceId) {
+        sessions = [];
+      } else if (mode === 'workspace' || mode === 'recent') {
+        // Fetch mode-specific sessions for the main session list panel using
+        // the workspace captured at request start, never mutable live state.
         let path = `/api/sessions?mode=${mode}`;
-        if (mode === 'workspace' && this.state.activeWorkspace) {
-          path += `&workspaceId=${this.state.activeWorkspace.id}`;
+        if (mode === 'workspace') {
+          path += `&workspaceId=${requestedWorkspaceId}`;
         }
         const data = await this.api('GET', path);
-        this.state.sessions = data.sessions || [];
-      } else {
-        // 'all' mode - reuse the full list we already fetched
-        this.state.sessions = this.state.allSessions;
+        if (!requestIsCurrent()) return false;
+        sessions = data.sessions || [];
       }
+
+      if (!requestIsCurrent()) return false;
+      this.state.allSessions = allSessions;
+      this.state.sessions = sessions;
+      this._reconcileAttentionFromSessionRoster(allSessions);
 
       // Clear stale selectedSession if it no longer exists in the loaded session list
       // (e.g. deleted by another client or via SSE session:deleted event)
@@ -2501,11 +2733,18 @@ class CWMApp {
       if (this.state.settings.enableWorktreeTasks) {
         try {
           const wtData = await this.api('GET', '/api/worktree-tasks');
-          this._worktreeTaskCache = wtData.tasks || [];
+          if (requestIsCurrent()) {
+            this._worktreeTaskCache = wtData.tasks || [];
+            this.renderWorkspaces();
+          }
         } catch (_) { /* non-critical */ }
       }
+      return true;
     } catch (err) {
-      this.showToast('Failed to load sessions', 'error');
+      if (requestSequence === this._sessionsRequestSequence) {
+        this.showToast('Failed to load sessions', 'error');
+      }
+      return false;
     }
   }
 
@@ -2524,8 +2763,48 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   async selectWorkspace(id) {
+    const currentWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    // Seed the server-aligned rollback point before optimistic UI selection.
+    // Subsequent successful activation writes keep this value authoritative,
+    // including a request that succeeds after its UI selection is superseded.
+    if (this._lastActivatedWorkspaceId === undefined) {
+      this._lastActivatedWorkspaceId = currentWorkspaceId;
+    }
+    if (
+      id !== currentWorkspaceId &&
+      this.state.docsRawMode &&
+      this.els.docsRawEditor &&
+      this.state.docs &&
+      this.els.docsRawEditor.value !== (this.state.docs.raw || '')
+    ) {
+      const discard = window.confirm(
+        'Project Notes has unsaved raw Markdown. Discard it and switch projects?'
+      );
+      if (!discard) {
+        this.renderDocs();
+        return;
+      }
+    }
+
+    const selectionSequence = (this._workspaceSelectionSequence || 0) + 1;
+    this._workspaceSelectionSequence = selectionSequence;
     const ws = this.state.workspaces.find(w => w.id === id) || null;
     this.state.activeWorkspace = ws;
+
+    // Remove the previous project's interactive notes DOM immediately. A slow
+    // activation request must not leave project-A buttons alive while actions
+    // resolve their target from the newly-selected project B.
+    this._docsRequestSequence = (this._docsRequestSequence || 0) + 1;
+    this.state.docs = null;
+    this._docsRenderedWorkspaceId = null;
+    if (
+      this.els.notesEditorOverlay &&
+      !this.els.notesEditorOverlay.hidden
+    ) {
+      this.hideNotesEditor();
+    }
 
     // Persist to localStorage
     if (ws) {
@@ -2534,19 +2813,84 @@ class CWMApp {
       localStorage.removeItem('cwm_activeWorkspace');
     }
 
-    // Activate on server
-    if (ws) {
-      try {
-        await this.api('POST', `/api/workspaces/${id}/activate`);
-      } catch {
-        // non-critical
-      }
-    }
-
     this.renderWorkspaces();
+    if (this.state.viewMode === 'docs') this.renderDocs();
+
+    // Serialize activations and skip superseded requests before they start.
+    // If A is already in flight when B then C are chosen, C is guaranteed to
+    // execute after A; B is skipped. The server therefore finishes on the same
+    // project as the UI instead of whichever request happened to resolve last.
+    const priorActivation = this._workspaceActivationTail || Promise.resolve();
+    const activationTask = priorActivation
+      .catch(() => ({ started: false, succeeded: false }))
+      .then(async () => {
+        if (!ws || selectionSequence !== this._workspaceSelectionSequence) {
+          return {
+            started: false,
+            succeeded: !ws,
+            error: null,
+          };
+        }
+        try {
+          await this.api('POST', `/api/workspaces/${ws.id}/activate`);
+          // The server write succeeded even if the user selected another
+          // project while it was in flight. Preserve that fact so a later
+          // failed activation can restore the actual server-side project.
+          this._lastActivatedWorkspaceId = ws.id;
+          return { started: true, succeeded: true, error: null };
+        } catch (error) {
+          return { started: true, succeeded: false, error };
+        }
+      });
+    this._workspaceActivationTail = activationTask;
+    const activationResult = await activationTask;
+    if (selectionSequence !== this._workspaceSelectionSequence) return;
+
+    if (ws && !activationResult.succeeded) {
+      // The optimistic selection was never accepted by the server. Restore
+      // the last project whose activation write completed successfully rather
+      // than leaving the UI and server on different projects.
+      const rollbackWorkspace = this.state.workspaces.find(
+        workspace => workspace.id === this._lastActivatedWorkspaceId
+      ) || null;
+      this.state.activeWorkspace = rollbackWorkspace;
+      this._docsRequestSequence = (this._docsRequestSequence || 0) + 1;
+      this.state.docs = null;
+      this._docsRenderedWorkspaceId = null;
+      if (rollbackWorkspace) {
+        localStorage.setItem('cwm_activeWorkspace', rollbackWorkspace.id);
+      } else {
+        localStorage.removeItem('cwm_activeWorkspace');
+      }
+      this.renderWorkspaces();
+      if (this.state.viewMode === 'docs') this.renderDocs();
+
+      const failedName = ws.name ? `"${ws.name}"` : 'project';
+      const rollbackMessage = rollbackWorkspace
+        ? ` Restored "${rollbackWorkspace.name || rollbackWorkspace.id}".`
+        : ' No project is selected.';
+      const detail = activationResult.error && activationResult.error.message
+        ? ` ${activationResult.error.message}`
+        : '';
+      this.showToast(
+        `Failed to activate ${failedName}.${rollbackMessage}${detail}`,
+        'error'
+      );
+    }
 
     if (this.state.viewMode === 'workspace') {
       await this.loadSessions();
+      if (selectionSequence !== this._workspaceSelectionSequence) return;
+    }
+
+    if (this.state.viewMode === 'docs') {
+      await Promise.all([this.loadDocs(), this.loadTdIssues()]);
+      if (selectionSequence !== this._workspaceSelectionSequence) return;
+      const activeDocsTab = document.querySelector('.docs-tab.active');
+      if (activeDocsTab && activeDocsTab.dataset.tab === 'board') {
+        await this.loadFeatureBoard();
+        if (selectionSequence !== this._workspaceSelectionSequence) return;
+      }
     }
 
     // If the tasks tab is open, refresh whichever sub-tab is active for the new workspace
@@ -3317,15 +3661,14 @@ class CWMApp {
         { label: 'Summarize to Docs', action: () => this.summarizeSessionToDocs(sessionId) },
         { label: 'Export Context', action: () => this.exportSessionContext(sessionId) },
         { label: 'Copy Session ID', action: () => {
-          navigator.clipboard.writeText(session.resumeSessionId || session.id);
-          this.showToast('Session ID copied', 'success');
+          this._copyWithToast(session.resumeSessionId || session.id, 'Session ID copied');
         }},
       ],
     });
 
     // Spinoff Tasks — AI-extract tasks from conversation and create worktree branches
     items.push({
-      label: 'Spinoff Tasks', icon: '&#10547;',
+      label: 'Create agent tasks', icon: '&#10547;',
       action: () => this.openSpinoffDialog(sessionId),
     });
 
@@ -3407,14 +3750,12 @@ class CWMApp {
     const insightsItems = [
       { label: 'Summarize', action: () => this.summarizeSession(sessionId, sessionId) },
       { label: 'Copy Session ID', action: () => {
-        navigator.clipboard.writeText(sessionId);
-        this.showToast('Session ID copied', 'success');
+        this._copyWithToast(sessionId, 'Session ID copied');
       }},
     ];
     if (cwd) {
       insightsItems.push({ label: 'Copy Path', action: () => {
-        navigator.clipboard.writeText(cwd);
-        this.showToast('Path copied', 'success');
+        this._copyWithToast(cwd, 'Path copied');
       }});
     }
     items.push({ label: 'Insights', icon: '&#128220;', submenu: insightsItems });
@@ -3496,12 +3837,79 @@ class CWMApp {
     this._renderContextItems(session.name, items, x, y);
   }
 
-  hideContextMenu() {
-    // Hide any open submenus first
-    this.els.contextMenu.querySelectorAll('.ctx-submenu-visible').forEach(s => {
-      s.classList.remove('ctx-submenu-visible');
+  _handleContextMenuKeydown(e) {
+    const menu = this.els.contextMenu;
+    if (!menu || menu.hidden) return;
+
+    const items = Array.from(
+      menu.querySelectorAll('button.context-menu-item:not([disabled])')
+    ).filter(button => {
+      const submenu = button.closest('.ctx-submenu');
+      return !submenu || submenu.classList.contains('ctx-submenu-visible');
     });
-    this.els.contextMenu.hidden = true;
+    if (items.length === 0) return;
+
+    const current = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowRight' && document.activeElement?.matches('[aria-haspopup="menu"]')) {
+      e.preventDefault();
+      document.activeElement.click();
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      const submenu = document.activeElement?.closest('.ctx-submenu-visible');
+      if (submenu) {
+        e.preventDefault();
+        submenu.classList.remove('ctx-submenu-visible');
+        const parent = menu.querySelector(
+          `.ctx-item-wrapper[data-idx="${submenu.dataset.parentIdx}"] > .context-menu-item`
+        );
+        if (parent) {
+          parent.setAttribute('aria-expanded', 'false');
+          parent.focus();
+        }
+      }
+      return;
+    }
+
+    let next = null;
+    if (e.key === 'ArrowDown') {
+      next = current < 0 || current === items.length - 1 ? 0 : current + 1;
+    } else if (e.key === 'ArrowUp') {
+      next = current <= 0 ? items.length - 1 : current - 1;
+    } else if (e.key === 'Home') {
+      next = 0;
+    } else if (e.key === 'End') {
+      next = items.length - 1;
+    } else if (e.key === 'Tab') {
+      next = e.shiftKey
+        ? (current <= 0 ? items.length - 1 : current - 1)
+        : (current < 0 || current === items.length - 1 ? 0 : current + 1);
+    }
+
+    if (next !== null) {
+      e.preventDefault();
+      items[next].focus();
+    }
+  }
+
+  hideContextMenu({ restoreFocus = false } = {}) {
+    const focusWasInsideMenu = !!(
+      this.els.contextMenu &&
+      this.els.contextMenu.contains(document.activeElement)
+    );
+    // Hide any open submenus first
+    if (this.els.contextMenu) {
+      this.els.contextMenu.querySelectorAll('.ctx-submenu-visible').forEach(s => {
+        s.classList.remove('ctx-submenu-visible');
+      });
+      this.els.contextMenu.hidden = true;
+    }
+    const returnFocus = this._contextMenuReturnFocus;
+    if (returnFocus) returnFocus.setAttribute('aria-expanded', 'false');
+    this._contextMenuReturnFocus = null;
+    if (restoreFocus && focusWasInsideMenu && returnFocus && returnFocus.isConnected) {
+      returnFocus.focus({ preventScroll: true });
+    }
   }
 
   /**
@@ -3527,8 +3935,7 @@ class CWMApp {
       {
         label: 'Copy Selector', icon: '&#128203;', action: () => {
           const selector = this._buildSelector(targetEl);
-          navigator.clipboard.writeText(selector);
-          this.showToast('Selector copied', 'success');
+          this._copyWithToast(selector, 'Selector copied');
         },
       },
     ];
@@ -3652,12 +4059,10 @@ class CWMApp {
       submenu: [
         { label: 'Summarize', action: () => this.summarizeSession(sessionName, sessionName) },
         { label: 'Copy Session ID', action: () => {
-          navigator.clipboard.writeText(sessionName);
-          this.showToast('Session ID copied', 'success');
+          this._copyWithToast(sessionName, 'Session ID copied');
         }},
         { label: 'Copy Path', action: () => {
-          navigator.clipboard.writeText(projectPath);
-          this.showToast('Path copied', 'success');
+          this._copyWithToast(projectPath, 'Path copied');
         }},
       ],
     });
@@ -3722,15 +4127,13 @@ class CWMApp {
     // Copy path
     if (projectPath) {
       items.push({ label: 'Copy Path', icon: '&#128193;', action: () => {
-        navigator.clipboard.writeText(projectPath);
-        this.showToast('Path copied', 'success');
+        this._copyWithToast(projectPath, 'Path copied');
       }});
     }
 
     // Copy encoded name
     items.push({ label: 'Copy Encoded Name', icon: '&#128203;', action: () => {
-      navigator.clipboard.writeText(encodedName);
-      this.showToast('Encoded name copied', 'success');
+      this._copyWithToast(encodedName, 'Encoded name copied');
     }});
 
     if (projectPath) {
@@ -4096,17 +4499,39 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   setTheme(themeName) {
-    if (themeName === 'mocha') {
-      delete document.documentElement.dataset.theme;
-    } else {
-      document.documentElement.dataset.theme = themeName;
+    const registry = window.MyrlinThemeRegistry;
+    const prefersLight = window.matchMedia &&
+      window.matchMedia('(prefers-color-scheme: light)').matches;
+    let choice = themeName;
+    if (registry && choice === registry.DEFAULT_DARK_THEME_ID) {
+      choice = 'myrlin-dark';
+    } else if (registry && choice === registry.DEFAULT_LIGHT_THEME_ID) {
+      choice = 'myrlin-light';
     }
-    localStorage.setItem('cwm_theme', themeName);
+    let resolved = registry
+      ? registry.resolveFeaturedChoice(choice, prefersLight ? 'light' : 'dark')
+      : null;
+
+    if (!resolved && registry && registry.getTheme(choice)) {
+      resolved = choice;
+    }
+    if (!resolved) {
+      choice = registry ? registry.DEFAULT_DARK_THEME_ID : 'mocha';
+      resolved = choice;
+    }
+
+    document.documentElement.dataset.theme = resolved;
+    document.documentElement.dataset.themeChoice = choice;
+    localStorage.setItem('cwm_theme', resolved);
+    localStorage.setItem('cwm_theme_choice', choice);
 
     // Update active state in dropdown
     if (this.els.themeDropdown) {
       this.els.themeDropdown.querySelectorAll('.theme-option').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.theme === themeName);
+        const active = btn.dataset.theme === resolved ||
+          btn.dataset.themeChoice === choice;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       });
     }
 
@@ -4116,6 +4541,189 @@ class CWMApp {
         tp.term.options.theme = TerminalPane.getCurrentTheme();
       }
     });
+    Object.values(this._groupPaneCache || {}).forEach(cached => {
+      (cached && Array.isArray(cached.panes) ? cached.panes : []).forEach(tp => {
+        if (tp && tp.term) tp.term.options.theme = TerminalPane.getCurrentTheme();
+      });
+    });
+
+    const themeMeta = registry && registry.getTheme(resolved);
+    document.documentElement.dataset.themeAppearance =
+      themeMeta && themeMeta.appearance === 'light' ? 'light' : 'dark';
+    document.documentElement.style.colorScheme =
+      themeMeta && themeMeta.appearance === 'light' ? 'light' : 'dark';
+    const themeColor = document.querySelector('meta[name="theme-color"]');
+    if (themeColor) {
+      const color = getComputedStyle(document.documentElement)
+        .getPropertyValue('--bg-secondary')
+        .trim();
+      if (color) themeColor.content = color;
+    }
+
+    if (this.els.appearanceOverlay && !this.els.appearanceOverlay.hidden) {
+      this.renderAppearance();
+    }
+  }
+
+  setDensity(value, { persist = true } = {}) {
+    const model = window.MyrlinExperienceModel;
+    const density = model
+      ? model.normalizeDensity(value)
+      : (value === 'informative' ? 'informative' : 'quiet');
+    this.state.density = density;
+    document.documentElement.dataset.density = density;
+    if (persist) localStorage.setItem('cwm_density', density);
+
+    if (this.state.docs) {
+      this._syncDocsSectionDensity({
+        notes: (this.state.docs.notes || []).length,
+        goals: (this.state.docs.goals || []).length,
+        tasks: (this.state.docs.tasks || []).length,
+        roadmap: (this.state.docs.roadmap || []).length,
+        rules: (this.state.docs.rules || []).length,
+      });
+    }
+    this.renderAttentionQueue();
+    if (this.els.appearanceOverlay && !this.els.appearanceOverlay.hidden) {
+      this.renderAppearance();
+    }
+
+    // Density changes presentation only. Preserve TerminalPane instances,
+    // buffers, WebSockets, selection, and scroll state; just refit their
+    // existing viewports after CSS has settled.
+    requestAnimationFrame(() => {
+      this.terminalPanes.forEach(tp => {
+        if (tp && typeof tp.safeFit === 'function') tp.safeFit();
+      });
+    });
+  }
+
+  _getThemeSwatchStyle(themeId) {
+    const option = this.els.themeDropdown &&
+      this.els.themeDropdown.querySelector(`.theme-option[data-theme="${themeId}"] .theme-swatch`);
+    return option ? option.getAttribute('style') || '' : '';
+  }
+
+  renderAppearance() {
+    const registry = window.MyrlinThemeRegistry;
+    const model = window.MyrlinExperienceModel;
+    if (!registry || !this.els.densityChoices || !this.els.themeGallery) return;
+    const focusedControl = document.activeElement;
+    const focusedDensity = focusedControl && focusedControl.dataset
+      ? focusedControl.dataset.densityChoice
+      : null;
+    const focusedTheme = focusedControl && focusedControl.dataset
+      ? focusedControl.dataset.themeChoice
+      : null;
+
+    const densityChoices = model && model.DENSITY_CHOICES
+      ? model.DENSITY_CHOICES
+      : [
+          { id: 'quiet', label: 'Quiet', description: 'Keep supporting detail out of the way until it matters.' },
+          { id: 'informative', label: 'Informative', description: 'Show more status and context while you work.' },
+        ];
+    this.els.densityChoices.innerHTML = densityChoices.map(choice => {
+      const active = choice.id === this.state.density;
+      return `<button class="density-choice" type="button" data-density-choice="${choice.id}"
+        aria-pressed="${active ? 'true' : 'false'}">
+        <span class="density-choice-label">${this.escapeHtml(choice.label)}</span>
+        <span class="density-choice-check" aria-hidden="true">${active ? '&#10003;' : ''}</span>
+        <span class="density-choice-description">${this.escapeHtml(choice.description)}</span>
+      </button>`;
+    }).join('');
+    this.els.densityChoices.querySelectorAll('[data-density-choice]').forEach(button => {
+      button.addEventListener('click', () => this.setDensity(button.dataset.densityChoice));
+    });
+
+    const activeChoice = document.documentElement.dataset.themeChoice ||
+      localStorage.getItem('cwm_theme_choice') ||
+      document.documentElement.dataset.theme ||
+      'system';
+    const preferredAppearance = document.documentElement.dataset.themeAppearance || 'dark';
+    const previousMore = this.els.themeGallery.querySelector('.theme-gallery-more');
+    const moreOpen = !!(previousMore && previousMore.open);
+    const renderCard = (choice, featured = false) => {
+      const themeId = featured
+        ? registry.resolveFeaturedChoice(choice.id, preferredAppearance)
+        : choice.id;
+      const active = choice.id === activeChoice;
+      return `<button class="theme-gallery-card" type="button"
+        data-theme-choice="${choice.id}" aria-pressed="${active ? 'true' : 'false'}">
+        <span class="theme-gallery-swatch" aria-hidden="true"
+          style="${this._getThemeSwatchStyle(themeId)}"></span>
+        <span>${this.escapeHtml(choice.label)}</span>
+        <span class="theme-gallery-check" aria-hidden="true">${active ? '&#10003;' : ''}</span>
+      </button>`;
+    };
+
+    const featured = registry.FEATURED_THEME_CHOICES.map(choice =>
+      renderCard(choice, true)
+    ).join('');
+    const grouped = model && typeof model.groupThemes === 'function'
+      ? model.groupThemes(registry)
+      : {
+          dark: registry.THEME_REGISTRY.filter(theme => theme.appearance === 'dark'),
+          light: registry.THEME_REGISTRY.filter(theme => theme.appearance === 'light'),
+        };
+    const legacyGroup = (appearance, label) => {
+      const cards = grouped[appearance]
+        .filter(theme => theme.tier === 'more')
+        .map(theme => renderCard(theme))
+        .join('');
+      return `<section class="theme-gallery-group" aria-labelledby="theme-${appearance}-heading">
+        <h4 id="theme-${appearance}-heading">${label}</h4>
+        <div class="theme-gallery-grid">${cards}</div>
+      </section>`;
+    };
+
+    this.els.themeGallery.innerHTML = `
+      <section class="theme-gallery-group" aria-labelledby="theme-featured-heading">
+        <h4 id="theme-featured-heading">Recommended</h4>
+        <div class="theme-gallery-grid theme-gallery-featured">${featured}</div>
+      </section>
+      <details class="theme-gallery-more"${moreOpen ? ' open' : ''}>
+        <summary>More themes</summary>
+        <div class="theme-gallery-more-groups">
+          ${legacyGroup('dark', 'Dark')}
+          ${legacyGroup('light', 'Light')}
+        </div>
+      </details>`;
+    this.els.themeGallery.querySelectorAll('[data-theme-choice]').forEach(button => {
+      button.addEventListener('click', () => this.setTheme(button.dataset.themeChoice));
+    });
+
+    const restoredFocus = focusedDensity
+      ? this.els.densityChoices.querySelector(`[data-density-choice="${focusedDensity}"]`)
+      : (focusedTheme
+          ? this.els.themeGallery.querySelector(`[data-theme-choice="${focusedTheme}"]`)
+          : null);
+    if (restoredFocus) restoredFocus.focus({ preventScroll: true });
+  }
+
+  openAppearance(returnFocus = document.activeElement) {
+    if (!this.els.appearanceOverlay) return;
+    this._appearanceReturnFocus = returnFocus;
+    this.renderAppearance();
+    this.els.appearanceOverlay.hidden = false;
+    document.body.classList.add('appearance-open');
+    requestAnimationFrame(() => {
+      const selected = this.els.appearanceDialog &&
+        this.els.appearanceDialog.querySelector('[aria-pressed="true"]');
+      if (selected) selected.focus({ preventScroll: true });
+      else if (this.els.appearanceClose) this.els.appearanceClose.focus({ preventScroll: true });
+      else if (this.els.appearanceDialog) this.els.appearanceDialog.focus({ preventScroll: true });
+    });
+  }
+
+  closeAppearance({ restoreFocus = true } = {}) {
+    if (!this.els.appearanceOverlay || this.els.appearanceOverlay.hidden) return;
+    this.els.appearanceOverlay.hidden = true;
+    document.body.classList.remove('appearance-open');
+    const returnFocus = this._appearanceReturnFocus;
+    this._appearanceReturnFocus = null;
+    if (restoreFocus && returnFocus && returnFocus.isConnected) {
+      returnFocus.focus({ preventScroll: true });
+    }
   }
 
   _applyVkbState() {
@@ -4137,7 +4745,10 @@ class CWMApp {
   // Legacy alias for any remaining callers
   toggleTheme() {
     const current = document.documentElement.dataset.theme || 'mocha';
-    const themes = ['mocha', 'macchiato', 'frappe', 'nord', 'dracula', 'tokyo-night', 'cherry', 'ocean', 'amber', 'mint', 'latte', 'rose-pine-dawn', 'gruvbox-light'];
+    const registry = window.MyrlinThemeRegistry;
+    const themes = registry
+      ? registry.LEGACY_THEME_IDS
+      : ['mocha', 'latte'];
     const next = themes[(themes.indexOf(current) + 1) % themes.length];
     this.setTheme(next);
   }
@@ -4220,7 +4831,7 @@ class CWMApp {
 
   /** Returns the full settings registry with metadata for rendering */
   getSettingsRegistry() {
-    return [
+    const registry = [
       { key: 'paneColorHighlights', label: 'Pane Color Highlights', description: 'Color-coded left border on terminal pane headers, with matching pips in sidebar', category: 'Terminal' },
       { key: 'activityIndicators', label: 'Activity Indicators', description: 'Show real-time activity labels (Reading, Writing, etc.) on pane headers', category: 'Terminal' },
       { key: 'autoOpenTerminal', label: 'Auto-open Terminal on Start', description: 'Automatically open a terminal when starting a session', category: 'Terminal' },
@@ -4231,15 +4842,19 @@ class CWMApp {
       { key: 'uiScale', label: 'UI Scale', description: 'Adjust the overall interface size', category: 'Interface', type: 'scale' },
       { key: 'headerHeight', label: 'Header Height', description: 'Adjust the height of the top header bar', category: 'Interface', type: 'slider', min: 35, max: 80, default: 80, unit: 'px' },
       { key: 'autoTrustDialogs', label: 'Auto-accept Trust Dialogs', description: 'Automatically accept safe trust/permission prompts in terminals. Dangerous prompts (delete, credentials) are never auto-accepted.', category: 'Automation' },
-      { key: 'enableWorktreeTasks', label: 'Worktree Tasks', description: 'Enable automated worktree task creation and review workflow', category: 'Advanced' },
-      { key: 'enableTd', label: 'td Task Management', description: 'Show td issue tracking integration (github.com/marcus/td). When disabled, hides all td UI including the docs panel section and sidebar toggle.', category: 'Advanced' },
+      { key: 'enableWorktreeTasks', label: 'Agent Tasks', description: 'Enable isolated-branch task creation and review for coding agents', category: 'Advanced' },
+      { key: 'enableTd', label: 'Issues integration', description: 'Show td issue tracking. When disabled, issue tabs and Project Notes issue sections stay hidden.', category: 'Advanced' },
       { key: 'tdBinary', label: 'td Binary Path', description: 'Optional. td is an alternative task management system (github.com/marcus/td); Myrlin works fine without it. If installed, set the absolute path to the binary here, or leave blank to use the TD_BINARY environment variable or "td" from PATH. Example: /home/user/go/bin/td', category: 'Advanced', type: 'server-text', placeholder: 'e.g. /home/user/go/bin/td', apiEndpoint: '/api/td/binary', apiField: 'binary' },
-      { key: 'maxConcurrentTasks', label: 'Max Concurrent Tasks', description: 'Maximum number of worktree tasks that can run simultaneously (1-8)', category: 'Advanced', type: 'number', min: 1, max: 8 },
+      { key: 'maxConcurrentTasks', label: 'Max Concurrent Agent Tasks', description: 'Maximum isolated agent tasks that can run simultaneously (1-8)', category: 'Advanced', type: 'number', min: 1, max: 8 },
       { key: 'defaultModelPlanning', label: 'Default Model (Planning)', description: 'Auto-assign when tasks enter Planning. Haiku is fast/cheap for exploration. Only applies to tasks without a model set.', category: 'Advanced', type: 'select', options: [{ value: '', label: 'None' }, { value: 'haiku', label: 'Haiku (fast, cheap)' }, { value: 'sonnet', label: 'Sonnet (balanced)' }, { value: 'opus', label: 'Opus (thorough)' }, { value: 'sonnet[1m]', label: 'Sonnet 1M' }, { value: 'opusplan', label: 'OpusPlan' }] },
       { key: 'defaultModelRunning', label: 'Default Model (Running)', description: 'Auto-assign when tasks enter Running. Sonnet balances speed and quality for implementation. Only applies to tasks without a model set.', category: 'Advanced', type: 'select', options: [{ value: '', label: 'None' }, { value: 'haiku', label: 'Haiku (fast, cheap)' }, { value: 'sonnet', label: 'Sonnet (balanced)' }, { value: 'opus', label: 'Opus (thorough)' }, { value: 'sonnet[1m]', label: 'Sonnet 1M' }, { value: 'opusplan', label: 'OpusPlan' }] },
       { key: 'anthropicApiKey', label: 'Anthropic API Key', description: 'Required for AI-powered session finder. Uses Claude Haiku for fast, low-cost semantic search across your projects and sessions. Get a key at console.anthropic.com.', category: 'AI', type: 'server-text', placeholder: 'sk-ant-...', apiEndpoint: '/api/keys/anthropic', apiField: 'key' },
       { key: 'cfNamedTunnel', label: 'Cloudflare Named Tunnel', description: 'Expose Myrlin on the internet via your own domain. Go to one.dash.cloudflare.com → Networks → Tunnels → Create a tunnel, then copy the token from the install command (the long eyJ... string).', category: 'Remote Access', type: 'tunnel' },
     ];
+
+    if (document.documentElement.dataset.uiShell !== 'focused') return registry;
+    const classicHeaderSettings = new Set(['sessionCountInHeader', 'headerHeight']);
+    return registry.filter(setting => !classicHeaderSettings.has(setting.key));
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -4563,8 +5178,8 @@ class CWMApp {
       },
       {
         id: 'feature-tasks-view',
-        name: 'Tasks View',
-        description: 'Dedicated view for worktree tasks showing active, review, and completed tasks with status indicators and quick actions.',
+        name: 'Agent Tasks',
+        description: 'Dedicated view for isolated agent tasks showing active, review, and completed work with quick actions.',
         category: 'feature',
         tags: ['tasks', 'worktree', 'branch', 'autonomous', 'agent', 'view'],
         icon: '&#128736;',
@@ -4572,7 +5187,7 @@ class CWMApp {
       },
       {
         id: 'action-new-task',
-        name: 'New Worktree Task',
+        name: 'New Agent Task',
         description: 'Create an isolated worktree branch for Claude to work on autonomously',
         category: 'action',
         tags: ['new', 'task', 'worktree', 'branch', 'create', 'autonomous'],
@@ -4611,7 +5226,7 @@ class CWMApp {
       {
         id: 'feature-pr-automation',
         name: 'Pull Request Automation',
-        description: 'Create GitHub PRs directly from worktree tasks. AI-generated descriptions from diffs. PR badges on kanban cards link to GitHub. Auto-advances tasks to Done when PR is merged. Available from review column, context menu, or session detail banner.',
+        description: 'Create GitHub PRs directly from agent tasks. AI-generated descriptions, PR badges, and merged-state tracking are built in.',
         category: 'feature',
         tags: ['pr', 'pull request', 'github', 'merge', 'review', 'branch', 'code review'],
         icon: '&#128279;',
@@ -5423,6 +6038,16 @@ class CWMApp {
     if (!tdEnabled && this._sidebarTasksMode === 'td') {
       this._setSidebarTasksMode('native');
     }
+    const tasksTdTab = document.getElementById('tasks-tab-td');
+    const tasksTabStrip = document.getElementById('tasks-tab-strip');
+    if (tasksTdTab) tasksTdTab.hidden = !tdEnabled;
+    if (tasksTabStrip) {
+      tasksTabStrip.hidden =
+        html.dataset.uiShell === 'focused' && !tdEnabled;
+    }
+    if (!tdEnabled && this._activeTasksTab === 'td') {
+      this._switchTasksTab('worktree');
+    }
     // Reload td docs section if currently visible
     if (typeof this.loadTdIssues === 'function') {
       this.loadTdIssues();
@@ -5612,7 +6237,10 @@ class CWMApp {
 
     // Show td tab only when enableTd is on
     const tdTab = document.getElementById('tasks-tab-td');
-    if (tdTab) tdTab.hidden = !this.getSetting('enableTd');
+    const tdEnabled = this.getSetting('enableTd');
+    if (tdTab) tdTab.hidden = !tdEnabled;
+    strip.hidden =
+      document.documentElement.dataset.uiShell === 'focused' && !tdEnabled;
 
     strip.addEventListener('click', e => {
       const tab = e.target.closest('.tasks-tab');
@@ -5623,12 +6251,25 @@ class CWMApp {
 
     // Restore persisted tab
     const saved = localStorage.getItem('cwm_tasksTab') || 'worktree';
-    this._switchTasksTab(saved);
+    const savedTab = Array.from(strip.querySelectorAll('.tasks-tab'))
+      .find(tab => tab.dataset.tasksTab === saved);
+    const savedIsAvailable = savedTab && !savedTab.hidden &&
+      getComputedStyle(savedTab).display !== 'none';
+    this._switchTasksTab(savedIsAvailable ? saved : 'worktree');
   }
 
   _switchTasksTab(name) {
     const strip = document.getElementById('tasks-tab-strip');
     if (!strip) return;
+
+    // Preview tabs remain available in the classic shell, but a stale
+    // preference must not reopen a surface hidden by the focused hierarchy.
+    const requestedTab = Array.from(strip.querySelectorAll('.tasks-tab'))
+      .find(tab => tab.dataset.tasksTab === name);
+    if (!requestedTab || requestedTab.hidden ||
+        getComputedStyle(requestedTab).display === 'none') {
+      name = 'worktree';
+    }
 
     // Guard: prompt before leaving files tab with unsaved changes
     if (this._activeTasksTab === 'files' && name !== 'files' && this._filesEditorDirty) {
@@ -6498,9 +7139,14 @@ class CWMApp {
         hash.title = 'Click to copy full hash';
         hash.addEventListener('click', (e) => {
           e.stopPropagation(); // don't also trigger row click
-          navigator.clipboard.writeText(commit.hash).catch(() => {});
-          hash.textContent = 'copied!';
-          setTimeout(() => { hash.textContent = commit.shortHash; }, 1500);
+          // Universal copy helper (never throws; works on insecure origins).
+          // Keeps the inline text feedback this row always had, but honest:
+          // the old bare-catch call claimed "copied!" even when the property
+          // access threw before anything reached the clipboard.
+          TerminalPane.copyTextToClipboard(commit.hash).then((ok) => {
+            hash.textContent = ok ? 'copied!' : 'copy failed';
+            setTimeout(() => { hash.textContent = commit.shortHash; }, 1500);
+          });
         });
 
         const msg = document.createElement('span');
@@ -6620,7 +7266,8 @@ class CWMApp {
   async renderTasksView(container = null) {
     // Initialize layout from localStorage (default: board)
     if (!this._tasksLayout) {
-      this._tasksLayout = localStorage.getItem('cwm_tasksLayout') || 'board';
+      this._tasksLayout = localStorage.getItem('cwm_tasksLayout') ||
+        (this.isMobile ? 'list' : 'board');
       // Sync toggle UI
       if (this.els.tasksLayoutToggle) {
         this.els.tasksLayoutToggle.querySelectorAll('.tasks-layout-btn').forEach(btn => {
@@ -6642,8 +7289,8 @@ class CWMApp {
         const emptyHtml = `
           <div class="tasks-empty">
             <div class="tasks-empty-icon">&#128736;</div>
-            <div class="tasks-empty-title">No worktree tasks</div>
-            <div class="tasks-empty-desc">Create a task to have Claude work on a feature in an isolated git branch. Click "New Task" above to get started.</div>
+            <div class="tasks-empty-title">No agent tasks</div>
+            <div class="tasks-empty-desc">Give an agent a focused change to build in an isolated git branch. Choose "New agent task" to get started.</div>
           </div>`;
         if (this._tasksLayout === 'board' && this.els.kanbanBoard) {
           this.els.kanbanBoard.innerHTML = emptyHtml;
@@ -7626,7 +8273,7 @@ class CWMApp {
 
     // Show dialog in loading state
     this.els.spinoffOverlay.hidden = false;
-    this.els.spinoffTitle.textContent = 'Spinoff Tasks';
+    this.els.spinoffTitle.textContent = 'Create Agent Tasks';
     this.els.spinoffSubtitle.textContent = `Analyzing: ${sessionName}`;
     this.els.spinoffLoading.hidden = false;
     this.els.spinoffTasks.hidden = true;
@@ -8183,6 +8830,61 @@ class CWMApp {
       // Row interactions are delegated on the stable list container so the
       // per-render innerHTML swaps never need re-binding.
       els.accountPanelList.addEventListener('click', (e) => {
+        // Provider-tab rows carry data-account-id (never data-profile-id)
+        // and route through the generic provider pipeline. This branch
+        // runs FIRST so provider rows can never fall through into the
+        // legacy Claude branches below.
+        const provRow = e.target.closest('.account-row[data-account-id]');
+        if (provRow) {
+          const tabEl = this._activeAccountTabEl();
+          const provDelete = e.target.closest('.account-delete-btn');
+          if (provDelete) {
+            // Deleting must never stage the row it sits on.
+            e.stopPropagation();
+            this.deleteProviderAccount(tabEl, provRow.dataset.accountId);
+            return;
+          }
+          const provEdit = e.target.closest('.account-row-edit');
+          if (provEdit) {
+            // The pencil must never stage the row it sits on.
+            e.stopPropagation();
+            const a = this.state.codexAccounts.list.find(x => x.accountId === provRow.dataset.accountId);
+            if (a) this.renameProviderAccount(tabEl, a);
+            return;
+          }
+          if (provRow.getAttribute('aria-disabled') !== 'true') {
+            this.stageProviderAccount(provRow.dataset.accountId);
+          }
+          return;
+        }
+        if (e.target.closest('#account-capture-provider-btn')) {
+          this.captureProviderAccount(this._activeAccountTabEl());
+          return;
+        }
+        // Retry on a dead row: force one refresh of that profile through
+        // the existing per-profile force route. Runs before the generic
+        // row branch and stops propagation so a retry click can never try
+        // to stage the (unstageable) dead row underneath it.
+        const retryBtn = e.target.closest('.account-retry-btn');
+        if (retryBtn) {
+          e.stopPropagation();
+          const retryId = retryBtn.dataset.profileId
+            || ((retryBtn.closest('.account-row') || {}).dataset || {}).profileId;
+          if (retryId) this.retryDeadAccount(retryId);
+          return;
+        }
+        // Delete branch MUST run before the pencil branch: the delete
+        // button reuses the pencil's .account-row-edit class for its base
+        // styling, so closest('.account-row-edit') would swallow it.
+        const deleteBtn = e.target.closest('.account-delete-btn');
+        if (deleteBtn) {
+          // Deleting must never stage the row it sits on.
+          e.stopPropagation();
+          const profileId = deleteBtn.dataset.profileId
+            || ((deleteBtn.closest('.account-row') || {}).dataset || {}).profileId;
+          if (profileId) this.deleteSavedAccount(profileId);
+          return;
+        }
         const editBtn = e.target.closest('.account-row-edit');
         if (editBtn) {
           // The pencil must never stage the row it sits on.
@@ -8213,6 +8915,16 @@ class CWMApp {
         }
       });
 
+      // Provider tab bar (Claude | Codex). Delegated so a future third tab
+      // needs zero new bindings. Clicking the active tab is a no-op.
+      if (els.accountTabs) {
+        els.accountTabs.addEventListener('click', (e) => {
+          const btn = e.target.closest('.account-tab');
+          if (!btn || btn.classList.contains('is-active')) return;
+          this._activateAccountTab(btn);
+        });
+      }
+
       // Keyboard: ArrowUp/ArrowDown roving focus between selectable rows,
       // Enter/Space stages the focused row (needs-re-login rows excluded).
       els.accountPanel.addEventListener('keydown', (e) => {
@@ -8226,6 +8938,13 @@ class CWMApp {
           if (row && row.dataset.profileId && row.getAttribute('aria-disabled') !== 'true') {
             e.preventDefault();
             this.stageAccount(row.dataset.profileId);
+            return;
+          }
+          // Provider-tab rows stage through the generic pipeline (they
+          // carry data-account-id instead of data-profile-id).
+          if (row && row.dataset.accountId && row.getAttribute('aria-disabled') !== 'true') {
+            e.preventDefault();
+            this.stageProviderAccount(row.dataset.accountId);
           }
         }
       });
@@ -8234,6 +8953,13 @@ class CWMApp {
       // the PC roster plus (when the bridge is enabled) one live Mac
       // inventory probe, fired in parallel so neither waits on the other.
       els.accountRefreshBtn.addEventListener('click', () => {
+        // Provider tabs refresh their own roster; the Claude behavior
+        // below is unchanged when the legacy tab is active.
+        const tabEl = this._activeAccountTabEl();
+        if (tabEl && tabEl.dataset.kind === 'provider') {
+          this.loadProviderAccounts(tabEl, { refresh: true });
+          return;
+        }
         this.loadCredentials({ refresh: true });
         if (this._macEnabled()) this.loadMacState({ probe: true });
       });
@@ -8245,10 +8971,22 @@ class CWMApp {
       els.accountCancelBtn.addEventListener('click', () => {
         this.state.credentials.stagedId = null;
         this.state.credentials.stagedMacId = null;
+        // Provider-tab staging clears with the same Cancel (one footer,
+        // one cancel semantics, whichever tab is showing).
+        this.state.codexAccounts.stagedId = null;
         this._closeAccountPanel();
         this.renderAccountSwitcher();
       });
-      els.accountSaveBtn.addEventListener('click', () => this.applyStagedAccount());
+      els.accountSaveBtn.addEventListener('click', () => {
+        // Save routes per tab: provider tabs apply through the generic
+        // pipeline; the legacy tab keeps the exact Claude behavior.
+        const tabEl = this._activeAccountTabEl();
+        if (tabEl && tabEl.dataset.kind === 'provider') {
+          this.applyStagedProviderAccount(tabEl);
+          return;
+        }
+        this.applyStagedAccount();
+      });
       // The old "Also apply on Mac Mini" checkbox is retired: per-row MAC
       // segments stage the Mac independently now. Clear its stale
       // localStorage key so no future code can ever misread it.
@@ -8295,21 +9033,43 @@ class CWMApp {
    * @throws {Error} 'Unauthorized' on 401 (after local logout), or the network-level fetch error.
    */
   async _credApi(method, path, body) {
+    // Hard request deadline (deadlock hardening, 2026-07-24): the roster
+    // routes once hung forever behind a wedged server-side mutex, leaving
+    // an eternally pending skeleton in the switcher. A timeout turns any
+    // such regression into a REJECTED fetch that rides the existing catch
+    // paths (silent degrade or error toast). Because a timeout rejects
+    // instead of resolving with a status, it can never be misread as the
+    // 404 feature-unavailable signal, which requires a resolved response.
+    const CRED_API_TIMEOUT_MS = 10000;
     const headers = { 'Content-Type': 'application/json' };
     if (this.state.token) headers['Authorization'] = `Bearer ${this.state.token}`;
     const opts = { method, headers };
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
-    const res = await fetch(path, opts);
-    if (res.status === 401) {
-      this.state.token = null;
-      localStorage.removeItem('cwm_token');
-      this.showLogin();
-      this.disconnectSSE();
-      throw new Error('Unauthorized');
+    let fallbackTimer = null;
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      opts.signal = AbortSignal.timeout(CRED_API_TIMEOUT_MS);
+    } else if (typeof AbortController === 'function') {
+      // Older browsers without AbortSignal.timeout: manual controller; the
+      // timer is cleared in finally so it cannot abort a finished request.
+      const controller = new AbortController();
+      fallbackTimer = setTimeout(() => controller.abort(), CRED_API_TIMEOUT_MS);
+      opts.signal = controller.signal;
     }
-    let data = null;
-    try { data = await res.json(); } catch (_) { data = null; }
-    return { ok: res.ok, status: res.status, data };
+    try {
+      const res = await fetch(path, opts);
+      if (res.status === 401) {
+        this.state.token = null;
+        localStorage.removeItem('cwm_token');
+        this.showLogin();
+        this.disconnectSSE();
+        throw new Error('Unauthorized');
+      }
+      let data = null;
+      try { data = await res.json(); } catch (_) { data = null; }
+      return { ok: res.ok, status: res.status, data };
+    } finally {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+    }
   }
 
   /**
@@ -8367,6 +9127,11 @@ class CWMApp {
     cred.list = data.profiles;
     cred.activeId = data.activeProfileId || null;
     if (data.mac !== undefined) cred.mac = data.mac || null;
+    // degraded:true marks a roster served while the server's serialized
+    // seed/sync pass had not finished (deadlock hardening, 2026-07-24):
+    // the data is usable but possibly stale, so the chip gets an
+    // indicator instead of the switcher going blank or hanging.
+    cred.degraded = !!data.degraded;
     cred.lastListAt = Date.now();
     // Staging hygiene: a staged row that vanished or became active is stale.
     if (cred.stagedId && (cred.stagedId === cred.activeId || !cred.list.some(p => p.profileId === cred.stagedId))) {
@@ -8399,8 +9164,15 @@ class CWMApp {
 
     // ── Chip ──
     const active = cred.list.find(p => p.profileId === cred.activeId) || null;
-    const chipName = active ? this._accountDisplayName(active) : 'Unknown account';
-    if (els.accountChipAvatar) els.accountChipAvatar.textContent = active ? (chipName.charAt(0).toUpperCase() || '?') : '?';
+    const hasAccounts = Array.isArray(cred.list) && cred.list.length > 0;
+    const chipName = active
+      ? this._accountDisplayName(active)
+      : (hasAccounts ? 'Select account' : 'Accounts');
+    if (els.accountChipAvatar) {
+      els.accountChipAvatar.textContent = active
+        ? (chipName.charAt(0).toUpperCase() || 'A')
+        : 'A';
+    }
     if (els.accountChipLabel) els.accountChipLabel.textContent = chipName;
     if (els.accountChipMeta) {
       const fiveHour = active && active.usage && active.usage.five_hour;
@@ -8416,6 +9188,17 @@ class CWMApp {
       }
     }
     if (els.accountChip) els.accountChip.classList.toggle('is-applying', cred.applying);
+    if (els.accountChip) {
+      // Stale-data indicator for a degraded roster response (deadlock
+      // hardening, 2026-07-24): the class is a styling hook and the title
+      // explains why the data may lag; both clear on the next full load.
+      els.accountChip.classList.toggle('is-degraded', !!cred.degraded);
+      if (cred.degraded) {
+        els.accountChip.title = 'Account data may be stale: the server was busy, showing the last saved roster.';
+      } else if (els.accountChip.title) {
+        els.accountChip.removeAttribute('title');
+      }
+    }
 
     // Header usage meter rides the exact same render path as the chip so it
     // updates on initial load, refresh-usage, account switches, and both
@@ -8434,6 +9217,17 @@ class CWMApp {
     }
 
     if (!els.accountPanel || els.accountPanel.hidden) return;
+
+    // ── Provider tab branch ──
+    // When a provider tab (data-kind="provider") is active, the panel body
+    // renders through the generic provider pipeline and the entire legacy
+    // Claude path below is skipped. The chip and header meter above stay
+    // Claude-driven in v1 (design doc Part 9.1).
+    const activeTabEl = this._activeAccountTabEl();
+    if (activeTabEl && activeTabEl.dataset.kind === 'provider') {
+      this._renderProviderAccountPane(activeTabEl);
+      return;
+    }
 
     // ── Machines strip (PC / Mac locations) ──
     // Rendered on every open-panel repaint so roster loads, mac-state
@@ -8530,8 +9324,22 @@ class CWMApp {
     // account with ONLY model-scoped data still renders usage rows.
     const opusWin = this._accountModelWindow(p, 'Opus');
     const fableWin = this._accountModelWindow(p, 'Fable');
+    // Amber suspect note (expiry-fix spec Phase 2): an ok row sitting under
+    // an unresolved auth_suspect ladder tells the honest story: temporary,
+    // being retried automatically, no user action needed yet. Keyed off
+    // BOTH the server health and the error kind so plain unverified rows
+    // (also needs-attention) never claim an auth issue they do not have.
+    const isSuspect = isWarn && p.lastRefreshError && p.lastRefreshError.kind === 'auth_suspect';
     if (isDead) {
-      usageHtml = '<span class="account-row-dead-note">needs re-login (stored token is dead)</span>';
+      // Softer dead-row copy plus a Retry button wired to the EXISTING
+      // per-profile force route (POST /api/credentials/refresh-usage).
+      // The row itself stays unstageable (tabindex -1, aria-disabled); the
+      // nested button stays interactive, same pattern as the pencil.
+      const retrying = cred.retryingId === p.profileId;
+      usageHtml = '<span class="account-row-dead-note">Signed out here. Run /login as this account once, or press Retry.'
+        + `<button type="button" class="account-retry-btn" data-profile-id="${this.escapeHtml(p.profileId)}"`
+        + ` aria-label="Retry stored credential for ${this.escapeHtml(name)}"${retrying ? ' disabled' : ''}>`
+        + (retrying ? 'Retrying' : 'Retry') + '</button></span>';
     } else if (p.usage && (p.usage.five_hour || p.usage.seven_day || opusWin || fableWin)) {
       const stale = this._isUsageStale(p) ? ' is-stale' : '';
       // Model rows render with absolute=true: Arthur wants the exact local
@@ -8542,7 +9350,12 @@ class CWMApp {
         + this._accountUsageRowHtml('week', p.usage.seven_day, true)
         + (opusWin ? this._accountUsageRowHtml('Opus', opusWin, true, 'Opus weekly usage') : '')
         + (fableWin ? this._accountUsageRowHtml('Fable', fableWin, true, 'Fable weekly usage') : '')
+        + (isSuspect ? '<span class="account-warn-note">Temporary auth issue, retrying</span>' : '')
         + '</span>';
+    } else if (isSuspect) {
+      // No usage cache to show: the suspect note takes the usage line slot
+      // (the extra class keeps the grid placement of the unavailable line).
+      usageHtml = '<span class="account-usage-unavailable account-warn-note">Temporary auth issue, retrying</span>';
     } else {
       usageHtml = '<span class="account-usage-unavailable">usage unavailable</span>';
     }
@@ -8567,6 +9380,15 @@ class CWMApp {
     if (isActive) sideBits.push('<span class="account-active-pill">ACTIVE</span>');
     else if (!isDead) sideBits.push('<span class="account-row-radio" aria-hidden="true"></span>');
     sideBits.push(`<button type="button" class="account-row-edit" title="Rename" aria-label="Rename ${this.escapeHtml(name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>`);
+    // Delete (trash) button: HIDDEN on the ACTIVE row on purpose. Deleting
+    // the active snapshot is a confusing no-op because the credential
+    // watcher re-captures the live login within ~1s; switching away first
+    // is the supported removal path. Deletion removes ONLY the saved
+    // snapshot (DELETE /api/credentials/:profileId is snapshot-only); it
+    // never logs the account out anywhere.
+    if (!isActive) {
+      sideBits.push(`<button type="button" class="account-row-edit account-delete-btn" data-profile-id="${this.escapeHtml(p.profileId)}" title="Delete saved account" aria-label="Delete saved account ${this.escapeHtml(name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>`);
+    }
 
     return `<div class="${classes.join(' ')}" role="option" data-profile-id="${this.escapeHtml(p.profileId)}" data-health="${health}" tabindex="${isDead ? '-1' : '0'}" aria-selected="${isStaged ? 'true' : 'false'}"${isDead ? ' aria-disabled="true"' : ''}${deadTitle}>
       <span class="account-row-avatar" aria-hidden="true">${this.escapeHtml(avatarChar)}</span>
@@ -8976,6 +9798,115 @@ class CWMApp {
     } catch (err) {
       if (err && err.message === 'Unauthorized') return;
       this.showToast('Rename failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Delete a saved credential snapshot after an explicit confirm. Calls the
+   * snapshot-only DELETE /api/credentials/:profileId route, which removes
+   * Myrlin's saved copy of the credential and NOTHING else: the account is
+   * not logged out anywhere and can be re-added by logging in again.
+   *
+   * The ACTIVE account is guarded twice: the row hides its delete button at
+   * render time, and this method refuses stale clicks (the credential
+   * watcher re-captures the live login within ~1s, so deleting it would be
+   * a confusing no-op). A 404 from the route means another client already
+   * removed the snapshot and is treated as success. If the deleted row was
+   * staged for a switch, the stale staging is cleared. The SSE
+   * credentials:changed {deleted:true} broadcast reloads other clients; this
+   * client applies the route's own list response, so no extra reload fires.
+   * @param {string} profileId - accountUuid of the snapshot to delete.
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async deleteSavedAccount(profileId) {
+    const cred = this.state.credentials;
+    if (cred.applying) return;
+    const p = cred.list.find(x => x.profileId === profileId);
+    if (!p) return;
+    // Active-row guard (belt and braces on top of the hidden button).
+    if (profileId === cred.activeId) {
+      this.showToast('The active account is re-saved automatically; switch away first to remove it.', 'info');
+      return;
+    }
+    const name = this._accountDisplayName(p);
+    const confirmed = await this.showConfirmModal({
+      title: 'Remove saved account?',
+      message: `Remove saved account <strong>${this.escapeHtml(name)}</strong>? `
+        + 'This deletes Myrlin\'s saved copy of the credential. It does not log the account out; '
+        + 'you can re-add it by logging in again.',
+      confirmText: 'Remove',
+      confirmClass: 'btn-danger',
+    });
+    if (!confirmed) return;
+    // Suppress the self-echo toast from our own credentials:changed SSE.
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    try {
+      const resp = await this._credApi('DELETE', `/api/credentials/${encodeURIComponent(profileId)}`);
+      if (!resp.ok && resp.status !== 404) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Remove failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      // Staging hygiene: a deleted row can no longer be a pending target.
+      if (cred.stagedId === profileId) cred.stagedId = null;
+      if (cred.stagedMacId === profileId) cred.stagedMacId = null;
+      if (resp.ok && resp.data && Array.isArray(resp.data.profiles)) {
+        // The route returns the canonical list shape; applying it directly
+        // re-renders without a second GET (the SSE case still covers other
+        // clients).
+        this._applyCredListResponse(resp.data);
+      } else {
+        // 404 (already gone): drop the row locally and repaint.
+        cred.list = cred.list.filter(x => x.profileId !== profileId);
+        this.renderAccountSwitcher();
+      }
+      this.showToast(`Removed ${name}`, 'success');
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Remove failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Retry a dead (needs-re-login) account row: POST the EXISTING
+   * per-profile force route /api/credentials/refresh-usage { profileId },
+   * which bypasses both the usage cache and the known-dead skip, giving
+   * the stored refresh token one real round trip against the auth server.
+   * Outcomes are honest: a row killed by a WAF 403 false positive (or by
+   * an out-of-date verdict) comes back healthy via the returned list; a
+   * genuinely rotated-out account stays dead WITH fresh evidence, and the
+   * toast says exactly what to do next. Single-flight per panel: the
+   * button disables while the round trip runs (cred.retryingId).
+   * @param {string} profileId - accountUuid of the dead row.
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async retryDeadAccount(profileId) {
+    const cred = this.state.credentials;
+    if (cred.applying || cred.retryingId) return;
+    const p = cred.list.find(x => x.profileId === profileId);
+    if (!p) return;
+    cred.retryingId = profileId;
+    this.renderAccountSwitcher();
+    try {
+      const resp = await this._credApi('POST', '/api/credentials/refresh-usage', { profileId });
+      if (!resp.ok) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Retry failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      this._applyCredListResponse(resp.data || {});
+      const fresh = cred.list.find(x => x.profileId === profileId);
+      if (fresh && this.accountHealth(fresh) !== 'needs-re-login') {
+        this.showToast(`${this._accountDisplayName(fresh)} recovered`, 'success');
+      } else {
+        this.showToast('Still signed out. Run /login as this account once; it recaptures automatically.', 'info');
+      }
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Retry failed: could not reach the server', 'error');
+    } finally {
+      cred.retryingId = null;
+      this.renderAccountSwitcher();
     }
   }
 
@@ -9520,6 +10451,544 @@ class CWMApp {
 
 
   /* ═══════════════════════════════════════════════════════════
+     PROVIDER ACCOUNT TABS (Codex tab in the account panel)
+     Design contract: docs/plans/2026-07-03-codex-account-switcher-design.md
+     Part 3.4. The provider id for every API URL comes from the clicked
+     tab's dataset.providerTab, so this code carries no provider names.
+     Tokens NEVER reach this code; only the safe rows from
+     GET /api/provider-accounts/:providerId.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * The currently active tab button in the account panel's tab bar, or
+   * null when the tab bar is absent (old HTML: the legacy pipeline is the
+   * only pipeline).
+   * @returns {HTMLElement|null} The .account-tab.is-active element.
+   */
+  _activeAccountTabEl() {
+    if (!this.els.accountTabs) return null;
+    return this.els.accountTabs.querySelector('.account-tab.is-active');
+  }
+
+  /**
+   * Find the tab button for one providerId (used by the SSE cases to
+   * decide whether a broadcast concerns a tab this client can show).
+   * @param {string} providerId - Provider id from an SSE payload.
+   * @returns {HTMLElement|null} The matching .account-tab element.
+   */
+  _accountTabForProvider(providerId) {
+    if (!this.els.accountTabs || !providerId) return null;
+    try {
+      const escaped = (window.CSS && CSS.escape) ? CSS.escape(providerId) : providerId;
+      return this.els.accountTabs.querySelector(`.account-tab[data-provider-tab="${escaped}"]`);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Activate one account-panel tab: swap the is-active/aria-selected
+   * marks, retitle the panel header from the tab label, stamp the panel's
+   * data-active-tab attribute (drives the per-provider accent CSS), show
+   * or hide the Claude-only chrome (Mac gear, machines strip, mobile
+   * meter mirror), re-render, and lazy-load the provider roster on first
+   * activation. The legacy tab restores the exact pre-tab-bar panel.
+   * @param {HTMLElement} btn - The clicked .account-tab button.
+   * @returns {void}
+   */
+  _activateAccountTab(btn) {
+    const els = this.els;
+    if (!btn || !els.accountTabs) return;
+    this.state.accountTab = btn.dataset.providerTab || null;
+    els.accountTabs.querySelectorAll('.account-tab').forEach(t => {
+      const isActive = t === btn;
+      t.classList.toggle('is-active', isActive);
+      t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    if (els.accountPanelTitle) {
+      els.accountPanelTitle.textContent = (btn.textContent || '').trim() + ' account';
+    }
+    if (els.accountPanel) {
+      els.accountPanel.dataset.activeTab = btn.dataset.providerTab || '';
+    }
+    const isProvider = btn.dataset.kind === 'provider';
+    // Claude-only chrome (v1): the Mac gear, machines strip, and the
+    // mobile meter mirror hide on provider tabs; the legacy tab restores
+    // them (the render paths re-manage strip/meter visibility anyway).
+    if (els.accountMacConfigBtn) els.accountMacConfigBtn.hidden = isProvider;
+    if (isProvider) {
+      if (els.accountMachines) els.accountMachines.hidden = true;
+      if (els.accountPanelMeter) els.accountPanelMeter.hidden = true;
+    }
+    this.renderAccountSwitcher();
+    // Lazy first load: fetch the provider roster only when its tab is
+    // first opened, never at app boot.
+    if (isProvider && this.state.codexAccounts.lastListAt === 0) {
+      this.loadProviderAccounts(btn);
+    }
+  }
+
+  /**
+   * Load the provider account roster for one tab: GET
+   * /api/provider-accounts/<id>, or POST .../refresh-usage with an empty
+   * body when opts.refresh is true (the server-side cache TTL is
+   * honored). A 404 marks the tab unavailable (old server without the
+   * routes) and leaves the Claude tab untouched; network failures degrade
+   * silently on first load and toast afterwards.
+   * @param {HTMLElement} tabEl - The provider tab button (carries the id).
+   * @param {object} [opts] - Options bag.
+   * @param {boolean} [opts.refresh=false] - Refresh usage instead of a plain list read.
+   * @returns {Promise<void>} Never rejects; failures degrade or toast.
+   */
+  async loadProviderAccounts(tabEl, { refresh = false } = {}) {
+    const pa = this.state.codexAccounts;
+    if (!tabEl || !tabEl.dataset.providerTab || pa.loading) return;
+    pa.loading = true;
+    const firstLoad = pa.lastListAt === 0;
+    // Render immediately so an open panel shows the skeleton rows.
+    this.renderAccountSwitcher();
+    try {
+      const pid = encodeURIComponent(tabEl.dataset.providerTab);
+      const resp = refresh
+        ? await this._credApi('POST', `/api/provider-accounts/${pid}/refresh-usage`, {})
+        : await this._credApi('GET', `/api/provider-accounts/${pid}`);
+      if (!resp.ok) {
+        if (resp.status === 404) {
+          // Old server without the provider-account routes: mark the tab
+          // unavailable rather than erroring on every open (mirrors the
+          // Claude switcher's 404 self-hide).
+          tabEl.classList.add('is-unavailable');
+          tabEl.title = 'Update the workbook server to manage these accounts';
+          return;
+        }
+        if (!firstLoad) {
+          const msg = (resp.data && (resp.data.message || resp.data.error)) || `Failed to load accounts (${resp.status})`;
+          this.showToast(msg, 'error');
+        }
+        return;
+      }
+      this._applyProviderListResponse(resp.data || {});
+    } catch (_) {
+      // Network failure or auth logout: degrade silently; previous rows
+      // stay on screen until the next successful load.
+    } finally {
+      pa.loading = false;
+      this.renderAccountSwitcher();
+    }
+  }
+
+  /**
+   * Apply a provider safe-list response ({ activeAccountId, activeAuthMode,
+   * installed, loginHint, accounts }) to local state, run staging hygiene,
+   * start the countdown tick, and render. Shared by load, rename, capture,
+   * and delete (their routes all return the same list shape).
+   * @param {object} data - Response body in the safe-list shape.
+   * @returns {boolean} True when the payload carried a usable accounts array.
+   */
+  _applyProviderListResponse(data) {
+    if (!data || !Array.isArray(data.accounts)) return false;
+    const pa = this.state.codexAccounts;
+    pa.list = data.accounts;
+    pa.activeId = data.activeAccountId || null;
+    pa.activeAuthMode = data.activeAuthMode || null;
+    pa.installed = !!data.installed;
+    if (typeof data.loginHint === 'string') pa.loginHint = data.loginHint;
+    pa.lastListAt = Date.now();
+    // Staging hygiene: a staged row that vanished or became active is stale.
+    if (pa.stagedId && (pa.stagedId === pa.activeId || !pa.list.some(a => a.accountId === pa.stagedId))) {
+      pa.stagedId = null;
+    }
+    this._startAccountTick();
+    this.renderAccountSwitcher();
+    return true;
+  }
+
+  /**
+   * Render the provider tab's panel body: skeleton rows while the first
+   * load runs, the roster rows, or the provider empty state (login hint,
+   * capture CTA when a capturable login is live, or the API-key notice),
+   * plus the footer pending line and Save/Cancel/Refresh states. Called
+   * only from renderAccountSwitcher's provider branch, so the legacy
+   * Claude path below it stays untouched.
+   * @param {HTMLElement} tabEl - The active provider tab button.
+   * @returns {void}
+   */
+  _renderProviderAccountPane(tabEl) {
+    const els = this.els;
+    const pa = this.state.codexAccounts;
+    const tabLabel = ((tabEl && tabEl.textContent) || 'Provider').trim();
+
+    // Claude-only chrome stays hidden on every provider repaint (the
+    // legacy render paths re-show it when the legacy tab returns).
+    if (els.accountMachines) els.accountMachines.hidden = true;
+    if (els.accountPanelMeter) els.accountPanelMeter.hidden = true;
+    if (els.accountMacConfigBtn) els.accountMacConfigBtn.hidden = true;
+
+    // ── Row list ──
+    if (pa.loading && pa.list.length === 0) {
+      // First load: skeleton rows, never spinners (design system rule).
+      els.accountPanelList.innerHTML = Array.from({ length: 3 }, () => `
+        <div class="account-row account-row-skeleton" aria-hidden="true">
+          <span class="skeleton-line account-skeleton-avatar"></span>
+          <span class="account-row-body">
+            <span class="skeleton-line" style="width: 55%"></span>
+            <span class="skeleton-line" style="width: 75%"></span>
+            <span class="skeleton-line" style="width: 40%"></span>
+          </span>
+        </div>
+      `).join('');
+    } else if (pa.list.length === 0) {
+      // Empty states (design doc 3.4): API-key auth has no switchable
+      // account; a live chatgpt login gets the capture CTA; otherwise the
+      // provider's own login hint explains the path in.
+      let hintHtml = '';
+      let captureHtml = '';
+      if (pa.installed && pa.activeAuthMode === 'apikey') {
+        hintHtml = `<p class="account-empty-hint">${this.escapeHtml(tabLabel)} is using an API key; API-key auth has no switchable account.</p>`;
+      } else {
+        if (pa.loginHint) {
+          hintHtml = `<p class="account-empty-hint">${this.escapeHtml(pa.loginHint)}</p>`;
+        }
+        if (pa.installed && pa.activeAuthMode === 'chatgpt') {
+          captureHtml = '<button type="button" class="btn btn-primary btn-sm" id="account-capture-provider-btn">Capture current account</button>';
+        }
+      }
+      els.accountPanelList.innerHTML = `
+        <div class="account-empty">
+          <p>No ${this.escapeHtml(tabLabel)} accounts yet</p>
+          ${hintHtml}
+          ${captureHtml}
+        </div>`;
+    } else {
+      els.accountPanelList.innerHTML = pa.list.map(a => this.renderProviderAccountRow(a)).join('');
+    }
+
+    // ── Footer ──
+    const pendingRow = (pa.stagedId && pa.stagedId !== pa.activeId)
+      ? pa.list.find(a => a.accountId === pa.stagedId) : null;
+    if (els.accountPending) {
+      els.accountPending.innerHTML = pendingRow
+        ? ('<span class="account-pending-line"><span class="account-pending-key">' + this.escapeHtml(tabLabel) + ':</span>'
+          + this.escapeHtml(this._accountDisplayName(pendingRow)) + '</span>')
+        : '';
+      els.accountPending.hidden = !pendingRow;
+    }
+    if (els.accountSaveBtn) {
+      els.accountSaveBtn.disabled = !pendingRow || pa.applying;
+      els.accountSaveBtn.textContent = pa.applying ? 'Applying' : 'Save';
+    }
+    const skeletonState = pa.loading && pa.list.length === 0;
+    if (els.accountCancelBtn) els.accountCancelBtn.disabled = pa.applying || skeletonState;
+    if (els.accountRefreshBtn) els.accountRefreshBtn.disabled = pa.loading || pa.applying;
+  }
+
+  /**
+   * Build the HTML for one provider account row, reusing the Claude row's
+   * classes wholesale (avatar, primary line with plan badge, secondary
+   * email line, usage mini-bars, ACTIVE pill / staged radio, rename
+   * pencil, delete trash) so both tabs share every pixel of styling. The
+   * row carries data-account-id (never data-profile-id) so the legacy
+   * delegated branches ignore it. No machine segments (Claude-only in v1).
+   * All fields are escaped: JWT-derived claims are untrusted display data.
+   * @param {object} a - Safe account row from GET /api/provider-accounts/:id.
+   * @returns {string} Row HTML string.
+   */
+  renderProviderAccountRow(a) {
+    const pa = this.state.codexAccounts;
+    const health = this.accountHealth(a);
+    const isDead = health === 'needs-re-login';
+    const isWarn = health === 'needs-attention';
+    const isActive = a.accountId === pa.activeId;
+    const isStaged = a.accountId === pa.stagedId;
+    const name = this._accountDisplayName({ ...a, profileId: a.accountId });
+    const badge = a.plan ? String(a.plan) : '';
+
+    // Identity always visible: named rows show the email as the secondary
+    // line; unnamed rows already show the email as primary, so their
+    // secondary is the id8 marker.
+    const email = a.email || '';
+    let secondary = '';
+    if (email && name !== email) secondary = email;
+    else if (email) secondary = (a.accountId || '').slice(0, 8) + ' unnamed';
+
+    let usageHtml = '';
+    if (isDead) {
+      usageHtml = '<span class="account-row-dead-note">needs re-login (stored login was rejected)</span>';
+    } else if (a.usage && (a.usage.five_hour || a.usage.seven_day)) {
+      const stale = (this._isUsageStale(a) || a.accessExpired) ? ' is-stale' : '';
+      usageHtml = `<span class="account-usage${stale}">`
+        + this._accountUsageRowHtml('5h', a.usage.five_hour, false)
+        + this._accountUsageRowHtml('week', a.usage.seven_day, true)
+        + '</span>';
+    } else if (a.accessExpired) {
+      // v1 never refreshes parked tokens (design doc 5.2): the meter comes
+      // back after this account is made active once.
+      usageHtml = '<span class="account-usage-unavailable">usage unavailable (token past its access window; switching still works)</span>';
+    } else {
+      usageHtml = '<span class="account-usage-unavailable">usage unavailable</span>';
+    }
+
+    const classes = ['account-row'];
+    if (isActive) classes.push('is-active');
+    if (isStaged && !isActive) classes.push('is-staged');
+    if (isDead) classes.push('is-dead');
+    if (isWarn) classes.push('is-warn');
+
+    const avatarChar = isDead ? '!' : (name.charAt(0).toUpperCase() || '?');
+    const deadTitle = isDead
+      ? ' title="Log in as this account with the CLI once; it is recaptured automatically"'
+      : '';
+
+    const sideBits = [];
+    if (isActive) sideBits.push('<span class="account-active-pill">ACTIVE</span>');
+    else if (!isDead) sideBits.push('<span class="account-row-radio" aria-hidden="true"></span>');
+    sideBits.push(`<button type="button" class="account-row-edit" title="Rename" aria-label="Rename ${this.escapeHtml(name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>`);
+    // Same delete affordance and ACTIVE-row rule as the Claude rows: the
+    // watcher re-captures the live login within ~1s, so deleting the
+    // active snapshot would be a confusing no-op and the button hides.
+    if (!isActive) {
+      sideBits.push(`<button type="button" class="account-row-edit account-delete-btn" data-account-id="${this.escapeHtml(a.accountId)}" title="Delete saved account" aria-label="Delete saved account ${this.escapeHtml(name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>`);
+    }
+
+    return `<div class="${classes.join(' ')}" role="option" data-account-id="${this.escapeHtml(a.accountId)}" data-health="${health}" tabindex="${isDead ? '-1' : '0'}" aria-selected="${isStaged ? 'true' : 'false'}"${isDead ? ' aria-disabled="true"' : ''}${deadTitle}>
+      <span class="account-row-avatar" aria-hidden="true">${this.escapeHtml(avatarChar)}</span>
+      <span class="account-row-body">
+        <span class="account-row-primary">
+          <span class="account-row-name">${this.escapeHtml(name)}</span>
+          ${badge ? `<span class="account-plan-badge">${this.escapeHtml(badge)}</span>` : ''}
+        </span>
+        ${secondary ? `<span class="account-row-secondary">${this.escapeHtml(secondary)}</span>` : ''}
+        ${usageHtml}
+      </span>
+      <span class="account-row-side">${sideBits.join('')}</span>
+    </div>`;
+  }
+
+  /**
+   * Stage a provider account row for the Save button. Staging the active
+   * row clears the selection ("keep current"); needs-re-login rows are
+   * not selectable at all. Mirrors stageAccount including the focus
+   * restoration after the re-render.
+   * @param {string} accountId - Account id of the clicked row.
+   * @returns {void}
+   */
+  stageProviderAccount(accountId) {
+    const pa = this.state.codexAccounts;
+    if (pa.applying) return;
+    const a = pa.list.find(x => x.accountId === accountId);
+    if (!a) return;
+    if (this.accountHealth(a) === 'needs-re-login') return;
+    pa.stagedId = (accountId === pa.activeId) ? null : accountId;
+    this.renderAccountSwitcher();
+    try {
+      const escaped = (window.CSS && CSS.escape) ? CSS.escape(accountId) : accountId;
+      const rowEl = this.els.accountPanelList.querySelector(`.account-row[data-account-id="${escaped}"]`);
+      if (rowEl) rowEl.focus({ preventScroll: true });
+    } catch (_) {
+      // Focus restoration is cosmetic; never fatal.
+    }
+  }
+
+  /**
+   * Rename a saved provider account via the shared prompt modal. Empty
+   * submit clears the label (display falls back to email / id8).
+   * @param {HTMLElement} tabEl - The active provider tab (carries the id).
+   * @param {object} a - Safe account row being renamed.
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async renameProviderAccount(tabEl, a) {
+    if (!tabEl || !a || !a.accountId) return;
+    const result = await this.showPromptModal({
+      title: 'Rename account',
+      fields: [{
+        key: 'label',
+        label: 'Label',
+        value: a.label || '',
+        placeholder: a.email || 'Label',
+        maxlength: 60,
+      }],
+      confirmText: 'Save',
+    });
+    if (!result) return; // cancelled
+    const label = (result.label || '').trim().slice(0, 60);
+    if (label === (a.label || '')) return; // unchanged: skip the round-trip
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    try {
+      const pid = encodeURIComponent(tabEl.dataset.providerTab || '');
+      const resp = await this._credApi('PUT', `/api/provider-accounts/${pid}/${encodeURIComponent(a.accountId)}/label`, { label });
+      if (!resp.ok) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Rename failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      this._applyProviderListResponse(resp.data || {});
+      this.showToast(label ? `Renamed to ${label}` : 'Label cleared', 'success');
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Rename failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Empty-state CTA: snapshot the live provider login via POST
+   * /api/provider-accounts/:id/capture with an optional label prompt.
+   * @param {HTMLElement} tabEl - The active provider tab (carries the id).
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async captureProviderAccount(tabEl) {
+    if (!tabEl || !tabEl.dataset.providerTab) return;
+    const result = await this.showPromptModal({
+      title: 'Capture current account',
+      fields: [{
+        key: 'label',
+        label: 'Label (optional)',
+        value: '',
+        placeholder: 'e.g. Personal',
+        maxlength: 60,
+      }],
+      confirmText: 'Capture',
+    });
+    if (!result) return; // cancelled
+    const label = (result.label || '').trim().slice(0, 60);
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    try {
+      const pid = encodeURIComponent(tabEl.dataset.providerTab);
+      const resp = await this._credApi('POST', `/api/provider-accounts/${pid}/capture`, label ? { label } : {});
+      if (!resp.ok) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Capture failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      this._applyProviderListResponse(resp.data || {});
+      this.showToast('Current account captured', 'success');
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Capture failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Delete a saved provider account snapshot after an explicit confirm.
+   * Identical contract to deleteSavedAccount (the Claude rows): the DELETE
+   * route removes ONLY the saved snapshot, never the live login; the
+   * ACTIVE row is guarded (its button is hidden at render time and this
+   * method refuses stale clicks because the watcher re-captures the live
+   * login within ~1s); a 404 is treated as success; stale staging clears.
+   * @param {HTMLElement} tabEl - The active provider tab (carries the id).
+   * @param {string} accountId - Account id of the snapshot to delete.
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async deleteProviderAccount(tabEl, accountId) {
+    const pa = this.state.codexAccounts;
+    if (!tabEl || !accountId || pa.applying) return;
+    const a = pa.list.find(x => x.accountId === accountId);
+    if (!a) return;
+    // Active-row guard (belt and braces on top of the hidden button).
+    if (accountId === pa.activeId) {
+      this.showToast('The active account is re-saved automatically; switch away first to remove it.', 'info');
+      return;
+    }
+    const name = this._accountDisplayName({ ...a, profileId: a.accountId });
+    const tabLabel = ((tabEl.textContent) || 'provider').trim();
+    const confirmed = await this.showConfirmModal({
+      title: 'Remove saved account?',
+      message: `Remove saved account <strong>${this.escapeHtml(name)}</strong>? `
+        + `This deletes Myrlin's saved copy of the ${this.escapeHtml(tabLabel)} login. It does not log the account out; `
+        + 'you can re-add it by logging in with the CLI again.',
+      confirmText: 'Remove',
+      confirmClass: 'btn-danger',
+    });
+    if (!confirmed) return;
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    try {
+      const pid = encodeURIComponent(tabEl.dataset.providerTab || '');
+      const resp = await this._credApi('DELETE', `/api/provider-accounts/${pid}/${encodeURIComponent(accountId)}`);
+      if (!resp.ok && resp.status !== 404) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Remove failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return;
+      }
+      if (pa.stagedId === accountId) pa.stagedId = null;
+      if (resp.ok && resp.data && Array.isArray(resp.data.accounts)) {
+        this._applyProviderListResponse(resp.data);
+      } else {
+        // 404 (already gone): drop the row locally and repaint.
+        pa.list = pa.list.filter(x => x.accountId !== accountId);
+        this.renderAccountSwitcher();
+      }
+      this.showToast(`Removed ${name}`, 'success');
+    } catch (err) {
+      if (err && err.message === 'Unauthorized') return;
+      this.showToast('Remove failed: could not reach the server', 'error');
+    }
+  }
+
+  /**
+   * Apply the staged provider account: confirm modal (with the
+   * new-sessions-only restart note; never auto-restarts anything), POST
+   * /api/provider-accounts/:id/apply, toast outcomes including the
+   * accessExpired warning, clear staging, close when done, and refresh the
+   * roster in the background. Unlike the Claude path this never offers
+   * restartAllSessions: that helper restarts EVERY session and a
+   * per-provider restart is future work (design doc 3.4).
+   * @param {HTMLElement} tabEl - The active provider tab (carries the id).
+   * @returns {Promise<void>} Never rejects; failures toast.
+   */
+  async applyStagedProviderAccount(tabEl) {
+    const pa = this.state.codexAccounts;
+    if (!tabEl || pa.applying) return;
+    const targetRow = (pa.stagedId && pa.stagedId !== pa.activeId)
+      ? pa.list.find(a => a.accountId === pa.stagedId) : null;
+    if (!targetRow) return;
+    const tabLabel = ((tabEl.textContent) || 'provider').trim();
+    const name = this._accountDisplayName({ ...targetRow, profileId: targetRow.accountId });
+    const confirmed = await this.showConfirmModal({
+      // Title renders via textContent (no HTML), so no escaping here.
+      title: `Switch ${tabLabel} account?`,
+      message: `<strong>${this.escapeHtml(name)}</strong> (${this.escapeHtml(targetRow.email || 'no email on record')})`
+        + `<br><br>The swap affects only new ${this.escapeHtml(tabLabel)} sessions. `
+        + 'Running sessions keep the previous account until restarted.',
+      confirmText: 'Switch',
+    });
+    if (!confirmed) return;
+    pa.applying = true;
+    this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+    this.renderAccountSwitcher();
+    try {
+      const pid = encodeURIComponent(tabEl.dataset.providerTab || '');
+      const resp = await this._credApi('POST', `/api/provider-accounts/${pid}/apply`, { accountId: targetRow.accountId });
+      if (!resp.ok) {
+        const msg = (resp.data && (resp.data.message || resp.data.error)) || `Switch failed (${resp.status})`;
+        this.showToast(msg, 'error');
+        return; // staging preserved for a retry
+      }
+      const result = resp.data || {};
+      if (result.applied || result.alreadyActive) {
+        pa.activeId = targetRow.accountId;
+        pa.stagedId = null;
+        this.showToast(
+          result.alreadyActive ? `${name} was already active` : `Switched to ${name}`,
+          'success'
+        );
+        if (result.warning) this.showToast(result.warning, 'warning');
+        pa.applying = false;
+        this._closeAccountPanel();
+        this.renderAccountSwitcher();
+        // Background roster refresh (isActive flags, usage, health).
+        this.loadProviderAccounts(tabEl);
+      }
+    } catch (err) {
+      if (!(err && err.message === 'Unauthorized')) {
+        this.showToast('Switch failed: could not reach the server', 'error');
+      }
+    } finally {
+      pa.applying = false;
+      this.renderAccountSwitcher();
+    }
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════
      DISCOVER LOCAL SESSIONS
      ═══════════════════════════════════════════════════════════ */
 
@@ -9671,6 +11140,7 @@ class CWMApp {
 
     this.state.viewMode = mode;
     localStorage.setItem('cwm_viewMode', mode);
+    document.documentElement.dataset.viewMode = mode;
 
     // Update desktop tab states
     this.els.viewTabs.forEach(tab => {
@@ -9678,11 +11148,22 @@ class CWMApp {
       tab.classList.toggle('active', isActive);
       tab.setAttribute('aria-selected', isActive);
     });
+    if (this.els.focusedMoreBtn) {
+      const isSecondaryView = ['costs', 'recent', 'docs', 'resources'].includes(mode);
+      this.els.focusedMoreBtn.classList.toggle('active', isSecondaryView);
+      if (isSecondaryView) this.els.focusedMoreBtn.setAttribute('aria-current', 'page');
+      else this.els.focusedMoreBtn.removeAttribute('aria-current');
+    }
 
     // Update mobile tab bar
     if (this.els.mobileTabBar) {
+      const isMoreDestination = ['costs', 'recent', 'docs', 'resources'].includes(mode);
       this.els.mobileTabBar.querySelectorAll('.mobile-tab').forEach(tab => {
-        tab.classList.toggle('active', tab.dataset.view === mode);
+        const isActive = tab.dataset.view === mode ||
+          (tab.dataset.view === 'more' && isMoreDestination);
+        tab.classList.toggle('active', isActive);
+        if (isActive) tab.setAttribute('aria-current', 'page');
+        else tab.removeAttribute('aria-current');
       });
     }
 
@@ -9715,6 +11196,7 @@ class CWMApp {
     } else {
       document.documentElement.classList.remove('terminal-active');
       document.body.classList.remove('terminal-active');
+      document.body.classList.remove('keyboard-open');
     }
     if (this.els.docsPanel) {
       this.els.docsPanel.hidden = !isDocs;
@@ -9755,7 +11237,7 @@ class CWMApp {
       });
     } else {
       // Update panel title
-      const titles = { workspace: 'Sessions', recent: 'Recent Sessions' };
+      const titles = { workspace: 'Sessions', recent: 'Recent activity' };
       this.els.sessionPanelTitle.textContent = titles[mode] || 'Sessions';
 
       // Load sessions for new mode
@@ -10765,6 +12247,38 @@ class CWMApp {
      TOASTS
      ═══════════════════════════════════════════════════════════ */
 
+  /**
+   * Copy text to the clipboard and toast the outcome.
+   *
+   * WHY (user report, 2026-07-24, same trap as paste issue #64): all the
+   * small "Copy X" affordances (context menus, copy buttons) used to call
+   * the async Clipboard API directly and toast success unconditionally. On
+   * insecure origins (plain http over LAN, the documented remote-access
+   * mode) that API is undefined, so the bare property access threw a
+   * synchronous TypeError into the click handler while the toast still
+   * claimed success. Routing through TerminalPane.copyTextToClipboard
+   * (which falls back to a user-gesture execCommand copy and never throws)
+   * makes these copies WORK on every origin, and the resolved boolean makes
+   * the toast honest. terminal.js loads before app.js (index.html script
+   * order), so the static is always available; the typeof guard is only a
+   * belt-and-braces for a broken partial deploy.
+   *
+   * @param {string} text - Text to copy.
+   * @param {string} successMessage - Toast shown when the copy succeeded.
+   * @param {string} [failureMessage] - Toast shown when it failed
+   *   (defaults to 'Copy failed').
+   */
+  _copyWithToast(text, successMessage, failureMessage) {
+    const copied = (typeof TerminalPane !== 'undefined' &&
+        typeof TerminalPane.copyTextToClipboard === 'function')
+      ? TerminalPane.copyTextToClipboard(text)
+      : Promise.resolve(false);
+    copied.then((ok) => {
+      if (ok) this.showToast(successMessage, 'success');
+      else this.showToast(failureMessage || 'Copy failed', 'error');
+    });
+  }
+
   showToast(message, level = 'info') {
     const icons = {
       info: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M9 8v4M9 6v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -10936,6 +12450,10 @@ class CWMApp {
 
     switch (data.type) {
       case 'session:started':
+        this._setAttentionState(
+          data.sessionId || data.id || (data.session && data.session.id),
+          'running'
+        );
         this.showToast(`Session "${data.name || 'unknown'}" started`, 'success');
         this._throttledLoadSessions();
         this._throttledLoadStats();
@@ -10945,20 +12463,52 @@ class CWMApp {
         this._patchProviderTabBadges();
         break;
       case 'session:stopped':
+        this._setAttentionState(
+          data.sessionId || data.id || (data.session && data.session.id),
+          null
+        );
         this.showToast(`Session "${data.name || 'unknown'}" stopped`, 'info');
         this._throttledLoadSessions();
         this._throttledLoadStats();
         this._patchProviderTabBadges();
         break;
       case 'session:error':
+        this._setAttentionState(
+          data.sessionId || data.id || (data.session && data.session.id),
+          'failed'
+        );
         this.showToast(`Session "${data.name || 'unknown'}" encountered an error`, 'error');
         this._throttledLoadSessions();
         this._throttledLoadStats();
         this._patchProviderTabBadges();
         break;
       case 'session:created':
-      case 'session:deleted':
-      case 'session:updated':
+      case 'session:updated': {
+        const session = data.session || data.data || data;
+        const sessionId = session.sessionId || session.id || data.sessionId || data.id;
+        const model = window.MyrlinExperienceModel;
+        const state = model
+          ? model.normalizeAttentionState(session.attentionState) ||
+            model.statusToAttentionState(session.status)
+          : null;
+        if (sessionId && (state || session.status)) {
+          this._setAttentionState(sessionId, state);
+        }
+        this._throttledLoadSessions();
+        this._throttledLoadStats();
+        this._patchProviderTabBadges();
+        break;
+      }
+      case 'session:deleted': {
+        const sessionId = data.sessionId || data.id ||
+          (data.session && data.session.id) ||
+          (data.data && data.data.id);
+        this._setAttentionState(sessionId, null);
+        this._throttledLoadSessions();
+        this._throttledLoadStats();
+        this._patchProviderTabBadges();
+        break;
+      }
       case 'session:moved':
         this._throttledLoadSessions();
         this._throttledLoadStats();
@@ -10969,6 +12519,12 @@ class CWMApp {
       case 'workspace:updated':
         this.loadWorkspaces();
         this._throttledLoadStats();
+        break;
+      case 'workspace:activated':
+        // Activation is a legacy server-side default, while each browser keeps
+        // its deliberate project context locally. Treat this broadcast as an
+        // acknowledgement; falling through to loadAll() caused every click to
+        // launch an unsequenced full-app reload on every connected client.
         break;
       case 'stats:updated':
         if (data.stats) {
@@ -11079,6 +12635,53 @@ class CWMApp {
             && cred.stagedMacId === cred.macState.activeProfileId) {
             cred.stagedMacId = null;
           }
+          this.renderAccountSwitcher();
+        }
+        break;
+      }
+      case 'provider-accounts:changed': {
+        // Provider account switcher (Codex tab): the live login changed or
+        // a snapshot was captured/renamed/deleted. The case MUST exist
+        // here; without it the default branch below would turn every
+        // broadcast into a full loadAll() reload storm. Payload rides at
+        // data.data (same envelope convention as credentials:*).
+        const payload = (data && data.data) || {};
+        const pa = this.state.codexAccounts;
+        const fromSelf = this._credSelfActionUntil && Date.now() < this._credSelfActionUntil;
+        if (!fromSelf) {
+          if (payload.renamed) {
+            this.showToast('A saved account was renamed', 'info');
+          } else if (payload.captured) {
+            this.showToast('An account was captured', 'info');
+          } else if (payload.deleted) {
+            this.showToast('A saved account was removed', 'info');
+          } else if (payload.activeAccountId !== undefined && payload.activeAccountId !== pa.activeId) {
+            const who = payload.email ? ` to ${payload.email}` : '';
+            this.showToast(`Account switched${who} from another client`, 'info');
+          }
+        }
+        // Reload the roster only when the changed provider has a tab and
+        // this client has ever loaded it (lazy tabs stay lazy).
+        const changedTab = this._accountTabForProvider(payload.providerId);
+        if (changedTab && pa.lastListAt !== 0) {
+          this.loadProviderAccounts(changedTab);
+        }
+        break;
+      }
+      case 'provider-accounts:usage': {
+        // Provider usage refresh completed (always client-triggered server
+        // side). Merge the safe rows into local state by accountId and
+        // re-render so mini-bars and reset countdowns update in place.
+        const payload = (data && data.data) || {};
+        const pa = this.state.codexAccounts;
+        if (Array.isArray(payload.accounts) && payload.accounts.length > 0
+          && this._accountTabForProvider(payload.providerId)) {
+          const byId = new Map(payload.accounts.map(a => [a.accountId, a]));
+          pa.list = pa.list.map(a => byId.get(a.accountId) || a);
+          // Any brand-new accounts (captured elsewhere) get appended.
+          payload.accounts.forEach(a => {
+            if (!pa.list.some(x => x.accountId === a.accountId)) pa.list.push(a);
+          });
           this.renderAccountSwitcher();
         }
         break;
@@ -11352,7 +12955,7 @@ class CWMApp {
             </div>
             ${groupChipHtml}
             <div class="workspace-actions">
-              ${this.state.settings.enableWorktreeTasks ? `<button class="btn btn-ghost btn-icon btn-sm ws-new-task-btn" data-ws-id="${ws.id}" title="New Task">+</button>` : ''}
+              ${this.state.settings.enableWorktreeTasks ? `<button class="btn btn-ghost btn-icon btn-sm ws-new-task-btn" data-ws-id="${ws.id}" title="New Agent Task">+</button>` : ''}
               <button class="btn btn-ghost btn-icon btn-sm ws-more-btn" data-id="${ws.id}" title="More actions">&#8230;</button>
             </div>
           </div>
@@ -11463,7 +13066,7 @@ class CWMApp {
       { label: 'New Feature Session', icon: '&#9733;', action: () => this.startFeatureSession(workspaceId) },
       { label: 'Create Worktree', icon: '&#128268;', action: () => this.createWorktree(workspaceId) },
       ...(this.getSetting('enableWorktreeTasks') ? [
-        { label: 'New Worktree Task', icon: '&#128736;', action: () => this.startWorktreeTask(workspaceId) },
+        { label: 'New Agent Task', icon: '&#128736;', action: () => this.startWorktreeTask(workspaceId) },
       ] : []),
       { type: 'sep' },
       { label: 'Edit', icon: '&#9998;', action: () => this.renameWorkspace(workspaceId) },
@@ -11756,6 +13359,7 @@ class CWMApp {
     if (sessions.length === 0) {
       list.innerHTML = '';
       empty.hidden = false;
+      this.renderAttentionQueue();
       return;
     }
 
@@ -11764,6 +13368,7 @@ class CWMApp {
     list.innerHTML = sessions.map(s => {
       const isSelected = this.state.selectedSession && this.state.selectedSession.id === s.id;
       const statusClass = `status-dot-${s.status || 'stopped'}`;
+      const attentionState = this._attentionStateForSession(s.id, s.status);
 
       // Build flags badges
       const flagBadges = [];
@@ -11774,7 +13379,8 @@ class CWMApp {
       }
 
       return `
-        <div class="session-item${isSelected ? ' active' : ''}" data-id="${s.id}" draggable="true">
+        <div class="session-item${isSelected ? ' active' : ''}${attentionState ? ' attention-state' : ''}"
+             data-id="${s.id}"${attentionState ? ` data-attention-state="${attentionState}"` : ''} draggable="true">
           <div class="session-status">
             <span class="status-dot ${statusClass}"></span>
           </div>
@@ -11789,6 +13395,7 @@ class CWMApp {
         </div>`;
     }).join('');
 
+    this.renderAttentionQueue();
 
     // Re-apply schedule indicators since renderSessions() rewrites the list
     if (this._scheduleCounts) this.applyScheduleIndicators();
@@ -12726,21 +14333,31 @@ class CWMApp {
 
   }
 
-  toggleProjectsPanel() {
-    this.state.projectsCollapsed = !this.state.projectsCollapsed;
-    const list = this.els.projectsList;
-    if (list) {
-      list.hidden = this.state.projectsCollapsed;
-    }
-    // Rotate the toggle chevron
+  setProjectsCollapsed(collapsed, persist = true) {
+    this.state.projectsCollapsed = !!collapsed;
+    const targets = [
+      this.els.projectsList,
+      document.getElementById('projects-search-bar'),
+      document.getElementById('sidebar-section-resize'),
+    ];
+    targets.forEach(element => {
+      if (element) element.hidden = this.state.projectsCollapsed;
+    });
+
     const toggle = this.els.projectsToggle;
     if (toggle) {
-      const svg = toggle.querySelector('svg');
-      if (svg) {
-        svg.style.transform = this.state.projectsCollapsed ? 'rotate(-90deg)' : '';
-        svg.style.transition = 'transform var(--transition-fast)';
-      }
+      toggle.setAttribute('aria-expanded', this.state.projectsCollapsed ? 'false' : 'true');
+      toggle.title = this.state.projectsCollapsed
+        ? 'Show discovered sessions'
+        : 'Hide discovered sessions';
     }
+    if (persist) {
+      localStorage.setItem('cwm_projectsCollapsed', String(this.state.projectsCollapsed));
+    }
+  }
+
+  toggleProjectsPanel() {
+    this.setProjectsCollapsed(!this.state.projectsCollapsed);
   }
 
 
@@ -13514,6 +15131,18 @@ class CWMApp {
     // Create and mount TerminalPane
     const tp = new TerminalPane(containerId, sessionId, sessionName, spawnOpts);
     this.terminalPanes[slotIdx] = tp;
+    // Restoring a pane is not evidence that its session is running. Use a
+    // real live signal when present, otherwise fall back to the authoritative
+    // server roster once it arrives. This avoids repainting failed/completed
+    // restored sessions as Running during concurrent startup.
+    const rosterSession = [
+      ...(this.state.allSessions || []),
+      ...(this.state.sessions || []),
+    ].find(session => session && session.id === sessionId);
+    this._applyAttentionStateToDom(
+      sessionId,
+      this._attentionStateForSession(sessionId, rosterSession && rosterSession.status)
+    );
 
     // Wire up mobile mode change callback to sync keyboard toggle button
     tp.onMobileModeChange = (mode) => {
@@ -13601,10 +15230,10 @@ class CWMApp {
 
     const labels = {
       'tasks-git': 'Git',
-      'tasks-td': 'Tasks',
-      'tasks-worktree': 'Worktree',
+      'tasks-td': 'Issues',
+      'tasks-worktree': 'Agent Tasks',
       'tasks-files': 'Files',
-      'doc': 'Doc',
+      'doc': 'Markdown',
       'mirror': 'Mirror'
     };
     const badge = paneEl.querySelector('.pane-view-badge');
@@ -13795,6 +15424,279 @@ class CWMApp {
    * Update the activity indicator on a terminal pane header.
    * Called when 'terminal-activity' events fire from TerminalPane.
    */
+  _setAttentionState(sessionId, state) {
+    if (!sessionId) return;
+    const model = window.MyrlinExperienceModel;
+    const normalized = model
+      ? model.normalizeAttentionState(state)
+      : (['needs-input', 'failed', 'complete', 'stale', 'running'].includes(state) ? state : null);
+    if (normalized) this._attentionState.set(sessionId, normalized);
+    else this._attentionState.delete(sessionId);
+
+    this._applyAttentionStateToDom(sessionId, normalized);
+    // Replacements such as renderSessions() may have created fresh DOM even
+    // when the logical state did not change.
+    this._syncTerminalGroupAttention();
+    this.renderAttentionQueue();
+  }
+
+  /**
+   * Reconcile durable server status with transient pane signals after a roster
+   * refresh. Pane-local needs-input and a just-observed completion remain more
+   * specific than a generic server "running" row; terminal states such as
+   * failed/stale/complete are authoritative and replace stale running state.
+   */
+  _reconcileAttentionFromSessionRoster(sessions) {
+    const model = window.MyrlinExperienceModel;
+    if (!model) return;
+    const roster = Array.isArray(sessions) ? sessions : [];
+    const rosterIds = new Set();
+    const paneBySession = new Map();
+    (this.terminalPanes || []).forEach(tp => {
+      if (tp && tp.sessionId) paneBySession.set(tp.sessionId, tp);
+    });
+
+    roster.forEach(session => {
+      if (!session || !session.id) return;
+      rosterIds.add(session.id);
+      const pane = paneBySession.get(session.id);
+      if (pane && pane._needsInput) return;
+      const serverState = model.normalizeAttentionState(session.attentionState)
+        || model.statusToAttentionState(session.status);
+      const explicit = this._attentionState.get(session.id) || null;
+
+      if (serverState && serverState !== 'running') {
+        this._attentionState.set(session.id, serverState);
+      } else if (
+        serverState === 'running' &&
+        (explicit === 'failed' || explicit === 'stale')
+      ) {
+        // A recovered server row supersedes an older terminal-state signal.
+        this._attentionState.set(session.id, 'running');
+      } else if (!serverState && !pane) {
+        // Stopped/archived rows do not belong in the live attention queue.
+        this._attentionState.delete(session.id);
+      }
+    });
+
+    for (const sessionId of this._attentionState.keys()) {
+      if (!rosterIds.has(sessionId) && !paneBySession.has(sessionId)) {
+        this._attentionState.delete(sessionId);
+      }
+    }
+
+    roster.forEach(session => {
+      if (!session || !session.id) return;
+      this._applyAttentionStateToDom(
+        session.id,
+        this._attentionStateForSession(session.id, session.status)
+      );
+    });
+    this._syncTerminalGroupAttention();
+    this.renderAttentionQueue();
+  }
+
+  _attentionStateForSession(sessionId, fallbackStatus = null) {
+    const explicit = this._attentionState.get(sessionId);
+    if (explicit) return explicit;
+    const model = window.MyrlinExperienceModel;
+    return model ? model.statusToAttentionState(fallbackStatus) : null;
+  }
+
+  _applyAttentionStateToDom(sessionId, state) {
+    document.querySelectorAll('.session-item[data-id]').forEach(item => {
+      if (item.dataset.id !== sessionId) return;
+      item.classList.toggle('attention-state', !!state);
+      if (state) item.dataset.attentionState = state;
+      else delete item.dataset.attentionState;
+    });
+
+    (this.terminalPanes || []).forEach((tp, slotIdx) => {
+      if (!tp || tp.sessionId !== sessionId) return;
+      const pane = document.getElementById(`term-pane-${slotIdx}`);
+      const header = pane && pane.querySelector('.terminal-pane-header');
+      if (!header) return;
+      header.classList.toggle('attention-state', !!state);
+      if (state) header.dataset.attentionState = state;
+      else delete header.dataset.attentionState;
+    });
+  }
+
+  _getAttentionQueue() {
+    const model = window.MyrlinExperienceModel;
+    if (!model) return [];
+    const rosterById = new Map();
+    [...(this.state.allSessions || []), ...(this.state.sessions || [])].forEach(session => {
+      if (session && session.id) rosterById.set(session.id, session);
+    });
+    const resolvedState = (sessionId) => {
+      const session = rosterById.get(sessionId);
+      return this._attentionStateForSession(sessionId, session && session.status);
+    };
+    const panes = (this.terminalPanes || []).map((tp, slot) => {
+      if (!tp || !tp.sessionId) return null;
+      return {
+        sessionId: tp.sessionId,
+        sessionName: tp.sessionName,
+        provider: tp.spawnOpts && tp.spawnOpts.provider,
+        slot,
+        state: tp._needsInput
+          ? 'needs-input'
+          : resolvedState(tp.sessionId),
+      };
+    }).filter(Boolean);
+    Object.values(this._groupPaneCache || {}).forEach(cached => {
+      (cached && Array.isArray(cached.panes) ? cached.panes : []).forEach(tp => {
+        if (!tp || !tp.sessionId) return;
+        panes.push({
+          sessionId: tp.sessionId,
+          sessionName: tp.sessionName,
+          provider: tp.spawnOpts && tp.spawnOpts.provider,
+          slot: null,
+          state: tp._needsInput
+            ? 'needs-input'
+            : resolvedState(tp.sessionId),
+        });
+      });
+    });
+    (this._tabGroups || []).forEach(group => {
+      (group.panes || []).forEach(pane => {
+        if (!pane || !pane.sessionId) return;
+        panes.push({
+          sessionId: pane.sessionId,
+          sessionName: pane.sessionName,
+          provider: pane.spawnOpts && pane.spawnOpts.provider,
+          slot: null,
+          state: resolvedState(pane.sessionId),
+        });
+      });
+    });
+    const byId = new Map();
+    rosterById.forEach(session => {
+      byId.set(session.id, {
+        ...session,
+        attentionState: this._attentionState.get(session.id) || session.attentionState,
+      });
+    });
+    return model.buildAttentionQueue(panes, Array.from(byId.values()));
+  }
+
+  renderAttentionQueue() {
+    const button = this.els && this.els.attentionQueueBtn;
+    const badge = this.els && this.els.attentionQueueBadge;
+    if (!button || !badge) return;
+    const queue = this._getAttentionQueue();
+    const actionable = queue.filter(item => item.actionable);
+    const informative = this.state.density === 'informative';
+    button.hidden = actionable.length === 0 && (!informative || queue.length === 0);
+    button.classList.toggle('has-actionable', actionable.length > 0);
+    badge.textContent = String(actionable.length || queue.length);
+    button.setAttribute(
+      'aria-label',
+      actionable.length > 0
+        ? `${actionable.length} session${actionable.length === 1 ? '' : 's'} need attention`
+        : `${queue.length} live session${queue.length === 1 ? '' : 's'}`
+    );
+    button.title = actionable.length > 0
+      ? `${actionable.length} need attention`
+      : `${queue.length} live`;
+  }
+
+  showAttentionQueue(anchorElement = this.els.attentionQueueBtn) {
+    const queue = this._getAttentionQueue();
+    const visible = this.state.density === 'informative'
+      ? queue
+      : queue.filter(item => item.actionable);
+    const items = visible.length > 0
+      ? visible.map(item => ({
+          label: item.sessionName,
+          hint: item.label,
+          icon: item.icon,
+          className: 'attention-state',
+          attentionState: item.state,
+          action: () => this._focusAttentionItem(item),
+        }))
+      : [{ label: 'No sessions need attention', icon: '&#10003;', disabled: true }];
+
+    if (this.isMobile || !anchorElement) {
+      this.showActionSheet('Session attention', items);
+      return;
+    }
+    const rect = anchorElement.getBoundingClientRect();
+    this._renderContextItems('Session attention', items, rect.left, rect.bottom + 6, {
+      focusMenu: true,
+      triggerElement: anchorElement,
+    });
+    const wrappers = this.els.contextMenuItems.querySelectorAll('.ctx-item-wrapper');
+    visible.forEach((item, index) => {
+      const button = wrappers[index] && wrappers[index].querySelector('.context-menu-item');
+      if (button) button.dataset.attentionState = item.state;
+    });
+  }
+
+  async _focusAttentionItem(item) {
+    if (!item || !item.sessionId) return;
+    const group = (this._tabGroups || []).find(candidate =>
+      (candidate.panes || []).some(pane => pane && pane.sessionId === item.sessionId)
+    );
+    if (group && group.id !== this._activeGroupId) {
+      this.switchTerminalGroup(group.id);
+    }
+    const slot = (this.terminalPanes || []).findIndex(tp =>
+      tp && tp.sessionId === item.sessionId
+    );
+    if (slot !== -1) {
+      this.setViewMode('terminal');
+      this.setActiveTerminalPane(slot);
+      return;
+    }
+
+    const session = [...(this.state.sessions || []), ...(this.state.allSessions || [])]
+      .find(candidate => candidate && candidate.id === item.sessionId);
+    if (session) {
+      if (
+        session.workspaceId &&
+        (!this.state.activeWorkspace || this.state.activeWorkspace.id !== session.workspaceId) &&
+        (this.state.workspaces || []).some(workspace => workspace.id === session.workspaceId)
+      ) {
+        await this.selectWorkspace(session.workspaceId);
+      }
+      this.state.selectedSession = session;
+      const inActiveProject = this.state.activeWorkspace &&
+        this.state.activeWorkspace.id === session.workspaceId;
+      this.setViewMode(inActiveProject ? 'workspace' : 'recent');
+      this.renderSessionDetail();
+      this.renderSessions();
+    }
+  }
+
+  _syncTerminalGroupAttention() {
+    const model = window.MyrlinExperienceModel;
+    if (!model || !this._tabGroups) return;
+    const sessionsById = new Map();
+    [...(this.state.allSessions || []), ...(this.state.sessions || [])].forEach(session => {
+      if (session && session.id) sessionsById.set(session.id, session);
+    });
+    for (const group of this._tabGroups) {
+      const states = (group.panes || []).map(pane => {
+        if (!pane || !pane.sessionId) return null;
+        const session = sessionsById.get(pane.sessionId);
+        return this._attentionState.get(pane.sessionId) ||
+          model.statusToAttentionState(session && session.status) ||
+          null;
+      }).filter(Boolean);
+      states.sort((a, b) =>
+        model.ATTENTION_STATES[a].priority - model.ATTENTION_STATES[b].priority
+      );
+      const state = states[0] || null;
+      const tab = document.querySelector(`.terminal-group-tab[data-group-id="${group.id}"]`);
+      if (!tab) continue;
+      tab.classList.toggle('attention-state', !!state);
+      if (state) tab.dataset.attentionState = state;
+      else delete tab.dataset.attentionState;
+    }
+  }
+
   updatePaneActivity(slotIdx, activity) {
     const el = document.getElementById(`term-activity-${slotIdx}`);
     if (!el) return;
@@ -13860,12 +15762,10 @@ class CWMApp {
    */
   _showEmptyPaneContextMenu(slotIdx, x, y) {
     const items = [
-      { label: 'Worktree Tasks', action: () => this.openViewInPane(slotIdx, 'tasks-worktree') },
-      { label: 'td Issues', action: () => this.openViewInPane(slotIdx, 'tasks-td') },
-      { label: 'Git Status', action: () => this.openViewInPane(slotIdx, 'tasks-git') },
-      { label: 'Files', action: () => this.openViewInPane(slotIdx, 'tasks-files') },
+      { label: 'Agent Tasks', action: () => this.openViewInPane(slotIdx, 'tasks-worktree') },
+      { label: 'Issues', action: () => this.openViewInPane(slotIdx, 'tasks-td') },
       { type: 'sep' },
-      { label: 'Workspace Doc', action: () => this.openViewInPane(slotIdx, 'doc') },
+      { label: 'Project Markdown', action: () => this.openViewInPane(slotIdx, 'doc') },
     ];
     this._renderContextItems('Open View', items, x, y);
   }
@@ -14197,8 +16097,7 @@ class CWMApp {
         label: 'Copy', icon: '&#128203;', action: () => {
           const selected = tp.term.getSelection();
           if (selected) {
-            navigator.clipboard.writeText(selected);
-            this.showToast('Copied to clipboard', 'success');
+            this._copyWithToast(selected, 'Copied to clipboard');
           }
         },
       });
@@ -14419,11 +16318,9 @@ class CWMApp {
     items.push({
       label: 'Switch to view',
       submenu: [
-        { label: 'Worktree Tasks', action: () => this.openViewInPane(slotIdx, 'tasks-worktree') },
-        { label: 'td Issues', action: () => this.openViewInPane(slotIdx, 'tasks-td') },
-        { label: 'Git Status', action: () => this.openViewInPane(slotIdx, 'tasks-git') },
-        { label: 'Files', action: () => this.openViewInPane(slotIdx, 'tasks-files') },
-        { label: 'Workspace Doc', action: () => this.openViewInPane(slotIdx, 'doc') },
+        { label: 'Agent Tasks', action: () => this.openViewInPane(slotIdx, 'tasks-worktree') },
+        { label: 'Issues', action: () => this.openViewInPane(slotIdx, 'tasks-td') },
+        { label: 'Project Markdown', action: () => this.openViewInPane(slotIdx, 'doc') },
       ],
     });
 
@@ -14991,6 +16888,16 @@ class CWMApp {
    * when they're already looking at the terminal that finished.
    */
   onTerminalIdle({ sessionId, sessionName }) {
+    const activeIdx = this.terminalPanes.findIndex(tp => tp && tp.sessionId === sessionId);
+    const alreadySeen =
+      activeIdx === this._activeTerminalSlot && document.hasFocus();
+    // Completion is product state, not merely a notification. Keep unseen
+    // completion visible even when sounds/toasts are disabled; a pane already
+    // focused in the foreground is acknowledged immediately.
+    if (this._attentionState.get(sessionId) !== 'needs-input') {
+      this._setAttentionState(sessionId, alreadySeen ? 'running' : 'complete');
+    }
+
     // Respect completion notifications setting
     if (!this.getSetting('completionNotifications')) return;
 
@@ -15002,7 +16909,6 @@ class CWMApp {
     if (lastNotifiedAt && Date.now() - lastNotifiedAt < CWMApp.SESSION_NOTIFY_DEDUPE_MS) return;
 
     // Don't notify for the currently focused/active pane
-    const activeIdx = this.terminalPanes.findIndex(tp => tp && tp.sessionId === sessionId);
     if (activeIdx === this._activeTerminalSlot) return;
 
     // Record the notification BEFORE emitting any indicator so re-entrant
@@ -15175,18 +17081,15 @@ class CWMApp {
       // over any other device that resized the same session.
       if (typeof tp.activate === 'function') tp.activate();
 
-      // Acknowledge on focus: viewing a pane consumes its pending
-      // needs-attention state. Refresh the dedupe entry and mark the pane's
-      // idle cycle as already notified so a later tab switch or repaint
-      // cannot re-toast a prompt the user has already seen.
+      // Acknowledge completion on focus. An unresolved needs-input signal is
+      // deliberately not cleared simply because the pane received focus;
+      // only explicit needsInput:false or genuine new output can clear it.
       this._sessionNotifyState.set(tp.sessionId, Date.now());
       tp._idleNotified = true;
       tp._lastIdleFiredAt = Date.now();
-
-      // Clear the amber "Needs input" badge; the user is looking at it now.
-      tp._needsInput = false;
-      const headerEl = pane ? pane.querySelector('.terminal-pane-header') : null;
-      if (headerEl) headerEl.dataset.needsInput = 'false';
+      if (this._attentionState.get(tp.sessionId) === 'complete') {
+        this._setAttentionState(tp.sessionId, 'running');
+      }
     }
 
     // If Tasks > td tab is visible and not manually pinned, update to this pane's project
@@ -15472,21 +17375,30 @@ class CWMApp {
   /**
    * Show a bottom action sheet (mobile replacement for context menus).
    * @param {string} title - Header text (or empty string)
-   * @param {Array<{label:string, icon?:string, action:Function, danger?:boolean, check?:boolean, disabled?:boolean}|{type:'sep'}>} items
+   * @param {Array<{label:string, icon?:string, action:Function, danger?:boolean, check?:boolean, disabled?:boolean}|{type:'sep', label?:string}>} items
    */
   showActionSheet(title, items) {
     if (!this.els.actionSheetOverlay) return;
 
+    const openingNewSheet = this.els.actionSheetOverlay.hidden;
+    if (openingNewSheet) {
+      this._actionSheetReturnFocus = document.activeElement;
+    }
+
     // Header
     this.els.actionSheetHeader.textContent = title || '';
 
-    // Flatten submenu items inline for mobile action sheets
+    // Keep submenus as a second sheet. Flattening Appearance into More used to
+    // turn one utility menu into a twenty-item theme catalogue.
     const flatItems = [];
     items.forEach(item => {
       if (item.submenu) {
-        flatItems.push({ label: item.label + ':', icon: item.icon, disabled: true });
-        item.submenu.forEach(sub => {
-          flatItems.push({ ...sub, label: '  ' + sub.label, icon: '&#183;' });
+        flatItems.push({
+          ...item,
+          label: item.label + ' \u203a',
+          submenu: undefined,
+          opensSubmenu: true,
+          action: () => this.showActionSheet(item.label, item.submenu),
         });
       } else {
         flatItems.push(item);
@@ -15496,15 +17408,27 @@ class CWMApp {
     // Build items HTML
     const container = this.els.actionSheetItems;
     container.innerHTML = flatItems.map((item, i) => {
-      if (item.type === 'sep') return '<div class="action-sheet-sep"></div>';
+      if (item.type === 'sep') {
+        if (!item.label) return '<div class="action-sheet-sep" role="separator"></div>';
+        const separatorLabel = this.escapeHtml(String(item.label));
+        return `<div class="action-sheet-sep action-sheet-sep-labeled" role="separator" aria-label="${separatorLabel}"><span class="as-sep-label">${separatorLabel}</span></div>`;
+      }
       const cls = ['action-sheet-item'];
       if (item.danger) cls.push('as-danger');
       if (item.check) cls.push('as-checked');
+      if (item.className) cls.push(item.className);
       const disabledAttr = item.disabled ? ' disabled' : '';
+      const attentionAttr = item.attentionState
+        ? ` data-attention-state="${item.attentionState}"`
+        : '';
       const icon = item.icon ? `<span class="as-icon">${item.icon}</span>` : '';
+      const label = this.escapeHtml(String(item.label || ''));
+      const hint = item.hint
+        ? `<span class="as-hint">${this.escapeHtml(String(item.hint))}</span>`
+        : '';
       const check = (item.check !== undefined) ? `<span class="as-check">${item.check ? '&#10003;' : ''}</span>` : '';
-      return `<button class="${cls.join(' ')}"${disabledAttr} data-idx="${i}">
-        ${icon}${item.label}${check}
+      return `<button class="${cls.join(' ')}"${disabledAttr}${attentionAttr} data-idx="${i}">
+        ${icon}<span class="as-label">${label}</span>${hint}${check}
       </button>`;
     }).join('');
 
@@ -15514,7 +17438,7 @@ class CWMApp {
       const item = flatItems[idx];
       if (item && item.action) {
         btn.addEventListener('click', () => {
-          this.hideActionSheet();
+          if (!item.opensSubmenu) this.hideActionSheet();
           item.action();
         });
       }
@@ -15522,14 +17446,30 @@ class CWMApp {
 
     // Show
     this.els.actionSheetOverlay.hidden = false;
+    if (this.els.actionSheet) {
+      this.els.actionSheet.scrollTop = 0;
+      requestAnimationFrame(() => {
+        this.els.actionSheet.scrollTop = 0;
+        const firstItem = this.els.actionSheet.querySelector(
+          '.action-sheet-item:not([disabled])'
+        );
+        if (firstItem) firstItem.focus({ preventScroll: true });
+        else this.els.actionSheet.focus({ preventScroll: true });
+      });
+    }
     document.body.classList.add('sheet-open');
   }
 
-  hideActionSheet() {
+  hideActionSheet({ restoreFocus = true } = {}) {
     if (this.els.actionSheetOverlay) {
       this.els.actionSheetOverlay.hidden = true;
     }
     document.body.classList.remove('sheet-open');
+    const returnFocus = this._actionSheetReturnFocus;
+    this._actionSheetReturnFocus = null;
+    if (restoreFocus && returnFocus && returnFocus.isConnected) {
+      returnFocus.focus({ preventScroll: true });
+    }
   }
 
   /**
@@ -15540,6 +17480,25 @@ class CWMApp {
    * @returns {Array<{label: string, check: boolean, action: Function}>}
    */
   _buildThemeMenuItems() {
+    const registry = window.MyrlinThemeRegistry;
+    const activeChoice = document.documentElement.dataset.themeChoice ||
+      localStorage.getItem('cwm_theme_choice') ||
+      document.documentElement.dataset.theme ||
+      'system';
+    if (registry) {
+      const featured = registry.FEATURED_THEME_CHOICES.map(choice => ({
+        label: choice.label,
+        check: choice.id === activeChoice,
+        action: () => this.setTheme(choice.id),
+      }));
+      const more = registry.THEME_REGISTRY.map(theme => ({
+        label: `More themes · ${theme.label}`,
+        check: theme.id === activeChoice,
+        action: () => this.setTheme(theme.id),
+      }));
+      return featured.concat(more);
+    }
+
     const dropdown = this.els.themeDropdown;
     if (!dropdown) return [];
     const activeTheme = document.documentElement.dataset.theme || 'mocha';
@@ -15566,66 +17525,104 @@ class CWMApp {
    * P0-2 / P0-3: on mobile the entire header-right cluster is hidden and three
    * view modes have no bottom-bar entry. This sheet is the single reachable
    * surface for all of them, so it exposes: the Tasks/Recent/Resources views,
-   * Settings, Theme (submenu, flattened by showActionSheet), Pair Device, the
+   * Settings, Appearance, Pair Device, the
    * Session Manager, and Conflicts (only when there are active conflicts). Each
    * item reuses the exact function the hidden header button calls; no logic is
    * duplicated here.
    */
-  showMoreMenu() {
+  showMoreMenu(anchorElement = null) {
+    if (
+      anchorElement &&
+      this.els.contextMenu &&
+      !this.els.contextMenu.hidden &&
+      this._contextMenuReturnFocus === anchorElement
+    ) {
+      this.hideContextMenu({ restoreFocus: true });
+      return;
+    }
+
+    const attentionCount = this._getAttentionQueue().filter(item => item.actionable).length;
     const items = [
-      // ── Views without a bottom-bar tab (P0-3) ──
-      { label: 'Tasks', icon: '&#9745;', action: () => this.setViewMode('tasks') },
-      { label: 'Recent', icon: '&#128337;', action: () => this.setViewMode('recent') },
-      { label: 'Resources', icon: '&#128202;', action: () => this.setViewMode('resources') },
-      { type: 'sep' },
-      // ── Hidden header-right actions (P0-2) ──
-      { label: 'Settings', icon: '&#9881;', action: () => this.openSettings() },
-      { label: 'Theme', icon: '&#127912;', submenu: this._buildThemeMenuItems() },
-      { label: 'Pair Device', icon: '&#128241;', action: () => this.showPairMobileModal() },
-      { label: 'Sessions', icon: '&#9776;', action: () => this.toggleSessionManager('all') },
+      {
+        label: attentionCount > 0 ? `Session attention (${attentionCount})` : 'Session attention',
+        action: () => this.showAttentionQueue(null),
+      },
+      { type: 'sep', label: 'Views' },
+      { label: 'Recent activity', action: () => this.setViewMode('recent') },
+      { label: 'Costs', action: () => this.setViewMode('costs') },
+      { label: 'System resources', action: () => this.setViewMode('resources') },
+      {
+        label: 'Project notes',
+        action: () => this.setViewMode('docs'),
+      },
+      { type: 'sep', label: 'Session tools' },
+      { label: 'Quick switcher', action: () => this.openQuickSwitcher() },
+      {
+        label: 'Discover sessions',
+        action: () => {
+          this.setProjectsCollapsed(false);
+          if (this.isMobile && !this.state.sidebarOpen) this.toggleSidebar();
+        },
+      },
+      { label: 'All sessions', action: () => this.toggleSessionManager('all') },
+      { type: 'sep', label: 'Preferences' },
+      { label: 'Settings', action: () => this.openSettings() },
+      { label: 'Appearance', action: () => this.openAppearance() },
+      { label: 'Pair device', action: () => this.showPairMobileModal() },
     ];
 
     // Conflicts entry only appears when the active workspace has conflicts,
     // mirroring the header indicator that is hidden at zero. Show the count in
     // the label so the sheet matches the badge the user cannot see on mobile.
     const conflictCount = (this._currentConflicts || []).length;
+    items.push({ type: 'sep', label: 'Operations' });
     if (conflictCount > 0) {
       items.push({
         label: `Conflicts (${conflictCount})`,
-        icon: '&#9888;',
         action: () => this.openConflictCenter(),
       });
     }
 
     items.push(
-      { type: 'sep' },
-      { label: 'Quick Switcher', icon: '&#128269;', action: () => this.openQuickSwitcher() },
-      { label: 'Discover Sessions', icon: '&#128260;', action: () => this.discoverSessions() },
-      { type: 'sep' },
-      { label: 'Restart All Sessions', icon: '&#8635;', action: () => this.restartAllSessions() },
-      { type: 'sep' },
-      { label: 'Logout', icon: '&#9211;', action: () => this.logout(), danger: true },
+      { label: 'Restart all sessions', action: () => this.restartAllSessions() },
+      { type: 'sep', label: 'Account' },
+      { label: 'Sign out', action: () => this.logout(), danger: true },
     );
 
-    this.showActionSheet('', items);
+    if (this.isMobile || !anchorElement) {
+      this.showActionSheet('More', items);
+      return;
+    }
+    const rect = anchorElement.getBoundingClientRect();
+    this._renderContextItems('More', items, rect.left, rect.bottom + 6, {
+      focusMenu: true,
+      triggerElement: anchorElement,
+    });
   }
 
   /**
    * Render items as an action sheet on mobile, or as a floating context menu on desktop.
-   * Both use the same item format: { label, icon, action, danger, check, disabled } | { type: 'sep' }
+   * Both use the same item format: { label, icon, action, danger, check, disabled } | { type: 'sep', label? }
    */
-  _renderContextItems(title, items, x, y) {
+  _renderContextItems(title, items, x, y, options = {}) {
     if (this.isMobile) {
       this.showActionSheet(title, items);
       return;
     }
 
+    const { focusMenu = false, triggerElement = null } = options;
+    if (this._contextMenuReturnFocus && this._contextMenuReturnFocus !== triggerElement) {
+      this._contextMenuReturnFocus.setAttribute('aria-expanded', 'false');
+    }
+    this._contextMenuReturnFocus = triggerElement;
+    if (triggerElement) triggerElement.setAttribute('aria-expanded', 'true');
+
     // Desktop: render floating context menu (existing behavior)
     const container = this.els.contextMenuItems;
     container.innerHTML = items.map((item, idx) => {
       if (item.type === 'sep') {
-        if (item.label) return `<div class="context-menu-sep"><span class="ctx-sep-label">${item.label}</span></div>`;
-        return '<div class="context-menu-sep"></div>';
+        if (item.label) return `<div class="context-menu-sep context-menu-sep-labeled" role="separator" aria-label="${this.escapeHtml(String(item.label))}"><span class="ctx-sep-label">${this.escapeHtml(String(item.label))}</span></div>`;
+        return '<div class="context-menu-sep" role="separator"></div>';
       }
       const cls = ['context-menu-item'];
       if (item.danger) cls.push('ctx-danger');
@@ -15634,24 +17631,33 @@ class CWMApp {
       if (item.submenu) cls.push('ctx-has-submenu');
       const disabledAttr = item.disabled ? ' disabled' : '';
       const checkMark = item.check !== undefined ? `<span class="ctx-check">${item.check ? '&#10003;' : ''}</span>` : '';
-      const hint = item.hint ? `<span class="ctx-hint">${item.hint}</span>` : '';
+      const safeLabel = this.escapeHtml(String(item.label || ''));
+      const hint = item.hint
+        ? `<span class="ctx-hint">${this.escapeHtml(String(item.hint))}</span>`
+        : '';
       const arrow = item.submenu ? '<span class="ctx-arrow">&#9656;</span>' : '';
       // Build submenu HTML if present
       let submenuHtml = '';
       if (item.submenu) {
-        submenuHtml = `<div class="ctx-submenu" data-parent-idx="${idx}">` +
+        submenuHtml = `<div class="ctx-submenu" data-parent-idx="${idx}" role="menu" aria-label="${safeLabel}">` +
           item.submenu.map((sub, si) => {
             const sCls = ['context-menu-item'];
             if (sub.check) sCls.push('ctx-checked');
             if (sub.danger) sCls.push('ctx-danger');
             const sCheck = sub.check !== undefined ? `<span class="ctx-check">${sub.check ? '&#10003;' : ''}</span>` : '';
-            return `<button class="${sCls.join(' ')}" data-sub-idx="${si}">
-              ${sub.label}${sCheck}
+            return `<button class="${sCls.join(' ')}" data-sub-idx="${si}" role="menuitem">
+              ${this.escapeHtml(String(sub.label || ''))}${sCheck}
             </button>`;
           }).join('') + '</div>';
       }
-      return `<div class="ctx-item-wrapper" data-idx="${idx}"><button class="${cls.join(' ')}"${disabledAttr} data-action="${item.label}">
-        <span class="ctx-icon">${item.icon || ''}</span>${item.label}${hint}${checkMark}${arrow}
+      const submenuAttrs = item.submenu
+        ? ' aria-haspopup="menu" aria-expanded="false"'
+        : '';
+      const attentionAttr = item.attentionState
+        ? ` data-attention-state="${item.attentionState}"`
+        : '';
+      return `<div class="ctx-item-wrapper" data-idx="${idx}" role="none"><button class="${cls.join(' ')}"${disabledAttr}${attentionAttr} data-action="${safeLabel}" role="menuitem"${submenuAttrs}>
+        <span class="ctx-icon">${item.icon || ''}</span>${safeLabel}${hint}${checkMark}${arrow}
       </button>${submenuHtml}</div>`;
     }).join('');
 
@@ -15684,6 +17690,10 @@ class CWMApp {
     const hideAllSubmenus = () => {
       container.querySelectorAll('.ctx-submenu').forEach(s => {
         s.classList.remove('ctx-submenu-visible');
+        const parent = container.querySelector(
+          `.ctx-item-wrapper[data-idx="${s.dataset.parentIdx}"] > .context-menu-item`
+        );
+        if (parent) parent.setAttribute('aria-expanded', 'false');
       });
     };
 
@@ -15695,6 +17705,10 @@ class CWMApp {
       cancelClose();
       submenuCloseTimer = setTimeout(() => {
         subEl.classList.remove('ctx-submenu-visible');
+        const parent = subEl.parentElement
+          ? subEl.parentElement.querySelector(':scope > .context-menu-item')
+          : null;
+        if (parent) parent.setAttribute('aria-expanded', 'false');
       }, 120); // 120ms grace period to cross the gap
     };
 
@@ -15712,7 +17726,10 @@ class CWMApp {
         wrapper.addEventListener('mouseenter', () => {
           cancelClose(); // cancel any pending close from a prior submenu
           hideAllSubmenus();
-          if (subEl) positionSubmenu(wrapper, subEl);
+          if (subEl) {
+            positionSubmenu(wrapper, subEl);
+            if (parentBtn) parentBtn.setAttribute('aria-expanded', 'true');
+          }
         });
         wrapper.addEventListener('mouseleave', () => {
           if (subEl) scheduleClose(subEl);
@@ -15731,7 +17748,16 @@ class CWMApp {
             if (subEl) {
               const isVisible = subEl.classList.contains('ctx-submenu-visible');
               hideAllSubmenus();
-              if (!isVisible) positionSubmenu(wrapper, subEl);
+              if (!isVisible) {
+                positionSubmenu(wrapper, subEl);
+                parentBtn.setAttribute('aria-expanded', 'true');
+                if (e.detail === 0) {
+                  const firstSubItem = subEl.querySelector(
+                    '.context-menu-item:not([disabled])'
+                  );
+                  if (firstSubItem) firstSubItem.focus();
+                }
+              }
             }
           });
         }
@@ -15743,7 +17769,7 @@ class CWMApp {
           if (sub && sub.action) {
             btn.addEventListener('click', (e) => {
               e.stopPropagation();
-              this.hideContextMenu();
+              this.hideContextMenu({ restoreFocus: true });
               sub.action();
             });
           }
@@ -15752,7 +17778,7 @@ class CWMApp {
         const btn = wrapper.querySelector('.context-menu-item');
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
-          this.hideContextMenu();
+          this.hideContextMenu({ restoreFocus: true });
           item.action();
         });
         // When hovering a non-submenu item, hide any open submenus
@@ -15762,12 +17788,20 @@ class CWMApp {
 
     // Position the menu, clamping to viewport
     const menu = this.els.contextMenu;
+    menu.setAttribute('aria-label', title || 'Context menu');
     menu.hidden = false;
     const rect = menu.getBoundingClientRect();
     const mx = Math.min(x, window.innerWidth - rect.width - 8);
     const my = Math.min(y, window.innerHeight - rect.height - 8);
     menu.style.left = Math.max(4, mx) + 'px';
     menu.style.top = Math.max(4, my) + 'px';
+
+    if (focusMenu) {
+      const firstItem = container.querySelector(
+        ':scope > .ctx-item-wrapper > .context-menu-item:not([disabled])'
+      );
+      if (firstItem) firstItem.focus({ preventScroll: true });
+    }
   }
 
   /* ─── Mobile Terminal Tab Strip ──────────────────────────── */
@@ -15803,10 +17837,14 @@ class CWMApp {
 
     strip.innerHTML = activePanes.map(p => {
       const isActive = p.idx === activeIdx;
-      return `<button class="terminal-tab${isActive ? ' active' : ''}" data-slot="${p.idx}">
-        ${this.escapeHtml(p.tp.sessionName || 'Terminal')}
-        <button class="terminal-tab-close" data-slot="${p.idx}" title="Close">&times;</button>
-      </button>`;
+      const terminalName = this.escapeHtml(p.tp.sessionName || 'Terminal');
+      return `<div class="terminal-tab-item${isActive ? ' active' : ''}" data-slot="${p.idx}">
+        <button type="button" class="terminal-tab${isActive ? ' active' : ''}" data-slot="${p.idx}">
+          ${terminalName}
+        </button>
+        <button type="button" class="terminal-tab-close" data-slot="${p.idx}"
+          title="Close terminal" aria-label="Close ${terminalName} terminal">&times;</button>
+      </div>`;
     }).join('') + `<button class="terminal-tab terminal-tab-add" title="Open terminal">+</button>`;
 
     // Add pane indicator dots (mobile)
@@ -15896,6 +17934,9 @@ class CWMApp {
     if (this.els.terminalTabStrip) {
       this.els.terminalTabStrip.querySelectorAll('.terminal-tab').forEach(tab => {
         tab.classList.toggle('active', parseInt(tab.dataset.slot, 10) === slotIdx);
+      });
+      this.els.terminalTabStrip.querySelectorAll('.terminal-tab-item').forEach(item => {
+        item.classList.toggle('active', parseInt(item.dataset.slot, 10) === slotIdx);
       });
     }
 
@@ -16059,51 +18100,198 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   async loadDocs() {
-    if (!this.state.activeWorkspace) {
+    const requestedWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const requestSequence = (this._docsRequestSequence || 0) + 1;
+    this._docsRequestSequence = requestSequence;
+    if (!requestedWorkspaceId) {
       this.state.docs = null;
       this.renderDocs();
       return;
     }
     try {
-      const data = await this.api('GET', `/api/workspaces/${this.state.activeWorkspace.id}/docs`);
+      const data = await this.api('GET', `/api/workspaces/${requestedWorkspaceId}/docs`);
+      const currentWorkspaceId = this.state.activeWorkspace
+        ? this.state.activeWorkspace.id
+        : null;
+      // A slower response for project A must never overwrite project B after
+      // a rapid selector change.
+      if (
+        requestSequence !== this._docsRequestSequence ||
+        currentWorkspaceId !== requestedWorkspaceId
+      ) return;
       this.state.docs = data;
       this.renderDocs();
     } catch (err) {
-      this.showToast('Failed to load documentation', 'error');
+      const currentWorkspaceId = this.state.activeWorkspace
+        ? this.state.activeWorkspace.id
+        : null;
+      if (
+        requestSequence === this._docsRequestSequence &&
+        currentWorkspaceId === requestedWorkspaceId
+      ) {
+        this.showToast('Failed to load documentation', 'error');
+      }
+    }
+  }
+
+  /**
+   * Keep Project Notes disclosure state, its chevron, and the controlled body
+   * synchronized for mouse, keyboard, and density-driven changes.
+   */
+  _setDocsSectionExpanded(header, expanded) {
+    if (!header) return;
+    const disclosure = header.matches('button')
+      ? header
+      : (header.querySelector('.docs-section-toggle') || header);
+    const controlledId = disclosure.getAttribute('aria-controls');
+    const body = (controlledId && document.getElementById(controlledId))
+      || header.closest('.docs-section-heading')?.nextElementSibling
+      || header.nextElementSibling;
+    const isExpanded = Boolean(expanded);
+
+    if (body) body.hidden = !isExpanded;
+    disclosure.setAttribute('aria-expanded', String(isExpanded));
+    const chevron = header.querySelector('.docs-section-chevron');
+    if (chevron) chevron.classList.toggle('open', isExpanded);
+  }
+
+  _syncDocsSectionDensity(counts) {
+    const focused = document.documentElement.dataset.uiShell === 'focused';
+    const quiet = focused && this.state.density !== 'informative';
+    Object.entries(counts).forEach(([name, count]) => {
+      const elementKey = `docs${name[0].toUpperCase()}${name.slice(1)}List`;
+      const body = this.els[elementKey];
+      const section = body ? body.closest('.docs-section') : null;
+      if (!body || !section) return;
+
+      const isEmpty = count === 0;
+      section.dataset.empty = String(isEmpty);
+      if (!focused) return;
+
+      const header = section.querySelector('.docs-section-header');
+      if (quiet && isEmpty) {
+        section.dataset.autoCollapsed = 'true';
+        this._setDocsSectionExpanded(header, false);
+      } else if (section.dataset.autoCollapsed === 'true') {
+        delete section.dataset.autoCollapsed;
+        this._setDocsSectionExpanded(header, true);
+      }
+    });
+
+    const insightPrompt = this.els.docsAiInsights
+      ? this.els.docsAiInsights.querySelector('.ai-insights-empty')
+      : null;
+    if (
+      insightPrompt
+      && /^(Select a project|Choose a project|Refresh to summarize)/.test(insightPrompt.textContent)
+    ) {
+      insightPrompt.textContent = this.state.activeWorkspace
+        ? 'Refresh to summarize sessions in this project.'
+        : 'Choose a project to see session summaries.';
     }
   }
 
   renderDocs() {
     const docs = this.state.docs;
     const ws = this.state.activeWorkspace;
+    const docsReady = !!(ws && docs && docs.raw !== null);
+    const renderedWorkspaceId = docsReady ? ws.id : null;
+    this._docsRenderedWorkspaceId = renderedWorkspaceId;
 
     // Update header
     if (this.els.docsWorkspaceName) {
       this.els.docsWorkspaceName.textContent = ws ? ws.name : 'No project selected';
     }
+    if (this.els.docsWorkspaceSelect) {
+      const previousValue = this.els.docsWorkspaceSelect.value;
+      const optionSignature = JSON.stringify(
+        (this.state.workspaces || []).map(workspace => [workspace.id, workspace.name])
+      );
+      if (this.els.docsWorkspaceSelect.dataset.optionSignature !== optionSignature) {
+        this.els.docsWorkspaceSelect.replaceChildren();
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Choose a project';
+        this.els.docsWorkspaceSelect.appendChild(placeholder);
+        (this.state.workspaces || []).forEach(workspace => {
+          const option = document.createElement('option');
+          option.value = workspace.id;
+          option.textContent = workspace.name;
+          this.els.docsWorkspaceSelect.appendChild(option);
+        });
+        this.els.docsWorkspaceSelect.dataset.optionSignature = optionSignature;
+      }
+      const selectedId = ws ? ws.id : '';
+      this.els.docsWorkspaceSelect.value = selectedId;
+      // Defensively preserve the no-project placeholder when a stale active
+      // project vanished from the refreshed project roster.
+      if (this.els.docsWorkspaceSelect.value !== selectedId) {
+        this.els.docsWorkspaceSelect.value = previousValue &&
+          (this.state.workspaces || []).some(workspace => workspace.id === previousValue)
+          ? previousValue
+          : '';
+      }
+    }
+
+    const activeDocsTab = document.querySelector('.docs-tab.active');
+    const boardActive = !!(activeDocsTab && activeDocsTab.dataset.tab === 'board');
+    if (this.els.docsProjectEmpty) this.els.docsProjectEmpty.hidden = !!ws;
+    if (this.els.featureBoard) this.els.featureBoard.hidden = !ws || !boardActive;
+    if (this.els.docsStructured) {
+      this.els.docsStructured.hidden = !ws || boardActive || this.state.docsRawMode;
+    }
+    if (this.els.docsRaw) {
+      this.els.docsRaw.hidden = !ws || boardActive || !this.state.docsRawMode;
+    }
+    if (this.els.docsToggleRaw) {
+      this.els.docsToggleRaw.disabled = !docsReady || boardActive;
+    }
+    document.querySelectorAll('.docs-add-btn').forEach(button => {
+      button.disabled = !docsReady;
+    });
 
     if (!docs || docs.raw === null) {
-      // Empty state
-      if (this.els.docsNotesList) this.els.docsNotesList.innerHTML = '<div class="docs-empty">No notes yet. Click + to add one.</div>';
-      if (this.els.docsGoalsList) this.els.docsGoalsList.innerHTML = '<div class="docs-empty">No goals yet. Click + to add one.</div>';
-      if (this.els.docsTasksList) this.els.docsTasksList.innerHTML = '<div class="docs-empty">No tasks yet. Click + to add one.</div>';
-      if (this.els.docsRoadmapList) this.els.docsRoadmapList.innerHTML = '<div class="docs-empty">No milestones yet. Click + to add one.</div>';
-      if (this.els.docsRulesList) this.els.docsRulesList.innerHTML = '<div class="docs-empty">No rules yet. Click + to add one.</div>';
+      // Loading/empty project context. The old project's actionable rows were
+      // already removed before activation began, so no stale handler can
+      // target the newly-selected project by index.
+      const pendingLabel = ws ? 'Loading project notes…' : 'Choose a project first.';
+      const pendingHtml = `<div class="docs-empty">${pendingLabel}</div>`;
+      if (this.els.docsNotesList) this.els.docsNotesList.innerHTML = pendingHtml;
+      if (this.els.docsGoalsList) this.els.docsGoalsList.innerHTML = pendingHtml;
+      if (this.els.docsTasksList) this.els.docsTasksList.innerHTML = pendingHtml;
+      if (this.els.docsRoadmapList) this.els.docsRoadmapList.innerHTML = pendingHtml;
+      if (this.els.docsRulesList) this.els.docsRulesList.innerHTML = pendingHtml;
       if (this.els.docsNotesCount) this.els.docsNotesCount.textContent = '0';
       if (this.els.docsGoalsCount) this.els.docsGoalsCount.textContent = '0';
       if (this.els.docsTasksCount) this.els.docsTasksCount.textContent = '0';
       if (this.els.docsRoadmapCount) this.els.docsRoadmapCount.textContent = '0';
       if (this.els.docsRulesCount) this.els.docsRulesCount.textContent = '0';
       if (this.els.docsRawEditor) this.els.docsRawEditor.value = '';
+      this._syncDocsSectionDensity({
+        notes: 0,
+        goals: 0,
+        tasks: 0,
+        roadmap: 0,
+        rules: 0,
+      });
       return;
     }
 
     // Counts
-    if (this.els.docsNotesCount) this.els.docsNotesCount.textContent = (docs.notes || []).length;
-    if (this.els.docsGoalsCount) this.els.docsGoalsCount.textContent = (docs.goals || []).length;
-    if (this.els.docsTasksCount) this.els.docsTasksCount.textContent = (docs.tasks || []).length;
-    if (this.els.docsRoadmapCount) this.els.docsRoadmapCount.textContent = (docs.roadmap || []).length;
-    if (this.els.docsRulesCount) this.els.docsRulesCount.textContent = (docs.rules || []).length;
+    const docsCounts = {
+      notes: (docs.notes || []).length,
+      goals: (docs.goals || []).length,
+      tasks: (docs.tasks || []).length,
+      roadmap: (docs.roadmap || []).length,
+      rules: (docs.rules || []).length,
+    };
+    if (this.els.docsNotesCount) this.els.docsNotesCount.textContent = docsCounts.notes;
+    if (this.els.docsGoalsCount) this.els.docsGoalsCount.textContent = docsCounts.goals;
+    if (this.els.docsTasksCount) this.els.docsTasksCount.textContent = docsCounts.tasks;
+    if (this.els.docsRoadmapCount) this.els.docsRoadmapCount.textContent = docsCounts.roadmap;
+    if (this.els.docsRulesCount) this.els.docsRulesCount.textContent = docsCounts.rules;
 
     // Notes — built with DOM APIs to support pin buttons safely (no user HTML injected)
     if (this.els.docsNotesList) {
@@ -16138,7 +18326,7 @@ class CWMApp {
           pinBtn.title = 'Pin to focused terminal session';
           pinBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this._toggleNotePin(noteIndex, pinBtn);
+            this._toggleNotePin(noteIndex, pinBtn, renderedWorkspaceId);
           });
           noteRow.appendChild(pinBtn);
 
@@ -16180,7 +18368,7 @@ class CWMApp {
             <span class="docs-item-text">${this.escapeHtml(t.text)}</span>
             <button class="docs-item-delete btn btn-ghost btn-icon btn-sm" data-section="tasks" data-index="${i}" title="Remove">&times;</button>
           </div>`).join('')
-        : '<div class="docs-empty">No tasks yet. Click + to add one.</div>';
+        : '<div class="docs-empty">No checklist items yet. Click + to add one.</div>';
     }
 
     // Roadmap
@@ -16216,16 +18404,28 @@ class CWMApp {
     // Bind checkbox change events
     if (this.els.docsPanel) {
       this.els.docsPanel.querySelectorAll('.docs-checkbox input').forEach(cb => {
-        cb.addEventListener('change', () => this.toggleDocsItem(cb.dataset.section, parseInt(cb.dataset.index)));
+        cb.addEventListener('change', () => this.toggleDocsItem(
+          cb.dataset.section,
+          parseInt(cb.dataset.index),
+          renderedWorkspaceId
+        ));
       });
       // Bind delete buttons
       this.els.docsPanel.querySelectorAll('.docs-item-delete').forEach(btn => {
-        btn.addEventListener('click', () => this.removeDocsItem(btn.dataset.section, parseInt(btn.dataset.index)));
+        btn.addEventListener('click', () => this.removeDocsItem(
+          btn.dataset.section,
+          parseInt(btn.dataset.index),
+          renderedWorkspaceId
+        ));
       });
 
       // Bind roadmap status dot clicks (cycle planned > active > done)
       this.els.docsPanel.querySelectorAll('.roadmap-status-dot').forEach(dot => {
-        dot.addEventListener('click', () => this.toggleDocsItem(dot.dataset.section, parseInt(dot.dataset.index)));
+        dot.addEventListener('click', () => this.toggleDocsItem(
+          dot.dataset.section,
+          parseInt(dot.dataset.index),
+          renderedWorkspaceId
+        ));
       });
 
       // Click note text to edit in large editor
@@ -16245,7 +18445,7 @@ class CWMApp {
             else if (parent.id.includes('rules')) section = 'rules';
           }
           const text = e.target.textContent;
-          this.showNotesEditor(section, index, text);
+          this.showNotesEditor(section, index, text, renderedWorkspaceId);
         });
       });
     }
@@ -16254,6 +18454,7 @@ class CWMApp {
     if (this.els.docsRawEditor) {
       this.els.docsRawEditor.value = docs.raw || '';
     }
+    this._syncDocsSectionDensity(docsCounts);
   }
 
   async addDocsItem(section) {
@@ -16261,23 +18462,31 @@ class CWMApp {
       this.showToast('Select a project first', 'warning');
       return;
     }
-    this.showNotesEditor(section);
+    this.showNotesEditor(section, null, '', this.state.activeWorkspace.id);
   }
 
-  async toggleDocsItem(section, index) {
-    if (!this.state.activeWorkspace) return;
+  async toggleDocsItem(section, index, workspaceId = null) {
+    const activeWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const targetWorkspaceId = workspaceId || this._docsRenderedWorkspaceId;
+    if (!targetWorkspaceId || targetWorkspaceId !== activeWorkspaceId) return;
     try {
-      await this.api('PUT', `/api/workspaces/${this.state.activeWorkspace.id}/docs/${section}/${index}`);
+      await this.api('PUT', `/api/workspaces/${targetWorkspaceId}/docs/${section}/${index}`);
       await this.loadDocs();
     } catch (err) {
       this.showToast(err.message || 'Failed to update item', 'error');
     }
   }
 
-  async removeDocsItem(section, index) {
-    if (!this.state.activeWorkspace) return;
+  async removeDocsItem(section, index, workspaceId = null) {
+    const activeWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const targetWorkspaceId = workspaceId || this._docsRenderedWorkspaceId;
+    if (!targetWorkspaceId || targetWorkspaceId !== activeWorkspaceId) return;
     try {
-      await this.api('DELETE', `/api/workspaces/${this.state.activeWorkspace.id}/docs/${section}/${index}`);
+      await this.api('DELETE', `/api/workspaces/${targetWorkspaceId}/docs/${section}/${index}`);
       await this.loadDocs();
     } catch (err) {
       this.showToast(err.message || 'Failed to remove item', 'error');
@@ -16293,10 +18502,14 @@ class CWMApp {
   }
 
   async saveDocsRaw() {
-    if (!this.state.activeWorkspace) return;
+    const activeWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const workspaceId = this._docsRenderedWorkspaceId;
+    if (!workspaceId || workspaceId !== activeWorkspaceId) return;
     const raw = this.els.docsRawEditor ? this.els.docsRawEditor.value : '';
     try {
-      await this.api('PUT', `/api/workspaces/${this.state.activeWorkspace.id}/docs`, { content: raw });
+      await this.api('PUT', `/api/workspaces/${workspaceId}/docs`, { content: raw });
       this.showToast('Documentation saved', 'success');
       await this.loadDocs();
     } catch (err) {
@@ -16308,8 +18521,9 @@ class CWMApp {
    * Toggle a pinned note on the currently focused terminal pane session.
    * @param {number} noteIndex - 0-based index of the note in the workspace docs.notes array
    * @param {HTMLButtonElement} buttonEl - The pin button element to update visually
+   * @param {string|null} workspaceId - Project that rendered the note row.
    */
-  async _toggleNotePin(noteIndex, buttonEl) {
+  async _toggleNotePin(noteIndex, buttonEl, workspaceId = null) {
     const slot = this._activeTerminalSlot;
     const tp = (slot !== null && slot !== undefined) ? this.terminalPanes[slot] : null;
     if (!tp || !tp.sessionId) {
@@ -16317,14 +18531,15 @@ class CWMApp {
       return;
     }
     const ws = this.state.activeWorkspace;
-    if (!ws) return;
+    if (!ws || !workspaceId || ws.id !== workspaceId) return;
     const isPinned = buttonEl.classList.contains('pinned');
     const action = isPinned ? 'unpin' : 'pin';
-    await this.api('POST', `/api/workspaces/${ws.id}/pinned-notes`, {
+    await this.api('POST', `/api/workspaces/${workspaceId}/pinned-notes`, {
       sessionId: tp.sessionId,
       noteIndex,
       action
     });
+    if (!this.state.activeWorkspace || this.state.activeWorkspace.id !== workspaceId) return;
     buttonEl.classList.toggle('pinned', !isPinned);
     await this._refreshPanePin(slot);
   }
@@ -16339,8 +18554,16 @@ class CWMApp {
     if (!tp || !tp.sessionId) return;
     const ws = this.state.activeWorkspace;
     if (!ws) return;
-    const data = await this.api('GET', `/api/workspaces/${ws.id}/pinned-notes`);
-    const pins = data[tp.sessionId] || [];
+    const workspaceId = ws.id;
+    const sessionId = tp.sessionId;
+    const data = await this.api('GET', `/api/workspaces/${workspaceId}/pinned-notes`);
+    if (
+      !this.state.activeWorkspace ||
+      this.state.activeWorkspace.id !== workspaceId ||
+      this.terminalPanes[slotIdx] !== tp ||
+      tp.sessionId !== sessionId
+    ) return;
+    const pins = data[sessionId] || [];
     const paneEl = document.getElementById(`term-pane-${slotIdx}`);
     if (!paneEl) return;
     const pinDocBtn = paneEl.querySelector('.terminal-pane-pinnedoc');
@@ -16362,6 +18585,8 @@ class CWMApp {
    */
   async loadTdIssues() {
     if (!this.els.docsTdSection) return;
+    const requestSequence = (this._tdRequestSequence || 0) + 1;
+    this._tdRequestSequence = requestSequence;
 
     // Respect global td toggle
     if (!this.getSetting('enableTd')) {
@@ -16380,6 +18605,11 @@ class CWMApp {
 
     try {
       const status = await this.api('GET', `/api/workspaces/${ws.id}/td/status`);
+      if (
+        requestSequence !== this._tdRequestSequence ||
+        !this.state.activeWorkspace ||
+        this.state.activeWorkspace.id !== ws.id
+      ) return;
 
       if (!status.available) {
         this._renderTdSetup('td is not installed. Install it from github.com/marcus/td', { showSetdir: false, showInit: false });
@@ -16398,13 +18628,26 @@ class CWMApp {
 
       // td is ready — hide setup bar and load issues
       if (this.els.docsTdSetupBar) this.els.docsTdSetupBar.hidden = true;
-      await this._fetchAndRenderTdIssues(ws.id);
+      await this._fetchAndRenderTdIssues(ws.id, requestSequence);
 
     } catch (err) {
-      if (this.els.docsTdList) this.els.docsTdList.textContent = 'Error loading td status: ' + (err.message || err);
+      if (
+        requestSequence === this._tdRequestSequence &&
+        this.state.activeWorkspace &&
+        this.state.activeWorkspace.id === ws.id &&
+        this.els.docsTdList
+      ) {
+        this.els.docsTdList.textContent = 'Error loading td status: ' + (err.message || err);
+      }
     }
 
-    this._wireTdEvents();
+    if (
+      requestSequence === this._tdRequestSequence &&
+      this.state.activeWorkspace &&
+      this.state.activeWorkspace.id === ws.id
+    ) {
+      this._wireTdEvents();
+    }
   }
 
   /** Show the td setup bar with a message. */
@@ -16418,15 +18661,27 @@ class CWMApp {
   }
 
   /** Fetch and render td issues for the workspace. */
-  async _fetchAndRenderTdIssues(workspaceId) {
+  async _fetchAndRenderTdIssues(workspaceId, requestSequence = this._tdRequestSequence) {
     if (this.els.docsTdList) this.els.docsTdList.textContent = 'Loading...';
     try {
       const data = await this.api('GET', `/api/workspaces/${workspaceId}/td/issues`);
+      if (
+        requestSequence !== this._tdRequestSequence ||
+        !this.state.activeWorkspace ||
+        this.state.activeWorkspace.id !== workspaceId
+      ) return;
       const issues = data.issues || [];
       this._tdIssuesCache = issues;
       this._renderTdIssues(issues);
     } catch (err) {
-      if (this.els.docsTdList) this.els.docsTdList.textContent = 'Failed to load issues: ' + (err.message || err);
+      if (
+        requestSequence === this._tdRequestSequence &&
+        this.state.activeWorkspace &&
+        this.state.activeWorkspace.id === workspaceId &&
+        this.els.docsTdList
+      ) {
+        this.els.docsTdList.textContent = 'Failed to load issues: ' + (err.message || err);
+      }
     }
   }
 
@@ -17080,15 +19335,41 @@ class CWMApp {
       const tp = this.terminalPanes.find((_, i) => p.slot === i);
       return tp !== null;
     });
+    const attentionModel = window.MyrlinExperienceModel;
+    const attentionSessions = [
+      ...(this.state.allSessions || []),
+      ...(this.state.sessions || []),
+    ];
+    const attentionStates = (g.panes || []).map(p => {
+      if (!p || !p.sessionId) return null;
+      const session = attentionSessions.find(candidate =>
+        candidate && candidate.id === p.sessionId
+      );
+      return this._attentionState.get(p.sessionId) ||
+        (attentionModel && attentionModel.statusToAttentionState(session && session.status)) ||
+        null;
+    }).filter(Boolean);
+    if (attentionModel) {
+      attentionStates.sort((a, b) =>
+        attentionModel.ATTENTION_STATES[a].priority -
+        attentionModel.ATTENTION_STATES[b].priority
+      );
+    }
+    const attentionState = attentionStates[0] || null;
     const tabColor = this.getTabColor(g.id);
-    return `<button class="terminal-group-tab${isActive ? ' active' : ''}"
-      data-group-id="${g.id}"
-      style="--tab-color:var(--${tabColor})">
-      <span class="terminal-group-tab-dot${hasActive ? '' : ' inactive'}"></span>
-      <span class="terminal-group-tab-name">${this.escapeHtml(g.name)}</span>
-      ${paneCount > 0 ? `<span class="terminal-group-tab-count">${paneCount}</span>` : ''}
-      <span class="terminal-group-tab-close" data-group-id="${g.id}" title="Close tab">&times;</span>
-    </button>`;
+    const escapedName = this.escapeHtml(g.name);
+    return `<div class="terminal-group-tab-item${isActive ? ' active' : ''}">
+      <button type="button" class="terminal-group-tab${isActive ? ' active' : ''}${attentionState ? ' attention-state' : ''}"
+        data-group-id="${g.id}"
+        ${attentionState ? `data-attention-state="${attentionState}"` : ''}
+        style="--tab-color:var(--${tabColor})">
+        <span class="terminal-group-tab-dot${hasActive ? '' : ' inactive'}"></span>
+        <span class="terminal-group-tab-name">${escapedName}</span>
+        ${paneCount > 0 ? `<span class="terminal-group-tab-count">${paneCount}</span>` : ''}
+      </button>
+      <button type="button" class="terminal-group-tab-close" data-group-id="${g.id}"
+        title="Close tab" aria-label="Close ${escapedName} tab">&times;</button>
+    </div>`;
   }
 
   renderTerminalGroupTabs() {
@@ -18273,9 +20554,15 @@ class CWMApp {
     });
   }
 
-  showNotesEditor(section, index = null, existingText = '') {
+  showNotesEditor(
+    section,
+    index = null,
+    existingText = '',
+    workspaceId = this.state.activeWorkspace ? this.state.activeWorkspace.id : null
+  ) {
     this._notesEditorSection = section;
     this._notesEditorIndex = index;
+    this._notesEditorWorkspaceId = workspaceId;
     const isEdit = index !== null;
     this.els.notesEditorTitle.textContent = isEdit ? `Edit ${section.slice(0, -1)}` : `Add ${section.slice(0, -1)}`;
     this.els.notesEditorTextarea.value = existingText;
@@ -18286,6 +20573,7 @@ class CWMApp {
   hideNotesEditor() {
     this.els.notesEditorOverlay.hidden = true;
     this.els.notesEditorTextarea.value = '';
+    this._notesEditorWorkspaceId = null;
   }
 
   async saveNotesEditor() {
@@ -18294,9 +20582,15 @@ class CWMApp {
       this.showToast('Note cannot be empty', 'warning');
       return;
     }
-    if (!this.state.activeWorkspace) return;
-
-    const wsId = this.state.activeWorkspace.id;
+    const activeWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const wsId = this._notesEditorWorkspaceId;
+    if (!wsId || wsId !== activeWorkspaceId) {
+      this.showToast('Project changed. Reopen the note before saving.', 'warning');
+      this.hideNotesEditor();
+      return;
+    }
     const section = this._notesEditorSection;
 
     try {
@@ -18919,19 +21213,184 @@ class CWMApp {
   async fetchResources() {
     const body = this.els.resourcesBody;
     if (!body) return;
+    const requestSequence = (this._resourcesRequestSequence || 0) + 1;
+    this._resourcesRequestSequence = requestSequence;
 
     try {
       const data = await this.api('GET', '/api/resources');
+      if (
+        requestSequence !== this._resourcesRequestSequence ||
+        body !== this.els.resourcesBody
+      ) return false;
       this.state.resourceData = data;
       this.renderResources(data);
+      return true;
     } catch (err) {
+      if (
+        requestSequence !== this._resourcesRequestSequence ||
+        body !== this.els.resourcesBody
+      ) return false;
       body.innerHTML = `<div class="resources-empty">Failed to load resources: ${this.escapeHtml(err.message)}</div>`;
+      return false;
     }
+  }
+
+  _buildResourceSessionActions(record) {
+    if (record.stopped) {
+      return [{
+        label: 'Start session',
+        icon: '&#9654;',
+        action: () => this._executeResourceAction('start', record),
+      }];
+    }
+    const actions = [
+      {
+        label: 'Restart session',
+        icon: '&#8635;',
+        action: () => this._executeResourceAction('restart', record),
+      },
+      {
+        label: 'Stop session',
+        icon: '&#9724;',
+        action: () => this._executeResourceAction('stop', record),
+      },
+    ];
+    if (record.pid) {
+      actions.push({
+        label: 'Force kill process',
+        icon: '&#9747;',
+        danger: true,
+        action: () => this._executeResourceAction('kill', record),
+      });
+    }
+    return actions;
+  }
+
+  async _executeResourceAction(action, record) {
+    const sessionId = record && record.sessionId;
+    const pid = record && Number(record.pid);
+    if (action === 'kill' && pid) {
+      const confirmed = await this.showConfirmModal({
+        title: 'Kill Process',
+        message: `Force kill PID ${pid}? This will terminate the process immediately without cleanup.`,
+        confirmText: 'Kill',
+        confirmClass: 'btn-danger',
+      });
+      if (!confirmed) return;
+      try {
+        await this.api('POST', '/api/resources/kill-process', { pid });
+        this.showToast(`Killed PID ${pid}`, 'success');
+        setTimeout(() => this.fetchResources(), 1000);
+      } catch (err) {
+        this.showToast(err.message || 'Failed to kill process', 'error');
+      }
+      return;
+    }
+
+    if (!sessionId || !['stop', 'restart', 'start'].includes(action)) return;
+    try {
+      await this.api('POST', `/api/sessions/${sessionId}/${action}`);
+      const messages = {
+        stop: 'Session stopped',
+        restart: 'Session restarting...',
+        start: 'Session starting...',
+      };
+      this.showToast(messages[action], 'success');
+      setTimeout(
+        () => this.fetchResources(),
+        action === 'stop' ? 1000 : 2000
+      );
+    } catch (err) {
+      this.showToast(err.message || `Failed to ${action} session`, 'error');
+    }
+  }
+
+  showResourceRowMenu(triggerElement) {
+    if (!triggerElement) return;
+    const type = triggerElement.dataset.resourceType || 'session';
+    let items;
+    if (type === 'pty') {
+      const ptyId = triggerElement.dataset.ptyId;
+      items = [{
+        label: 'Close terminal session',
+        icon: '&#9747;',
+        danger: true,
+        action: async () => {
+          try {
+            await this.api('POST', `/api/pty/${encodeURIComponent(ptyId)}/kill`);
+            this.showToast('Session closed', 'success');
+            setTimeout(() => this.fetchResources(), 500);
+          } catch (err) {
+            this.showToast(err.message || 'Failed to close session', 'error');
+          }
+        },
+      }];
+    } else if (type === 'tunnel') {
+      const tunnelId = triggerElement.dataset.tunnelId;
+      const url = triggerElement.dataset.url || '';
+      items = [];
+      if (url) {
+        items.push({
+          label: 'Copy public URL',
+          icon: '&#128203;',
+          action: () => this._copyWithToast(url, 'URL copied'),
+        });
+      }
+      items.push({
+        label: 'Close tunnel',
+        icon: '&#9747;',
+        danger: true,
+        action: async () => {
+          try {
+            await this.api('DELETE', `/api/tunnels/${tunnelId}`);
+            this.showToast('Tunnel closed', 'success');
+            this.fetchResources();
+          } catch (err) {
+            this.showToast(err.message || 'Failed to close tunnel', 'error');
+          }
+        },
+      });
+    }
+    const record = {
+      sessionId: triggerElement.dataset.sessionId || null,
+      pid: triggerElement.dataset.pid
+        ? parseInt(triggerElement.dataset.pid, 10)
+        : null,
+      stopped: triggerElement.dataset.resourceState === 'stopped',
+    };
+    if (!items) items = this._buildResourceSessionActions(record);
+    const rect = triggerElement.getBoundingClientRect();
+    this._renderContextItems(
+      triggerElement.dataset.sessionName || 'Session actions',
+      items,
+      rect.left,
+      rect.bottom + 4,
+      { focusMenu: true, triggerElement }
+    );
+  }
+
+  _resourceMenuOpenFor(container) {
+    if (!container) return false;
+    const trigger = this._contextMenuReturnFocus || this._actionSheetReturnFocus;
+    const contextMenuOpen = this.els.contextMenu && !this.els.contextMenu.hidden;
+    const actionSheetOpen = this.els.actionSheetOverlay && !this.els.actionSheetOverlay.hidden;
+    return !!(
+      trigger &&
+      container.contains(trigger) &&
+      (contextMenuOpen || actionSheetOpen)
+    );
   }
 
   renderResources(data) {
     const body = this.els.resourcesBody;
     if (!body || !data) return;
+
+    // Polling must not replace the trigger while its desktop menu or mobile
+    // action sheet is open. The next refresh applies the latest data after the
+    // menu closes, preserving keyboard focus and touch context.
+    if (this._resourceMenuOpenFor(body)) return;
+    const renderSequence = (this._resourcesRenderSequence || 0) + 1;
+    this._resourcesRenderSequence = renderSequence;
 
     const sys = data.system || {};
     const cpuPercent = Math.round(sys.cpuUsage || 0);
@@ -18991,20 +21450,23 @@ class CWMApp {
         const cpuText = cpuVal != null ? cpuVal.toFixed(1) + '%' : '--';
 
         html += `<tr>
-          <td class="session-name-cell">
+          <td class="session-name-cell" data-label="Session">
             ${this.escapeHtml(s.sessionName || s.sessionId)}
             ${s.workspaceName ? '<span class="resource-workspace-label">' + this.escapeHtml(s.workspaceName) + '</span>' : ''}
           </td>
-          <td class="pid-cell">${s.pid || '--'}</td>
-          <td class="cpu-cell ${cpuClass}">${cpuText}</td>
-          <td class="mem-cell">${s.memoryMB ? Math.round(s.memoryMB) + ' MB' : '--'}</td>
-          <td class="ports-cell">${(s.ports && s.ports.length > 0) ? s.ports.map(p => '<a href="http://localhost:' + p + '" target="_blank" rel="noopener" class="port-link">' + p + '</a><button class="btn btn-ghost btn-sm expose-port-btn" data-port="' + p + '" title="Expose via tunnel">&#8599;</button>').join(' ') : '<span style="color:var(--overlay0)">--</span>'}</td>
-          <td>
-            <div class="resource-actions">
-              <button class="resource-action-btn action-restart" data-session-id="${s.sessionId}" data-action="restart" title="Restart session">Restart</button>
-              <button class="resource-action-btn action-stop" data-session-id="${s.sessionId}" data-action="stop" title="Stop session">Stop</button>
-              <button class="resource-action-btn action-kill" data-pid="${s.pid}" data-action="kill" title="Force kill process">Kill</button>
-            </div>
+          <td class="pid-cell" data-label="PID">${s.pid || '--'}</td>
+          <td class="cpu-cell ${cpuClass}" data-label="CPU">${cpuText}</td>
+          <td class="mem-cell" data-label="Memory">${s.memoryMB ? Math.round(s.memoryMB) + ' MB' : '--'}</td>
+          <td class="ports-cell" data-label="Ports">${(s.ports && s.ports.length > 0) ? s.ports.map(p => '<a href="http://localhost:' + p + '" target="_blank" rel="noopener" class="port-link">' + p + '</a><button class="btn btn-ghost btn-sm expose-port-btn" data-port="' + p + '" title="Expose via tunnel">&#8599;</button>').join(' ') : '<span class="resource-value-muted">--</span>'}</td>
+          <td data-label="Actions">
+            <button class="resource-row-menu-btn" type="button"
+                    data-session-id="${this.escapeHtml(s.sessionId)}"
+                    data-session-name="${this.escapeHtml(s.sessionName || s.sessionId)}"
+                    data-pid="${s.pid || ''}" data-resource-type="session"
+                    data-resource-state="active"
+                    aria-haspopup="menu" aria-expanded="false"
+                    aria-label="Actions for ${this.escapeHtml(s.sessionName || s.sessionId)}"
+                    title="Session actions">&#8942;</button>
           </td>
         </tr>`;
       });
@@ -19034,14 +21496,20 @@ class CWMApp {
             <thead><tr><th>Session</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
             <tbody>`;
       uniqueStopped.slice(0, 20).forEach(s => {
-        const statusColor = s.status === 'error' || s.status === 'crashed' ? 'var(--red)' : 'var(--overlay0)';
+        const failedClass = s.status === 'error' || s.status === 'crashed'
+          ? ' resource-status-failed'
+          : '';
         html += `<tr>
-          <td class="session-name-cell">${this.escapeHtml(s.name || s.id.substring(0, 12))}</td>
-          <td style="color:${statusColor}">${s.status || 'stopped'}</td>
-          <td>
-            <div class="resource-actions">
-              <button class="resource-action-btn action-start" data-session-id="${s.id}" data-action="start" title="Start session">Start</button>
-            </div>
+          <td class="session-name-cell" data-label="Session">${this.escapeHtml(s.name || s.id.substring(0, 12))}</td>
+          <td class="resource-session-status${failedClass}" data-label="Status">${this.escapeHtml(s.status || 'stopped')}</td>
+          <td data-label="Actions">
+            <button class="resource-row-menu-btn" type="button"
+                    data-session-id="${this.escapeHtml(s.id)}"
+                    data-session-name="${this.escapeHtml(s.name || s.id.substring(0, 12))}"
+                    data-resource-type="session" data-resource-state="stopped"
+                    aria-haspopup="menu" aria-expanded="false"
+                    aria-label="Actions for ${this.escapeHtml(s.name || s.id.substring(0, 12))}"
+                    title="Session actions">&#8942;</button>
           </td>
         </tr>`;
       });
@@ -19056,54 +21524,12 @@ class CWMApp {
 
     body.innerHTML = html;
 
-    // Bind session action buttons (stop/restart/kill/start)
-    body.querySelectorAll('.resource-action-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const action = btn.dataset.action;
-        const sessionId = btn.dataset.sessionId;
-        const pid = btn.dataset.pid ? parseInt(btn.dataset.pid, 10) : null;
-
-        if (action === 'kill' && pid) {
-          // Show confirmation for kill
-          const confirmed = await this.showConfirmModal({
-            title: 'Kill Process',
-            message: `Force kill PID ${pid}? This will terminate the process immediately without cleanup.`,
-            confirmText: 'Kill',
-            confirmClass: 'btn-danger',
-          });
-          if (!confirmed) return;
-          try {
-            await this.api('POST', '/api/resources/kill-process', { pid });
-            this.showToast(`Killed PID ${pid}`, 'success');
-            setTimeout(() => this.fetchResources(), 1000);
-          } catch (err) {
-            this.showToast(err.message || 'Failed to kill process', 'error');
-          }
-        } else if (action === 'stop' && sessionId) {
-          try {
-            await this.api('POST', `/api/sessions/${sessionId}/stop`);
-            this.showToast('Session stopped', 'success');
-            setTimeout(() => this.fetchResources(), 1000);
-          } catch (err) {
-            this.showToast(err.message || 'Failed to stop session', 'error');
-          }
-        } else if (action === 'restart' && sessionId) {
-          try {
-            await this.api('POST', `/api/sessions/${sessionId}/restart`);
-            this.showToast('Session restarting...', 'success');
-            setTimeout(() => this.fetchResources(), 2000);
-          } catch (err) {
-            this.showToast(err.message || 'Failed to restart session', 'error');
-          }
-        } else if (action === 'start' && sessionId) {
-          try {
-            await this.api('POST', `/api/sessions/${sessionId}/start`);
-            this.showToast('Session starting...', 'success');
-            setTimeout(() => this.fetchResources(), 2000);
-          } catch (err) {
-            this.showToast(err.message || 'Failed to start session', 'error');
-          }
-        }
+    // Opening the overflow is non-mutating. The existing API actions run only
+    // after the user chooses an explicit menu item.
+    body.querySelectorAll('.resource-row-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.showResourceRowMenu(btn);
       });
     });
 
@@ -19131,23 +21557,46 @@ class CWMApp {
       });
     });
 
-    // Load token quota section
-    this.api('GET', '/api/quota-overview').then(quotaData => {
-      const quotaContainer = document.getElementById('resources-quota');
-      if (quotaContainer) this.renderQuotaOverview(quotaData, quotaContainer);
-    }).catch(() => {});
+    // These three calls can outlive this synchronous render. Their shared
+    // render sequence prevents a slow response from locating the replacement
+    // DOM created by a newer poll and filling it with stale quota/tunnel/PTY
+    // data.
+    void this._loadResourceSupplements(renderSequence, body);
+  }
 
-    // Load tunnels section
-    this.api('GET', '/api/tunnels').then(tunnelData => {
-      const tunnelContainer = document.getElementById('resources-tunnels');
-      if (tunnelContainer) this.renderTunnels(tunnelData, tunnelContainer);
-    }).catch(() => {});
+  async _loadResourceSupplements(renderSequence, body) {
+    const renderIfCurrent = (selector, renderer, data) => {
+      if (
+        renderSequence !== this._resourcesRenderSequence ||
+        body !== this.els.resourcesBody
+      ) return;
+      const container = body.querySelector(selector);
+      if (container) renderer.call(this, data, container);
+    };
 
-    // Load background PTY sessions
-    this.api('GET', '/api/pty').then(ptyData => {
-      const container = document.getElementById('resources-pty-bg');
-      if (container) this.renderBackgroundPtySessions(ptyData, container);
-    }).catch(() => {});
+    await Promise.all([
+      this.api('GET', '/api/quota-overview')
+        .then(data => renderIfCurrent(
+          '#resources-quota',
+          this.renderQuotaOverview,
+          data
+        ))
+        .catch(() => {}),
+      this.api('GET', '/api/tunnels')
+        .then(data => renderIfCurrent(
+          '#resources-tunnels',
+          this.renderTunnels,
+          data
+        ))
+        .catch(() => {}),
+      this.api('GET', '/api/pty')
+        .then(data => renderIfCurrent(
+          '#resources-pty-bg',
+          this.renderBackgroundPtySessions,
+          data
+        ))
+        .catch(() => {}),
+    ]);
   }
 
   /**
@@ -19157,6 +21606,7 @@ class CWMApp {
    * @param {HTMLElement} container - DOM element to render into
    */
   renderBackgroundPtySessions(data, container) {
+    if (this._resourceMenuOpenFor(container)) return;
     const sessions = (data.sessions || []);
     const orphaned = sessions.filter(s => s.clientCount === 0);
     const connected = sessions.filter(s => s.clientCount > 0);
@@ -19178,15 +21628,18 @@ class CWMApp {
         <thead><tr><th>Session</th><th>PID</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
         <tbody>`;
       for (const s of orphaned) {
-        const statusColor = s.alive ? 'var(--green)' : 'var(--overlay0)';
         html += `<tr>
-          <td class="session-name-cell">${this.escapeHtml(s.sessionId.substring(0, 20))}${s.sessionId.length > 20 ? '...' : ''}</td>
-          <td class="pid-cell">${s.pid || '--'}</td>
-          <td style="color:${statusColor}">${s.alive ? 'running' : 'exited'}</td>
-          <td>
-            <div class="resource-actions">
-              <button class="resource-action-btn action-stop" data-pty-id="${this.escapeHtml(s.sessionId)}" title="Close this PTY">Close</button>
-            </div>
+          <td class="session-name-cell" data-label="Session">${this.escapeHtml(s.sessionId.substring(0, 20))}${s.sessionId.length > 20 ? '...' : ''}</td>
+          <td class="pid-cell" data-label="PID">${s.pid || '--'}</td>
+          <td class="resource-session-status${s.alive ? ' resource-status-running' : ''}" data-label="Status">${s.alive ? 'running' : 'exited'}</td>
+          <td data-label="Actions">
+            <button class="resource-row-menu-btn" type="button"
+                    data-resource-type="pty"
+                    data-pty-id="${this.escapeHtml(s.sessionId)}"
+                    data-session-name="${this.escapeHtml(s.sessionId.substring(0, 20))}"
+                    aria-haspopup="menu" aria-expanded="false"
+                    aria-label="Actions for terminal ${this.escapeHtml(s.sessionId.substring(0, 20))}"
+                    title="Terminal actions">&#8942;</button>
           </td>
         </tr>`;
       }
@@ -19209,63 +21662,42 @@ class CWMApp {
       });
     }
 
-    // Bind individual close buttons
-    container.querySelectorAll('.resource-action-btn[data-pty-id]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const ptyId = btn.dataset.ptyId;
-        try {
-          await this.api('POST', `/api/pty/${encodeURIComponent(ptyId)}/kill`);
-          this.showToast('Session closed', 'success');
-          setTimeout(() => this.fetchResources(), 500);
-        } catch (err) {
-          this.showToast(err.message || 'Failed to close session', 'error');
-        }
+    container.querySelectorAll('.resource-row-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.showResourceRowMenu(btn);
       });
     });
   }
 
   renderTunnels(data, container) {
+    if (this._resourceMenuOpenFor(container)) return;
     const tunnels = data.tunnels || [];
     const available = data.cloudflaredAvailable;
     let html = '<div class="resources-section-title">Tunnels <span class="total-badge">' + (available ? tunnels.length + ' active' : 'cloudflared not installed') + '</span></div>';
     if (!available) {
-      html += '<div class="resources-empty"><p>cloudflared is not installed.</p><a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/" target="_blank" class="port-link" style="font-size:13px;">Install cloudflared</a></div>';
+      html += '<div class="resources-empty"><p>cloudflared is not installed.</p><a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/" target="_blank" rel="noopener" class="port-link" style="font-size:13px;">Install cloudflared</a></div>';
     } else if (tunnels.length === 0) {
       html += '<div class="resources-empty">No active tunnels. Click "Expose" on a port above to start one.</div>';
     } else {
-      html += '<table class="claude-session-table"><thead><tr><th>Label</th><th>Port</th><th>Public URL</th><th></th></tr></thead><tbody>';
+      html += '<table class="claude-session-table"><thead><tr><th>Label</th><th>Port</th><th>Public URL</th><th style="text-align:right">Actions</th></tr></thead><tbody>';
       tunnels.forEach(t => {
-        html += '<tr><td>' + this.escapeHtml(t.label) + '</td><td class="pid-cell">' + t.port + '</td><td>';
+        html += '<tr><td class="session-name-cell" data-label="Label">' + this.escapeHtml(t.label) + '</td><td class="pid-cell" data-label="Port">' + t.port + '</td><td data-label="Public URL">';
         if (t.url) {
-          html += '<a href="' + this.escapeHtml(t.url) + '" target="_blank" class="port-link">' + this.escapeHtml(t.url) + '</a>';
-          html += ' <button class="btn btn-ghost btn-sm copy-tunnel-url" data-url="' + this.escapeHtml(t.url) + '" title="Copy URL" style="padding:2px 6px;font-size:11px;">Copy</button>';
+          html += '<a href="' + this.escapeHtml(t.url) + '" target="_blank" rel="noopener" class="port-link">' + this.escapeHtml(t.url) + '</a>';
         } else {
-          html += '<span style="color:var(--overlay0)">Connecting...</span>';
+          html += '<span class="resource-value-muted">Connecting...</span>';
         }
-        html += '</td><td><button class="btn btn-ghost btn-sm close-tunnel-btn" data-tunnel-id="' + t.id + '" style="color:var(--red);">Close</button></td></tr>';
+        html += '</td><td data-label="Actions"><button class="resource-row-menu-btn" type="button" data-resource-type="tunnel" data-tunnel-id="' + this.escapeHtml(t.id) + '" data-url="' + this.escapeHtml(t.url || '') + '" data-session-name="' + this.escapeHtml(t.label || 'Tunnel') + '" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for tunnel ' + this.escapeHtml(t.label || String(t.port)) + '" title="Tunnel actions">&#8942;</button></td></tr>';
       });
       html += '</tbody></table>';
     }
     container.innerHTML = html;
 
-    // Bind close buttons
-    container.querySelectorAll('.close-tunnel-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        try {
-          await this.api('DELETE', '/api/tunnels/' + btn.dataset.tunnelId);
-          this.showToast('Tunnel closed', 'success');
-          this.fetchResources();
-        } catch (err) {
-          this.showToast(err.message || 'Failed to close tunnel', 'error');
-        }
-      });
-    });
-
-    // Bind copy buttons
-    container.querySelectorAll('.copy-tunnel-url').forEach(btn => {
-      btn.addEventListener('click', () => {
-        navigator.clipboard.writeText(btn.dataset.url);
-        this.showToast('URL copied', 'success');
+    container.querySelectorAll('.resource-row-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.showResourceRowMenu(btn);
       });
     });
   }
@@ -19326,9 +21758,9 @@ class CWMApp {
       const barWidth = Math.min(100, s.contextPct);
 
       html += `<tr>
-        <td class="session-name-cell">${this.escapeHtml(s.sessionName)}</td>
-        <td style="font-size:11px;color:var(--subtext0)">${this.escapeHtml(s.workspaceName)}</td>
-        <td style="min-width:140px">
+        <td class="session-name-cell" data-label="Session">${this.escapeHtml(s.sessionName)}</td>
+        <td class="resource-workspace-cell" data-label="Project">${this.escapeHtml(s.workspaceName)}</td>
+        <td data-label="Context" style="min-width:140px">
           <div style="display:flex;align-items:center;gap:6px">
             <span style="color:${urgencyColor};font-size:11px" title="${s.urgency}">${urgencyIcon}</span>
             <div style="flex:1">
@@ -19339,8 +21771,8 @@ class CWMApp {
             <span style="font-size:11px;color:var(--text);min-width:40px;text-align:right">${formatTokens(s.latestInputTokens)}</span>
           </div>
         </td>
-        <td class="cost-cell" style="font-size:12px">${formatCost(s.totalCost)}</td>
-        <td style="font-size:12px;color:var(--subtext0)">${s.messageCount}</td>
+        <td class="cost-cell" data-label="Cost">${formatCost(s.totalCost)}</td>
+        <td class="resource-message-count" data-label="Messages">${s.messageCount}</td>
       </tr>`;
     });
 
@@ -19492,7 +21924,7 @@ class CWMApp {
       : [];
 
     const fields = [
-      { key: 'description', label: 'What should Claude build?', type: 'textarea', placeholder: 'Implement OAuth login flow with Google provider...', required: true },
+      { key: 'description', label: 'What should the agent build?', type: 'textarea', placeholder: 'Implement OAuth login flow with Google provider...', required: true },
       { key: 'repoDir', label: 'Repository Path', value: defaultDir, required: true },
       { key: 'baseBranch', label: 'Base Branch', value: 'main', required: true },
       { key: 'branch', label: 'Branch Name', placeholder: 'Auto-generated from description' },
@@ -19514,9 +21946,9 @@ class CWMApp {
     ]});
 
     const result = await this.showPromptModal({
-      title: 'New Worktree Task',
+      title: 'New Agent Task',
       fields,
-      confirmText: 'Start Task',
+      confirmText: 'Start Agent Task',
     });
     if (!result) return;
 
@@ -19550,7 +21982,7 @@ class CWMApp {
         }
       }
 
-      this.showToast(`Worktree task started on ${branch}`, 'success');
+      this.showToast(`Agent task started on ${branch}`, 'success');
     } catch (err) {
       this.showToast(err.message || 'Failed to create worktree task', 'error');
     }
@@ -19624,7 +22056,7 @@ class CWMApp {
       banner.innerHTML = `
         <div class="wt-review-header">
           <span class="wt-review-icon" style="color:${statusColor}">&#128268;</span>
-          <span class="wt-review-title">Worktree Task: ${this.escapeHtml(task.description.slice(0, 60))}</span>
+          <span class="wt-review-title">Agent Task: ${this.escapeHtml(task.description.slice(0, 60))}</span>
           <span class="wt-review-branch">${this.escapeHtml(task.branch)}</span>
         </div>
         ${actionsHtml}`;
@@ -19642,7 +22074,7 @@ class CWMApp {
             await this.openMergeDialog(task);
           } else if (btn.classList.contains('wt-review-btn-reject')) {
             const ok = await this.showConfirmModal({
-              title: 'Reject Worktree Task',
+              title: 'Reject Agent Task',
               message: `Delete the worktree and branch "${task.branch}"? This cannot be undone.`,
               confirmText: 'Reject',
               confirmClass: 'btn-danger',
@@ -20300,10 +22732,14 @@ class CWMApp {
       });
 
       if (result) {
-        // Copy to clipboard
+        // Copy to clipboard through the universal helper (works on insecure
+        // origins, never rejects); the boolean keeps the toasts honest. The
+        // outer try/catch is retained as a second belt so a copy problem can
+        // never abort the continue-in-new-session flow below.
         try {
-          await navigator.clipboard.writeText(markdown);
-          this.showToast('Context copied to clipboard', 'success');
+          const ok = await TerminalPane.copyTextToClipboard(markdown);
+          if (ok) this.showToast('Context copied to clipboard', 'success');
+          else this.showToast('Could not copy to clipboard', 'warning');
         } catch (_) {
           this.showToast('Could not copy to clipboard', 'warning');
         }
@@ -21009,15 +23445,32 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   async loadFeatureBoard() {
+    const requestSequence = (this._featureBoardRequestSequence || 0) + 1;
+    this._featureBoardRequestSequence = requestSequence;
     const ws = this.state.activeWorkspace;
-    if (!ws) return;
+    if (!ws) {
+      this._features = [];
+      this.renderFeatureBoard();
+      return;
+    }
 
     try {
       const data = await this.api('GET', `/api/workspaces/${ws.id}/features`);
+      if (
+        requestSequence !== this._featureBoardRequestSequence ||
+        !this.state.activeWorkspace ||
+        this.state.activeWorkspace.id !== ws.id
+      ) return;
       this._features = data.features || [];
       this.renderFeatureBoard();
     } catch (err) {
-      this.showToast(err.message || 'Failed to load features', 'error');
+      if (
+        requestSequence === this._featureBoardRequestSequence &&
+        this.state.activeWorkspace &&
+        this.state.activeWorkspace.id === ws.id
+      ) {
+        this.showToast(err.message || 'Failed to load features', 'error');
+      }
     }
   }
 
@@ -21939,9 +24392,20 @@ class CWMApp {
    */
   _syncTerminalTabHighlight() {
     if (!this.els.terminalTabStrip) return;
-    const tabs = this.els.terminalTabStrip.querySelectorAll('.terminal-tab');
-    tabs.forEach((tab, i) => {
-      tab.classList.toggle('active', i === this._activeTerminalSlot);
+    const activeSlot = this._activeTerminalSlot;
+    this.els.terminalTabStrip
+      .querySelectorAll('.terminal-tab:not(.terminal-tab-add)')
+      .forEach(tab => {
+        tab.classList.toggle(
+          'active',
+          parseInt(tab.dataset.slot, 10) === activeSlot
+        );
+      });
+    this.els.terminalTabStrip.querySelectorAll('.terminal-tab-item').forEach(item => {
+      item.classList.toggle(
+        'active',
+        parseInt(item.dataset.slot, 10) === activeSlot
+      );
     });
   }
 
@@ -22115,10 +24579,17 @@ class CWMApp {
           // Bind copy buttons
           urlsEl.querySelectorAll('.pair-url-copy').forEach(btn => {
             btn.addEventListener('click', async () => {
+              // Universal copy helper: the pairing screen is exactly the
+              // remote-access (plain http over LAN) scenario where the bare
+              // Clipboard API call used to throw. Button feedback preserved.
               try {
-                await navigator.clipboard.writeText(btn.dataset.url);
-                btn.textContent = 'Copied';
-                setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+                const ok = await TerminalPane.copyTextToClipboard(btn.dataset.url);
+                if (ok) {
+                  btn.textContent = 'Copied';
+                  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+                } else {
+                  this.showToast('Failed to copy URL', 'error');
+                }
               } catch (_) {
                 this.showToast('Failed to copy URL', 'error');
               }

@@ -1,0 +1,1391 @@
+/*
+ * Focused Workbook shell
+ *
+ * This layer deliberately sits after the legacy desktop and mobile sheets.
+ * It changes presentation and hierarchy without removing the established
+ * routes, IDs, or workflows. Add ?ui=classic to restore the legacy desktop
+ * tab density while keeping the streamlined labels and mobile navigation.
+ */
+
+.view-nav-cluster {
+  display: contents;
+}
+
+.focused-more-btn {
+  display: none;
+}
+
+:root[data-ui-shell="focused"] {
+  --focused-header-height: 58px;
+  --focused-sidebar-width: 264px;
+  --focused-control-height: 34px;
+  --focused-content-max: 1120px;
+
+  /* Small text must remain readable in both dark and light families. */
+  --text-muted: color-mix(in srgb, var(--subtext1) 35%, var(--subtext0));
+  --border-subtle: color-mix(in srgb, var(--surface1) 44%, transparent);
+}
+
+/* Latte's stock tertiary token lands just below AA for 12px labels. */
+:root[data-ui-shell="focused"][data-theme="latte"] {
+  --text-tertiary: var(--subtext1);
+}
+
+:root[data-ui-shell="focused"] .app-header {
+  height: var(--focused-header-height);
+  min-height: var(--focused-header-height);
+  padding: 0 12px;
+  gap: 14px;
+  background: color-mix(in srgb, var(--mantle) 94%, var(--base));
+}
+
+:root[data-ui-shell="focused"] .header-left {
+  gap: 8px;
+  flex: 1 1 240px;
+}
+
+:root[data-ui-shell="focused"] .header-logo-img {
+  width: 36px;
+  height: 36px;
+  filter: none;
+}
+
+:root[data-ui-shell="focused"] .header-logo-img:hover {
+  filter: none;
+}
+
+:root[data-ui-shell="focused"] .header-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+}
+
+:root[data-ui-shell="focused"] .header-center {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+:root[data-ui-shell="focused"] .view-nav-cluster {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 3px;
+  gap: 1px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface0) 62%, transparent);
+}
+
+:root[data-ui-shell="focused"] .view-tabs {
+  min-height: 30px;
+  padding: 0;
+  gap: 1px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+:root[data-ui-shell="focused"] .view-tab {
+  min-height: 30px;
+  padding: 5px 11px;
+  gap: 6px;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+}
+
+:root[data-ui-shell="focused"] .view-tab[data-shell-tier="secondary"],
+:root[data-ui-shell="focused"] .view-tab[data-shell-tier="contextual"] {
+  display: none;
+}
+
+:root[data-ui-shell="focused"] .view-tab:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface1) 36%, transparent);
+}
+
+:root[data-ui-shell="focused"] .view-tab.active {
+  color: var(--text-primary);
+  background: var(--base);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--crust) 45%, transparent);
+}
+
+:root[data-ui-shell="focused"] .focused-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font: 500 12px var(--font-sans);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+:root[data-ui-shell="focused"] .focused-more-btn:hover,
+:root[data-ui-shell="focused"] .focused-more-btn:focus-visible,
+:root[data-ui-shell="focused"] .focused-more-btn.active {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface1) 36%, transparent);
+}
+
+:root[data-ui-shell="focused"] .focused-more-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:root[data-ui-shell="focused"] .header-right {
+  flex: 1 1 240px;
+  justify-content: flex-end;
+  min-width: 0;
+  gap: 4px;
+}
+
+/* Keep state and navigation visible; move configuration into More. */
+:root[data-ui-shell="focused"] #theme-picker,
+:root[data-ui-shell="focused"] #vkb-toggle-btn,
+:root[data-ui-shell="focused"] #pair-mobile-btn,
+:root[data-ui-shell="focused"] #settings-btn,
+:root[data-ui-shell="focused"] #header-stats,
+:root[data-ui-shell="focused"] #restart-all-btn,
+:root[data-ui-shell="focused"] #logout-btn {
+  display: none !important;
+}
+
+:root[data-ui-shell="focused"] .header-right > .btn {
+  width: var(--focused-control-height);
+  height: var(--focused-control-height);
+}
+
+:root[data-ui-shell="focused"] .account-chip {
+  min-height: var(--focused-control-height);
+  border-color: var(--border-subtle);
+  background: transparent;
+}
+
+:root[data-ui-shell="focused"] .usage-meter {
+  max-width: 210px;
+}
+
+:root[data-ui-shell="focused"] .sidebar {
+  width: var(--focused-sidebar-width);
+  background: color-mix(in srgb, var(--mantle) 96%, var(--base));
+}
+
+:root[data-ui-shell="focused"] .sidebar-launch-btn {
+  justify-content: flex-start;
+  min-height: 36px;
+  margin: 10px 10px 6px;
+  width: calc(100% - 20px);
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-style: solid;
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface0) 72%, transparent);
+}
+
+:root[data-ui-shell="focused"] .sidebar-launch-btn:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--border-default));
+  background: color-mix(in srgb, var(--surface1) 54%, transparent);
+}
+
+:root[data-ui-shell="focused"] #sidebar-view-toggle,
+:root[data-ui-shell="focused"] #sidebar-tasks-header,
+:root[data-ui-shell="focused"] #sidebar-tasks-list {
+  display: none !important;
+}
+
+:root[data-ui-shell="focused"] .sidebar-header {
+  min-height: 38px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+:root[data-ui-shell="focused"] .sidebar-title {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Legacy sidebar rules use the palette's raw overlay token for several small
+   labels. The focused shell routes all of that supporting copy through the
+   semantic readable token instead. */
+:root[data-ui-shell="focused"] .sidebar :is(
+  .sidebar-meta,
+  .toggle-hidden-btn,
+  .workspace-group-empty,
+  .ws-chevron,
+  .ws-session-time,
+  .ws-session-empty,
+  .project-accordion-chevron,
+  .project-size,
+  .project-session-size,
+  .project-session-time,
+  .project-session-archived,
+  .sidebar-section-divider-label
+),
+:root[data-ui-shell="focused"] .sidebar-list [style*="color: var(--overlay0)"] {
+  color: var(--text-tertiary) !important;
+}
+
+/* On a genuine zero-data first run, keep the one useful Projects create
+   affordance and remove repeated zero counts, filters, and an empty
+   Discovered section. :has() makes this automatically reversible as soon as
+   either list receives a real row. */
+@supports selector(.sidebar:has(#sidebar-create-ws)) {
+  :root[data-ui-shell="focused"]
+    .sidebar:has(#sidebar-create-ws):not(:has(#projects-list .project-accordion))
+    :is(
+      #sidebar-provider-tabs,
+      .sidebar-footer,
+      #sidebar-section-resize,
+      #projects-header,
+      #projects-search-bar,
+      #projects-list
+    ) {
+    display: none;
+  }
+}
+
+:root[data-ui-shell="focused"] #projects-toggle[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+:root[data-ui-shell="focused"] .sidebar-collapse-bar {
+  padding: 7px 12px;
+}
+
+:root[data-ui-shell="focused"] .sidebar-resize-handle {
+  width: 2px;
+}
+
+:root[data-ui-shell="focused"] .main-content {
+  background: var(--base);
+  container-name: workbook-main;
+  container-type: inline-size;
+}
+
+:root[data-ui-shell="focused"] .terminal-groups-bar {
+  min-height: 38px;
+  background: color-mix(in srgb, var(--mantle) 76%, var(--base));
+}
+
+:root[data-ui-shell="focused"] .terminal-grid {
+  gap: 1px;
+  background: var(--border-subtle);
+}
+
+/*
+ * Five or six live terminals need width more than they need a dashboard-like
+ * three-column overview. At common laptop and desktop widths, use two columns;
+ * the existing five-pane layout logic makes the final pane span both columns.
+ * Wider displays retain the classic 3x2 grid.
+ */
+@media (min-width: 769px) and (max-width: 1559px) {
+  :root[data-ui-shell="focused"] .terminal-grid[data-panes="5"],
+  :root[data-ui-shell="focused"] .terminal-grid[data-panes="6"] {
+    /* Workbook writes a resizable grid inline, so these adaptive tracks must
+       win while the media query is active. */
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: 1fr 1fr 1fr !important;
+  }
+
+  :root[data-ui-shell="focused"] .terminal-grid:is(
+    [data-panes="5"],
+    [data-panes="6"]
+  ) > .terminal-resize-row {
+    display: none !important;
+  }
+}
+
+/*
+ * Browser zoom and Windows display scaling can leave the work surface narrower
+ * than the outer viewport. Use the actual canvas width as the final guard so a
+ * third terminal column never slips beneath the inspector/sidebar.
+ */
+@container workbook-main (max-width: 1399px) {
+  :root[data-ui-shell="focused"] .terminal-grid[data-panes="5"],
+  :root[data-ui-shell="focused"] .terminal-grid[data-panes="6"] {
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: 1fr 1fr 1fr !important;
+  }
+
+  :root[data-ui-shell="focused"] .terminal-grid[data-panes="5"] .terminal-resize-row,
+  :root[data-ui-shell="focused"] .terminal-grid[data-panes="6"] .terminal-resize-row {
+    display: none !important;
+  }
+}
+
+:root[data-ui-shell="focused"] .terminal-pane {
+  background: var(--base);
+}
+
+:root[data-ui-shell="focused"] .terminal-pane[data-provider="claude"]:not(.terminal-pane-empty),
+:root[data-ui-shell="focused"] .terminal-pane[data-provider="codex"]:not(.terminal-pane-empty) {
+  border-top: 1px solid color-mix(in srgb, var(--provider-claude-accent) 58%, var(--border-subtle));
+  border-bottom: 0;
+  background: var(--base);
+}
+
+:root[data-ui-shell="focused"] .terminal-pane[data-provider="codex"]:not(.terminal-pane-empty) {
+  border-top-color: color-mix(in srgb, var(--provider-codex-accent) 58%, var(--border-subtle));
+}
+
+:root[data-ui-shell="focused"].pane-colors-enabled
+  .terminal-pane:not(.terminal-pane-empty) > .terminal-pane-header {
+  border-left-width: 2px;
+}
+
+:root[data-ui-shell="focused"] .terminal-pane-header {
+  min-height: 36px;
+  padding: 7px 12px;
+  background: color-mix(in srgb, var(--mantle) 78%, var(--base));
+  border-bottom-color: var(--border-subtle);
+}
+
+:root[data-ui-shell="focused"] .terminal-pane-selectmode {
+  min-width: 28px;
+  min-height: 28px;
+  gap: 5px;
+  padding-inline: 6px;
+  white-space: nowrap;
+}
+
+:root[data-ui-shell="focused"] .terminal-selectmode-label {
+  display: none;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+:root[data-ui-shell="focused"] .terminal-pane-active .terminal-selectmode-label,
+:root[data-ui-shell="focused"] .terminal-pane-selectmode.active .terminal-selectmode-label,
+:root[data-ui-shell="focused"][data-density="informative"] .terminal-selectmode-label {
+  display: inline;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-shell="focused"] .terminal-pane-header > button {
+    opacity: 0.46;
+    transition: opacity var(--transition-fast), color var(--transition-fast),
+      background var(--transition-fast);
+  }
+
+  :root[data-ui-shell="focused"] .terminal-pane-active > .terminal-pane-header > button {
+    opacity: 0.72;
+  }
+
+  :root[data-ui-shell="focused"] .terminal-pane-header:hover > button,
+  :root[data-ui-shell="focused"] .terminal-pane-header:focus-within > button,
+  :root[data-ui-shell="focused"] .terminal-pane-header > button:focus-visible {
+    opacity: 1;
+  }
+
+  /* Never mute controls whose color/opacity communicates a live state. */
+  :root[data-ui-shell="focused"] .terminal-pane-header > .terminal-pane-mic.mic-active,
+  :root[data-ui-shell="focused"] .terminal-pane-header > .terminal-pane-expand-stage1,
+  :root[data-ui-shell="focused"] .terminal-pane-header > .terminal-pane-collapse:not([hidden]) {
+    opacity: 1;
+  }
+}
+
+/* A purposeful start state replaces the full-canvas dashed drop target. */
+:root[data-ui-shell="focused"] .terminal-pane-empty .terminal-pane-header {
+  display: none;
+}
+
+:root[data-ui-shell="focused"] .terminal-pane-empty .terminal-container {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 50% 34%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 38%),
+    var(--base);
+}
+
+:root[data-ui-shell="focused"] .terminal-pane-empty .terminal-container::after {
+  content: none;
+}
+
+.workbench-empty-state {
+  display: none;
+}
+
+:root[data-ui-shell="focused"] .terminal-pane-empty > .workbench-empty-state {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 40px;
+  text-align: center;
+  pointer-events: none;
+}
+
+:root[data-ui-shell="focused"] .terminal-pane:not(.terminal-pane-empty) > .workbench-empty-state {
+  display: none;
+}
+
+:root[data-ui-shell="focused"] .workbench-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 18px;
+  border: 1px solid var(--border-default);
+  border-radius: 15px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--surface0) 58%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-ui-shell="focused"] .workbench-empty-state h1 {
+  max-width: 520px;
+  color: var(--text-primary);
+  font-size: clamp(20px, 2.2vw, 28px);
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+:root[data-ui-shell="focused"] .workbench-empty-state p {
+  max-width: 490px;
+  margin-top: 9px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+:root[data-ui-shell="focused"] .workbench-empty-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  pointer-events: auto;
+}
+
+:root[data-ui-shell="focused"] .workbench-empty-actions .btn {
+  min-height: 38px;
+  padding-inline: 15px;
+}
+
+:root[data-ui-shell="focused"] .workbench-empty-hint {
+  margin-top: 15px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+:root[data-ui-shell="focused"] .terminal-pane-empty.drag-over .terminal-container {
+  outline: 1px solid var(--accent);
+  outline-offset: -10px;
+  border: 0;
+  background: color-mix(in srgb, var(--accent) 5%, var(--base));
+}
+
+:root[data-ui-shell="focused"] .terminal-pane-empty.drag-over .workbench-empty-state {
+  color: var(--accent);
+}
+
+/* Git and Files remain as compatibility code only. They are retired from the
+   product hierarchy until they can ship as complete, supported workflows. */
+:root[data-ui-shell="focused"] .tasks-tab[data-shell-maturity="preview"],
+:root[data-ui-shell="focused"] .tasks-tab[data-shell-maturity="retired"] {
+  display: none;
+}
+
+:root[data-ui-shell="focused"] .panel-header,
+:root[data-ui-shell="focused"] .tasks-panel-header,
+:root[data-ui-shell="focused"] .docs-header,
+:root[data-ui-shell="focused"] .costs-header,
+:root[data-ui-shell="focused"] .resources-header {
+  border-bottom-color: var(--border-subtle);
+}
+
+:root[data-ui-shell="focused"] .empty-state,
+:root[data-ui-shell="focused"] .session-empty {
+  color: var(--text-tertiary);
+}
+
+/* Accordion actions are siblings of the semantic disclosure button. This
+   avoids nested interactive controls while preserving the compact one-row
+   layout used by both shell variants. */
+.docs-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.docs-section-heading > .docs-section-header {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.docs-section-heading > .docs-section-header:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid var(--color-focus, var(--accent));
+  outline-offset: 2px;
+}
+
+.docs-section-actions {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.docs-section-actions .docs-add-btn {
+  margin-left: 0;
+}
+
+/* Empty project-note buckets remain available, but no longer dominate the
+   page with five repeated "nothing here" messages. */
+:root[data-ui-shell="focused"] .docs-section[data-empty="true"] {
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+:root[data-ui-shell="focused"] .docs-section[data-empty="true"] .docs-section-header {
+  min-height: 42px;
+  padding: 8px 6px;
+}
+
+:root[data-ui-shell="focused"] .ctx-submenu {
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* ─── Deliberate information density ───────────────────────── */
+
+:root[data-ui-shell="focused"][data-density="informative"] #header-stats {
+  display: flex !important;
+}
+
+:root[data-ui-shell="focused"][data-density="informative"] .terminal-pane-header > button {
+  opacity: 0.76;
+}
+
+:root[data-ui-shell="focused"][data-density="quiet"] .terminal-pane-activity {
+  width: 8px;
+  max-width: 8px;
+}
+
+:root[data-ui-shell="focused"][data-density="informative"] .terminal-pane-activity {
+  width: auto;
+  max-width: 200px;
+}
+
+:root[data-ui-shell="focused"][data-density="informative"] .docs-section[data-empty="true"] {
+  margin-bottom: 8px;
+}
+
+:root[data-ui-shell="focused"][data-density="informative"] .resource-workspace-label {
+  display: inline;
+}
+
+:root[data-ui-shell="focused"][data-density="quiet"] .resource-workspace-label {
+  display: none;
+}
+
+/* ─── Session attention queue ───────────────────────────────── */
+
+.attention-queue-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: transparent;
+  font: 600 11px var(--font-sans);
+  cursor: pointer;
+}
+
+.attention-queue-btn:hover,
+.attention-queue-btn:focus-visible,
+.attention-queue-btn[aria-expanded="true"] {
+  color: var(--text-primary);
+  background: var(--surface-interactive);
+}
+
+.attention-queue-btn:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.attention-queue-icon {
+  color: var(--status-running);
+  font-size: 9px;
+}
+
+.attention-queue-btn.has-actionable .attention-queue-icon {
+  color: var(--status-needs-input);
+}
+
+.attention-queue-badge {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  font-size: 10px;
+}
+
+.attention-state {
+  position: relative;
+}
+
+.attention-state::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-right: 1px;
+  border-radius: 50%;
+  background: var(--attention-color, var(--status-running));
+  flex: 0 0 auto;
+}
+
+.attention-state .ctx-icon,
+.attention-state .as-icon {
+  color: var(--attention-color, var(--status-running));
+}
+
+.session-item.attention-state::before,
+.terminal-group-tab.attention-state::before,
+.action-sheet-item.attention-state::before {
+  display: none;
+}
+
+.terminal-pane-header.attention-state[data-attention-state="needs-input"]::before,
+.terminal-group-tab.attention-state.tab-notify::after {
+  display: none;
+}
+
+.terminal-pane-header[data-needs-input="true"]::after {
+  color: var(--status-needs-input);
+  background: var(--status-needs-input-surface);
+}
+
+.session-item[data-attention-state] .status-dot,
+.terminal-group-tab[data-attention-state] .terminal-group-tab-dot {
+  background: var(--attention-color, var(--status-running));
+  box-shadow: none;
+}
+
+/* ─── Explicit Project Notes context ────────────────────────── */
+
+:root[data-ui-shell="focused"] .docs-header-left {
+  min-width: 0;
+  gap: 14px;
+}
+
+.docs-context {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+}
+
+.docs-context-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.docs-workspace-select {
+  width: clamp(170px, 24vw, 320px);
+  min-height: 32px;
+  padding: 5px 28px 5px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  color: var(--text-primary);
+  background: var(--surface-canvas);
+  font: 500 12px var(--font-sans);
+}
+
+.docs-workspace-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.docs-project-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 300px;
+  padding: 44px 24px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.docs-project-empty[hidden] {
+  display: none;
+}
+
+.docs-project-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 13px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 13px;
+  color: var(--color-focus);
+  background: var(--surface-raised);
+  font-size: 20px;
+}
+
+.docs-project-empty h3 {
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.docs-project-empty p {
+  max-width: 430px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ─── Appearance: density + grouped theme gallery ───────────── */
+
+.appearance-overlay {
+  align-items: center;
+  padding: 24px;
+}
+
+body.appearance-open {
+  overflow: hidden;
+}
+
+.appearance-dialog {
+  width: min(860px, 100%);
+  max-height: min(820px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  color: var(--text-primary);
+  background: var(--surface-canvas);
+  box-shadow: var(--shadow-xl);
+}
+
+.appearance-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-canvas) 96%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.appearance-header h2 {
+  font-size: 19px;
+}
+
+.appearance-header p,
+.appearance-section-heading p {
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.appearance-density,
+.appearance-themes {
+  padding: 22px 24px;
+}
+
+.appearance-density {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.appearance-section-heading h3 {
+  font-size: 13px;
+}
+
+.density-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 13px;
+}
+
+.density-choice {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  min-height: 76px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-primary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.density-choice:hover,
+.density-choice:focus-visible {
+  background: var(--surface-interactive);
+}
+
+.density-choice[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--color-focus) 64%, var(--border-default));
+  background: var(--surface-selected);
+}
+
+.density-choice-label {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.density-choice-description {
+  grid-column: 1 / -1;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.density-choice-check,
+.theme-gallery-check {
+  color: var(--color-success);
+  font-weight: 800;
+}
+
+.theme-gallery {
+  display: grid;
+  gap: 18px;
+  margin-top: 14px;
+}
+
+.theme-gallery-group {
+  display: grid;
+  gap: 9px;
+}
+
+.theme-gallery-group h4 {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.theme-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-gallery-grid.theme-gallery-featured {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.theme-gallery-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 52px;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  color: var(--text-primary);
+  background: transparent;
+  font: 550 11px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-gallery-card:hover,
+.theme-gallery-card:focus-visible {
+  background: var(--surface-interactive);
+}
+
+.theme-gallery-card[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--color-focus) 64%, var(--border-default));
+  background: var(--surface-selected);
+}
+
+.theme-gallery-swatch {
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, white 8%, transparent);
+}
+
+.theme-gallery-more {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 13px;
+}
+
+.theme-gallery-more > summary {
+  min-height: 38px;
+  padding: 9px 4px;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.theme-gallery-more > summary:hover,
+.theme-gallery-more > summary:focus-visible {
+  color: var(--text-primary);
+  background: var(--surface-interactive);
+}
+
+.theme-gallery-more-groups {
+  display: grid;
+  gap: 18px;
+  padding-top: 12px;
+}
+
+/* ─── System Resources overflow actions ─────────────────────── */
+
+.resource-row-menu-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  background: transparent;
+  font: 700 16px/1 var(--font-sans);
+  cursor: pointer;
+}
+
+.resource-row-menu-btn:hover,
+.resource-row-menu-btn:focus-visible,
+.resource-row-menu-btn[aria-expanded="true"] {
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+  background: var(--surface-interactive);
+}
+
+.resource-row-menu-btn:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+:root[data-ui-shell="focused"] .claude-session-table td[data-label="Actions"] {
+  text-align: right;
+}
+
+.resource-value-muted,
+.resource-workspace-cell,
+.resource-message-count {
+  color: var(--text-tertiary);
+}
+
+.resource-session-status {
+  color: var(--status-stale);
+}
+
+.resource-status-running {
+  color: var(--status-running);
+}
+
+.resource-status-failed {
+  color: var(--status-failed);
+}
+
+/* Legacy labeled separators were still one pixel tall, so their text painted
+   over the following command. Give focused menus a real section-heading row. */
+:root[data-ui-shell="focused"] .context-menu-sep-labeled {
+  height: auto;
+  margin: 8px 8px 3px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-subtle);
+  background: transparent;
+}
+
+:root[data-ui-shell="focused"] .context-menu-sep-labeled .ctx-sep-label {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--text-tertiary);
+  line-height: 14px;
+}
+
+/* Coarse-pointer devices include tablets and touch laptops wider than the
+   phone breakpoint. Keep every audited focused-shell target at least 44px
+   without inflating the mouse/trackpad layout. */
+@media (pointer: coarse) {
+  :root[data-ui-shell="focused"] :is(
+    #sidebar-toggle,
+    #account-chip,
+    .sidebar-launch-btn,
+    .focused-more-btn,
+    .terminal-group-tab,
+    .terminal-groups-add,
+    .docs-section-header,
+    .docs-section-actions > button,
+    #appearance-close,
+    #resources-refresh-btn,
+    .resource-row-menu-btn,
+    .terminal-pane-header > button,
+    #workspaces-refresh,
+    #create-workspace-btn,
+    #projects-refresh,
+    #projects-toggle
+  ) {
+    min-height: 44px;
+  }
+
+  :root[data-ui-shell="focused"] :is(
+    #sidebar-toggle,
+    .focused-more-btn,
+    .terminal-groups-add,
+    .docs-section-actions > button,
+    #appearance-close,
+    .resource-row-menu-btn,
+    .terminal-pane-header > button,
+    #workspaces-refresh,
+    #create-workspace-btn,
+    #projects-refresh,
+    #projects-toggle
+  ) {
+    min-width: 44px;
+  }
+
+  :root[data-ui-shell="focused"] .terminal-group-tab-close {
+    display: inline-grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 1120px) and (min-width: 769px) {
+  :root[data-ui-shell="focused"] .header-title {
+    display: none;
+  }
+
+  :root[data-ui-shell="focused"] .header-left,
+  :root[data-ui-shell="focused"] .header-right {
+    flex-basis: 170px;
+  }
+
+  :root[data-ui-shell="focused"] .account-chip-meta,
+  :root[data-ui-shell="focused"] .usage-meter {
+    display: none !important;
+  }
+
+  :root[data-ui-shell="focused"][data-density="informative"] #header-stats {
+    display: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  :root[data-ui-shell="focused"] {
+    --focused-header-height: 50px;
+  }
+
+  :root[data-ui-shell="focused"] .view-nav-cluster {
+    display: none;
+  }
+
+  :root[data-ui-shell="focused"] .app-header {
+    height: var(--focused-header-height) !important;
+    min-height: var(--focused-header-height);
+    max-height: var(--focused-header-height);
+    padding: 6px 10px;
+  }
+
+  :root[data-ui-shell="focused"] .header-left {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  :root[data-ui-shell="focused"] .header-logo-img {
+    width: 34px;
+    height: 34px;
+  }
+
+  :root[data-ui-shell="focused"] .header-title {
+    display: none;
+  }
+
+  :root[data-ui-shell="focused"] .sidebar {
+    width: min(88vw, 320px);
+    min-width: min(88vw, 320px);
+  }
+
+  :root[data-ui-shell="focused"] .mobile-tab-bar {
+    height: calc(60px + env(safe-area-inset-bottom, 0px));
+    justify-content: stretch;
+    padding-inline: 8px;
+  }
+
+  :root[data-ui-shell="focused"] .mobile-tab {
+    flex: 1;
+    min-width: 0;
+    min-height: 48px;
+    color: var(--text-muted);
+  }
+
+  :root[data-ui-shell="focused"] .mobile-tab.active {
+    color: var(--accent);
+  }
+
+  :root[data-ui-shell="focused"] .app-body {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* The legacy mobile sheet hides every empty terminal pane. The focused
+     shell intentionally keeps slot zero visible so first-run mobile is useful. */
+  :root[data-ui-shell="focused"] #term-pane-0.terminal-pane-empty:not([hidden]) {
+    display: flex !important;
+    flex: 1;
+  }
+
+  :root[data-ui-shell="focused"] .terminal-pane-empty .terminal-mobile-toolbar,
+  :root[data-ui-shell="focused"] .terminal-pane-empty .terminal-mobile-input-row {
+    display: none !important;
+  }
+
+  :root[data-ui-shell="focused"] .terminal-pane-empty > .workbench-empty-state {
+    padding: 24px 22px;
+  }
+
+  :root[data-ui-shell="focused"] .workbench-empty-icon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 14px;
+  }
+
+  :root[data-ui-shell="focused"] .workbench-empty-state h1 {
+    font-size: 21px;
+  }
+
+  :root[data-ui-shell="focused"] .workbench-empty-state p {
+    max-width: 330px;
+    font-size: 12px;
+  }
+
+  :root[data-ui-shell="focused"] .workbench-empty-actions {
+    width: min(100%, 320px);
+    flex-direction: column;
+    margin-top: 18px;
+  }
+
+  :root[data-ui-shell="focused"] .workbench-empty-actions .btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  :root[data-ui-shell="focused"] .workbench-empty-hint {
+    max-width: 280px;
+  }
+
+  :root[data-ui-shell="focused"] .tasks-panel-header {
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  :root[data-ui-shell="focused"] .tasks-header-actions {
+    flex-wrap: wrap;
+  }
+
+  :root[data-ui-shell="focused"] .tasks-search-input {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  :root[data-ui-shell="focused"] .attention-queue-label {
+    display: none;
+  }
+
+  :root[data-ui-shell="focused"] .attention-queue-btn {
+    min-width: 34px;
+    padding-inline: 7px;
+  }
+
+  :root[data-ui-shell="focused"] .docs-header {
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  :root[data-ui-shell="focused"] .docs-header-left {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  :root[data-ui-shell="focused"] .docs-context {
+    width: 100%;
+  }
+
+  :root[data-ui-shell="focused"] .docs-workspace-select {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .appearance-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .appearance-dialog {
+    width: 100%;
+    max-height: min(88vh, 820px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .appearance-header,
+  .appearance-density,
+  .appearance-themes {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .density-choices {
+    grid-template-columns: 1fr;
+  }
+
+  .density-choice {
+    min-height: 72px;
+  }
+
+  .theme-gallery-grid,
+  .theme-gallery-grid.theme-gallery-featured {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table,
+  :root[data-ui-shell="focused"] .claude-session-table tbody,
+  :root[data-ui-shell="focused"] .claude-session-table tr,
+  :root[data-ui-shell="focused"] .claude-session-table td {
+    display: block;
+    width: 100%;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table tr {
+    position: relative;
+    margin-bottom: 10px;
+    padding: 12px 48px 12px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--surface-raised) 38%, transparent);
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td {
+    display: grid;
+    grid-template-columns: minmax(74px, 0.34fr) minmax(0, 1fr);
+    gap: 8px;
+    padding: 3px 0;
+    border: 0;
+    text-align: left;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td.session-name-cell {
+    display: block;
+    padding-bottom: 8px;
+    font-weight: 650;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td.session-name-cell::before {
+    content: none;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td[data-label="Actions"] {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    display: block;
+    width: 36px;
+    padding: 0;
+  }
+
+  :root[data-ui-shell="focused"] .resource-row-menu-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td[data-label="Actions"]::before {
+    content: none;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table .port-link,
+  :root[data-ui-shell="focused"] .claude-session-table .ports-cell {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  :root[data-ui-shell="focused"] .kanban-board {
+    grid-template-columns: minmax(230px, 82vw);
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(230px, 82vw);
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+
+  :root[data-ui-shell="focused"] .kanban-column {
+    scroll-snap-align: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-shell="focused"] .focused-more-btn,
+  :root[data-ui-shell="focused"] .sidebar-launch-btn {
+    transition: none;
+  }
+}

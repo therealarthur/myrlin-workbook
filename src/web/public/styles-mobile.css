@@ -347,6 +347,25 @@
   font-size: 14px;
 }
 
+.action-sheet-item .as-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-sheet-item .as-hint {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  opacity: 0.72;
+  white-space: nowrap;
+}
+
+.action-sheet-item .as-hint + .as-check {
+  margin-left: 0;
+}
+
 /* Checked items - bright green checkmark */
 .action-sheet-item.as-checked .as-check {
   color: var(--green);
@@ -378,6 +397,24 @@
   height: 1px;
   background: var(--border);
   margin: 4px 8px;
+}
+
+.action-sheet-sep-labeled {
+  height: auto;
+  margin: 8px 12px 2px;
+  padding-top: 8px;
+  background: transparent;
+  border-top: 1px solid var(--border);
+}
+
+.action-sheet-sep-labeled .as-sep-label {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 16px;
+  text-transform: uppercase;
 }
 
 .action-sheet-cancel {
@@ -436,6 +473,15 @@
     display: none;
   }
 
+  .terminal-tab-item {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+
   .terminal-tab {
     display: flex;
     align-items: center;
@@ -486,12 +532,16 @@
     transition: opacity var(--transition-fast);
   }
 
-  .terminal-tab.active .terminal-tab-close {
+  .terminal-tab-item.active .terminal-tab-close {
     opacity: 0.6;
   }
 
   .terminal-tab-close:active {
     background: var(--surface1);
+    opacity: 1;
+  }
+
+  .terminal-tab-close:focus-visible {
     opacity: 1;
   }
 
@@ -543,6 +593,11 @@
     gap: 0 !important;
     /* Prevent terminal grid from overflowing */
     overflow: hidden;
+  }
+
+  /* The flex override above must never defeat setViewMode()'s hidden state. */
+  .terminal-grid[hidden] {
+    display: none !important;
   }
 
   .terminal-pane {
@@ -1033,11 +1088,15 @@
 
 @media (max-width: 768px) {
   .terminal-group-tab-close {
+    display: inline-grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
     opacity: 0.5;
   }
 
   .terminal-group-tab {
-    min-height: 40px;
+    min-height: 44px;
     padding: 8px 14px;
   }
 }
@@ -1064,7 +1123,7 @@
   }
 
   /* Mobile terminal tab close: keep the 18px visual box but extend the tap
-     target 12px in every direction with a transparent ::before overlay. */
+     target to 44px with a transparent ::before overlay. */
   .terminal-tab-close {
     position: relative;
   }
@@ -1072,7 +1131,7 @@
   .terminal-tab-close::before {
     content: '';
     position: absolute;
-    inset: -12px;
+    inset: -13px;
   }
 }
 

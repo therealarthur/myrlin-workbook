@@ -1,0 +1,349 @@
+<!doctype html>
+<!--
+  terminal-interaction.html — Browser harness for real xterm copy/paste tests.
+  Modified: 2026-07-25
+  SPDX-License-Identifier: AGPL-3.0-only
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Myrlin terminal interaction harness</title>
+  <link rel="stylesheet" href="/src/web/public/vendor/xterm/xterm.css">
+  <style>
+    :root {
+      --base: #1e1e2e;
+      --mantle: #181825;
+      --surface0: #313244;
+      --surface1: #45475a;
+      --surface2: #585b70;
+      --text: #cdd6f4;
+      --subtext0: #a6adc8;
+      --mauve: #cba6f7;
+      --green: #a6e3a1;
+      --red: #f38ba8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 20px;
+      color: var(--text);
+      background: var(--mantle);
+      font: 13px/1.5 "Plus Jakarta Sans", system-ui, sans-serif;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(680px, 1fr) 310px;
+      gap: 16px;
+      max-width: 1260px;
+      margin: 0 auto;
+    }
+    .terminal-pane {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--surface1);
+      border-radius: 10px;
+      background: var(--base);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+    .terminal-pane-header {
+      display: flex;
+      min-height: 38px;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px 6px 12px;
+      background: var(--surface0);
+    }
+    .terminal-title { flex: 1; font-weight: 600; }
+    .terminal-pane-close { display: none; }
+    .terminal-container { height: 510px; padding: 8px; }
+    .btn {
+      min-height: 28px;
+      padding: 4px 10px;
+      border: 1px solid var(--surface2);
+      border-radius: 6px;
+      color: var(--text);
+      background: var(--surface0);
+      cursor: pointer;
+    }
+    .btn:hover, .btn:focus-visible { background: var(--surface1); }
+    .btn-icon { width: 30px; padding: 4px; }
+    .panel {
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--surface1);
+      border-radius: 10px;
+      background: var(--base);
+    }
+    .panel h1 { margin: 0 0 10px; font-size: 16px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    pre {
+      min-height: 240px;
+      overflow: auto;
+      padding: 10px;
+      border-radius: 8px;
+      color: var(--subtext0);
+      background: var(--mantle);
+      font: 11px/1.45 "JetBrains Mono", Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #toast {
+      min-height: 36px;
+      margin-top: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--surface0);
+    }
+    #toast[data-level="success"] { color: var(--green); }
+    #toast[data-level="error"] { color: var(--red); }
+    #fixture-context-menu {
+      position: fixed;
+      z-index: 1000;
+      min-width: 180px;
+      padding: 6px;
+      border: 1px solid var(--surface2);
+      border-radius: 8px;
+      background: var(--surface0);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    }
+    #fixture-context-menu[hidden] { display: none; }
+    .fixture-menu-title {
+      padding: 5px 8px;
+      color: var(--subtext0);
+      font-size: 11px;
+    }
+    .fixture-menu-item {
+      display: block;
+      width: 100%;
+      padding: 7px 9px;
+      border: 0;
+      border-radius: 6px;
+      color: var(--text);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+    .fixture-menu-item:hover, .fixture-menu-item:focus-visible {
+      background: var(--surface1);
+    }
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .terminal-container { height: 440px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="layout">
+    <section id="term-pane-0" class="terminal-pane" data-provider="claude">
+      <header class="terminal-pane-header">
+        <span class="terminal-title">Mouse-reporting terminal fixture</span>
+        <button class="terminal-pane-close" type="button">Close</button>
+      </header>
+      <div id="fixture-terminal" class="terminal-container"></div>
+    </section>
+    <aside class="panel">
+      <h1>Interaction evidence</h1>
+      <div class="controls">
+        <button id="mode-alt" class="btn" type="button">Alternate TUI</button>
+        <button id="mode-normal" class="btn" type="button">Normal buffer</button>
+        <button id="reset-state" class="btn" type="button">Reset counters</button>
+      </div>
+      <pre id="diagnostics">Starting…</pre>
+      <div id="toast" data-level="info">No copy attempt yet.</div>
+    </aside>
+  </main>
+  <div id="fixture-context-menu" hidden></div>
+
+  <script src="/src/web/public/vendor/xterm/xterm.min.js"></script>
+  <script src="/src/web/public/vendor/xterm-addon-fit/xterm-addon-fit.min.js"></script>
+  <script src="/src/web/public/vendor/xterm-addon-web-links/xterm-addon-web-links.min.js"></script>
+  <script src="/src/web/public/terminal.js"></script>
+  <script>
+    /**
+     * Fetch and render the server-side input counters.
+     * @returns {Promise<object>} Latest fixture state.
+     */
+    async function refreshFixtureState() {
+      const state = await fetch('/state', { cache: 'no-store' }).then((response) => response.json());
+      document.getElementById('diagnostics').textContent = JSON.stringify(state, null, 2);
+      window.__fixtureState = state;
+      return state;
+    }
+
+    /**
+     * Change the terminal fixture between alternate and normal buffers.
+     * @param {'alt'|'normal'} mode - Desired fixture mode.
+     * @returns {Promise<void>}
+     */
+    async function setFixtureMode(mode) {
+      await fetch('/mode/' + mode, { method: 'POST' });
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      await refreshFixtureState();
+    }
+
+    /**
+     * Reset all server-side input counters.
+     * @returns {Promise<void>}
+     */
+    async function resetFixtureState() {
+      await fetch('/reset', { method: 'POST' });
+      window.__copyAttempts.length = 0;
+      window.__toast = null;
+      await refreshFixtureState();
+    }
+
+    /**
+     * Render only the actionable terminal-menu items needed by this fixture.
+     * The item descriptors themselves come from the production
+     * CWMApp.prototype.showTerminalContextMenu method.
+     * @param {string} title - Context-menu heading.
+     * @param {Array<object>} items - Production menu item descriptors.
+     * @param {number} x - Viewport x coordinate.
+     * @param {number} y - Viewport y coordinate.
+     * @returns {void}
+     */
+    function renderFixtureContextMenu(title, items, x, y) {
+      const menu = document.getElementById('fixture-context-menu');
+      menu.innerHTML = '';
+      const heading = document.createElement('div');
+      heading.className = 'fixture-menu-title';
+      heading.textContent = title;
+      menu.appendChild(heading);
+      for (const item of items) {
+        if (!item || item.type === 'sep' || typeof item.action !== 'function') continue;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'fixture-menu-item';
+        button.textContent = item.label;
+        button.dataset.label = item.label;
+        button.addEventListener('click', async () => {
+          await item.action();
+          menu.hidden = true;
+        });
+        menu.appendChild(button);
+      }
+      menu.style.left = Math.max(4, x) + 'px';
+      menu.style.top = Math.max(4, y) + 'px';
+      menu.hidden = false;
+    }
+
+    /**
+     * Load app.js after DOMContentLoaded so its production class is available
+     * without booting the full Workbook SPA.
+     * @returns {Promise<Function>} The production CWMApp class.
+     */
+    function loadCwmAppClass() {
+      return new Promise((resolve, reject) => {
+        window.cwm = {};
+        const script = document.createElement('script');
+        script.src = '/src/web/public/app.js';
+        script.onload = () => {
+          try {
+            window.__CWMApp = CWMApp;
+            resolve(CWMApp);
+          } catch (error) {
+            reject(error);
+          }
+        };
+        script.onerror = () => reject(new Error('app.js failed to load'));
+        document.body.appendChild(script);
+      });
+    }
+
+    /**
+     * Dispatch a synthetic native paste event against xterm's real textarea.
+     * This directly exercises same-target listener isolation without relying
+     * on browser clipboard permissions.
+     * @param {string} text - Clipboard payload.
+     * @returns {void}
+     */
+    function dispatchNativePaste(text) {
+      const textarea = document.querySelector('#fixture-terminal .xterm-helper-textarea');
+      const data = new DataTransfer();
+      data.setData('text/plain', text);
+      textarea.dispatchEvent(new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: data,
+      }));
+    }
+
+    window.__copyAttempts = [];
+    window.__toast = null;
+    localStorage.setItem('cwm_token', 'fixture-token');
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      const pane = new TerminalPane('fixture-terminal', 'fixture_session', 'Fixture TUI', {
+        provider: 'claude',
+      });
+      pane.mount();
+      window.__fixturePane = pane;
+
+      const originalCopy = TerminalPane.copyTextToClipboard.bind(TerminalPane);
+      TerminalPane.copyTextToClipboard = (text) => {
+        const attempt = { text: String(text), result: null };
+        window.__copyAttempts.push(attempt);
+        return originalCopy(text).then((result) => {
+          attempt.result = result;
+          return result;
+        });
+      };
+
+      const CwmAppClass = await loadCwmAppClass();
+      const menuApp = Object.create(CwmAppClass.prototype);
+      menuApp.terminalPanes = [pane];
+      menuApp.state = {};
+      menuApp._tabGroups = [];
+      menuApp._activeGroupId = null;
+      menuApp._buildSessionContextItems = () => null;
+      menuApp.getSessionConflicts = () => [];
+      menuApp.showToast = (message, level) => {
+        window.__toast = { message, level };
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.dataset.level = level;
+      };
+      menuApp._renderContextItems = renderFixtureContextMenu;
+      window.__fixtureApp = menuApp;
+
+      // The fixture intentionally does not boot CWMApp._bindEvents. Mirror its
+      // production copy-failure listener so a real TerminalPane Ctrl+C event
+      // exercises the same visible outcome.
+      document.addEventListener('cwm:copy-unavailable', () => {
+        menuApp.showToast('Copy was blocked by the browser. Selection kept.', 'error');
+      });
+
+      const paneElement = document.getElementById('term-pane-0');
+      paneElement.addEventListener('mousedown', () => pane.focus(), true);
+      paneElement.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        menuApp.showTerminalContextMenu(0, event.clientX, event.clientY);
+      });
+
+      document.getElementById('mode-alt').addEventListener('click', () => setFixtureMode('alt'));
+      document.getElementById('mode-normal').addEventListener('click', () => setFixtureMode('normal'));
+      document.getElementById('reset-state').addEventListener('click', resetFixtureState);
+      document.addEventListener('mousedown', (event) => {
+        const menu = document.getElementById('fixture-context-menu');
+        if (!menu.contains(event.target) && event.button === 0) menu.hidden = true;
+      });
+
+      window.fixture = {
+        pane,
+        app: menuApp,
+        dispatchNativePaste,
+        refreshState: refreshFixtureState,
+        resetState: resetFixtureState,
+        setMode: setFixtureMode,
+      };
+      window.__fixtureReady = true;
+      await refreshFixtureState();
+      window.__fixturePoll = setInterval(refreshFixtureState, 200);
+    });
+  </script>
+</body>
+</html>

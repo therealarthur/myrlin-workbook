@@ -21,6 +21,7 @@
 'use strict';
 
 const fs = require('fs');
+const crypto = require('crypto');
 const os = require('os');
 const path = require('path');
 
@@ -32,6 +33,13 @@ if (process.env.CWM_TEST_ALLOW_PROD_DIR === '1') {
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cwm-test-'));
 process.env.CWM_DATA_DIR = dir;
+// src/web/auth.js predates CWM_DATA_DIR and otherwise reads the real home
+// config, then rewrites the clone-local ignored state/config.json on import.
+// A process-local random test password keeps every default test and inherited
+// standalone child on the side-effect-free environment-variable path.
+if (!process.env.CWM_PASSWORD) {
+  process.env.CWM_PASSWORD = 'cwm-test-' + crypto.randomBytes(18).toString('base64url');
+}
 
 let cleaned = false;
 function cleanup() {

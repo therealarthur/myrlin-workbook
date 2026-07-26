@@ -28,6 +28,11 @@ Thanks for wanting to contribute! Here's how to get started.
    ```bash
    npm test
    ```
+   On Windows, terminal input, selection, copy, paste, context-menu, or
+   scrolling changes must also pass the real Chromium/xterm acceptance gate:
+   ```bash
+   npm run test:browser
+   ```
 4. Commit with a clear message explaining what and why:
    ```bash
    git commit -m "Fix thing that was broken because reason"
@@ -81,6 +86,7 @@ src/
 | `npm run gui:demo` | Start with sample data |
 | `npm start` | Start the TUI (terminal mode) |
 | `npm test` | Run test suite |
+| `npm run test:browser` | Run Windows-only real Chromium/xterm and full-SPA acceptance |
 
 ## Environment Variables
 

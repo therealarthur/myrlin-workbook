@@ -1,0 +1,93 @@
+/*
+ * Semantic color roles shared by every Workbook theme.
+ *
+ * Legacy palettes continue to define their raw color ramps in styles.css.
+ * Product components consume the roles below, keeping appearance, focus,
+ * provider identity, and session status independent from palette names.
+ */
+
+:root {
+  --surface-canvas: var(--base);
+  --surface-sidebar: var(--mantle);
+  --surface-raised: var(--surface0);
+  --surface-interactive: color-mix(in srgb, var(--surface1) 42%, transparent);
+  --surface-selected: color-mix(in srgb, var(--accent) 12%, var(--base));
+
+  --color-focus: var(--accent);
+  --color-info: var(--blue);
+  --color-attention: var(--yellow);
+  --color-success: var(--green);
+  --color-danger: var(--red);
+  --color-stale: var(--overlay1);
+
+  --status-needs-input: var(--color-attention);
+  --status-running: var(--color-info);
+  --status-complete: var(--color-success);
+  --status-failed: var(--color-danger);
+  --status-stale: var(--color-stale);
+  --status-needs-input-surface: color-mix(in srgb, var(--status-needs-input) 12%, transparent);
+  --status-running-surface: color-mix(in srgb, var(--status-running) 10%, transparent);
+  --status-complete-surface: color-mix(in srgb, var(--status-complete) 10%, transparent);
+  --status-failed-surface: color-mix(in srgb, var(--status-failed) 10%, transparent);
+  --status-stale-surface: color-mix(in srgb, var(--status-stale) 10%, transparent);
+
+  --action-warning: var(--color-attention);
+  --action-success: var(--color-success);
+  --action-danger: var(--color-danger);
+
+  --selection-bg: color-mix(in srgb, var(--color-focus) 25%, transparent);
+  --drop-target-bg: color-mix(in srgb, var(--color-focus) 6%, var(--surface-canvas));
+  --resize-handle-hover: color-mix(in srgb, var(--color-focus) 44%, transparent);
+  --focus-ring: 0 0 0 2px var(--surface-canvas), 0 0 0 4px var(--color-focus);
+}
+
+::selection {
+  background: var(--selection-bg);
+  color: var(--text-primary);
+}
+
+:root[data-ui-shell] .stat-dot-running {
+  background: var(--status-running);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--status-running) 52%, transparent);
+}
+
+:root[data-ui-shell] .terminal-pane-empty.drag-over .terminal-container {
+  background: var(--drop-target-bg);
+}
+
+:root[data-ui-shell] .terminal-resize-handle:hover {
+  background: var(--resize-handle-hover);
+}
+
+.attention-state[data-attention-state="needs-input"] {
+  --attention-color: var(--status-needs-input);
+}
+
+.attention-state[data-attention-state="running"] {
+  --attention-color: var(--status-running);
+}
+
+.attention-state[data-attention-state="complete"] {
+  --attention-color: var(--status-complete);
+}
+
+.attention-state[data-attention-state="failed"] {
+  --attention-color: var(--status-failed);
+}
+
+.attention-state[data-attention-state="stale"] {
+  --attention-color: var(--status-stale);
+}
+
+@media (forced-colors: active) {
+  .attention-state,
+  .theme-gallery-card,
+  .density-choice,
+  .resource-row-menu-btn {
+    border: 1px solid ButtonText;
+  }
+
+  :focus-visible {
+    outline: 2px solid Highlight;
+  }
+}

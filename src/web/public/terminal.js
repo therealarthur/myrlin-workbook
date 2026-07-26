@@ -210,9 +210,64 @@ class TerminalPane {
     brightWhite: '#d8f0e8',
   };
 
-  static getCurrentTheme() {
-    const t = document.documentElement.dataset.theme;
-    switch (t) {
+  /**
+   * Build an xterm palette from the semantic color slots shared by every
+   * Workbook CSS theme. Light themes use darker neutral slots for ANSI black
+   * and lighter surface slots for ANSI white so both ends remain legible.
+   */
+  static _buildThemePalette(tokens, isLight) {
+    return {
+      background: tokens.base,
+      foreground: tokens.text,
+      cursor: tokens.rosewater,
+      cursorAccent: tokens.base,
+      selectionBackground: TerminalPane._colorWithAlpha(
+        tokens.mauve,
+        isLight ? 0.2 : 0.25,
+        isLight ? 'rgba(136, 57, 239, 0.2)' : 'rgba(203, 166, 247, 0.25)'
+      ),
+      selectionForeground: tokens.text,
+      black: isLight ? tokens.subtext1 : tokens.surface1,
+      red: tokens.red,
+      green: tokens.green,
+      yellow: tokens.yellow,
+      blue: tokens.blue,
+      magenta: tokens.mauve,
+      cyan: tokens.teal,
+      white: isLight ? tokens.surface2 : tokens.subtext1,
+      brightBlack: isLight ? tokens.subtext0 : tokens.surface2,
+      brightRed: tokens.red,
+      brightGreen: tokens.green,
+      brightYellow: tokens.yellow,
+      brightBlue: tokens.blue,
+      brightMagenta: tokens.mauve,
+      brightCyan: tokens.teal,
+      brightWhite: isLight ? tokens.surface1 : tokens.text,
+    };
+  }
+
+  /**
+   * Apply alpha to a six-digit CSS hex color. Custom properties currently
+   * resolve to hex; if a future theme uses another format, preserve its
+   * complete static selection fallback rather than returning invalid CSS.
+   */
+  static _colorWithAlpha(color, alpha, fallback) {
+    const match = /^#([0-9a-f]{6})$/i.exec(String(color || '').trim());
+    if (!match) return fallback;
+    const value = parseInt(match[1], 16);
+    const red = (value >> 16) & 255;
+    const green = (value >> 8) & 255;
+    const blue = value & 255;
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+  }
+
+  /**
+   * Complete, theme-correct fallbacks for environments where computed CSS is
+   * unavailable (unit tests, early startup, or a detached document).
+   */
+  static _getThemeFallback(themeId) {
+    switch (themeId) {
+      case 'mocha': return TerminalPane.THEME_MOCHA;
       case 'latte': return TerminalPane.THEME_LATTE;
       case 'frappe': return TerminalPane.THEME_FRAPPE;
       case 'macchiato': return TerminalPane.THEME_MACCHIATO;
@@ -220,8 +275,161 @@ class TerminalPane {
       case 'ocean': return TerminalPane.THEME_OCEAN;
       case 'amber': return TerminalPane.THEME_AMBER;
       case 'mint': return TerminalPane.THEME_MINT;
-      default: return TerminalPane.THEME_MOCHA;
+      case 'nord':
+        return TerminalPane._buildThemePalette({
+          base: '#2e3440',
+          surface1: '#434c5e',
+          surface2: '#4c566a',
+          text: '#eceff4',
+          subtext0: '#a5b1c2',
+          subtext1: '#d8dee9',
+          mauve: '#b48ead',
+          blue: '#81a1c1',
+          green: '#a3be8c',
+          yellow: '#ebcb8b',
+          red: '#bf616a',
+          teal: '#8fbcbb',
+          rosewater: '#d8b4a0',
+        }, false);
+      case 'dracula':
+        return TerminalPane._buildThemePalette({
+          base: '#282a36',
+          surface1: '#44475a',
+          surface2: '#545768',
+          text: '#f8f8f2',
+          subtext0: '#b8b8b0',
+          subtext1: '#d8d8d0',
+          mauve: '#bd93f9',
+          blue: '#8be9fd',
+          green: '#50fa7b',
+          yellow: '#f1fa8c',
+          red: '#ff5555',
+          teal: '#8be9fd',
+          rosewater: '#ffd0e0',
+        }, false);
+      case 'tokyo-night':
+        return TerminalPane._buildThemePalette({
+          base: '#1a1b26',
+          surface1: '#3b4261',
+          surface2: '#545c7e',
+          text: '#c0caf5',
+          subtext0: '#9aa5ce',
+          subtext1: '#a9b1d6',
+          mauve: '#bb9af7',
+          blue: '#7aa2f7',
+          green: '#9ece6a',
+          yellow: '#e0af68',
+          red: '#f7768e',
+          teal: '#73daca',
+          rosewater: '#ffc0cb',
+        }, false);
+      case 'rose-pine-dawn':
+        return TerminalPane._buildThemePalette({
+          base: '#faf4ed',
+          surface1: '#dfdad9',
+          surface2: '#cecacd',
+          text: '#575279',
+          subtext0: '#6e6a86',
+          subtext1: '#635f7b',
+          mauve: '#907aa9',
+          blue: '#286983',
+          green: '#56949f',
+          yellow: '#ea9d34',
+          red: '#b4637a',
+          teal: '#56949f',
+          rosewater: '#d7827e',
+        }, true);
+      case 'gruvbox-light':
+        return TerminalPane._buildThemePalette({
+          base: '#fbf1c7',
+          surface1: '#bdae93',
+          surface2: '#a89984',
+          text: '#3c3836',
+          subtext0: '#504945',
+          subtext1: '#453e3a',
+          mauve: '#8f3f71',
+          blue: '#076678',
+          green: '#79740e',
+          yellow: '#b57614',
+          red: '#9d0006',
+          teal: '#427b58',
+          rosewater: '#c8956c',
+        }, true);
+      default:
+        return null;
     }
+  }
+
+  /**
+   * Resolve a palette from the active root custom properties. Each field has
+   * a complete static fallback, so a missing variable can never make xterm
+   * inherit colors from a different theme.
+   */
+  static _getCssVariableTheme(fallback, isLight) {
+    if (typeof document === 'undefined' || !document.documentElement) return fallback;
+
+    let styles;
+    try {
+      if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+        styles = window.getComputedStyle(document.documentElement);
+      } else if (typeof getComputedStyle === 'function') {
+        styles = getComputedStyle(document.documentElement);
+      } else {
+        return fallback;
+      }
+    } catch (_) {
+      return fallback;
+    }
+
+    const read = (property, fallbackValue) => {
+      try {
+        const value = styles.getPropertyValue(property).trim();
+        return value || fallbackValue;
+      } catch (_) {
+        return fallbackValue;
+      }
+    };
+
+    const tokens = {
+      base: read('--base', fallback.background),
+      surface1: read('--surface1', fallback.black),
+      surface2: read('--surface2', fallback.brightBlack),
+      text: read('--text', fallback.foreground),
+      subtext0: read('--subtext0', isLight ? fallback.brightBlack : fallback.brightWhite),
+      subtext1: read('--subtext1', isLight ? fallback.black : fallback.white),
+      mauve: read('--mauve', fallback.magenta),
+      blue: read('--blue', fallback.blue),
+      green: read('--green', fallback.green),
+      yellow: read('--yellow', fallback.yellow),
+      red: read('--red', fallback.red),
+      teal: read('--teal', fallback.cyan),
+      rosewater: read('--rosewater', fallback.cursor),
+    };
+    const palette = TerminalPane._buildThemePalette(tokens, isLight);
+
+    // _buildThemePalette derives selection alpha from --mauve. Retain the
+    // theme-specific static value if that custom property was not usable.
+    palette.selectionBackground = TerminalPane._colorWithAlpha(
+      tokens.mauve,
+      isLight ? 0.2 : 0.25,
+      fallback.selectionBackground
+    );
+    return palette;
+  }
+
+  static getCurrentTheme() {
+    const themeId = (document.documentElement.dataset.theme || 'mocha');
+    const fallback = TerminalPane._getThemeFallback(themeId);
+    if (!fallback) return TerminalPane.THEME_MOCHA;
+    const isCssDerivedTheme = themeId === 'nord'
+      || themeId === 'dracula'
+      || themeId === 'tokyo-night'
+      || themeId === 'rose-pine-dawn'
+      || themeId === 'gruvbox-light';
+    if (!isCssDerivedTheme) return fallback;
+    const isLight = themeId === 'rose-pine-dawn'
+      || themeId === 'gruvbox-light';
+    return TerminalPane._getCssVariableTheme(fallback, isLight);
   }
 
   // Resolve the smooth-scroll animation duration in ms. Reads the persisted
@@ -235,6 +443,180 @@ class TerminalPane {
     } catch (_) {}
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return 0;
     return SMOOTH_SCROLL_DURATION_MS;
+  }
+
+  // ── Universal clipboard copy (secure-context safe) ─────────────
+  // WHY these live on TerminalPane as statics: terminal.js is the shared
+  // seam between the pane and the app shell. index.html loads terminal.js
+  // before app.js, and app.js already consumes TerminalPane statics
+  // (getCurrentTheme), so both files copy through this one implementation
+  // without inventing a module system for the public/ scripts.
+
+  /**
+   * Copy text to the clipboard on ANY origin, secure or not.
+   *
+   * The async Clipboard API (navigator.clipboard.writeText) only exists in
+   * secure contexts (https or localhost). On plain http to a LAN IP or
+   * hostname, the documented remote-access mode, navigator.clipboard is
+   * undefined and even PROPERTY ACCESS on it throws a SYNCHRONOUS TypeError
+   * that a chained .catch() can never intercept (.catch only sees promise
+   * rejections, not a throw during property lookup). That exact trap is what
+   * turned Ctrl+C-to-copy into a SIGINT to the running CLI (see the Ctrl+C
+   * branch in attachCustomKeyEventHandler) and is the copy-side twin of
+   * paste issue #64.
+   *
+   * WHY copy can work everywhere while paste cannot: browsers still permit
+   * document.execCommand('copy') from script during a user gesture on every
+   * origin, because copying exposes nothing the page did not already have.
+   * Programmatic PASTE reads foreign clipboard data and is dead from script
+   * on insecure origins, which is why the paste path can only degrade to a
+   * "press Ctrl+V" hint while this helper has a real universal fallback.
+   *
+   * Feature-detects the writeText FUNCTION, not just the clipboard object:
+   * some engines expose a navigator.clipboard object without writeText, and
+   * calling through a mere object check would reintroduce the throw.
+   *
+   * Contract: NEVER throws and the returned promise NEVER rejects, under any
+   * circumstance, so callers inside key and click handlers stay
+   * exception-safe.
+   *
+   * @param {string} text - Text to place on the clipboard ('' when nullish).
+   * @returns {Promise<boolean>} Resolves true when the copy succeeded, false
+   *   when every available path failed. Never rejects.
+   */
+  static copyTextToClipboard(text) {
+    const value = (text === null || text === undefined) ? '' : String(text);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard &&
+          typeof navigator.clipboard.writeText === 'function') {
+        // Secure context: async Clipboard API. Map BOTH outcomes so the
+        // promise can never reject. On rejection (Safari and some mobile
+        // browsers deny programmatic writes even on https) attempt the
+        // execCommand fallback before giving up; by the time the rejection
+        // lands the user gesture may have expired, in which case execCommand
+        // simply reports false, so trying is harmless.
+        return navigator.clipboard.writeText(value).then(
+          () => true,
+          () => {
+            try { return TerminalPane._copyViaExecCommand(value); } catch (_) { return false; }
+          }
+        );
+      }
+      // Insecure origin (or clipboard API absent): synchronous fallback.
+      return Promise.resolve(TerminalPane._copyViaExecCommand(value));
+    } catch (_) {
+      // Belt and braces: nothing above should throw, but the whole point of
+      // this helper is that callers NEVER see an exception. A throw escaping
+      // a key handler is exactly the bug that sent SIGINT to running CLIs.
+      return Promise.resolve(false);
+    }
+  }
+
+  /**
+   * Return a stable identity for the terminal's current xterm selection range.
+   *
+   * Clipboard writes can settle asynchronously. Text alone is insufficient
+   * to decide whether it is still safe to clear the old selection because the
+   * user may select an identical string elsewhere while the write is pending.
+   * xterm exposes a public 1-based range; collapse it to a scalar key so the
+   * key handler can compare the exact start/end coordinates.
+   *
+   * @param {Object} term - xterm Terminal instance (or a test double).
+   * @returns {string|null} Range key, empty string for no range, or null when
+   *   the installed xterm API does not expose a readable range.
+   */
+  static _selectionPositionKey(term) {
+    if (!term || typeof term.getSelectionPosition !== 'function') return null;
+    try {
+      const range = term.getSelectionPosition();
+      if (!range) return '';
+      return [
+        range.start && range.start.x,
+        range.start && range.start.y,
+        range.end && range.end.x,
+        range.end && range.end.y,
+      ].join(':');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Fallback copy via a temporary offscreen textarea and
+   * document.execCommand('copy'). Standard technique; kept private, callers
+   * use copyTextToClipboard which picks the right path.
+   *
+   * The textarea is rendered but invisible: execCommand('copy') copies the
+   * CURRENT SELECTION, so the element must be selectable (display:none would
+   * break it, and readOnly is deliberately not set because a real selection
+   * is required). position:fixed at 1px keeps the focus jump from scrolling
+   * the page; aria-hidden keeps it out of the accessibility tree.
+   *
+   * The user's prior focus and document selection are snapshotted and
+   * restored where practical: xterm selections live in xterm's own model,
+   * not the document selection, so terminal copies are unaffected, but this
+   * protects copies triggered while text elsewhere on the page (an input,
+   * the docs panel) is selected.
+   *
+   * @param {string} value - Already-stringified text to copy.
+   * @returns {boolean} True when execCommand reported success. Never throws.
+   */
+  static _copyViaExecCommand(value) {
+    if (typeof document === 'undefined' || !document.body ||
+        typeof document.execCommand !== 'function') {
+      return false;
+    }
+    const prevActive = document.activeElement;
+    const selection = typeof document.getSelection === 'function' ? document.getSelection() : null;
+    const savedRanges = [];
+    if (selection && typeof selection.rangeCount === 'number') {
+      for (let i = 0; i < selection.rangeCount; i++) {
+        try { savedRanges.push(selection.getRangeAt(i)); } catch (_) {}
+      }
+    }
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.setAttribute('aria-hidden', 'true');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.width = '1px';
+    ta.style.height = '1px';
+    ta.style.padding = '0';
+    ta.style.border = 'none';
+    ta.style.outline = 'none';
+    ta.style.boxShadow = 'none';
+    ta.style.background = 'transparent';
+    ta.style.opacity = '0';
+    let ok = false;
+    try {
+      document.body.appendChild(ta);
+      if (typeof ta.focus === 'function') ta.focus({ preventScroll: true });
+      if (typeof ta.select === 'function') ta.select();
+      // iOS Safari ignores select() on some versions; the explicit range
+      // makes the selection real there too.
+      if (typeof ta.setSelectionRange === 'function') ta.setSelectionRange(0, value.length);
+      ok = !!document.execCommand('copy');
+    } catch (_) {
+      ok = false;
+    } finally {
+      // ALWAYS remove the scratch element, even when execCommand threw, so
+      // repeated failed copies can never leak textareas into the DOM.
+      try { if (ta.parentNode) ta.parentNode.removeChild(ta); } catch (_) {}
+      // Restore the user's selection and focus, best-effort: a failure here
+      // must not turn a successful copy into a throw.
+      try {
+        if (selection && savedRanges.length) {
+          selection.removeAllRanges();
+          for (const r of savedRanges) selection.addRange(r);
+        }
+        if (prevActive && prevActive !== document.body &&
+            typeof prevActive.focus === 'function') {
+          prevActive.focus({ preventScroll: true });
+        }
+      } catch (_) {}
+    }
+    return ok;
   }
 
   // ── Idle-notification gating constants (notification-storm fix) ──
@@ -302,6 +684,26 @@ class TerminalPane {
     this._activitySample = '';
     this._writeRaf = null;
     this._pasteHandled = false;
+    this._pasteHandledResetTimer = null;
+    // Copy-mode root cause (user report, 2026-07-25): Claude Code's interactive
+    // TUI turns on terminal mouse tracking (DECSET 1000/1002/1003 + SGR 1006).
+    // While that is active, xterm forwards a plain drag/wheel to the PTY instead
+    // of making a text selection, so plain-drag never selects and Ctrl+C finds
+    // no selection. xterm's documented escape hatch is Shift (shouldForceSelection
+    // returns event.shiftKey on non-Mac), so Shift+drag always selects. This flag
+    // powers an opt-in per-pane "Select mode" that makes a PLAIN drag behave like
+    // a Shift+drag, so the user can copy without the interactive layer being
+    // disabled globally. OFF by default so clickable TUI options keep working.
+    this._selectMode = false;
+    // References to the injected copy-mode DOM + the capture-phase mouse
+    // interceptor, so dispose() can tear everything down cleanly.
+    this._selectModeBtn = null;
+    this._selStrip = null;
+    this._copyHint = null;
+    this._copyHintTimer = null;
+    this._selMouseHandler = null;
+    this._selInterceptorContainer = null;
+    this._selectDragging = false;
     // Issue #41: true while a mobile touch gesture (or its momentum tail) is
     // driving term.scrollLines() directly. xterm's smoothScrollDuration is
     // zeroed for that window so the engine's per-frame interpolation is not
@@ -400,6 +802,15 @@ class TerminalPane {
       // Initialize mobile scroll/type mode after terminal is in DOM
       this.initMobileInputMode();
 
+      // Copy-mode: install the capture-phase mouse interceptor (a no-op until
+      // the toggle is ON) and inject the Select-mode control + one-time hint
+      // into the pane header. Kept out of the mobile engine's way: the touch
+      // scroll/select engine only runs on real touch devices (_isMobile), and
+      // this interceptor only acts on left-button MOUSE drags while the toggle
+      // is on, so the two never fight over the same gesture.
+      this._installSelectModeInterceptor();
+      this._injectCopyControls();
+
       // IMPORTANT: Fit BEFORE connecting WebSocket so we know the real
       // terminal dimensions. The PTY spawns at whatever cols/rows we pass
       // in the WS URL - if we connect before fit, the PTY starts at
@@ -440,45 +851,96 @@ class TerminalPane {
       this.term.attachCustomKeyEventHandler((e) => {
         if (e.type !== 'keydown') return true;
         const mod = e.ctrlKey || e.metaKey;
+        // KeyboardEvent.key follows Caps Lock and Shift ("C"/"V"). Normalize
+        // once so the safety-critical copy/paste branches cannot fall through
+        // to xterm's control-character path merely because letter case changed.
+        const shortcutKey = typeof e.key === 'string' ? e.key.toLowerCase() : '';
 
         // Ctrl+C / Cmd+C: copy selected text to clipboard (if selection exists)
-        // Without selection, fall through so xterm sends \x03 (SIGINT) normally
-        if (mod && e.key === 'c' && this.term.hasSelection()) {
-          navigator.clipboard.writeText(this.term.getSelection()).catch(() => {});
-          this.term.clearSelection();
+        // Without selection, fall through so xterm sends \x03 (SIGINT) normally.
+        //
+        // WHY the try/catch bracket and the helper (user report, 2026-07-24):
+        // this branch used to call the async Clipboard API directly with a
+        // chained .catch(). On insecure origins (plain http to a LAN IP or
+        // hostname, the documented remote-access mode) navigator.clipboard is
+        // undefined, so the PROPERTY ACCESS threw a synchronous TypeError
+        // that .catch() could not see (.catch only intercepts promise
+        // rejections, not a throw during property lookup). The exception
+        // escaped this handler BEFORE clearSelection() and `return false`
+        // ran, xterm treated the key as unhandled, and the "copy" keystroke
+        // sent \x03 (SIGINT) that interrupted the user's running CLI
+        // session. Same secure-context trap as paste issue #64, which was
+        // fixed on the Ctrl+V branch below but never applied here.
+        //
+        // TerminalPane.copyTextToClipboard never throws by contract and uses
+        // execCommand as a best-effort fallback on every origin. Its boolean
+        // result still matters: clear the selection only after a confirmed
+        // copy. If every browser path fails, keep the selection recoverable
+        // and tell the app shell to show an honest error.
+        //
+        // The bracket below makes the SIGINT fall-through STRUCTURALLY
+        // impossible even if a future edit regresses the helper's no-throw
+        // guarantee: once a selection exists this branch always reaches
+        // `return false` and consumes the key. Do not lift the copy call out
+        // of the try.
+        if (mod && shortcutKey === 'c' && this.term.hasSelection()) {
+          try {
+            // Returning false tells xterm not to forward Ctrl+C to the PTY,
+            // but it does not cancel Chromium's native copy/default action.
+            // Cancel that second clipboard path before starting our truthful,
+            // success-aware helper. This is intentionally selection-only:
+            // plain Ctrl+C must still reach the terminal as SIGINT.
+            if (typeof e.preventDefault === 'function') e.preventDefault();
+            const selectedText = this.term.getSelection();
+            const selectedPositionKey = TerminalPane._selectionPositionKey(this.term);
+            Promise.resolve(TerminalPane.copyTextToClipboard(selectedText)).then(
+              (copied) => {
+                if (copied) {
+                  try {
+                    // Do not erase a newer selection made while an async
+                    // Clipboard API write was settling. Compare both its text
+                    // and exact xterm range: identical text may occur twice.
+                    const currentPositionKey = TerminalPane._selectionPositionKey(this.term);
+                    const samePosition = selectedPositionKey === null ||
+                      currentPositionKey === selectedPositionKey;
+                    if (this.term && this.term.getSelection() === selectedText && samePosition) {
+                      this.term.clearSelection();
+                    }
+                  } catch (_) {
+                    // The copy itself succeeded; a stale/disposed terminal
+                    // should not turn that into a misleading failure toast.
+                  }
+                } else {
+                  this._emitCopyUnavailable('failed');
+                }
+              },
+              () => this._emitCopyUnavailable('failed')
+            );
+          } catch (_) {
+            this._emitCopyUnavailable('failed');
+          }
           return false;
         }
 
-        // Ctrl+V / Cmd+V: paste from clipboard. Two arms depending on whether
-        // the async Clipboard API is present, which is a secure-context check.
+        // Ctrl+V / Cmd+V always stays on the browser's trusted native paste
+        // path. Do not call preventDefault() here. Returning false only tells
+        // xterm not to process the key itself; Chromium still emits the trusted
+        // beforeinput/paste events that the capture listeners below bracket and
+        // forward exactly once.
         //
-        // Secure context (localhost or https): navigator.clipboard.readText
-        // exists. We call preventDefault() to cancel the browser's native paste
-        // so the beforeinput(insertFromPaste)/paste handlers below do NOT also
-        // fire, then read the clipboard explicitly and send once. This preserves
-        // the PR #45 (commit cee137a) fix that stopped a double-send on
-        // localhost, where both the native paste and the explicit read would
-        // otherwise send the text through the WebSocket twice.
+        // WHY this is origin- and permission-independent (user report,
+        // 2026-07-25): navigator.clipboard.readText can exist on localhost or
+        // HTTPS while still rejecting in embedded browsers. The old "secure"
+        // arm canceled native paste first, then awaited that permission-gated
+        // API. Its error message told the user to press Ctrl+V, but every retry
+        // entered the same canceled arm, creating a permanent dead end.
         //
-        // Insecure context (http over LAN, the documented remote-access mode):
-        // navigator.clipboard is undefined, so pasteFromClipboard() cannot run.
-        // Here we must NOT preventDefault. Returning false only tells xterm to
-        // skip the key; the browser still performs its native paste, which the
-        // beforeinput/paste handlers below bracket and send exactly once (deduped
-        // via _pasteHandled). A double-send is impossible in this arm because the
-        // clipboard-API path never executes here.
-        //
-        // Regression context: issue #64 (paste silently dead for every
-        // non-localhost user) was caused by PR #45 always calling
-        // preventDefault, which cancelled the native paste while the only other
-        // path (navigator.clipboard) does not exist on insecure origins. Do NOT
-        // collapse these two arms back into an unconditional preventDefault:
-        // that reintroduces #64.
-        if (mod && e.key === 'v') {
-          if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
-            e.preventDefault();
-            this.pasteFromClipboard();
-          }
+        // Programmatic clipboard reads remain available to the explicit Paste
+        // menu action in pasteFromClipboard(). Keyboard paste must use the
+        // browser's user-gesture path on every origin. The capture-phase paste
+        // listener calls stopImmediatePropagation(), so xterm's same-target
+        // listener cannot double-send (the original PR #45 concern).
+        if (mod && shortcutKey === 'v') {
           return false;
         }
 
@@ -517,12 +979,21 @@ class TerminalPane {
         xtermTextarea.addEventListener('beforeinput', (e) => {
           // Intercept paste-via-beforeinput to prevent xterm.js onData double-send.
           // Extract the pasted text and send it through our WebSocket instead.
-          // Set _pasteHandled flag so the paste event handler doesn't double-send.
+          // Arm _pasteHandled only after this handler actually sends text, so
+          // an empty/orphan beforeinput event can never suppress a later paste.
           if (e.inputType === 'insertFromPaste') {
             e.preventDefault();
-            this._pasteHandled = true;
             const text = e.data || (e.dataTransfer && e.dataTransfer.getData('text/plain')) || '';
             if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
+              this._pasteHandled = true;
+              // Some browsers/mobile keyboards emit beforeinput without a later
+              // paste event. Keep the latch only for the rest of this browser
+              // gesture; a missing companion event must not eat the next paste.
+              clearTimeout(this._pasteHandledResetTimer);
+              this._pasteHandledResetTimer = setTimeout(() => {
+                this._pasteHandled = false;
+                this._pasteHandledResetTimer = null;
+              }, 0);
               const bracketedText = '\x1b[200~' + text + '\x1b[201~';
               this.ws.send(JSON.stringify({ type: 'input', data: bracketedText }));
             }
@@ -554,8 +1025,13 @@ class TerminalPane {
         // already handled this paste (sets _pasteHandled), so check the flag first.
         xtermTextarea.addEventListener('paste', (e) => {
           e.preventDefault();
-          e.stopPropagation();
+          // xterm also listens for paste on this exact textarea. A capture
+          // listener runs first, but stopPropagation() would still allow
+          // xterm's same-target listener to send the text a second time.
+          e.stopImmediatePropagation();
           if (this._pasteHandled) {
+            clearTimeout(this._pasteHandledResetTimer);
+            this._pasteHandledResetTimer = null;
             this._pasteHandled = false;
             return;
           }
@@ -851,6 +1327,29 @@ class TerminalPane {
   }
 
   /**
+   * Surface a failed Ctrl+C/Cmd+C copy through the app shell.
+   *
+   * The key remains consumed so it can never become SIGINT, while the xterm
+   * selection remains intact so the user can retry. Notification dispatch is
+   * best-effort and must never escape back into the terminal key handler.
+   * @param {string} reason - Stable failure reason for the app shell.
+   */
+  _emitCopyUnavailable(reason) {
+    try {
+      if (typeof document === 'undefined') return;
+      const container = document.getElementById(this.containerId);
+      const target = container || document;
+      if (!target || typeof target.dispatchEvent !== 'function') return;
+      target.dispatchEvent(new CustomEvent('cwm:copy-unavailable', {
+        bubbles: true,
+        detail: { reason, containerId: this.containerId, sessionId: this.sessionId },
+      }));
+    } catch (_) {
+      // Never let a notification failure escape into the Ctrl+C key path.
+    }
+  }
+
+  /**
    * Surface a paste failure to the user via a bubbling CustomEvent.
    * TerminalPane has no toast UI of its own, so it dispatches
    * cwm:paste-unavailable from its container element and app.js (which owns
@@ -965,9 +1464,51 @@ class TerminalPane {
    * Type mode: textarea is writable, keyboard appears for input
    */
   _isMobile() {
-    // Enable touch scroll/type modes for any device with touch capability, 
-    // including tablets (not just narrow screens).
-    return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+    // Decide whether this pane should run the mobile scroll/type engine.
+    //
+    // REGRESSION FIX (user report, 2026-07-25): the previous test was
+    // `('ontouchstart' in window) || navigator.maxTouchPoints > 0`, added by
+    // commit 7b992aa ("enable touch scrolling for all clients"). Desktop
+    // Chrome and Edge expose `window.ontouchstart` even with ZERO touch
+    // hardware (maxTouchPoints 0, no digitizer), so that first disjunct made
+    // `_isMobile()` return true on ordinary mouse desktops. When it returned
+    // true, initMobileInputMode() set `.xterm-screen { pointer-events: none }`
+    // for scroll passthrough. With the screen pointer-transparent, xterm's
+    // SelectionService (which binds mousedown on `.xterm-screen`) never saw
+    // the drag, so term.hasSelection() stayed false while the browser still
+    // painted a NATIVE DOM selection over the DOM-rendered rows. That is
+    // exactly the reported bug: a visible highlight that Ctrl+C could not
+    // copy (hasSelection() false, so the copy branch in
+    // attachCustomKeyEventHandler fell through and xterm sent \x03/SIGINT,
+    // which is why a second Ctrl+C exited the CLI), and a right-click Copy
+    // that found nothing because it reads the same empty xterm selection.
+    //
+    // The fix requires a REAL coarse primary pointer AND actual touch points,
+    // never `ontouchstart` alone. A phone or tablet reports
+    // `(pointer: coarse)` as its primary pointer together with
+    // maxTouchPoints > 0, so genuine touch devices still get the scroll/type
+    // engine. A desktop with a mouse reports `(pointer: fine)` as primary
+    // (even when a touchscreen is attached), so it now stays in desktop mode
+    // where `.xterm-screen` keeps its default pointer-events and mouse text
+    // selection plus Ctrl+C copy work normally.
+    //
+    // All lookups are typeof-guarded and wrapped so detection can never throw
+    // in a non-browser or partially-stubbed environment (the source tests
+    // construct TerminalPane without a full window); on any failure we default
+    // to desktop, the non-restrictive mode that preserves mouse selection.
+    try {
+      const coarsePrimary =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(pointer: coarse)').matches;
+      const hasTouchPoints =
+        typeof navigator !== 'undefined' &&
+        typeof navigator.maxTouchPoints === 'number' &&
+        navigator.maxTouchPoints > 0;
+      return coarsePrimary && hasTouchPoints;
+    } catch (_) {
+      return false;
+    }
   }
 
   /**
@@ -1690,6 +2231,275 @@ class TerminalPane {
     return /[❯$>]\s*$/.test(lineText) || /^(Human:|Type.*message)/.test(lineText);
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     COPY / SELECT MODE  (mouse-mode copy fix, 2026-07-25)
+     Claude Code's interactive TUI enables terminal mouse tracking,
+     so xterm forwards a plain drag to the PTY instead of selecting
+     text. Two copy paths are provided WITHOUT disabling the clickable
+     TUI: (A) a per-pane Select-mode toggle that makes a plain drag act
+     like a Shift+drag, and (B) the always-on Shift+drag fast path that
+     xterm already honors (shouldForceSelection => event.shiftKey).
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Install a capture-phase mouse interceptor on this pane's container.
+   *
+   * The interceptor is a NO-OP unless this._selectMode is on. When on, it
+   * takes each left-button mouse event, stops xterm's own listener from
+   * seeing the raw event (stopImmediatePropagation), and re-dispatches a
+   * clone with shiftKey forced true. xterm then treats the gesture as a
+   * forced selection (CoreBrowserTerminal: `if (!areMouseEventsActive ||
+   * shouldForceSelection(ev)) return;` skips the PTY send, and
+   * SelectionService starts a real selection), so a plain drag selects text
+   * even while the app has mouse tracking on.
+   *
+   * WHY the synthetic-shift approach instead of poking xterm internals: the
+   * browser loads the MINIFIED vendor bundle (vendor/xterm/xterm.min.js), so
+   * private fields like the selection/mouse services are name-mangled and
+   * cannot be monkeypatched reliably. This path depends only on documented
+   * DOM events and xterm's public Shift-to-select behavior, so it survives
+   * bundle updates.
+   *
+   * Left-button selection: middle clicks and ordinary right clicks pass
+   * through. The one exception is right-button mousedown over an existing
+   * selection, which is withheld from xterm so the subsequent Workbook Copy
+   * menu sees the same text. The clickable TUI remains reachable whenever
+   * there is no selection and the toggle is off.
+   */
+  _installSelectModeInterceptor() {
+    const container = document.getElementById(this.containerId);
+    if (!container) return;
+    // Idempotent: a remount into the same slot must not stack interceptors.
+    if (this._selInterceptorContainer && this._selMouseHandler) {
+      try {
+        this._selInterceptorContainer.removeEventListener('mousedown', this._selMouseHandler, { capture: true });
+        this._selInterceptorContainer.removeEventListener('mousemove', this._selMouseHandler, { capture: true });
+        this._selInterceptorContainer.removeEventListener('mouseup', this._selMouseHandler, { capture: true });
+      } catch (_) {}
+    }
+    this._selectDragging = false;
+    const handler = (e) => {
+      // A right-button press over a genuine xterm selection belongs to the
+      // Workbook context menu, not the mouse-reporting TUI. Block xterm's
+      // same-event listener before the TUI can redraw or mutate the selected
+      // buffer, but do not preventDefault: the later contextmenu event must
+      // still open app.js's truthful Copy action.
+      if (e.type === 'mousedown' && e.button === 2 &&
+          this.term && this.term.hasSelection()) {
+        e.stopImmediatePropagation();
+        return;
+      }
+      // OFF: do nothing, so the app receives normal mouse reporting and the
+      // interactive TUI stays fully clickable.
+      if (!this._selectMode) return;
+      // Our own re-dispatched clone: let it reach xterm untouched.
+      if (e.__cwmSelSynthetic) return;
+      if (e.type === 'mousedown') {
+        if (e.button !== 0) return;        // pass right/middle through
+        this._selectDragging = true;
+      } else if (!this._selectDragging) {
+        return;                            // only steer moves/ups of our own drag
+      }
+      if (e.type === 'mouseup') this._selectDragging = false;
+      // Clone the event with shiftKey forced true. bubbles+cancelable so the
+      // clone reaches xterm's element/document listeners and its preventDefault
+      // works exactly as a genuine Shift+drag would.
+      let clone;
+      try {
+        clone = new MouseEvent(e.type, {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          view: (typeof window !== 'undefined' ? window : null),
+          detail: e.detail,
+          screenX: e.screenX,
+          screenY: e.screenY,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+          shiftKey: true,
+          button: e.button,
+          buttons: e.buttons,
+          relatedTarget: e.relatedTarget || null,
+        });
+      } catch (_) {
+        // If MouseEvent construction fails for any reason, fall back to letting
+        // the raw event through rather than swallowing the gesture entirely.
+        return;
+      }
+      clone.__cwmSelSynthetic = true;
+      if (e.cancelable) e.preventDefault();
+      e.stopImmediatePropagation();
+      (e.target || container).dispatchEvent(clone);
+    };
+    this._selMouseHandler = handler;
+    this._selInterceptorContainer = container;
+    container.addEventListener('mousedown', handler, { capture: true });
+    container.addEventListener('mousemove', handler, { capture: true });
+    container.addEventListener('mouseup', handler, { capture: true });
+  }
+
+  /**
+   * Enable or disable Select mode for this pane and refresh its UI.
+   * @param {boolean} on - true to make plain drags select text.
+   * @returns {boolean} The resulting mode.
+   */
+  setSelectMode(on) {
+    this._selectMode = !!on;
+    if (this._selectMode) this._dismissCopyHint();
+    this._updateSelectModeUI();
+    return this._selectMode;
+  }
+
+  /** Flip Select mode. Returns the new state. */
+  toggleSelectMode() {
+    return this.setSelectMode(!this._selectMode);
+  }
+
+  /**
+   * Build the Select-mode toggle button inside this pane's header and, on the
+   * first pane ever mounted, a dismissable one-time hint about copying. All
+   * visual state is set with inline styles that reference Catppuccin CSS
+   * variables (with literal fallbacks) so the control renders correctly even
+   * if a cached styles.css has not refreshed. Idempotent across remounts.
+   */
+  _injectCopyControls() {
+    if (!this.paneEl) return;
+    const header = this.paneEl.querySelector('.terminal-pane-header');
+    if (!header) return;
+    const existing = header.querySelector('.terminal-pane-selectmode');
+    if (existing) existing.remove();
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'terminal-pane-selectmode btn btn-ghost btn-sm';
+    btn.setAttribute('aria-pressed', 'false');
+    btn.style.transition = 'color 160ms ease, background 160ms ease';
+    // I-beam / text-selection glyph plus a short label. Focused mode shows the
+    // label on the active pane (and whenever the mode is on) so the essential
+    // copy affordance is discoverable without adding five repeated labels to a
+    // dense grid.
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">'
+      + '<path d="M5.5 2.5A.5.5 0 0 1 6 2h4a.5.5 0 0 1 0 1H8.5v10H10a.5.5 0 0 1 0 1H6a.5.5 0 0 1 0-1h1.5V3H6a.5.5 0 0 1-.5-.5z"/>'
+      + '<path d="M3.5 2h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 0-.5.5v1a.5.5 0 0 1-1 0v-1A1.5 1.5 0 0 1 3.5 2zm8 0A1.5 1.5 0 0 1 13 3.5v1a.5.5 0 0 1-1 0v-1a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 1 0-1h.5zM2.5 11a.5.5 0 0 1 .5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 1 0 1h-1A1.5 1.5 0 0 1 2 12.5v-1a.5.5 0 0 1 .5-.5zm11 0a.5.5 0 0 1 .5.5v1a1.5 1.5 0 0 1-1.5 1.5h-1a.5.5 0 0 1 0-1h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 1 .5-.5z"/></svg>'
+      + '<span class="terminal-selectmode-label">Select</span>';
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const on = this.toggleSelectMode();
+      // Turning OFF restores the clickable layer; refocus so typing resumes.
+      if (!on && this.term) this.term.focus();
+    });
+
+    const closeBtn = header.querySelector('.terminal-pane-close');
+    if (closeBtn) header.insertBefore(btn, closeBtn);
+    else header.appendChild(btn);
+    this._selectModeBtn = btn;
+
+    this._maybeShowCopyHint();
+    this._updateSelectModeUI();
+  }
+
+  /**
+   * Reflect the current Select-mode state on the toggle button and show or
+   * hide the "options paused" strip. Colors come from theme variables so the
+   * active state matches whichever Catppuccin flavor is live.
+   */
+  _updateSelectModeUI() {
+    const on = !!this._selectMode;
+    if (this._selectModeBtn) {
+      this._selectModeBtn.classList.toggle('active', on);
+      this._selectModeBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      this._selectModeBtn.setAttribute(
+        'aria-label',
+        on ? 'Turn off Select text mode' : 'Turn on Select text mode'
+      );
+      this._selectModeBtn.style.color = on ? 'var(--mauve, #cba6f7)' : '';
+      this._selectModeBtn.style.background = on ? 'var(--surface1, rgba(203, 166, 247, 0.16))' : '';
+      this._selectModeBtn.title = on
+        ? 'Select mode ON: drag selects text, Ctrl+C copies. Clickable options are paused. Click to turn off.'
+        : 'Select / Copy mode: drag to select text. Tip: hold Shift and drag to select any time. Clickable options pause while this is on.';
+    }
+    if (on) this._showSelectModeStrip();
+    else this._hideSelectModeStrip();
+    if (this.paneEl) this.paneEl.classList.toggle('select-mode-on', on);
+  }
+
+  /**
+   * Show a compact non-blocking strip at the bottom of the pane while Select
+   * mode is on, so the user knows the interactive layer is paused and how to
+   * resume it. pointer-events:none so it never intercepts a selection drag.
+   */
+  _showSelectModeStrip() {
+    if (!this.paneEl) return;
+    if (this._selStrip) { this._selStrip.hidden = false; this._selStrip.style.opacity = '1'; return; }
+    const s = document.createElement('div');
+    s.className = 'terminal-selectmode-strip';
+    s.textContent = 'Select mode: drag to select, Ctrl+C to copy. Clickable options paused, toggle off to resume.';
+    s.style.cssText = 'position:absolute;left:8px;right:8px;bottom:8px;z-index:20;'
+      + "font:11px/1.4 'Plus Jakarta Sans', system-ui, sans-serif;"
+      + 'color:var(--text, #cdd6f4);background:var(--surface0, rgba(24, 24, 37, 0.94));'
+      + 'border:1px solid var(--mauve, #cba6f7);border-radius:8px;padding:6px 10px;'
+      + 'box-shadow:0 6px 18px rgba(0, 0, 0, 0.35);opacity:0;'
+      + 'transition:opacity 160ms ease;pointer-events:none;';
+    this.paneEl.appendChild(s);
+    requestAnimationFrame(() => { if (this._selStrip) this._selStrip.style.opacity = '1'; });
+    this._selStrip = s;
+  }
+
+  /** Hide the Select-mode strip (kept in the DOM for cheap re-show). */
+  _hideSelectModeStrip() {
+    if (this._selStrip) {
+      this._selStrip.style.opacity = '0';
+      this._selStrip.hidden = true;
+    }
+  }
+
+  /**
+   * Show a one-time, dismissable hint explaining the two copy paths. Gated by
+   * a localStorage flag so it appears once and never nags. Auto-dismisses
+   * after a short window; the × button or enabling Select mode also dismisses.
+   */
+  _maybeShowCopyHint() {
+    try {
+      if (localStorage.getItem('cwm_copyhint_v1')) return;
+    } catch (_) { return; }
+    if (!this.paneEl || this._copyHint) return;
+    const h = document.createElement('div');
+    h.className = 'terminal-copy-hint';
+    h.style.cssText = 'position:absolute;top:36px;right:8px;z-index:30;max-width:248px;'
+      + "font:11px/1.45 'Plus Jakarta Sans', system-ui, sans-serif;"
+      + 'color:var(--text, #cdd6f4);background:var(--surface0, rgba(24, 24, 37, 0.97));'
+      + 'border:1px solid var(--surface2, #585b70);border-radius:10px;'
+      + 'padding:9px 22px 9px 11px;box-shadow:0 8px 24px rgba(0, 0, 0, 0.42);'
+      + 'opacity:0;transition:opacity 180ms ease;';
+    h.innerHTML = 'Claude Code captures the mouse. Hold <b>Shift</b> and drag to select, '
+      + 'then <b>Ctrl+C</b> to copy, or use <b>Select mode</b> (this button).'
+      + '<button class="terminal-copy-hint-x" aria-label="Dismiss" '
+      + 'style="position:absolute;top:3px;right:5px;background:none;border:none;'
+      + 'color:inherit;cursor:pointer;font-size:15px;line-height:1;padding:2px;opacity:0.7;">&times;</button>';
+    this.paneEl.appendChild(h);
+    requestAnimationFrame(() => { if (this._copyHint) this._copyHint.style.opacity = '1'; });
+    const x = h.querySelector('.terminal-copy-hint-x');
+    if (x) x.addEventListener('click', (e) => { e.stopPropagation(); this._dismissCopyHint(); });
+    this._copyHint = h;
+    this._copyHintTimer = setTimeout(() => this._dismissCopyHint(), 14000);
+  }
+
+  /** Dismiss the one-time copy hint and remember it so it never returns. */
+  _dismissCopyHint() {
+    try { localStorage.setItem('cwm_copyhint_v1', '1'); } catch (_) {}
+    if (this._copyHintTimer) { clearTimeout(this._copyHintTimer); this._copyHintTimer = null; }
+    if (this._copyHint) {
+      const el = this._copyHint;
+      this._copyHint = null;
+      el.style.opacity = '0';
+      setTimeout(() => { try { el.remove(); } catch (_) {} }, 220);
+    }
+  }
+
   dispose() {
     clearTimeout(this.reconnectTimer);
     clearTimeout(this._fitTimer);
@@ -1697,10 +2507,28 @@ class TerminalPane {
     clearTimeout(this._activityDebounceTimer);
     clearTimeout(this._bgFlushTimer);
     clearTimeout(this._needsInputTimer);
+    clearTimeout(this._pasteHandledResetTimer);
+    this._pasteHandledResetTimer = null;
+    this._pasteHandled = false;
     if (this._writeRaf) cancelAnimationFrame(this._writeRaf);
     this._writeBuf = '';
     this._activitySample = '';
     if (this._touchScrollCleanup) this._touchScrollCleanup();
+    // Copy-mode teardown: remove the capture-phase mouse interceptor and any
+    // injected controls/hints so a remount into the same slot starts clean.
+    if (this._copyHintTimer) { clearTimeout(this._copyHintTimer); this._copyHintTimer = null; }
+    if (this._selInterceptorContainer && this._selMouseHandler) {
+      try {
+        this._selInterceptorContainer.removeEventListener('mousedown', this._selMouseHandler, { capture: true });
+        this._selInterceptorContainer.removeEventListener('mousemove', this._selMouseHandler, { capture: true });
+        this._selInterceptorContainer.removeEventListener('mouseup', this._selMouseHandler, { capture: true });
+      } catch (_) {}
+    }
+    this._selMouseHandler = null;
+    this._selInterceptorContainer = null;
+    if (this._selectModeBtn) { try { this._selectModeBtn.remove(); } catch (_) {} this._selectModeBtn = null; }
+    if (this._selStrip) { try { this._selStrip.remove(); } catch (_) {} this._selStrip = null; }
+    if (this._copyHint) { try { this._copyHint.remove(); } catch (_) {} this._copyHint = null; }
     if (this._resizeObserver) this._resizeObserver.disconnect();
     if (this.ws) { this.ws.onmessage = null; this.ws.onclose = null; this.ws.close(); }
     if (this.term) this.term.dispose();
