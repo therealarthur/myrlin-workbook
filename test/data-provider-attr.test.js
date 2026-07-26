@@ -115,22 +115,25 @@ check('openTerminalInPane lookup falls back to \'claude\' on missing session', (
   );
 });
 
-// (5) Cleanup: fatal error path and closeTerminalPane both clear data-provider.
-check('fatal error path calls deadPane.removeAttribute(\'data-provider\')', () => {
+// (5) Cleanup: fatal error and close paths both route through the unified
+// fixed-host reset, which clears data-provider with the rest of the chrome.
+check('fatal error path resets its fixed host', () => {
+  const start = src.indexOf('  _handleTerminalPaneFatal(');
+  const end = src.indexOf('\n  openTerminalInPane(', start);
+  const body = src.slice(start, end);
   assert.ok(
-    /deadPane\.removeAttribute\(['"]data-provider['"]\)/.test(src),
-    'onFatalError must clear data-provider so an empty pane is not visually tagged'
+    /_resetTerminalPaneHost\(liveSlot\)/.test(body),
+    'fatal cleanup must reset the fixed host so an empty pane is not visually tagged'
   );
 });
 
-check('closeTerminalPane calls paneEl.removeAttribute(\'data-provider\')', () => {
-  // Confirm at least one paneEl.removeAttribute('data-provider') exists in the
-  // file. The pattern is unique enough that any closeTerminalPane refactor
-  // that drops the cleanup will fail this assertion.
-  const matches = src.match(/paneEl\.removeAttribute\(['"]data-provider['"]\)/g) || [];
+check('unified host reset clears data-provider', () => {
+  const start = src.indexOf('  _resetTerminalPaneHost(');
+  const end = src.indexOf('\n  _syncTerminalPaneHost(', start);
+  const body = src.slice(start, end);
   assert.ok(
-    matches.length >= 1,
-    'closeTerminalPane must clear data-provider so a closed pane is not visually tagged'
+    /paneEl\.removeAttribute\(['"]data-provider['"]\)/.test(body),
+    'fixed-host reset must clear data-provider so a closed pane is not visually tagged'
   );
 });
 

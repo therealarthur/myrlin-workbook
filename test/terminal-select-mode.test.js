@@ -36,8 +36,10 @@ const vm = require('vm');
 const assert = require('assert');
 
 const TERMINAL_JS_PATH = path.join(__dirname, '..', 'src', 'web', 'public', 'terminal.js');
+const APP_JS_PATH = path.join(__dirname, '..', 'src', 'web', 'public', 'app.js');
 const INDEX_HTML_PATH = path.join(__dirname, '..', 'src', 'web', 'public', 'index.html');
 const termSrc = fs.readFileSync(TERMINAL_JS_PATH, 'utf8');
+const appSrc = fs.readFileSync(APP_JS_PATH, 'utf8');
 const indexSrc = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
 
 let passed = 0;
@@ -75,7 +77,38 @@ check('interceptor forces selection via a shiftKey-true synthetic clone', () => 
 
 check('interceptor steers left drags and preserves selected-text right-click', () => {
   assert.ok(/e\.button\s*!==\s*0/.test(termSrc), 'expected a left-button-only guard');
-  assert.ok(/hasSelection\(\)/.test(termSrc), 'expected a selected-text right-click guard');
+  assert.ok(/getCopySelection\(\)\.hasSelection/.test(termSrc),
+    'expected the right-click/hover guard to use the pane-scoped copy selection');
+  assert.ok(/selectedHover/.test(termSrc), 'expected selected hover suppression');
+  assert.ok(/selectedRightEdge/.test(termSrc), 'expected both right-button edges to be suppressed');
+});
+
+check('pane capture focus skips a selected-text right-button press', () => {
+  assert.ok(
+    /_focusTerminalPaneFromPointer\s*\(slotIdx,\s*event\)/.test(appSrc),
+    'pane mousedown listener must delegate through the selection-aware focus helper'
+  );
+  const start = appSrc.indexOf('  _focusTerminalPaneFromPointer(slotIdx, event) {');
+  const end = appSrc.indexOf('\n  setActiveTerminalPane(slotIdx) {', start);
+  const body = start >= 0 && end > start ? appSrc.slice(start, end) : '';
+  assert.ok(body, 'expected _focusTerminalPaneFromPointer method body');
+  assert.ok(
+    /getCopySelection\(\)/.test(body),
+    'right-button focus guard must consult the pane-scoped live selection'
+  );
+  assert.ok(
+    /selectedRightPress[\s\S]*stopPropagation[\s\S]*return false/.test(body),
+    'selected right press must stop before app-level activation'
+  );
+  assert.ok(
+    body.indexOf('if (selectedRightPress)') <
+      body.indexOf('this.setActiveTerminalPane(focusSlot)'),
+    'selected right press must return before setActiveTerminalPane'
+  );
+  assert.ok(
+    /this\._activeTerminalSlot\s*===\s*focusSlot/.test(body),
+    'already-active owner must skip duplicate focus/activate work'
+  );
 });
 
 check('Select-mode control is injected into the pane header', () => {
@@ -92,12 +125,25 @@ check('while ON, an "options paused" strip is shown', () => {
 check('one-time copy hint mentions Shift and Select mode, gated once', () => {
   assert.ok(/cwm_copyhint_v1/.test(termSrc), 'expected the one-time localStorage gate');
   assert.ok(/Shift/.test(termSrc), 'expected the hint to mention Shift');
+  const start = termSrc.indexOf('  _maybeShowCopyHint() {');
+  const end = termSrc.indexOf('\n  /** Dismiss the one-time copy hint', start);
+  const body = start >= 0 && end > start ? termSrc.slice(start, end) : '';
+  assert.ok(/localStorage\.setItem\('cwm_copyhint_v1', '1'\)/.test(body),
+    'the hint must be marked shown immediately so a host rebind cannot repeat it');
 });
 
-check('Ctrl+C branch still copies the xterm selection (Shift path payoff)', () => {
-  // The always-on Shift+drag path is only useful if Ctrl+C reads the selection.
-  assert.ok(/shortcutKey === 'c'[\s\S]{0,160}hasSelection\(\)/.test(termSrc),
-    'expected the normalized Ctrl+C branch to gate on this.term.hasSelection()');
+check('Ctrl+C leaves selected text on the trusted native copy path', () => {
+  const start = termSrc.indexOf("if (mod && shortcutKey === 'c')");
+  const end = termSrc.indexOf('// Ctrl+V / Cmd+V', start);
+  const body = start >= 0 && end > start ? termSrc.slice(start, end) : '';
+  assert.ok(/getCopySelection\(\)/.test(body),
+    'expected normalized Ctrl+C to read the pane-scoped selection');
+  assert.ok(/copySelection\.hasSelection\)\s*return false/.test(body),
+    'selected Ctrl+C must be withheld from the PTY');
+  assert.ok(!/preventDefault/.test(body),
+    'selected Ctrl+C must not cancel Chromium/xterm native copy');
+  assert.ok(!/copyTextToClipboard/.test(body),
+    'keyboard copy must not use the permission-gated async helper');
 });
 
 check('dispose() tears the interceptor + injected DOM down', () => {
@@ -106,9 +152,14 @@ check('dispose() tears the interceptor + injected DOM down', () => {
   assert.ok(/this\._selectModeBtn\.remove\(\)/.test(termSrc), 'expected the toggle button removed');
 });
 
-check('index.html cache-buster on terminal.js was bumped to copymode3', () => {
-  assert.ok(/terminal\.js\?v=20260725-copymode3/.test(indexSrc),
-    'expected terminal.js?v=20260725-copymode3 in index.html');
+check('index.html cache-busts the native-copy terminal fix', () => {
+  assert.ok(/terminal\.js\?v=20260725-copy-native5/.test(indexSrc),
+    'expected the final terminal.js native-copy cache token');
+});
+
+check('index.html cache-busts the app pane-focus/host fix', () => {
+  assert.ok(/app\.js\?v=20260725-copy-native5/.test(indexSrc),
+    'expected the final app.js native-copy cache token');
 });
 
 // ── Executed proof: run the real interceptor ─────────────────
@@ -128,9 +179,12 @@ function loadTerminalPane() {
     navigator: {},
     MouseEvent: FakeMouseEvent,
     requestAnimationFrame: () => 0,
+    setTimeout: () => 1,
+    clearTimeout: (id) => recorder.clearedTimers.push(id),
     localStorage: { getItem: () => null, setItem: () => {} },
     console,
   };
+  recorder.clearedTimers = [];
   sandbox.window.matchMedia = () => ({ matches: false });
   vm.createContext(sandbox);
   vm.runInContext(termSrc, sandbox, { filename: 'terminal.js' });
@@ -143,24 +197,57 @@ function loadTerminalPane() {
  * @param {boolean} selectMode - initial _selectMode for the fake pane.
  * @param {Array} dispatched - array that fake dispatchEvent pushes into.
  * @param {boolean} [hasSelection=false] - Whether xterm has selected text.
- * @returns {{handler: Function, TerminalPane: Function, FakeMouseEvent: Function}}
+ * @returns {{handler: Function, handlers: Object, TerminalPane: Function, FakeMouseEvent: Function}}
  */
 function installOnFakeContainer(selectMode, dispatched, hasSelection = false) {
   const { TerminalPane, FakeMouseEvent, sandbox } = loadTerminalPane();
-  let handler = null;
+  const handlers = {};
   const container = {
-    addEventListener: (type, fn) => { if (type === 'mousedown') handler = fn; },
+    addEventListener: (type, fn) => { handlers[type] = fn; },
     removeEventListener: () => {},
     dispatchEvent: (e) => dispatched.push(e),
   };
   const ctx = { containerId: 'x', _selectMode: selectMode, _selectDragging: false,
     _selInterceptorContainer: null, _selMouseHandler: null,
-    term: { hasSelection: () => hasSelection } };
+    term: {
+      hasSelection: () => hasSelection,
+      getSelection: () => hasSelection ? 'SELECTED' : '',
+    },
+    getCopySelection: () => ({
+      hasSelection,
+      text: hasSelection ? 'SELECTED' : '',
+      source: hasSelection ? 'xterm' : null,
+    }),
+    _getOwnedContainer: () => container,
+  };
   // The interceptor resolves `document` to the SANDBOX document (it is a
   // closure defined inside the vm), so route the fake container through there.
   sandbox.document.getElementById = () => container;
   TerminalPane.prototype._installSelectModeInterceptor.call(ctx);
-  return { handler, TerminalPane, FakeMouseEvent };
+  return {
+    handler: handlers.mousedown,
+    handlers,
+    TerminalPane,
+    FakeMouseEvent,
+  };
+}
+
+/**
+ * Compile the production app focus helper in isolation. Its body only calls
+ * other instance methods/properties, so a small object stub can execute the
+ * real event-order logic without booting the Workbook SPA.
+ * @returns {Function} Production _focusTerminalPaneFromPointer method.
+ */
+function loadFocusHelper() {
+  const start = appSrc.indexOf('  _focusTerminalPaneFromPointer(slotIdx, event) {');
+  const end = appSrc.indexOf('\n  /**\n   * Set the active terminal pane', start);
+  assert.ok(start >= 0 && end > start, 'could not extract the production focus helper');
+  const methodSource = appSrc.slice(start, end).trim();
+  return vm.runInNewContext(
+    '({' + methodSource + '})._focusTerminalPaneFromPointer',
+    {},
+    { filename: 'app-focus-helper.js' }
+  );
 }
 
 check('executed: interceptor is a no-op while Select mode is OFF', () => {
@@ -239,6 +326,152 @@ check('executed: right-click on selected text cannot reach the mouse-reporting T
   assert.strictEqual(stopped, true, 'selected right-click must be stopped before xterm reports it');
   assert.strictEqual(prevented, false, 'contextmenu must remain available for the Copy action');
   assert.strictEqual(dispatched.length, 0, 'selected right-click must not synthesize a mouse event');
+});
+
+check('executed: selected hover and right-button release cannot reach the TUI', () => {
+  const dispatched = [];
+  const { handlers } = installOnFakeContainer(false, dispatched, true);
+  for (const event of [
+    { type: 'mousemove', button: 0, buttons: 0 },
+    { type: 'mouseup', button: 2, buttons: 0 },
+  ]) {
+    let stopped = false;
+    let prevented = false;
+    handlers[event.type]({
+      ...event,
+      __cwmSelSynthetic: false,
+      cancelable: true,
+      target: { dispatchEvent: (e) => dispatched.push(e) },
+      preventDefault: () => { prevented = true; },
+      stopImmediatePropagation: () => { stopped = true; },
+    });
+    assert.strictEqual(stopped, true, event.type + ' must be stopped while text is selected');
+    assert.strictEqual(prevented, false, event.type + ' must preserve the later contextmenu default');
+  }
+  assert.strictEqual(dispatched.length, 0, 'selection-preservation guards must not synthesize input');
+});
+
+check('executed: a stale mobile selection reset cannot cross a host rebind', () => {
+  const { TerminalPane, recorder } = loadTerminalPane();
+  const ctx = {
+    _mobileSelectionResetTimer: 77,
+    _mobileSelecting: false,
+    _xtermScreen: { style: { pointerEvents: 'none' } },
+  };
+  TerminalPane.prototype._enableMobileSelection.call(ctx);
+  assert.deepStrictEqual(recorder.clearedTimers, [77]);
+  assert.strictEqual(ctx._mobileSelectionResetTimer, null);
+  assert.strictEqual(ctx._mobileSelecting, true);
+  assert.strictEqual(ctx._xtermScreen.style.pointerEvents, 'auto');
+});
+
+check('executed: active pane raw + synthetic drag start performs zero app activations', () => {
+  const focusHelper = loadFocusHelper();
+  const pane = {
+    getCopySelection: () => ({ hasSelection: false, text: '', source: null }),
+  };
+  let activations = 0;
+  const app = {
+    terminalPanes: [pane],
+    _activeTerminalSlot: 0,
+    _terminalPaneFromPointerEvent: () => pane,
+    setActiveTerminalPane(slot) {
+      activations++;
+      this._activeTerminalSlot = slot;
+    },
+  };
+  const terminalTarget = {
+    closest: (selector) => selector === '.xterm' ? {} : null,
+  };
+  const rawResult = focusHelper.call(app, 0, {
+    type: 'mousedown',
+    button: 0,
+    target: terminalTarget,
+  });
+  const cloneResult = focusHelper.call(app, 0, {
+    type: 'mousedown',
+    button: 0,
+    __cwmSelSynthetic: true,
+  });
+  assert.strictEqual(rawResult, false, 'active raw mousedown needs no app focus work');
+  assert.strictEqual(cloneResult, false, 'nested synthetic mousedown needs no app focus work');
+  assert.strictEqual(activations, 0, 'active selection start must never refocus/refit the pane');
+});
+
+check('executed: inactive pane raw + synthetic drag start activates exactly once', () => {
+  const focusHelper = loadFocusHelper();
+  const pane = {
+    getCopySelection: () => ({ hasSelection: false, text: '', source: null }),
+  };
+  let activations = 0;
+  const app = {
+    terminalPanes: [pane],
+    _activeTerminalSlot: null,
+    _terminalPaneFromPointerEvent: () => pane,
+    setActiveTerminalPane(slot) {
+      activations++;
+      this._activeTerminalSlot = slot;
+    },
+  };
+  assert.strictEqual(
+    focusHelper.call(app, 0, { type: 'mousedown', button: 0 }),
+    true,
+    'inactive raw mousedown must activate its owner'
+  );
+  assert.strictEqual(
+    focusHelper.call(app, 0, {
+      type: 'mousedown',
+      button: 0,
+      __cwmSelSynthetic: true,
+    }),
+    false,
+    'nested clone must see the owner as active'
+  );
+  assert.strictEqual(activations, 1, 'raw + nested clone must activate exactly once');
+});
+
+check('executed: active pane chrome click still refocuses the terminal', () => {
+  const focusHelper = loadFocusHelper();
+  const pane = {
+    getCopySelection: () => ({ hasSelection: false, text: '', source: null }),
+  };
+  let activations = 0;
+  const app = {
+    terminalPanes: [pane],
+    _activeTerminalSlot: 0,
+    _terminalPaneFromPointerEvent: () => pane,
+    setActiveTerminalPane() { activations++; },
+  };
+  const result = focusHelper.call(app, 0, {
+    type: 'mousedown',
+    button: 0,
+    target: { closest: () => null },
+  });
+  assert.strictEqual(result, true, 'pane chrome retains click-anywhere-to-focus behavior');
+  assert.strictEqual(activations, 1);
+});
+
+check('executed: selected right press stops before any app activation', () => {
+  const focusHelper = loadFocusHelper();
+  const pane = {
+    getCopySelection: () => ({ hasSelection: true, text: 'COPY ME', source: 'xterm' }),
+  };
+  let activations = 0;
+  let stopped = 0;
+  const app = {
+    terminalPanes: [pane],
+    _activeTerminalSlot: null,
+    _terminalPaneFromPointerEvent: () => pane,
+    setActiveTerminalPane() { activations++; },
+  };
+  const result = focusHelper.call(app, 0, {
+    type: 'mousedown',
+    button: 2,
+    stopPropagation() { stopped++; },
+  });
+  assert.strictEqual(result, false);
+  assert.strictEqual(stopped, 1, 'selected right press must stop at the pane capture boundary');
+  assert.strictEqual(activations, 0, 'selected right press must never focus/activate/refit');
 });
 
 console.log('\n  ' + passed + ' passed, ' + failed + ' failed');

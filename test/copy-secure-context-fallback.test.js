@@ -3,42 +3,34 @@
  * Ctrl+C copy SIGINT regression gate (user report, 2026-07-24).
  * Modified: 2026-07-25
  *
- * The bug: the Ctrl+C branch of TerminalPane.attachCustomKeyEventHandler
- * called navigator.clipboard.writeText(...).catch(() => {}) directly. On an
- * insecure origin (plain http to a LAN IP or hostname, the documented
- * remote-access mode) navigator.clipboard is undefined, so the property
- * access threw a SYNCHRONOUS TypeError that .catch() could never intercept
- * (.catch only sees promise rejections, not a throw during property lookup).
- * The exception escaped the handler BEFORE clearSelection() and
- * `return false` executed, xterm treated the key as unhandled, and the
- * "copy" keystroke sent \x03 (SIGINT) that interrupted the user's running
- * CLI session. The copy itself also failed. Same secure-context trap as
- * paste issue #64, whose fix guarded the Ctrl+V branch but was never
- * applied to Ctrl+C.
+ * The original bug was an exception-prone async Clipboard API call inside the
+ * terminal key handler. A later fallback still canceled Chromium's trusted
+ * copy event with preventDefault(), so embedded browsers that denied
+ * navigator.clipboard.writeText could not use xterm's synchronous native copy
+ * handler even though that handler remained permitted.
  *
- * The fix under test:
- *   1. TerminalPane.copyTextToClipboard: feature-detects the writeText
- *      FUNCTION (not just the object) and otherwise copies through a
- *      temporary offscreen textarea + document.execCommand('copy'), which
- *      unlike programmatic paste is still permitted from script during a
- *      user gesture on every origin. Cleanup always runs in a finally.
- *      The helper never throws and its promise never rejects.
- *   2. The Ctrl+C branch routes through the helper inside a try/catch
- *      bracket so it ALWAYS reaches `return false` once a selection exists;
- *      the SIGINT fall-through is structurally impossible. It clears only
- *      after a successful copy; failure retains the selection and dispatches
- *      cwm:copy-unavailable for truthful user feedback.
- *   3. Every writeText call site in app.js routes through the helper (or
- *      the _copyWithToast wrapper); zero bare calls remain.
+ * The fix under test has two deliberately separate paths:
+ *   1. Keyboard Ctrl+C/Cmd+C asks getCopySelection(). When selected, it
+ *      returns false to xterm's key pipeline so ETX/SIGINT cannot reach the
+ *      PTY, but does not preventDefault, invoke an async helper, or clear the
+ *      selection. Chromium therefore dispatches the trusted `copy` event and
+ *      xterm synchronously fills ClipboardEvent.clipboardData.
+ *   2. Explicit menu/button copy actions still use
+ *      TerminalPane.copyTextToClipboard. That helper feature-detects
+ *      navigator.clipboard.writeText and falls back to an offscreen textarea
+ *      plus document.execCommand('copy') on insecure origins or permission
+ *      denial. It never throws or rejects.
+ *   3. Every writeText call site in app.js routes through that explicit-action
+ *      helper (or _copyWithToast); zero bare calls remain.
  *
  * Two layers of checks:
  *   - Source gates in the style of paste-secure-context-fallback.test.js
  *     (read the sources as text, string-match the load-bearing surface).
  *   - EXECUTED proofs: terminal.js is evaluated in a vm sandbox and the real
- *     extracted Ctrl+C branch is run with navigator.clipboard undefined,
- *     proving the branch still returns false (consumes the key, no SIGINT)
- *     and the text still lands on the stub clipboard via the execCommand
- *     fallback. This is what makes the gate non-vacuous.
+ *     extracted Ctrl+C branch is run with xterm and DOM selections, proving it
+ *     consumes selected keys without touching the permission-gated helper or
+ *     canceling the browser default. Real clipboard contents are verified in
+ *     terminal-interaction.test.js using Chromium's trusted event.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  */
@@ -159,6 +151,9 @@ function makeStubDocument(opts) {
       if (opts && opts.execThrows) throw new Error('execCommand blocked');
       const ta = body.children[body.children.length - 1];
       record.copiedValues.push(ta ? ta.value : null);
+      if (opts && Array.isArray(opts.execResults) && opts.execResults.length > 0) {
+        return opts.execResults.shift();
+      }
       return !(opts && opts.execFails);
     },
   };
@@ -205,12 +200,14 @@ async function main() {
     );
   });
 
-  await check('Ctrl+C branch routes through TerminalPane.copyTextToClipboard', () => {
+  await check('Ctrl+C branch reads the pane-scoped copy selection', () => {
     const branch = extractCtrlCBranch();
     assert.ok(
-      /copyTextToClipboard/.test(branch),
-      'the Ctrl+C branch must copy through the shared universal helper'
+      /const copySelection = this\.getCopySelection\(\)/.test(branch),
+      'the Ctrl+C branch must read xterm/native DOM selection through getCopySelection'
     );
+    assert.ok(/copySelection\.hasSelection\)\s*return false/.test(branch),
+      'a selected shortcut must return false before xterm can send ETX');
   });
 
   await check('copy/paste shortcuts normalize KeyboardEvent.key before safety branches', () => {
@@ -224,33 +221,16 @@ async function main() {
     );
   });
 
-  await check('Ctrl+C branch is structurally exception-proof (try before copy, catch before return false)', () => {
+  await check('Ctrl+C leaves Chromium native copy enabled and selection intact', () => {
     const branch = extractCtrlCBranch();
-    const tryIdx = branch.search(/try\s*\{/);
-    const selectionIdx = branch.indexOf('const selectedText = this.term.getSelection()');
-    const copyIdx = branch.indexOf('copyTextToClipboard');
-    const catchIdx = branch.search(/catch\s*\(/);
-    const retIdx = branch.lastIndexOf('return false;');
-    const preventIdx = branch.indexOf('e.preventDefault()');
-    assert.ok(tryIdx !== -1, 'branch must open a try block');
-    assert.ok(catchIdx !== -1, 'branch must have a catch clause');
-    assert.ok(preventIdx !== -1, 'selected Ctrl+C must cancel the browser native copy action');
-    assert.ok(tryIdx < preventIdx && preventIdx < copyIdx,
-      'preventDefault must run inside the selected branch before the custom clipboard helper');
-    assert.ok(tryIdx < selectionIdx, 'selection extraction must sit INSIDE the try block');
-    assert.ok(selectionIdx < copyIdx, 'the exact selection must be captured before the async copy');
-    assert.ok(tryIdx < copyIdx, 'the copy call must sit INSIDE the try block');
-    assert.ok(copyIdx < catchIdx, 'catch must close over the copy call');
-    assert.ok(catchIdx < retIdx, 'return false must come AFTER the catch, outside the bracket, so it always executes');
-    const protectedRegion = branch.slice(tryIdx, catchIdx);
-    assert.ok(/clearSelection/.test(protectedRegion),
-      'successful copy must still clear the selection inside the exception bracket');
-    assert.ok(/if\s*\(\s*copied\s*\)/.test(protectedRegion),
-      'clearSelection must be gated on the helper reporting success');
-    assert.ok(/_emitCopyUnavailable\('failed'\)/.test(branch),
-      'clipboard failure must dispatch a truthful user-visible notification');
-    assert.ok(/_selectionPositionKey/.test(branch),
-      'async success must compare the exact xterm selection range, not text alone');
+    assert.ok(!/preventDefault/.test(branch),
+      'preventDefault would disable Chromium/xterm trusted native copy');
+    assert.ok(!/copyTextToClipboard/.test(branch),
+      'keyboard copy must not depend on navigator.clipboard permission');
+    assert.ok(!/clearSelection/.test(branch),
+      'native copy keeps selection visible for retry and right-click');
+    assert.ok(!/_emitCopyUnavailable/.test(branch),
+      'native copy is synchronous browser behavior, not an async helper result');
   });
 
   // -------------------------------------------------------------------------
@@ -268,6 +248,10 @@ async function main() {
       "helper must check typeof navigator.clipboard.writeText === 'function' (an object check alone reintroduces the throw)"
     );
     assert.ok(/_copyViaExecCommand/.test(body), 'helper must fall back to _copyViaExecCommand');
+    assert.ok(
+      body.indexOf('_copyViaExecCommand') < body.indexOf('navigator.clipboard.writeText'),
+      'gesture-preserving execCommand copy must run before awaiting the Clipboard API'
+    );
   });
 
   await check('_copyViaExecCommand uses execCommand(copy) with cleanup in a finally', () => {
@@ -306,18 +290,23 @@ async function main() {
     assert.ok(/'error'/.test(body), '_copyWithToast must toast failures');
   });
 
-  await check('app.js surfaces cwm:copy-unavailable and says the selection was kept', () => {
-    const idx = appSrc.indexOf("document.addEventListener('cwm:copy-unavailable'");
-    assert.ok(idx !== -1, 'app.js must listen for Ctrl+C clipboard failures');
-    const body = appSrc.slice(idx, idx + 650);
-    assert.ok(/Selection kept/.test(body), 'the failure toast must tell the user the selection remains available');
-    assert.ok(/showToast\([^;]+,\s*'error'\)/s.test(body), 'clipboard failure must use an error toast');
+  await check('mobile Copy prefers pane-scoped DOM/xterm selection before the full buffer', () => {
+    const start = appSrc.indexOf("if (key === 'copy') {");
+    const end = appSrc.indexOf('// Full-screen reader overlay', start);
+    const body = start >= 0 && end > start ? appSrc.slice(start, end) : '';
+    assert.ok(body, 'mobile Copy branch not found');
+    const selectionIdx = body.indexOf('activePane.getCopySelection');
+    const bufferIdx = body.indexOf('activePane.term.buffer.active');
+    assert.ok(selectionIdx >= 0, 'mobile Copy must use getCopySelection');
+    assert.ok(bufferIdx > selectionIdx,
+      'full-buffer copy may run only after pane-scoped selection reports none');
   });
 
-  await check('index.html cache-busts the changed app.js copy-failure listener', () => {
+  await check('index.html cache-busts the changed native-copy scripts', () => {
     assert.ok(
-      /app\.js\?v=20260725-copytruth/.test(indexSrc),
-      'the changed app.js must not reuse a stale unversioned browser cache entry'
+      /terminal\.js\?v=20260725-copy-native5/.test(indexSrc) &&
+        /app\.js\?v=20260725-copy-native5/.test(indexSrc),
+      'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
   });
 
@@ -347,7 +336,7 @@ async function main() {
     assert.deepStrictEqual(record.execCalls, ['copy']);
   });
 
-  await check('helper: secure context uses writeText and resolves true without touching execCommand', async () => {
+  await check('helper: trusted click prefers synchronous copy before the async API', async () => {
     const { sandbox, TerminalPane } = loadTerminalPane();
     const written = [];
     sandbox.navigator = { clipboard: { writeText(v) { written.push(v); return Promise.resolve(); } } };
@@ -355,18 +344,30 @@ async function main() {
     sandbox.document = doc;
     const ok = await TerminalPane.copyTextToClipboard('secure path');
     assert.strictEqual(ok, true);
-    assert.deepStrictEqual(written, ['secure path'], 'writeText must receive the text on secure origins (behavior unchanged)');
-    assert.strictEqual(record.execCalls.length, 0, 'fallback must not run when writeText succeeded');
+    assert.deepStrictEqual(record.copiedValues, ['secure path']);
+    assert.deepStrictEqual(written, [], 'successful synchronous copy must preserve the gesture and skip writeText');
+  });
+
+  await check('helper: secure context uses writeText when synchronous copy is unavailable', async () => {
+    const { sandbox, TerminalPane } = loadTerminalPane();
+    const written = [];
+    sandbox.navigator = { clipboard: { writeText(v) { written.push(v); return Promise.resolve(); } } };
+    const { doc, record } = makeStubDocument({ execFails: true });
+    sandbox.document = doc;
+    const ok = await TerminalPane.copyTextToClipboard('async fallback');
+    assert.strictEqual(ok, true);
+    assert.deepStrictEqual(record.execCalls, ['copy']);
+    assert.deepStrictEqual(written, ['async fallback']);
   });
 
   await check('helper: writeText REJECTION falls back to execCommand instead of failing', async () => {
     const { sandbox, TerminalPane } = loadTerminalPane();
     sandbox.navigator = { clipboard: { writeText() { return Promise.reject(new Error('NotAllowedError')); } } };
-    const { doc, record } = makeStubDocument();
+    const { doc, record } = makeStubDocument({ execResults: [false, true] });
     sandbox.document = doc;
     const ok = await TerminalPane.copyTextToClipboard('denied then rescued');
     assert.strictEqual(ok, true, 'a permission denial should still copy via the gesture fallback');
-    assert.deepStrictEqual(record.copiedValues, ['denied then rescued']);
+    assert.deepStrictEqual(record.copiedValues, ['denied then rescued', 'denied then rescued']);
   });
 
   await check('helper: execCommand THROW still cleans up the textarea (finally) and resolves false', async () => {
@@ -389,55 +390,54 @@ async function main() {
   });
 
   // -------------------------------------------------------------------------
-  // (5) Executed proofs: the REAL Ctrl+C branch, insecure origin
+  // (5) Executed proofs: the REAL Ctrl+C native-copy branch
   // -------------------------------------------------------------------------
 
-  await check('REAL branch: navigator.clipboard undefined still returns false (key consumed, no SIGINT) and copies the selection', async () => {
-    const { sandbox, context } = loadTerminalPane();
-    delete sandbox.navigator; // the user-reported environment: plain http over LAN
-    const { doc, record } = makeStubDocument();
-    sandbox.document = doc;
-    const harness = compileCtrlCHarness(context);
+  await check('REAL branch: xterm selection consumes Ctrl+C without canceling native copy', () => {
+    const { sandbox, context, TerminalPane } = loadTerminalPane();
+    delete sandbox.navigator; // insecure origin: keyboard copy must not care
+    let helperCalls = 0;
     let cleared = 0;
     let prevented = 0;
-    const thisStub = {
-      term: {
-        hasSelection: () => true,
-        getSelection: () => 'SELECTED TEXT',
-        clearSelection: () => { cleared++; },
-      },
+    let selectionReads = 0;
+    TerminalPane.copyTextToClipboard = () => {
+      helperCalls++;
+      throw new Error('keyboard copy must never call the explicit-action helper');
     };
-    // With the OLD code this call THREW (TypeError on the property access)
-    // before return false, which is exactly how Ctrl+C reached the PTY as
-    // SIGINT. The assertion set below is therefore the whole bug in one run.
-    const result = harness.call(thisStub, {
+    const harness = compileCtrlCHarness(context);
+    const result = harness.call({
+      term: { clearSelection: () => { cleared++; } },
+      getCopySelection: () => {
+        selectionReads++;
+        return { hasSelection: true, text: 'SELECTED TEXT', source: 'xterm' };
+      },
+    }, {
       type: 'keydown',
       key: 'c',
       ctrlKey: true,
       metaKey: false,
       preventDefault: () => { prevented++; },
     }, true);
-    assert.strictEqual(result, false, 'branch must consume the key (return false); anything else falls through to SIGINT');
-    assert.strictEqual(prevented, 1, 'selected Ctrl+C must suppress the browser native copy path exactly once');
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.strictEqual(cleared, 1, 'clearSelection must still run');
-    assert.deepStrictEqual(record.copiedValues, ['SELECTED TEXT'], 'the selection must actually land on the (stub) clipboard via the fallback');
+    assert.strictEqual(result, false, 'selected Ctrl+C must be withheld from ETX/SIGINT');
+    assert.strictEqual(selectionReads, 1, 'selection state must be read once');
+    assert.strictEqual(prevented, 0, 'Chromium native copy must remain enabled');
+    assert.strictEqual(helperCalls, 0, 'keyboard copy must bypass the async helper');
+    assert.strictEqual(cleared, 0, 'native copy must retain the selection');
   });
 
-  await check('REAL branch: uppercase Ctrl+C is consumed and copied instead of becoming SIGINT', async () => {
-    const { sandbox, context } = loadTerminalPane();
+  await check('REAL branch: uppercase Ctrl+C and native DOM selection are consumed safely', () => {
+    const { sandbox, context, TerminalPane } = loadTerminalPane();
     delete sandbox.navigator;
-    const { doc, record } = makeStubDocument();
-    sandbox.document = doc;
-    const harness = compileCtrlCHarness(context);
-    let cleared = 0;
+    let helperCalls = 0;
     let prevented = 0;
+    TerminalPane.copyTextToClipboard = () => { helperCalls++; return Promise.resolve(false); };
+    const harness = compileCtrlCHarness(context);
     const result = harness.call({
-      term: {
-        hasSelection: () => true,
-        getSelection: () => 'UPPERCASE SELECTED TEXT',
-        clearSelection: () => { cleared++; },
-      },
+      getCopySelection: () => ({
+        hasSelection: true,
+        text: 'VISIBLE DOM SELECTION',
+        source: 'dom',
+      }),
     }, {
       type: 'keydown',
       key: 'C',
@@ -447,82 +447,18 @@ async function main() {
       preventDefault: () => { prevented++; },
     }, true);
     assert.strictEqual(result, false, 'uppercase selected Ctrl+C must be consumed');
-    assert.strictEqual(prevented, 1, 'uppercase selected Ctrl+C must cancel native copy exactly once');
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.strictEqual(cleared, 1, 'uppercase successful copy must clear the copied selection');
-    assert.deepStrictEqual(record.copiedValues, ['UPPERCASE SELECTED TEXT']);
+    assert.strictEqual(prevented, 0, 'uppercase copy must preserve the native default');
+    assert.strictEqual(helperCalls, 0, 'DOM-selection keyboard copy must remain native');
   });
 
-  await check('REAL branch: failed copy keeps selection, reports failure, and still consumes Ctrl+C', async () => {
-    const { sandbox, context } = loadTerminalPane();
-    delete sandbox.navigator;
-    delete sandbox.document; // scorched earth: every copy path unavailable
-    const harness = compileCtrlCHarness(context);
-    let cleared = 0;
-    let prevented = 0;
-    const notifications = [];
-    const thisStub = {
-      term: {
-        hasSelection: () => true,
-        getSelection: () => 'RECOVERABLE SELECTION',
-        clearSelection: () => { cleared++; },
-      },
-      _emitCopyUnavailable: (reason) => { notifications.push(reason); },
-    };
-    const result = harness.call(thisStub, {
-      type: 'keydown',
-      key: 'c',
-      ctrlKey: true,
-      metaKey: false,
-      preventDefault: () => { prevented++; },
-    }, true);
-    assert.strictEqual(result, false, 'the copy may fail, consuming the key may not');
-    assert.strictEqual(prevented, 1, 'failed selected Ctrl+C must still cancel the native copy path');
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.strictEqual(cleared, 0, 'a failed copy must keep the selection so the user can recover it');
-    assert.deepStrictEqual(notifications, ['failed'], 'failed copy must emit exactly one notification');
-  });
-
-  await check('REAL branch: async success does not clear a newer equal-text selection at another range', async () => {
-    const { sandbox, context, TerminalPane } = loadTerminalPane();
-    let resolveCopy;
-    TerminalPane.copyTextToClipboard = () => new Promise((resolve) => { resolveCopy = resolve; });
-    sandbox.navigator = {};
-    const harness = compileCtrlCHarness(context);
-    let cleared = 0;
-    let position = {
-      start: { x: 1, y: 2 },
-      end: { x: 5, y: 2 },
-    };
-    const thisStub = {
-      term: {
-        hasSelection: () => true,
-        getSelection: () => 'SAME',
-        getSelectionPosition: () => position,
-        clearSelection: () => { cleared++; },
-      },
-      _emitCopyUnavailable: () => {},
-    };
-    const result = harness.call(thisStub, { type: 'keydown', key: 'c', ctrlKey: true, metaKey: false }, true);
-    assert.strictEqual(result, false, 'selected Ctrl+C must be consumed while the copy is pending');
-    position = {
-      start: { x: 12, y: 8 },
-      end: { x: 16, y: 8 },
-    };
-    resolveCopy(true);
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.strictEqual(cleared, 0, 'equal text at a newer range must remain selected');
-  });
-
-  await check('REAL branch: no selection still falls through (plain Ctrl+C SIGINT preserved)', async () => {
+  await check('REAL branch: no selection still falls through (plain Ctrl+C SIGINT preserved)', () => {
     const { sandbox, context } = loadTerminalPane();
     delete sandbox.navigator;
     const harness = compileCtrlCHarness(context);
     let prevented = 0;
-    const thisStub = {
-      term: { hasSelection: () => false, getSelection: () => '', clearSelection: () => {} },
-    };
-    const result = harness.call(thisStub, {
+    const result = harness.call({
+      getCopySelection: () => ({ hasSelection: false, text: '', source: null }),
+    }, {
       type: 'keydown',
       key: 'c',
       ctrlKey: true,

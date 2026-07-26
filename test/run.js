@@ -940,8 +940,10 @@ const standaloneTests = [
   'codex-mirror-parse.test.js',      // issue #10 T1 P2: codex parseLine extraction + parseTranscript parity on canonical fixtures
   'mirror-service.test.js',          // issue #10 T1 P3: MirrorService open/close refcount, broadcast batching, limit, truncate reset, readEarlier paging
   'mirror-routes.test.js',           // issue #10 T1 P0+P3: /api/mirror routes, SSE deviceId scoping, discovery live/lastActiveMs flags
-  'copy-secure-context-fallback.test.js', // 2026-07-24 user report: Ctrl+C copy sent SIGINT on plain-http; universal copy helper + exception-proof branch + zero bare writeText gate
-  'terminal-select-mode.test.js', // 2026-07-25 mouse-mode copy fix: per-pane Select toggle (plain drag -> synthetic Shift+drag) + one-time Shift/Select hint, interceptor no-op when OFF
+  'mirror-view-state.test.js',       // 2026-07-25: mirror group-cycle preserves scrolled-up vs live-tail reading position
+  'copy-secure-context-fallback.test.js', // 2026-07-25: native selected Ctrl+C contract + explicit-action universal helper + zero bare writeText gate
+  'terminal-select-mode.test.js', // 2026-07-25: Select drag event ordering + selected hover/right-edge preservation + active/inactive focus execution
+  'terminal-host-ownership.test.js', // 2026-07-25 copy regression: moved/cached xterm owner + fixed-host listener/control/resize lifecycle
 ];
 
 let standaloneFailed = 0;

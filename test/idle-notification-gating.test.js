@@ -88,6 +88,7 @@ function loadSandbox() {
   const doc = {
     documentElement: { dataset: {} },
     getElementById() { return container; },
+    dispatchEvent(ev) { container.events.push(ev); return true; },
   };
 
   const factory = new Function(
@@ -350,12 +351,16 @@ check('setActiveTerminalPane acknowledges completion without dismissing unresolv
 
 check('switchTerminalGroup re-points _activeTerminalSlot at the restored group', () => {
   assert.ok(
-    appSrc.includes('const firstFilledSlot = this.terminalPanes.findIndex(p => p);'),
-    'first filled slot lookup'
+    /let firstFilledSlot = -1;[\s\S]*this\._isSlotOccupied\(i\)[\s\S]*firstFilledSlot = i;/.test(appSrc),
+    'first occupied slot lookup must include terminals and mirrors'
   );
   assert.ok(
-    appSrc.includes('this._activeTerminalSlot = firstFilledSlot !== -1 ? firstFilledSlot : null;'),
-    'active slot assignment'
+    appSrc.includes('this._activeTerminalSlot = preferredActiveSlot !== null'),
+    'remembered active slot assignment'
+  );
+  assert.ok(
+    appSrc.includes(': (firstFilledSlot !== -1 ? firstFilledSlot : null);'),
+    'first filled slot fallback'
   );
 });
 

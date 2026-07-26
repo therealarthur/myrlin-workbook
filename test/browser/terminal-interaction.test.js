@@ -212,7 +212,7 @@ async function waitForFixture(page) {
     window.fixture.pane &&
     window.fixture.pane.connected === true &&
     window.fixture.pane.term &&
-    window.fixture.pane.term.modes.mouseTrackingMode === 'drag'
+    window.fixture.pane.term.modes.mouseTrackingMode === 'any'
   ), null, { timeout: 15000 });
 }
 
@@ -264,8 +264,11 @@ async function selectionGeometry(page) {
  */
 async function dragCopyTarget(page, withShift) {
   const geometry = await selectionGeometry(page);
-  if (withShift) await page.keyboard.down('Shift');
+  // Positioning the pointer is a distinct zero-button 1003 hover. Reset after
+  // that setup move so assertions below measure only the drag gesture itself.
   await page.mouse.move(geometry.x1, geometry.y);
+  await resetState(page);
+  if (withShift) await page.keyboard.down('Shift');
   await page.mouse.down({ button: 'left' });
   await page.mouse.move(geometry.x2, geometry.y, { steps: 10 });
   await page.mouse.up({ button: 'left' });
@@ -355,6 +358,18 @@ async function run() {
     assert.strictEqual(selection.hasSelection, false, 'plain drag must not select while Select mode is off');
     assert.ok(state.mouseEvents > 0, 'plain drag must reach the mouse-reporting TUI');
 
+    // DECSET 1003 reports movement even when no mouse button is down. Prove
+    // the fixture really exercises that mode before testing selected-hover
+    // suppression later.
+    await resetState(page);
+    const hoverGeometry = await selectionGeometry(page);
+    await page.mouse.move(hoverGeometry.x1, hoverGeometry.y + 28);
+    await page.mouse.move(hoverGeometry.x2, hoverGeometry.y + 28, { steps: 8 });
+    await page.waitForFunction(() => window.__fixtureState &&
+      window.__fixtureState.hoverMoves > 0);
+    state = await getState(page);
+    assert.ok(state.hoverMoves > 0, 'unselected zero-button hover must reach the 1003 TUI');
+
     // Native xterm force selection: Shift+drag selects and emits no PTY mouse
     // reports.
     await page.evaluate(() => window.fixture.pane.term.clearSelection());
@@ -382,35 +397,38 @@ async function run() {
     );
     await resetState(page);
     await page.keyboard.press('Control+c');
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => window.__nativeCopyEvents.length === 1);
     const keyboardCopyDebug = await page.evaluate(() => ({
       attempts: window.__copyAttempts,
+      nativeEvents: window.__nativeCopyEvents,
       selection: window.fixture.pane.term.getSelection(),
       activeClass: document.activeElement && document.activeElement.className,
-      helperSource: TerminalPane.copyTextToClipboard.toString().slice(0, 160),
     }));
     assert.strictEqual(
       keyboardCopyDebug.attempts.length,
-      1,
-      'selected Ctrl+C did not reach the copy helper: ' + JSON.stringify(keyboardCopyDebug)
+      0,
+      'selected Ctrl+C must bypass the explicit-action helper: ' +
+        JSON.stringify(keyboardCopyDebug)
     );
-    assert.notStrictEqual(keyboardCopyDebug.attempts[0].result, null);
+    assert.deepStrictEqual(
+      keyboardCopyDebug.nativeEvents,
+      [{ trusted: true, text: keyboardCopyText, defaultPrevented: true }],
+      'selected Ctrl+C must dispatch one trusted xterm copy event'
+    );
     state = await getState(page);
     assert.strictEqual(state.sigintCount, 0, 'selected Ctrl+C must not send ETX/SIGINT');
-    assert.deepStrictEqual(
-      await page.evaluate(() => window.__copyAttempts),
-      [{ text: keyboardCopyText, result: true }],
-      'selected Ctrl+C must attempt one successful copy with the exact selection'
-    );
     assert.strictEqual(await page.evaluate(() => navigator.clipboard.readText()), keyboardCopyText);
     assert.strictEqual(
-      (await readSelection(page)).hasSelection,
-      false,
-      'a confirmed keyboard copy must clear the copied selection'
+      (await readSelection(page)).text,
+      keyboardCopyText,
+      'native keyboard copy must retain the exact selection'
     );
 
-    // Caps Lock and Shift make KeyboardEvent.key uppercase. The normalized
-    // shortcut path must still copy a selection and must never leak ETX.
+    // Caps Lock can make KeyboardEvent.key uppercase without adding Shift.
+    // Playwright does not emulate lock-state casing, so dispatch an uppercase
+    // browser event to exercise xterm's real custom key handler. The trusted
+    // clipboard result is covered by the lowercase physical shortcut above;
+    // this case proves uppercase cannot leak ETX or invoke the async helper.
     const uppercaseCopyText = await page.evaluate(() => {
       const textarea = document.querySelector('#fixture-terminal .xterm-helper-textarea');
       window.__lastCopyShortcutKey = null;
@@ -425,9 +443,17 @@ async function run() {
     assert.ok(uppercaseCopyText, 'uppercase Ctrl+C scenario must start with a real selection');
     await page.locator('#fixture-terminal .xterm-helper-textarea').focus();
     await resetState(page);
-    await page.keyboard.press('Control+Shift+C');
-    await page.waitForFunction(() => window.__copyAttempts.length === 1 &&
-      window.__copyAttempts[0].result !== null);
+    await page.evaluate(() => {
+      const textarea = document.querySelector('#fixture-terminal .xterm-helper-textarea');
+      textarea.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'C',
+        code: 'KeyC',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+    await page.waitForTimeout(100);
     assert.strictEqual(
       await page.evaluate(() => window.__lastCopyShortcutKey),
       'C',
@@ -435,13 +461,13 @@ async function run() {
     );
     state = await getState(page);
     assert.strictEqual(state.sigintCount, 0, 'uppercase selected Ctrl+C must not send ETX/SIGINT');
-    assert.deepStrictEqual(
-      await page.evaluate(() => window.__copyAttempts),
-      [{ text: uppercaseCopyText, result: true }],
-      'uppercase selected Ctrl+C must copy the exact selection once'
-    );
+    assert.strictEqual(await page.evaluate(() => window.__nativeCopyEvents.length), 0,
+      'an untrusted synthetic key cannot claim a native clipboard result');
+    assert.strictEqual(await page.evaluate(() => window.__copyAttempts.length), 0);
+    assert.strictEqual((await readSelection(page)).text, uppercaseCopyText);
 
     // Unselected Ctrl+C still reaches the PTY exactly once.
+    await page.evaluate(() => window.fixture.pane.term.clearSelection());
     await page.locator('#fixture-terminal .xterm-helper-textarea').focus();
     await resetState(page);
     await page.keyboard.press('Control+c');
@@ -449,6 +475,7 @@ async function run() {
     state = await getState(page);
     assert.strictEqual(state.sigintCount, 1, 'unselected Ctrl+C must send one ETX/SIGINT');
     assert.strictEqual(await page.evaluate(() => window.__copyAttempts.length), 0);
+    assert.strictEqual(await page.evaluate(() => window.__nativeCopyEvents.length), 0);
 
     // Select mode converts a plain drag into a genuine selection, then turning
     // it off restores TUI mouse delivery.
@@ -466,6 +493,17 @@ async function run() {
       'Select mode selected the wrong terminal row: ' + JSON.stringify(selection.text)
     );
     assert.strictEqual(state.mouseEvents, 0, 'Select mode drag must not reach the TUI');
+    assert.strictEqual(
+      await page.evaluate(() => window.__focusCalls),
+      0,
+      'an already-active Select-mode drag must not refocus/refit the pane'
+    );
+    const selectModeCopyText = selection.text;
+    await page.keyboard.press('Control+c');
+    await page.waitForFunction(() => window.__nativeCopyEvents.length === 1);
+    assert.strictEqual(await page.evaluate(() => navigator.clipboard.readText()), selectModeCopyText);
+    assert.strictEqual((await readSelection(page)).text, selectModeCopyText);
+    assert.strictEqual((await getState(page)).sigintCount, 0);
     await selectModeButton.click();
     assert.strictEqual(await selectModeButton.getAttribute('aria-pressed'), 'false');
     await page.evaluate(() => window.fixture.pane.term.clearSelection());
@@ -480,14 +518,41 @@ async function run() {
     await dragCopyTarget(page, true);
     const rightClickSelection = (await readSelection(page)).text;
     await resetState(page);
+    const selectedHoverGeometry = await selectionGeometry(page);
+    await page.mouse.move(
+      selectedHoverGeometry.x2 + 40,
+      selectedHoverGeometry.y + 25,
+      { steps: 6 }
+    );
+    await page.waitForTimeout(100);
+    state = await getState(page);
+    assert.strictEqual(
+      state.hoverMoves,
+      0,
+      'zero-button hover after selection must not reach a 1003 mouse-reporting TUI'
+    );
+    assert.strictEqual(
+      (await readSelection(page)).text,
+      rightClickSelection,
+      'moving the pointer toward a right-click must preserve the exact selection'
+    );
     await openContextMenu(page);
     state = await getState(page);
     selection = await readSelection(page);
     assert.strictEqual(state.mouseEvents, 0, 'right-click on a selection must emit no PTY mouse event');
     assert.strictEqual(state.rightPresses, 0, 'right-click on a selection must not reach the TUI');
+    assert.strictEqual(
+      await page.evaluate(() => window.__focusCalls),
+      0,
+      'selected right-click must skip the earlier pane refocus that clears xterm selection'
+    );
     assert.strictEqual(selection.text, rightClickSelection, 'right-click must preserve the exact selection');
     const copyItem = page.locator('#fixture-context-menu [data-label="Copy"]');
     assert.strictEqual(await copyItem.count(), 1, 'production terminal menu must expose Copy');
+    // The action must use the contextmenu-time snapshot, not re-read a live
+    // selection that a later renderer/focus change may have cleared.
+    await page.evaluate(() => window.fixture.pane.term.clearSelection());
+    assert.strictEqual((await readSelection(page)).hasSelection, false);
     await copyItem.click();
     await page.waitForFunction(() => window.__copyAttempts.length === 1 &&
       window.__copyAttempts[0].result !== null);
@@ -501,9 +566,10 @@ async function run() {
     );
     assert.strictEqual(await page.evaluate(() => navigator.clipboard.readText()), rightClickSelection);
 
-    // Clipboard denial through selected Ctrl+C must still consume the key,
-    // keep the recoverable selection, leave the native OS clipboard untouched,
-    // and surface a truthful error.
+    // Embedded browsers may expose navigator.clipboard while denying its
+    // programmatic write. Keyboard copy must not touch that API: Chromium's
+    // trusted copy event and xterm's synchronous clipboardData path still
+    // succeed, retain selection, and never emit SIGINT.
     await page.locator('#fixture-terminal .xterm-helper-textarea').focus();
     await resetState(page);
     const denialClipboardSentinel =
@@ -512,40 +578,74 @@ async function run() {
       const nativeClipboard = navigator.clipboard;
       await nativeClipboard.writeText(sentinel);
       window.__nativeClipboardForDenial = nativeClipboard;
+      window.__clipboardWriteAttempts = 0;
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
-        value: { writeText: () => Promise.reject(new Error('denied')) },
+        value: {
+          writeText: () => {
+            window.__clipboardWriteAttempts += 1;
+            return Promise.reject(new Error('denied'));
+          },
+        },
       });
-      document.execCommand = () => false;
       window.fixture.pane.term.select(0, 1, 18);
     }, denialClipboardSentinel);
     const deniedKeyboardSelection = (await readSelection(page)).text;
     assert.ok(deniedKeyboardSelection, 'denial scenario must begin with a real xterm selection');
     await page.keyboard.press('Control+c');
-    await page.waitForFunction(() => window.__copyAttempts.length === 1 &&
-      window.__copyAttempts[0].result === false && window.__toast !== null);
+    await page.waitForFunction(() => window.__nativeCopyEvents.length === 1);
     state = await getState(page);
-    assert.strictEqual(state.sigintCount, 0, 'failed selected Ctrl+C must never reach the PTY as SIGINT');
+    assert.strictEqual(state.sigintCount, 0, 'selected Ctrl+C must never reach the PTY as SIGINT');
     assert.strictEqual(
       (await readSelection(page)).text,
       deniedKeyboardSelection,
-      'failed selected Ctrl+C must preserve the exact selection'
+      'native selected Ctrl+C must preserve the exact selection'
     );
     assert.deepStrictEqual(
-      await page.evaluate(() => window.__toast),
-      { message: 'Copy was blocked by the browser. Selection kept.', level: 'error' }
+      await page.evaluate(() => window.__nativeCopyEvents),
+      [{ trusted: true, text: deniedKeyboardSelection, defaultPrevented: true }]
     );
     assert.strictEqual(
       await page.evaluate(() => window.__nativeClipboardForDenial.readText()),
-      denialClipboardSentinel,
-      'failed selected Ctrl+C must prevent Chromium/xterm native copy from changing the OS clipboard'
+      deniedKeyboardSelection,
+      'trusted native copy must replace the sentinel with the exact selection'
     );
+    assert.strictEqual(await page.evaluate(() => window.__clipboardWriteAttempts), 0,
+      'keyboard copy must not call navigator.clipboard.writeText');
+    assert.strictEqual(await page.evaluate(() => window.__copyAttempts.length), 0,
+      'keyboard copy must not call the explicit-action helper');
+    assert.strictEqual(await page.evaluate(() => window.__toast), null,
+      'successful native copy must not show a failure toast');
 
-    // The production right-click wrapper must remain truthful under the same
-    // denial and leave the selection available.
+    // The explicit right-click helper must preserve the trusted click by
+    // copying synchronously before the exposed-but-denied async API can expire
+    // user activation.
     await page.evaluate(() => {
       window.__copyAttempts.length = 0;
       window.__toast = null;
+    });
+    await openContextMenu(page);
+    await page.locator('#fixture-context-menu [data-label="Copy"]').click();
+    await page.waitForFunction(() => window.__copyAttempts.length === 1 &&
+      window.__copyAttempts[0].result === true);
+    assert.deepStrictEqual(
+      await page.evaluate(() => window.__toast),
+      { message: 'Copied to clipboard', level: 'success' }
+    );
+    assert.strictEqual(await page.evaluate(() => window.__clipboardWriteAttempts), 0,
+      'successful synchronous menu copy must not call the denied Clipboard API');
+    assert.strictEqual(
+      await page.evaluate(() => window.__nativeClipboardForDenial.readText()),
+      deniedKeyboardSelection,
+      'gesture-preserving right-click Copy must write the exact selection'
+    );
+
+    // Under total denial the explicit helper remains truthful and leaves the
+    // selection available.
+    await page.evaluate(() => {
+      window.__copyAttempts.length = 0;
+      window.__toast = null;
+      document.execCommand = () => false;
     });
     await openContextMenu(page);
     await page.locator('#fixture-context-menu [data-label="Copy"]').click();
@@ -556,9 +656,15 @@ async function run() {
       { message: 'Copy failed', level: 'error' }
     );
     assert.strictEqual((await readSelection(page)).text, deniedKeyboardSelection);
+    assert.strictEqual(
+      await page.evaluate(() => window.__nativeClipboardForDenial.readText()),
+      deniedKeyboardSelection,
+      'failed explicit copy must not overwrite the last successful native copy'
+    );
     await page.evaluate(() => {
       delete navigator.clipboard;
       delete window.__nativeClipboardForDenial;
+      delete window.__clipboardWriteAttempts;
     });
 
     // Reload to restore the native Clipboard API, then prove the secure
@@ -772,11 +878,31 @@ async function run() {
       'real insecure-origin Ctrl+V must paste the platform clipboard text once'
     );
 
+    // Trusted keyboard copy must also work on a genuinely insecure origin,
+    // where navigator.clipboard is unavailable.
+    await dragCopyTarget(insecurePage, true);
+    const insecureCopyText = (await readSelection(insecurePage)).text;
+    await resetState(insecurePage);
+    await insecurePage.keyboard.press('Control+c');
+    await insecurePage.waitForFunction(() => window.__nativeCopyEvents.length === 1);
+    state = await getState(insecurePage);
+    assert.strictEqual(state.sigintCount, 0, 'insecure selected Ctrl+C must not emit SIGINT');
+    assert.deepStrictEqual(
+      await insecurePage.evaluate(() => window.__nativeCopyEvents),
+      [{ trusted: true, text: insecureCopyText, defaultPrevented: true }],
+      'insecure selected Ctrl+C must use the trusted native copy event'
+    );
+    assert.strictEqual(await insecurePage.evaluate(() => window.__copyAttempts.length), 0);
+    assert.strictEqual((await readSelection(insecurePage)).text, insecureCopyText);
+    assert.strictEqual(
+      await page.evaluate(() => navigator.clipboard.readText()),
+      insecureCopyText,
+      'secure-origin verification must read the exact insecure native copy'
+    );
+
     // The insecure-origin right-click action must use execCommand successfully
     // during its real click gesture, and the secure page must be able to read
     // the exact resulting clipboard contents.
-    await dragCopyTarget(insecurePage, true);
-    const insecureCopyText = (await readSelection(insecurePage)).text;
     await resetState(insecurePage);
     await openContextMenu(insecurePage);
     await insecurePage.locator('#fixture-context-menu [data-label="Copy"]').click();
@@ -821,12 +947,12 @@ async function run() {
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
     console.log('PASS terminal browser acceptance');
     console.log('  Shift+drag: real selection, zero PTY mouse reports');
-    console.log('  Select mode: real selection; mode off restores TUI mouse events');
-    console.log('  Ctrl+C: lowercase/uppercase copy safely; denial retains selection; no SIGINT');
-    console.log('  Clipboard: denial leaves native contents unchanged; original formats restored');
-    console.log('  Right-click: preserved selection, zero TUI events, truthful copy toast');
+    console.log('  Select mode: real selection + native Ctrl+C; mode off restores TUI mouse events');
+    console.log('  Ctrl+C: trusted native copy; uppercase safety; denied API still works; no SIGINT');
+    console.log('  Clipboard: native copy writes exact text under API denial; original formats restored');
+    console.log('  Right-click: hover + both button edges preserve snapshot; truthful copy toast');
     console.log('  Paste: lowercase/uppercase, denied API, native, and orphan paths send exactly once');
-    console.log('  Insecure origin: guided menu + native paste; execCommand copy verified');
+    console.log('  Insecure origin: native Ctrl+C/paste plus execCommand menu copy verified');
     console.log('  Scroll: normal buffer scrolls; alternate-screen limitation confirmed');
     console.log('  Screenshot: ' + SCREENSHOT_PATH);
   } finally {
