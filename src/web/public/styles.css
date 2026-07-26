@@ -3110,6 +3110,20 @@ textarea.input {
   display: none;
 }
 
+.terminal-tab-item {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--surface0);
+  border-radius: var(--radius-sm);
+  background: var(--mantle);
+}
+
+.terminal-tab-item.active {
+  border-color: var(--mauve);
+  background: var(--surface0);
+}
+
 @media (max-width: 768px) {
   .terminal-tab-strip {
     display: flex;
@@ -3147,6 +3161,12 @@ textarea.input {
   border-color: var(--mauve);
 }
 
+.terminal-tab-item > .terminal-tab {
+  border: 0;
+  background: transparent;
+  padding-right: 6px;
+}
+
 .terminal-tab-close {
   background: none;
   border: none;
@@ -3159,6 +3179,11 @@ textarea.input {
 
 .terminal-tab-close:hover {
   color: var(--red);
+}
+
+.terminal-tab-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .terminal-tab-add {
@@ -5682,6 +5707,24 @@ html.activity-indicators-disabled .terminal-pane-activity {
   touch-action: pan-x;
 }
 
+.terminal-group-tab-item {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border-radius: 6px;
+  transition: background var(--transition-fast);
+}
+
+.terminal-group-tab-item:hover,
+.terminal-group-tab-item.active {
+  background: var(--surface0);
+}
+
+.terminal-group-tab-item > .terminal-group-tab {
+  padding-right: 4px;
+  background: transparent;
+}
+
 .terminal-group-tab::before {
   content: '';
   position: absolute;
@@ -5745,14 +5788,28 @@ html.activity-indicators-disabled .terminal-pane-activity {
   flex-shrink: 0;
 }
 
-.terminal-group-tab:hover .terminal-group-tab-close {
+.terminal-group-tab-item:hover .terminal-group-tab-close,
+.terminal-group-tab-item:focus-within .terminal-group-tab-close {
   opacity: 0.7;
+}
+
+.terminal-group-tab-close {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .terminal-group-tab-close:hover {
   opacity: 1 !important;
   color: var(--red);
   background: rgba(243, 139, 168, 0.15);
+}
+
+.terminal-group-tab-close:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .terminal-groups-add {

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#1e1e2e">
-  <meta name="description" content="myrlin's workbook - Manage Claude Code sessions">
+  <meta name="description" content="Myrlin's Workbook - Manage Claude Code and Codex sessions">
   <title>myrlin's workbook</title>
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png">
@@ -16,8 +16,10 @@
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="styles-mobile.css">
-  <link rel="stylesheet" href="focused-shell.css?v=20260725-2">
-  <script src="theme-registry.js?v=20260725-2"></script>
+  <link rel="stylesheet" href="semantic-theme.css?v=20260725-5">
+  <link rel="stylesheet" href="focused-shell.css?v=20260725-5">
+  <script src="theme-registry.js?v=20260725-5"></script>
+  <script src="experience-model.js?v=20260725-5"></script>
   <script>
     (function() {
       try {
@@ -54,7 +56,16 @@
         if (resolvedTheme) {
           document.documentElement.dataset.theme = resolvedTheme;
           document.documentElement.dataset.themeChoice = savedChoice || resolvedTheme;
+          var themeMeta = registry && registry.getTheme(resolvedTheme);
+          document.documentElement.dataset.themeAppearance =
+            themeMeta && themeMeta.appearance === 'light' ? 'light' : 'dark';
         }
+
+        var experienceModel = window.MyrlinExperienceModel;
+        var savedDensity = localStorage.getItem('cwm_density');
+        document.documentElement.dataset.density = experienceModel
+          ? experienceModel.normalizeDensity(savedDensity)
+          : (savedDensity === 'informative' ? 'informative' : 'quiet');
 
         var s = parseFloat(localStorage.getItem('cwm_ui_scale'));
         if (s && s >= 0.85 && s <= 1.2) {
@@ -88,7 +99,7 @@
           <img src="logo.png" alt="Myrlin" class="login-logo-img">
         </div>
         <h1 class="login-title">myrlin's workbook</h1>
-        <p class="login-subtitle">Manage your Claude Code sessions</p>
+        <p class="login-subtitle">Claude Code and Codex, one focused workspace</p>
       </div>
 
       <form id="login-form" class="login-form" autocomplete="off">
@@ -270,6 +281,13 @@
       </div>
 
       <div class="header-right">
+        <button class="attention-queue-btn" id="attention-queue-btn" type="button"
+                aria-haspopup="menu" aria-expanded="false" aria-controls="context-menu"
+                aria-label="Session attention queue" hidden>
+          <span class="attention-queue-icon" aria-hidden="true">&#9679;</span>
+          <span class="attention-queue-label">Attention</span>
+          <span class="attention-queue-badge" id="attention-queue-badge">0</span>
+        </button>
         <!-- Per-model usage meter for the ACTIVE account: Session (5h) bar
              (the true cooldown) plus Opus and Fable bars from their
              WEEKLY-scoped limits, each with its exact local reset time.
@@ -418,7 +436,7 @@
         </button>
         <div class="sidebar-view-toggle" id="sidebar-view-toggle">
           <button class="sidebar-view-btn active" data-sidebar-view="projects">Projects</button>
-          <button class="sidebar-view-btn" data-sidebar-view="tasks">Tasks</button>
+          <button class="sidebar-view-btn" data-sidebar-view="tasks">Agent Tasks</button>
         </div>
         <div class="sidebar-tabs" id="sidebar-provider-tabs" role="tablist"></div>
         <div class="sidebar-header" id="sidebar-projects-header">
@@ -440,8 +458,8 @@
         </div>
         <div class="sidebar-tasks-header" id="sidebar-tasks-header" hidden>
           <div class="sidebar-tasks-mode-toggle" id="sidebar-tasks-mode-toggle">
-            <button class="sidebar-tasks-mode-btn active" data-tasks-mode="native" title="Worktree Tasks">Tasks</button>
-            <button class="sidebar-tasks-mode-btn" data-tasks-mode="td" title="td Issues">td</button>
+            <button class="sidebar-tasks-mode-btn active" data-tasks-mode="native" title="Agent Tasks">Agents</button>
+            <button class="sidebar-tasks-mode-btn" data-tasks-mode="td" title="Issues">Issues</button>
           </div>
         </div>
         <div class="sidebar-list sidebar-tasks-list" id="sidebar-tasks-list" hidden>
@@ -1025,7 +1043,12 @@
           <div class="docs-header">
             <div class="docs-header-left">
               <h2 class="docs-title">Project Notes</h2>
-              <span class="docs-workspace-name" id="docs-workspace-name"></span>
+              <div class="docs-context">
+                <span class="docs-context-label">Project</span>
+                <select class="docs-workspace-select" id="docs-workspace-select"
+                        aria-label="Project for notes"></select>
+                <span class="docs-workspace-name" id="docs-workspace-name" aria-live="polite"></span>
+              </div>
             </div>
             <div class="docs-header-right">
               <button class="btn btn-ghost btn-sm" id="docs-toggle-raw" title="Toggle raw markdown editor">
@@ -1036,10 +1059,16 @@
             </div>
           </div>
 
-          <!-- Docs / Board Tab Bar -->
+          <!-- Notes / Plan Tab Bar -->
           <div class="docs-tabs">
-            <button class="docs-tab active" data-tab="docs">Docs</button>
-            <button class="docs-tab" data-tab="board">Board</button>
+            <button class="docs-tab active" data-tab="docs">Notes</button>
+            <button class="docs-tab" data-tab="board">Plan</button>
+          </div>
+
+          <div class="docs-project-empty" id="docs-project-empty" hidden>
+            <div class="docs-project-empty-icon" aria-hidden="true">&#128196;</div>
+            <h3>Choose a project</h3>
+            <p>Project Notes keeps notes, goals, checklists, and plans scoped to one project.</p>
           </div>
 
           <!-- Feature Board (Kanban) -->
@@ -1082,42 +1111,58 @@
           <!-- Structured View -->
           <div class="docs-structured" id="docs-structured">
             <div class="docs-section" data-section="notes">
-              <div class="docs-section-header">
-                <span class="docs-section-chevron open">&#9654;</span>
-                <h3 class="docs-section-title">Notes</h3>
-                <span class="docs-section-count" id="docs-notes-count">0</span>
-                <button class="btn btn-ghost btn-icon btn-sm docs-add-btn" data-section="notes" title="Add note">+</button>
+              <div class="docs-section-heading">
+                <button type="button" class="docs-section-header" aria-expanded="true" aria-controls="docs-notes-list">
+                  <span class="docs-section-chevron open" aria-hidden="true">&#9654;</span>
+                  <span class="docs-section-title">Notes</span>
+                  <span class="docs-section-count" id="docs-notes-count">0</span>
+                </button>
+                <div class="docs-section-actions">
+                  <button type="button" class="btn btn-ghost btn-icon btn-sm docs-add-btn" data-section="notes" title="Add note" aria-label="Add note">+</button>
+                </div>
               </div>
               <div class="docs-section-body" id="docs-notes-list"></div>
             </div>
 
             <div class="docs-section" data-section="goals">
-              <div class="docs-section-header">
-                <span class="docs-section-chevron open">&#9654;</span>
-                <h3 class="docs-section-title">Goals</h3>
-                <span class="docs-section-count" id="docs-goals-count">0</span>
-                <button class="btn btn-ghost btn-icon btn-sm docs-add-btn" data-section="goals" title="Add goal">+</button>
+              <div class="docs-section-heading">
+                <button type="button" class="docs-section-header" aria-expanded="true" aria-controls="docs-goals-list">
+                  <span class="docs-section-chevron open" aria-hidden="true">&#9654;</span>
+                  <span class="docs-section-title">Goals</span>
+                  <span class="docs-section-count" id="docs-goals-count">0</span>
+                </button>
+                <div class="docs-section-actions">
+                  <button type="button" class="btn btn-ghost btn-icon btn-sm docs-add-btn" data-section="goals" title="Add goal" aria-label="Add goal">+</button>
+                </div>
               </div>
               <div class="docs-section-body" id="docs-goals-list"></div>
             </div>
 
             <div class="docs-section" data-section="tasks">
-              <div class="docs-section-header">
-                <span class="docs-section-chevron open">&#9654;</span>
-                <h3 class="docs-section-title">Tasks</h3>
-                <span class="docs-section-count" id="docs-tasks-count">0</span>
-                <button class="btn btn-ghost btn-icon btn-sm docs-add-btn" data-section="tasks" title="Add task">+</button>
+              <div class="docs-section-heading">
+                <button type="button" class="docs-section-header" aria-expanded="true" aria-controls="docs-tasks-list">
+                  <span class="docs-section-chevron open" aria-hidden="true">&#9654;</span>
+                  <span class="docs-section-title">Checklist</span>
+                  <span class="docs-section-count" id="docs-tasks-count">0</span>
+                </button>
+                <div class="docs-section-actions">
+                  <button type="button" class="btn btn-ghost btn-icon btn-sm docs-add-btn" data-section="tasks" title="Add checklist item" aria-label="Add checklist item">+</button>
+                </div>
               </div>
               <div class="docs-section-body" id="docs-tasks-list"></div>
             </div>
 
             <div class="docs-section docs-td-section" id="docs-td-section" data-section="td-issues" hidden>
-              <div class="docs-section-header">
-                <span class="docs-section-chevron open">&#9654;</span>
-                <h3 class="docs-section-title">td Issues <span class="td-badge">td</span></h3>
-                <span class="docs-section-count" id="docs-td-count">0</span>
-                <button class="btn btn-ghost btn-icon btn-sm" id="docs-td-add-btn" title="Create td issue">+</button>
-                <button class="btn btn-ghost btn-icon btn-sm" id="docs-td-refresh-btn" title="Refresh td issues">&#8635;</button>
+              <div class="docs-section-heading">
+                <button type="button" class="docs-section-header" aria-expanded="true" aria-controls="docs-td-list">
+                  <span class="docs-section-chevron open" aria-hidden="true">&#9654;</span>
+                  <span class="docs-section-title">Issues <span class="td-badge">td</span></span>
+                  <span class="docs-section-count" id="docs-td-count">0</span>
+                </button>
+                <div class="docs-section-actions">
+                  <button type="button" class="btn btn-ghost btn-icon btn-sm" id="docs-td-add-btn" title="Create td issue" aria-label="Create td issue">+</button>
+                  <button type="button" class="btn btn-ghost btn-icon btn-sm" id="docs-td-refresh-btn" title="Refresh td issues" aria-label="Refresh td issues">&#8635;</button>
+                </div>
               </div>
               <div class="docs-section-body" id="docs-td-list">
                 <div class="docs-empty">Checking td status...</div>
@@ -1130,36 +1175,48 @@
             </div>
 
             <div class="docs-section" data-section="roadmap">
-              <div class="docs-section-header">
-                <span class="docs-section-chevron open">&#9654;</span>
-                <h3 class="docs-section-title">Roadmap</h3>
-                <span class="docs-section-count" id="docs-roadmap-count">0</span>
-                <button class="btn btn-ghost btn-icon btn-sm docs-add-btn" data-section="roadmap" title="Add milestone">+</button>
+              <div class="docs-section-heading">
+                <button type="button" class="docs-section-header" aria-expanded="true" aria-controls="docs-roadmap-list">
+                  <span class="docs-section-chevron open" aria-hidden="true">&#9654;</span>
+                  <span class="docs-section-title">Roadmap</span>
+                  <span class="docs-section-count" id="docs-roadmap-count">0</span>
+                </button>
+                <div class="docs-section-actions">
+                  <button type="button" class="btn btn-ghost btn-icon btn-sm docs-add-btn" data-section="roadmap" title="Add milestone" aria-label="Add milestone">+</button>
+                </div>
               </div>
               <div class="docs-section-body" id="docs-roadmap-list"></div>
             </div>
 
             <div class="docs-section" data-section="rules">
-              <div class="docs-section-header">
-                <span class="docs-section-chevron open">&#9654;</span>
-                <h3 class="docs-section-title">Rules</h3>
-                <span class="docs-section-count" id="docs-rules-count">0</span>
-                <button class="btn btn-ghost btn-icon btn-sm docs-add-btn" data-section="rules" title="Add rule">+</button>
+              <div class="docs-section-heading">
+                <button type="button" class="docs-section-header" aria-expanded="true" aria-controls="docs-rules-list">
+                  <span class="docs-section-chevron open" aria-hidden="true">&#9654;</span>
+                  <span class="docs-section-title">Rules</span>
+                  <span class="docs-section-count" id="docs-rules-count">0</span>
+                </button>
+                <div class="docs-section-actions">
+                  <button type="button" class="btn btn-ghost btn-icon btn-sm docs-add-btn" data-section="rules" title="Add rule" aria-label="Add rule">+</button>
+                </div>
               </div>
               <div class="docs-section-body" id="docs-rules-list"></div>
             </div>
 
             <div class="docs-section docs-ai-section" data-section="ai-insights">
-              <div class="docs-section-header">
-                <span class="docs-section-chevron open">&#9654;</span>
-                <h3 class="docs-section-title">AI Insights</h3>
-                <button class="btn btn-ghost btn-sm" id="docs-ai-refresh" title="Refresh summaries">
-                  <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-                    <path d="M2 7a5 5 0 019.33-2.5M12 7a5 5 0 01-9.33 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                    <path d="M11 2v3h-3M3 12V9h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                  Refresh
+              <div class="docs-section-heading">
+                <button type="button" class="docs-section-header" aria-expanded="true" aria-controls="docs-ai-insights">
+                  <span class="docs-section-chevron open" aria-hidden="true">&#9654;</span>
+                  <span class="docs-section-title">AI Insights</span>
                 </button>
+                <div class="docs-section-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="docs-ai-refresh" title="Refresh summaries">
+                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+                      <path d="M2 7a5 5 0 019.33-2.5M12 7a5 5 0 01-9.33 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                      <path d="M11 2v3h-3M3 12V9h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Refresh
+                  </button>
+                </div>
               </div>
               <div class="docs-section-body docs-ai-body" id="docs-ai-insights">
                 <div class="ai-insights-empty">Select a project to see AI-generated session summaries</div>
@@ -1178,20 +1235,20 @@
           <div class="tasks-panel-header">
             <div class="tasks-tab-strip" id="tasks-tab-strip" role="tablist">
               <button class="tasks-tab active" data-tasks-tab="worktree" role="tab" aria-selected="true">
-                Worktree Tasks
+                Agent Tasks
               </button>
               <button class="tasks-tab" data-tasks-tab="td" role="tab" aria-selected="false" id="tasks-tab-td" hidden>
-                td
+                Issues
               </button>
-              <button class="tasks-tab" data-tasks-tab="git" data-shell-maturity="preview" role="tab" aria-selected="false">
+              <button class="tasks-tab" data-tasks-tab="git" data-shell-maturity="retired" role="tab" aria-selected="false" hidden>
                 Git
               </button>
-              <button class="tasks-tab" data-tasks-tab="files" data-shell-maturity="preview" role="tab" aria-selected="false">
+              <button class="tasks-tab" data-tasks-tab="files" data-shell-maturity="retired" role="tab" aria-selected="false" hidden>
                 Files
               </button>
             </div>
             <div class="tasks-header-actions">
-              <input type="text" class="tasks-search-input" id="tasks-search" placeholder="Filter tasks..." autocomplete="off" spellcheck="false">
+              <input type="text" class="tasks-search-input" id="tasks-search" placeholder="Filter agent tasks..." autocomplete="off" spellcheck="false">
               <div class="tasks-layout-toggle" id="tasks-layout-toggle" title="Toggle list/board view">
                 <button class="tasks-layout-btn active" data-layout="board" title="Board view">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="1" y="1" width="4" height="14" rx="1"/><rect x="6" y="1" width="4" height="10" rx="1"/><rect x="11" y="1" width="4" height="7" rx="1"/></svg>
@@ -1202,7 +1259,7 @@
               </div>
               <button class="btn btn-primary btn-sm" id="new-task-btn">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 2v8M2 6h8"/></svg>
-                New Task
+                New agent task
               </button>
             </div>
           </div>
@@ -1514,7 +1571,7 @@
   <div class="modal-overlay" id="new-task-overlay" hidden>
     <div class="modal-panel" style="max-width: 520px;">
       <div class="modal-header">
-        <h3>New Worktree Task</h3>
+        <h3>New Agent Task</h3>
         <button class="modal-close" id="new-task-close">&times;</button>
       </div>
       <div class="modal-body" style="padding: 16px;">
@@ -1815,6 +1872,35 @@
     </div>
   </div>
 
+  <!-- APPEARANCE DIALOG -->
+  <div class="modal-overlay appearance-overlay" id="appearance-overlay" hidden>
+    <div class="appearance-dialog" id="appearance-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="appearance-title" tabindex="-1">
+      <div class="appearance-header">
+        <div>
+          <h2 id="appearance-title">Appearance</h2>
+          <p>Choose how much context Workbook shows and how it looks.</p>
+        </div>
+        <button class="btn btn-ghost btn-icon btn-sm" id="appearance-close"
+                type="button" aria-label="Close appearance">&times;</button>
+      </div>
+      <section class="appearance-density" aria-labelledby="appearance-density-title">
+        <div class="appearance-section-heading">
+          <h3 id="appearance-density-title">Information density</h3>
+          <p>Changes presentation only; running terminals stay connected.</p>
+        </div>
+        <div class="density-choices" id="density-choices"></div>
+      </section>
+      <section class="appearance-themes" aria-labelledby="appearance-themes-title">
+        <div class="appearance-section-heading">
+          <h3 id="appearance-themes-title">Theme</h3>
+          <p>System follows your operating-system appearance.</p>
+        </div>
+        <div class="theme-gallery" id="theme-gallery"></div>
+      </section>
+    </div>
+  </div>
+
   <!-- Terminal Reader Overlay: full-screen scrollable text view of terminal buffer (mobile) -->
   <div class="terminal-reader-overlay" id="terminal-reader-overlay" hidden>
     <div class="terminal-reader-header">
@@ -1903,13 +1989,13 @@
        server-side /api/providers metadata onto these locals to build the
        runtime map window.CWMProviderSpecs. -->
   <script src="provider-specs.js"></script>
-  <script src="terminal.js?v=20260725-copymode2-focused2"></script>
+  <script src="terminal.js?v=20260725-copymode3-focused5"></script>
   <script src="instance-colors.js"></script>
   <!-- Issue #10 Tier 1 Phase 4: MirrorPaneView (read-only session mirror).
        MUST load before app.js so window.MirrorPaneView exists when
        _renderMirrorInPane mounts a mirror pane. -->
   <script src="mirror-view.js"></script>
-  <script src="app.js?v=20260725-copytruth-focused2"></script>
+  <script src="app.js?v=20260725-copytruth-focused5"></script>
   <script src="schedules.js"></script>
   <script>
     if ('serviceWorker' in navigator) {

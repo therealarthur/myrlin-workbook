@@ -11,12 +11,14 @@
  * navigator.clipboard is undefined, the rejection was caught and logged to
  * console only, and paste silently did nothing on every browser and device.
  *
- * The fix feature-detects the async Clipboard API:
- *   - secure context: keep preventDefault + pasteFromClipboard (no #45 regression)
- *   - insecure context: skip preventDefault so the native paste + the existing
- *     beforeinput/paste handlers bracket and send the text once
- * plus a guard in pasteFromClipboard and a user-visible message, and a
- * context-menu fallback that points the user at Ctrl+V.
+ * The first fix feature-detected the async Clipboard API, but that left a
+ * second dead end: embedded browsers can expose navigator.clipboard.readText
+ * while rejecting every read. The secure arm canceled native paste before
+ * discovering the rejection, then told the user to retry the same broken
+ * shortcut. Keyboard paste now always uses the trusted native paste event;
+ * the capture-phase beforeinput/paste handlers bracket and send it exactly
+ * once on every origin. Programmatic reads remain limited to the explicit
+ * context-menu Paste command, with truthful fallback guidance.
  *
  * This gate follows the source-harvesting approach of
  * bracketed-paste-isolation.test.js: read the sources as text and string-match
@@ -61,16 +63,16 @@ function check(name, fn) {
 
 /**
  * Slice out the Ctrl+V/Cmd+V branch from terminal.js source: from the
- * `mod && e.key === 'v'` anchor through that branch's `return false;`. Bounding
+ * `mod && shortcutKey === 'v'` anchor through that branch's `return false;`. Bounding
  * on the branch's own return keeps the Shift+Enter block (which has its own
  * preventDefault) out of the window so the preventDefault-count assertion is
  * exact.
  * @returns {string} The Ctrl+V branch source text.
  */
 function extractCtrlVBranch() {
-  const anchor = "mod && e.key === 'v'";
+  const anchor = "mod && shortcutKey === 'v'";
   const start = termSrc.indexOf(anchor);
-  assert.ok(start !== -1, "could not locate the Ctrl+V branch anchor (mod && e.key === 'v')");
+  assert.ok(start !== -1, "could not locate the Ctrl+V branch anchor (mod && shortcutKey === 'v')");
   const after = termSrc.slice(start);
   const endToken = 'return false;';
   const endIdx = after.indexOf(endToken);
@@ -95,42 +97,58 @@ function compileNativePasteHandler() {
   return new Function('e', 'WebSocket', 'window', termSrc.slice(bodyStart, end));
 }
 
+/**
+ * Compile the real capture-phase beforeinput handler so orphan-event behavior
+ * is exercised rather than inferred from source text.
+ * @returns {Function} The extracted handler, accepting event/WebSocket.
+ */
+function compileBeforeInputHandler() {
+  const anchor = "xtermTextarea.addEventListener('beforeinput', (e) => {";
+  const start = termSrc.indexOf(anchor);
+  assert.ok(start !== -1, 'could not locate the beforeinput listener');
+  const bodyStart = start + anchor.length;
+  const end = termSrc.indexOf("}, { capture: true });", bodyStart);
+  assert.ok(end !== -1, 'could not locate the beforeinput listener terminator');
+  return new Function('e', 'WebSocket', termSrc.slice(bodyStart, end));
+}
+
 console.log('\n  Issue #64: paste secure-context fallback gate');
 console.log('  ' + '-'.repeat(58));
 
 // ---------------------------------------------------------------------------
-// (1) The Ctrl+V branch contains a navigator.clipboard feature check
+// (1) Keyboard paste never depends on the permission-gated Clipboard API
 // ---------------------------------------------------------------------------
 
-check('Ctrl+V branch feature-detects navigator.clipboard.readText', () => {
+check('Ctrl+V branch stays on the trusted native paste path', () => {
   const branch = extractCtrlVBranch();
+  assert.ok(!/navigator\.clipboard/.test(branch), 'keyboard paste must not read navigator.clipboard');
+  assert.ok(!/pasteFromClipboard/.test(branch), 'keyboard paste must not call the programmatic menu path');
+  assert.ok(/return false/.test(branch), 'xterm must skip its own key handling while native paste proceeds');
+});
+
+check('Ctrl+V compares a normalized key so uppercase/Caps Lock cannot bypass the branch', () => {
   assert.ok(
-    /navigator\.clipboard/.test(branch),
-    'Ctrl+V branch must reference navigator.clipboard (secure-context detection)'
+    /const shortcutKey = typeof e\.key === 'string' \? e\.key\.toLowerCase\(\) : ''/.test(termSrc),
+    'KeyboardEvent.key must be normalized before the copy/paste branches'
   );
   assert.ok(
-    /readText/.test(branch),
-    'Ctrl+V branch must check navigator.clipboard.readText specifically'
+    /shortcutKey === 'v'/.test(extractCtrlVBranch()),
+    'the keyboard paste branch must compare the normalized shortcut key'
   );
 });
 
 // ---------------------------------------------------------------------------
-// (2) preventDefault appears only in the clipboard-available arm
+// (2) Native paste must not be canceled before the trusted event fires
 // ---------------------------------------------------------------------------
 
-check('preventDefault lives only inside the clipboard-available arm', () => {
+check('Ctrl+V branch never cancels the browser default', () => {
   const branch = extractCtrlVBranch();
   const pdMatches = branch.match(/preventDefault/g) || [];
   assert.strictEqual(
     pdMatches.length,
-    1,
-    'Ctrl+V branch must call preventDefault exactly once (only when the clipboard API exists); found ' + pdMatches.length
-  );
-  const checkIdx = branch.indexOf('navigator.clipboard');
-  const pdIdx = branch.indexOf('preventDefault');
-  assert.ok(
-    checkIdx !== -1 && pdIdx !== -1 && checkIdx < pdIdx,
-    'preventDefault must come AFTER the navigator.clipboard feature check (inside the available arm), never unconditionally. An unconditional preventDefault reintroduces issue #64.'
+    0,
+    'Ctrl+V must leave the trusted native paste event available; found ' + pdMatches.length +
+      ' preventDefault reference(s)'
   );
 });
 
@@ -167,8 +185,8 @@ check('native paste + beforeinput fallback handlers remain intact', () => {
     /e\.clipboardData/.test(termSrc),
     'native paste handler must still read e.clipboardData'
   );
-  // The beforeinput listener is what actually delivers the native paste on
-  // insecure origins now that Ctrl+V no longer preventDefaults there.
+  // The beforeinput listener delivers keyboard paste on every origin now that
+  // Ctrl+V never cancels the browser's trusted event.
   assert.ok(
     /addEventListener\(\s*['"]beforeinput['"]/.test(termSrc),
     'beforeinput handler must still be registered'
@@ -179,9 +197,59 @@ check('native paste + beforeinput fallback handlers remain intact', () => {
   );
 });
 
+check('beforeinput exact-once latch arms only after non-empty text is sent and expires per gesture', () => {
+  const anchor = "xtermTextarea.addEventListener('beforeinput', (e) => {";
+  const start = termSrc.indexOf(anchor);
+  const end = termSrc.indexOf("}, { capture: true });", start + anchor.length);
+  const body = termSrc.slice(start, end);
+  const textIdx = body.indexOf('const text =');
+  const nonEmptyIdx = body.indexOf('if (text && this.ws');
+  const latchIdx = body.indexOf('this._pasteHandled = true');
+  const sendIdx = body.indexOf('this.ws.send');
+  assert.ok(textIdx !== -1 && nonEmptyIdx !== -1 && latchIdx !== -1 && sendIdx !== -1,
+    'beforeinput paste path must extract, validate, latch, and send text');
+  assert.ok(textIdx < nonEmptyIdx && nonEmptyIdx < latchIdx && latchIdx < sendIdx,
+    'an empty/orphan beforeinput must not arm the latch that suppresses the next paste');
+  assert.ok(/this\._pasteHandledResetTimer = setTimeout\(\(\) => \{[\s\S]*this\._pasteHandled = false[\s\S]*\}, 0\)/.test(body),
+    'a sent beforeinput paste must expire its companion-event latch at the end of the gesture');
+});
+
 // ---------------------------------------------------------------------------
 // (5) Native paste suppresses xterm's listener on the same textarea
 // ---------------------------------------------------------------------------
+
+check('empty orphan beforeinput cannot suppress the next real native paste', () => {
+  const sent = [];
+  const pane = {
+    _pasteHandled: false,
+    _pasteHandledResetTimer: null,
+    ws: {
+      readyState: 1,
+      send(payload) {
+        sent.push(JSON.parse(payload).data);
+      },
+    },
+  };
+  compileBeforeInputHandler().call(pane, {
+    inputType: 'insertFromPaste',
+    data: '',
+    dataTransfer: null,
+    preventDefault() {},
+  }, { OPEN: 1 });
+  assert.strictEqual(pane._pasteHandled, false, 'empty beforeinput must leave the latch disarmed');
+
+  const event = {
+    preventDefault() {},
+    stopImmediatePropagation() {},
+    clipboardData: { getData: () => 'paste after empty orphan' },
+  };
+  compileNativePasteHandler().call(pane, event, { OPEN: 1 }, {});
+  assert.deepStrictEqual(
+    sent,
+    ['\x1b[200~paste after empty orphan\x1b[201~'],
+    'the next native paste must not be dropped'
+  );
+});
 
 check('native paste sends exactly once when xterm also listens on the textarea', () => {
   const sent = [];

@@ -409,6 +409,38 @@ async function run() {
       'a confirmed keyboard copy must clear the copied selection'
     );
 
+    // Caps Lock and Shift make KeyboardEvent.key uppercase. The normalized
+    // shortcut path must still copy a selection and must never leak ETX.
+    const uppercaseCopyText = await page.evaluate(() => {
+      const textarea = document.querySelector('#fixture-terminal .xterm-helper-textarea');
+      window.__lastCopyShortcutKey = null;
+      textarea.addEventListener('keydown', (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+          window.__lastCopyShortcutKey = event.key;
+        }
+      }, { capture: true });
+      window.fixture.pane.term.select(0, 1, 18);
+      return window.fixture.pane.term.getSelection();
+    });
+    assert.ok(uppercaseCopyText, 'uppercase Ctrl+C scenario must start with a real selection');
+    await page.locator('#fixture-terminal .xterm-helper-textarea').focus();
+    await resetState(page);
+    await page.keyboard.press('Control+Shift+C');
+    await page.waitForFunction(() => window.__copyAttempts.length === 1 &&
+      window.__copyAttempts[0].result !== null);
+    assert.strictEqual(
+      await page.evaluate(() => window.__lastCopyShortcutKey),
+      'C',
+      'the browser fixture must deliver an uppercase KeyboardEvent.key'
+    );
+    state = await getState(page);
+    assert.strictEqual(state.sigintCount, 0, 'uppercase selected Ctrl+C must not send ETX/SIGINT');
+    assert.deepStrictEqual(
+      await page.evaluate(() => window.__copyAttempts),
+      [{ text: uppercaseCopyText, result: true }],
+      'uppercase selected Ctrl+C must copy the exact selection once'
+    );
+
     // Unselected Ctrl+C still reaches the PTY exactly once.
     await page.locator('#fixture-terminal .xterm-helper-textarea').focus();
     await resetState(page);
@@ -547,6 +579,74 @@ async function run() {
       'secure Ctrl+V must paste the exact platform clipboard text once'
     );
 
+    const uppercasePaste = 'UPPERCASE_KEYBOARD_PASTE_ONCE';
+    await page.evaluate(async (text) => {
+      await navigator.clipboard.writeText(text);
+      const textarea = document.querySelector('#fixture-terminal .xterm-helper-textarea');
+      window.__lastPasteShortcutKey = null;
+      textarea.addEventListener('keydown', (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+          window.__lastPasteShortcutKey = event.key;
+        }
+      }, { capture: true });
+    }, uppercasePaste);
+    await page.locator('#fixture-terminal .xterm-helper-textarea').focus();
+    await resetState(page);
+    await page.keyboard.press('Control+Shift+V');
+    await waitForCounter(page, 'pasteCount', 1);
+    state = await getState(page);
+    assert.strictEqual(
+      await page.evaluate(() => window.__lastPasteShortcutKey),
+      'V',
+      'the browser fixture must deliver an uppercase paste KeyboardEvent.key'
+    );
+    assert.deepStrictEqual(
+      state.pastePayloads,
+      [uppercasePaste],
+      'uppercase Ctrl+V must paste the exact platform clipboard text once'
+    );
+
+    // Embedded browsers can expose navigator.clipboard.readText while denying
+    // every programmatic read. Keyboard paste must not touch that API: the
+    // trusted native paste event remains available and still emits exactly once.
+    const deniedReadPaste = 'SECURE_NATIVE_PASTE_WITH_READ_PERMISSION_DENIED';
+    await page.evaluate(async (text) => {
+      const nativeClipboard = navigator.clipboard;
+      await nativeClipboard.writeText(text);
+      window.__nativeClipboardForPasteDenial = nativeClipboard;
+      window.__clipboardReadAttempts = 0;
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          readText: () => {
+            window.__clipboardReadAttempts += 1;
+            return Promise.reject(new Error('clipboard-read denied'));
+          },
+          writeText: nativeClipboard.writeText.bind(nativeClipboard),
+        },
+      });
+    }, deniedReadPaste);
+    await page.locator('#fixture-terminal .xterm-helper-textarea').focus();
+    await resetState(page);
+    await page.keyboard.press('Control+v');
+    await waitForCounter(page, 'pasteCount', 1);
+    state = await getState(page);
+    assert.deepStrictEqual(
+      state.pastePayloads,
+      [deniedReadPaste],
+      'Ctrl+V must use native paste even when navigator.clipboard.readText rejects'
+    );
+    assert.strictEqual(
+      await page.evaluate(() => window.__clipboardReadAttempts),
+      0,
+      'keyboard paste must not attempt the permission-gated Clipboard API'
+    );
+    await page.evaluate(() => {
+      delete navigator.clipboard;
+      delete window.__nativeClipboardForPasteDenial;
+      delete window.__clipboardReadAttempts;
+    });
+
     const secureMenuPaste = 'SECURE_CONTEXT_MENU_PASTE_ONCE';
     await page.evaluate((text) => navigator.clipboard.writeText(text), secureMenuPaste);
     await resetState(page);
@@ -568,6 +668,56 @@ async function run() {
     await waitForCounter(page, 'pasteCount', 1);
     state = await getState(page);
     assert.deepStrictEqual(state.pastePayloads, [nativePaste], 'native paste must emit one bracketed frame');
+
+    const afterEmptyOrphanPaste = 'PASTE_AFTER_EMPTY_ORPHAN_BEFOREINPUT';
+    await resetState(page);
+    await page.evaluate((text) => {
+      const textarea = document.querySelector('#fixture-terminal .xterm-helper-textarea');
+      textarea.dispatchEvent(new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertFromPaste',
+        data: '',
+      }));
+      window.fixture.dispatchNativePaste(text);
+    }, afterEmptyOrphanPaste);
+    await waitForCounter(page, 'pasteCount', 1);
+    state = await getState(page);
+    assert.deepStrictEqual(
+      state.pastePayloads,
+      [afterEmptyOrphanPaste],
+      'an empty orphan beforeinput must not drop the immediately following native paste'
+    );
+
+    const orphanBeforeInputPaste = 'BEFOREINPUT_WITHOUT_COMPANION_PASTE';
+    await resetState(page);
+    await page.evaluate((text) => {
+      const textarea = document.querySelector('#fixture-terminal .xterm-helper-textarea');
+      textarea.dispatchEvent(new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertFromPaste',
+        data: text,
+      }));
+    }, orphanBeforeInputPaste);
+    await waitForCounter(page, 'pasteCount', 1);
+    state = await getState(page);
+    assert.deepStrictEqual(
+      state.pastePayloads,
+      [orphanBeforeInputPaste],
+      'a data-bearing orphan beforeinput must still send its own paste once'
+    );
+    await page.waitForTimeout(20);
+    const afterDataOrphanPaste = 'PASTE_AFTER_DATA_ORPHAN_BEFOREINPUT';
+    await resetState(page);
+    await page.evaluate((text) => window.fixture.dispatchNativePaste(text), afterDataOrphanPaste);
+    await waitForCounter(page, 'pasteCount', 1);
+    state = await getState(page);
+    assert.deepStrictEqual(
+      state.pastePayloads,
+      [afterDataOrphanPaste],
+      'an orphan beforeinput latch must expire before the next paste gesture'
+    );
 
     // Use a hostname that resolves to this exact loopback listener but is not
     // a potentially trustworthy origin. This exercises the real browser
@@ -672,10 +822,10 @@ async function run() {
     console.log('PASS terminal browser acceptance');
     console.log('  Shift+drag: real selection, zero PTY mouse reports');
     console.log('  Select mode: real selection; mode off restores TUI mouse events');
-    console.log('  Ctrl+C: success clears; denial retains selection; neither sends SIGINT');
+    console.log('  Ctrl+C: lowercase/uppercase copy safely; denial retains selection; no SIGINT');
     console.log('  Clipboard: denial leaves native contents unchanged; original formats restored');
     console.log('  Right-click: preserved selection, zero TUI events, truthful copy toast');
-    console.log('  Paste: secure key/menu and native fallback each sent exactly once');
+    console.log('  Paste: lowercase/uppercase, denied API, native, and orphan paths send exactly once');
     console.log('  Insecure origin: guided menu + native paste; execCommand copy verified');
     console.log('  Scroll: normal buffer scrolls; alternate-screen limitation confirmed');
     console.log('  Screenshot: ' + SCREENSHOT_PATH);

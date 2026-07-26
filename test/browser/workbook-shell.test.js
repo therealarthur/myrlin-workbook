@@ -29,6 +29,7 @@ const TABLET_SCREENSHOT_PATH = path.join(PROJECT_ROOT, 'screenshots', 'workbook-
 const TEMP_PREFIX = 'myrlin-workbook-shell-';
 const FETCH_HEAD_PATH = path.join(PROJECT_ROOT, '.git', 'FETCH_HEAD');
 const LEGACY_CONFIG_PATH = path.join(PROJECT_ROOT, 'state', 'config.json');
+const EXPECTED_VERSION = require(path.join(PROJECT_ROOT, 'package.json')).version;
 
 /**
  * Remove startup-token values before an error reaches logs.
@@ -276,7 +277,7 @@ async function run() {
     assert.strictEqual(shell.title, "myrlin's workbook");
     assert.strictEqual(shell.loginHidden, true, 'startup token must reveal the application shell');
     assert.strictEqual(shell.appHidden, false, 'application shell must be visible after startup auth');
-    assert.match(shell.terminalScript, /^terminal\.js\?v=20260725-copymode2-/);
+    assert.match(shell.terminalScript, /^terminal\.js\?v=20260725-copymode3-/);
     assert.match(shell.appScript, /^app\.js\?v=20260725-copytruth-/);
     assert.strictEqual(shell.terminalClass, 'function', 'production TerminalPane must load');
     assert.strictEqual(shell.selectInterceptor, 'function', 'Select-mode interceptor must be present');
@@ -307,7 +308,7 @@ async function run() {
       };
     });
     assert.strictEqual(hermeticState.version.status, 200);
-    assert.strictEqual(hermeticState.version.body.version, '1.3.0-alpha.2');
+    assert.strictEqual(hermeticState.version.body.version, EXPECTED_VERSION);
     assert.strictEqual(hermeticState.version.body.updateAvailable, false);
     assert.strictEqual(hermeticState.version.body.commitsBehind, 0);
     assert.strictEqual(hermeticState.selfUpdate.status, 503);
@@ -345,7 +346,7 @@ async function run() {
           document.querySelector('.terminal-pane-empty .terminal-container'),
           '::after'
         ).content,
-        previewTabsVisible: labels('.tasks-tab[data-shell-maturity="preview"]'),
+        retiredTabsVisible: labels('.tasks-tab[data-shell-maturity="retired"]'),
         headerHeight: Math.round(header.getBoundingClientRect().height),
         horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       };
@@ -374,7 +375,7 @@ async function run() {
         focusedDesktop.emptyFrameContent === 'normal',
       'legacy dashed empty-state copy must be removed'
     );
-    assert.deepStrictEqual(focusedDesktop.previewTabsVisible, [], 'Git/Files previews must not look finished');
+    assert.deepStrictEqual(focusedDesktop.retiredTabsVisible, [], 'retired Git/Files tabs must stay hidden');
     assert.strictEqual(focusedDesktop.headerHeight, 58, 'focused desktop header must stay compact');
     assert.strictEqual(focusedDesktop.horizontalOverflow, false, 'desktop shell must not overflow horizontally');
 
@@ -443,13 +444,13 @@ async function run() {
     );
     assert.strictEqual(
       await page.evaluate(() => document.activeElement?.getAttribute('data-action')),
-      'Recent activity',
+      'Session attention',
       'opening More from the keyboard must focus its first enabled command'
     );
     await page.keyboard.press('Tab');
     assert.strictEqual(
       await page.evaluate(() => document.activeElement?.getAttribute('data-action')),
-      'Costs',
+      'Recent activity',
       'Tab must remain inside the open More menu'
     );
     await page.keyboard.press('Escape');
@@ -466,10 +467,11 @@ async function run() {
     const moreLabels = await page.locator('#context-menu-items > .ctx-item-wrapper > .context-menu-item')
       .allTextContents();
     for (const expected of [
+      'Session attention',
       'Recent activity',
       'Costs',
       'System resources',
-      'Project notes (choose a project)',
+      'Project notes',
       'Quick switcher',
       'All sessions',
       'Settings',
@@ -481,10 +483,22 @@ async function run() {
       );
     }
     assert.strictEqual(
-      await page.locator('#context-menu-items [data-action="Project notes (choose a project)"]').isDisabled(),
+      await page.locator('#context-menu-items [data-action="Project notes"]').isEnabled(),
       true,
-      'Project notes must remain contextual until a project is selected'
+      'Project notes must remain reachable so its explicit project picker can establish context'
     );
+    await page.locator('#context-menu-items [data-action="Project notes"]').click();
+    await page.waitForFunction(() => document.documentElement.dataset.viewMode === 'docs');
+    assert.strictEqual(await page.locator('#docs-panel').isVisible(), true);
+    assert.strictEqual(await page.locator('#docs-workspace-select').isVisible(), true);
+    assert.strictEqual(await page.locator('#docs-workspace-select').inputValue(), '');
+    assert.deepStrictEqual(
+      await page.locator('#docs-workspace-select option').allTextContents(),
+      ['Choose a project'],
+      'empty Project Notes must expose an honest project-context picker'
+    );
+
+    await page.locator('#focused-more-btn').click();
     await page.locator('#context-menu-items [data-action="Recent activity"]').click();
     await page.waitForFunction(() => document.documentElement.dataset.viewMode === 'recent');
     assert.strictEqual(
@@ -615,13 +629,14 @@ async function run() {
     const actionSheet = page.locator('#action-sheet-overlay');
     await actionSheet.waitFor({ state: 'visible' });
     assert.strictEqual(await page.locator('#action-sheet').getAttribute('role'), 'dialog');
+    await page.waitForFunction(() =>
+      document.activeElement?.matches('.action-sheet-item:not([disabled])')
+    );
     assert.strictEqual(
-      await page.evaluate(() => Array.from(document.activeElement?.childNodes || [])
-        .filter(node => node.nodeType === Node.TEXT_NODE)
-        .map(node => node.textContent)
-        .join('')
-        .trim()),
-      'Recent activity',
+      await page.evaluate(() =>
+        document.activeElement?.querySelector('.as-label')?.textContent?.trim() || ''
+      ),
+      'Session attention',
       'mobile More must focus its first command'
     );
     await page.locator('#action-sheet-items .action-sheet-item', {
@@ -647,32 +662,49 @@ async function run() {
     await page.locator('#mobile-more-tab').click();
     await actionSheet.waitFor({ state: 'visible' });
     await page.locator('#action-sheet-items .action-sheet-item', { hasText: 'Appearance' }).click();
-    await page.waitForFunction(() => (
-      document.getElementById('action-sheet-header').textContent === 'Appearance'
-    ));
-    const appearanceSheet = await page.evaluate(() => ({
-      header: document.getElementById('action-sheet-header').textContent,
-      first: Array.from(
-        document.querySelector('#action-sheet-items .action-sheet-item')?.childNodes || []
-      ).filter(node => node.nodeType === Node.TEXT_NODE)
-        .map(node => node.textContent).join('').trim(),
-      active: Array.from(document.activeElement?.childNodes || [])
-        .filter(node => node.nodeType === Node.TEXT_NODE)
-        .map(node => node.textContent).join('').trim(),
-      scrollTop: document.getElementById('action-sheet').scrollTop,
+    await actionSheet.waitFor({ state: 'hidden' });
+    const appearanceOverlay = page.locator('#appearance-overlay');
+    await appearanceOverlay.waitFor({ state: 'visible' });
+    const appearanceDialog = await page.evaluate(() => ({
+      title: document.getElementById('appearance-title').textContent.trim(),
+      densityChoices: Array.from(document.querySelectorAll('[data-density-choice]'))
+        .map(button => ({
+          id: button.dataset.densityChoice,
+          label: button.querySelector('.density-choice-label')?.textContent.trim(),
+          pressed: button.getAttribute('aria-pressed'),
+        })),
+      featuredChoices: Array.from(
+        document.querySelectorAll('.theme-gallery-featured [data-theme-choice]')
+      ).map(button => ({
+        id: button.dataset.themeChoice,
+        label: button.querySelector('.theme-gallery-swatch + span')?.textContent.trim(),
+        pressed: button.getAttribute('aria-pressed'),
+      })),
+      selected: document.querySelector(
+        '#appearance-dialog [data-theme-choice][aria-pressed="true"]'
+      )?.dataset.themeChoice,
+      activeDensity: document.activeElement?.dataset.densityChoice || null,
     }));
-    assert.deepStrictEqual(appearanceSheet, {
-      header: 'Appearance',
-      first: 'System',
-      active: 'System',
-      scrollTop: 0,
+    assert.deepStrictEqual(appearanceDialog, {
+      title: 'Appearance',
+      densityChoices: [
+        { id: 'quiet', label: 'Quiet', pressed: 'true' },
+        { id: 'informative', label: 'Informative', pressed: 'false' },
+      ],
+      featuredChoices: [
+        { id: 'system', label: 'System', pressed: 'true' },
+        { id: 'myrlin-dark', label: 'Myrlin Dark', pressed: 'false' },
+        { id: 'myrlin-light', label: 'Myrlin Light', pressed: 'false' },
+      ],
+      selected: 'system',
+      activeDensity: 'quiet',
     });
     await page.keyboard.press('Escape');
-    await actionSheet.waitFor({ state: 'hidden' });
+    await appearanceOverlay.waitFor({ state: 'hidden' });
     assert.strictEqual(
       await page.evaluate(() => document.activeElement?.id),
       'mobile-more-tab',
-      'closing a nested mobile sheet must restore focus to More'
+      'closing mobile Appearance must restore focus to More'
     );
     await page.evaluate(() => window.cwm.setViewMode('terminal'));
 

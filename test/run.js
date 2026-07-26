@@ -917,6 +917,9 @@ const standaloneTests = [
   'mobile-ux-fixes.test.js',         // fix/mobile-ux: mobile tab scroll, More sheet, settings sheet, long-press + tab touch paths
   'focused-shell.test.js',           // focused shell: reduced hierarchy, classic recovery, mobile parity, maturity/theme gates
   'theme-registry.test.js',          // focused shell: canonical appearance registry + complete xterm palette parity
+  'experience-model.test.js',        // focused experience: pure density/attention/theme-group presentation model
+  'experience-ux-contract.test.js',  // focused experience: canonical IA, notes context, gallery, semantic roles, resource overflow
+  'workspace-race.test.js',          // focused experience: latest project/session ownership + stale Project Notes mutation barriers
   'phantom-tokens.test.js',          // ui-token-repair: every consumed var(--x) must be defined (phantom-token gate)
   'smooth-scroll.test.js',           // issue #41: xterm smoothScrollDuration capability gate, setting/reduced-motion resolution, mobile engine guard
   'credential-manager.test.js',      // credential switcher T1: snapshot store, rotation write-back, corrected token-state model, apply transaction

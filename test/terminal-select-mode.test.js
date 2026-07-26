@@ -96,8 +96,8 @@ check('one-time copy hint mentions Shift and Select mode, gated once', () => {
 
 check('Ctrl+C branch still copies the xterm selection (Shift path payoff)', () => {
   // The always-on Shift+drag path is only useful if Ctrl+C reads the selection.
-  assert.ok(/e\.key === 'c'[\s\S]{0,120}hasSelection\(\)/.test(termSrc),
-    'expected the Ctrl+C branch to gate on this.term.hasSelection()');
+  assert.ok(/shortcutKey === 'c'[\s\S]{0,160}hasSelection\(\)/.test(termSrc),
+    'expected the normalized Ctrl+C branch to gate on this.term.hasSelection()');
 });
 
 check('dispose() tears the interceptor + injected DOM down', () => {
@@ -106,9 +106,9 @@ check('dispose() tears the interceptor + injected DOM down', () => {
   assert.ok(/this\._selectModeBtn\.remove\(\)/.test(termSrc), 'expected the toggle button removed');
 });
 
-check('index.html cache-buster on terminal.js was bumped to copymode2', () => {
-  assert.ok(/terminal\.js\?v=20260725-copymode2/.test(indexSrc),
-    'expected terminal.js?v=20260725-copymode2 in index.html');
+check('index.html cache-buster on terminal.js was bumped to copymode3', () => {
+  assert.ok(/terminal\.js\?v=20260725-copymode3/.test(indexSrc),
+    'expected terminal.js?v=20260725-copymode3 in index.html');
 });
 
 // ── Executed proof: run the real interceptor ─────────────────

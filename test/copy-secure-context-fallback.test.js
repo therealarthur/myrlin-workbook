@@ -82,7 +82,7 @@ async function check(name, fn) {
 
 /**
  * Slice out the Ctrl+C/Cmd+C branch from terminal.js source: from the
- * `if (mod && e.key === 'c'` anchor through that branch's `return false;`.
+ * `if (mod && shortcutKey === 'c'` anchor through that branch's `return false;`.
  * The leading WHY comment block sits ABOVE the anchor on purpose, so this
  * window contains only executable branch code (plus its inline comments),
  * which keeps the no-navigator.clipboard assertion exact.
@@ -90,9 +90,9 @@ async function check(name, fn) {
  *   branch's return false, without the closing brace of the if).
  */
 function extractCtrlCBranch() {
-  const anchor = "if (mod && e.key === 'c'";
+  const anchor = "if (mod && shortcutKey === 'c'";
   const start = termSrc.indexOf(anchor);
-  assert.ok(start !== -1, "could not locate the Ctrl+C branch anchor (if (mod && e.key === 'c')");
+  assert.ok(start !== -1, "could not locate the Ctrl+C branch anchor (if (mod && shortcutKey === 'c')");
   const after = termSrc.slice(start);
   const endToken = 'return false;';
   const endIdx = after.indexOf(endToken);
@@ -177,7 +177,9 @@ function makeStubDocument(opts) {
  */
 function compileCtrlCHarness(context) {
   const branch = extractCtrlCBranch();
-  const harnessSrc = '(function (e, mod) {\n' + branch + '\n}\n  return "fell-through-to-SIGINT";\n})';
+  const harnessSrc = '(function (e, mod) {\n' +
+    "const shortcutKey = typeof e.key === 'string' ? e.key.toLowerCase() : '';\n" +
+    branch + '\n}\n  return "fell-through-to-SIGINT";\n})';
   return vm.runInContext(harnessSrc, context, { filename: 'ctrl-c-branch-harness.js' });
 }
 
@@ -208,6 +210,17 @@ async function main() {
     assert.ok(
       /copyTextToClipboard/.test(branch),
       'the Ctrl+C branch must copy through the shared universal helper'
+    );
+  });
+
+  await check('copy/paste shortcuts normalize KeyboardEvent.key before safety branches', () => {
+    assert.ok(
+      /const shortcutKey = typeof e\.key === 'string' \? e\.key\.toLowerCase\(\) : ''/.test(termSrc),
+      'KeyboardEvent.key must be normalized so Caps Lock/Shift cannot bypass Ctrl+C or Ctrl+V handling'
+    );
+    assert.ok(
+      /if \(mod && shortcutKey === 'c'/.test(extractCtrlCBranch()),
+      'the selected-copy branch must compare the normalized shortcut key'
     );
   });
 
@@ -409,6 +422,35 @@ async function main() {
     await new Promise((resolve) => setImmediate(resolve));
     assert.strictEqual(cleared, 1, 'clearSelection must still run');
     assert.deepStrictEqual(record.copiedValues, ['SELECTED TEXT'], 'the selection must actually land on the (stub) clipboard via the fallback');
+  });
+
+  await check('REAL branch: uppercase Ctrl+C is consumed and copied instead of becoming SIGINT', async () => {
+    const { sandbox, context } = loadTerminalPane();
+    delete sandbox.navigator;
+    const { doc, record } = makeStubDocument();
+    sandbox.document = doc;
+    const harness = compileCtrlCHarness(context);
+    let cleared = 0;
+    let prevented = 0;
+    const result = harness.call({
+      term: {
+        hasSelection: () => true,
+        getSelection: () => 'UPPERCASE SELECTED TEXT',
+        clearSelection: () => { cleared++; },
+      },
+    }, {
+      type: 'keydown',
+      key: 'C',
+      ctrlKey: true,
+      shiftKey: true,
+      metaKey: false,
+      preventDefault: () => { prevented++; },
+    }, true);
+    assert.strictEqual(result, false, 'uppercase selected Ctrl+C must be consumed');
+    assert.strictEqual(prevented, 1, 'uppercase selected Ctrl+C must cancel native copy exactly once');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(cleared, 1, 'uppercase successful copy must clear the copied selection');
+    assert.deepStrictEqual(record.copiedValues, ['UPPERCASE SELECTED TEXT']);
   });
 
   await check('REAL branch: failed copy keeps selection, reports failure, and still consumes Ctrl+C', async () => {

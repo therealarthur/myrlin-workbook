@@ -44,6 +44,7 @@ function stripCssComments(css) {
 
 const styles = stripCssComments(fs.readFileSync(path.join(PUBLIC, 'styles.css'), 'utf8'));
 const stylesMobile = stripCssComments(fs.readFileSync(path.join(PUBLIC, 'styles-mobile.css'), 'utf8'));
+const focusedCss = stripCssComments(fs.readFileSync(path.join(PUBLIC, 'focused-shell.css'), 'utf8'));
 const appJs = fs.readFileSync(path.join(PUBLIC, 'app.js'), 'utf8');
 const terminalJs = fs.readFileSync(path.join(PUBLIC, 'terminal.js'), 'utf8');
 
@@ -192,9 +193,23 @@ check('P0-2: More sheet exposes Settings / Appearance / Pair / All sessions', ()
   const body = methodBody(appJs, 'showMoreMenu');
   assert.ok(body, 'showMoreMenu must exist');
   assert.ok(/label: 'Settings'.*this\.openSettings\(\)/s.test(body), 'Settings entry missing');
-  assert.ok(/label: 'Appearance'.*_buildThemeMenuItems\(\)/s.test(body), 'Appearance submenu missing');
+  assert.ok(
+    /label: 'Appearance'.*this\.openAppearance\(\)/s.test(body),
+    'Appearance gallery entry missing'
+  );
   assert.ok(/label: 'Pair device'.*showPairMobileModal\(\)/s.test(body), 'Pair device entry missing');
   assert.ok(/label: 'All sessions'.*toggleSessionManager\(/s.test(body), 'All sessions entry missing');
+});
+
+check('P0-2: More commands use labeled groups without platform emoji icons', () => {
+  const body = methodBody(appJs, 'showMoreMenu');
+  for (const label of ['Views', 'Session tools', 'Preferences', 'Operations', 'Account']) {
+    assert.ok(
+      new RegExp(`type: 'sep', label: '${label}'`).test(body),
+      `More menu must include the ${label} group`
+    );
+  }
+  assert.ok(!/\bicon\s*:/.test(body), 'More commands must not use platform-dependent icons');
 });
 
 check('P0-2: mobile submenus open a second sheet instead of flattening', () => {
@@ -215,6 +230,26 @@ check('P0-2: mobile submenus open a second sheet instead of flattening', () => {
   assert.ok(
     /firstItem\.focus\(\{\s*preventScroll:\s*true\s*\}\)/.test(body),
     'each sheet must focus its first enabled command'
+  );
+  assert.ok(
+    /separatorLabel\s*=\s*this\.escapeHtml\(String\(item\.label\)\)/.test(body),
+    'labeled separators must escape their visible text'
+  );
+  assert.ok(
+    /class="action-sheet-sep action-sheet-sep-labeled"[\s\S]*class="as-sep-label"/.test(body),
+    'labeled separators must render a visible section heading'
+  );
+  assert.ok(
+    /class="context-menu-sep context-menu-sep-labeled"[\s\S]*class="ctx-sep-label"/.test(appJs),
+    'desktop labeled separators must render a real section-heading row'
+  );
+  assert.ok(
+    /\.context-menu-sep-labeled[\s\S]*height:\s*auto/.test(focusedCss),
+    'desktop section headings must not inherit the one-pixel separator height'
+  );
+  assert.ok(
+    /\.action-sheet-sep-labeled[\s\S]*\.as-sep-label/.test(stylesMobile),
+    'mobile CSS must style labeled More sections'
   );
 });
 
@@ -341,14 +376,35 @@ check('P1-3: tab context menu routes through _renderContextItems (not the sessio
   );
 });
 
-check('P1-3: taller tab + visible close on mobile', () => {
+check('P1-3: tab and close affordance both meet the 44px mobile target', () => {
   assert.ok(
-    /\.terminal-group-tab-close\s*\{[^}]*opacity:\s*0\.5/s.test(stylesMobile),
-    'terminal-group-tab-close must be visible (opacity 0.5) on mobile'
+    /\.terminal-group-tab-close\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px[^}]*opacity:\s*0\.5/s.test(stylesMobile),
+    'terminal-group-tab-close must be visible and at least 44px in each dimension'
   );
   assert.ok(
-    /\.terminal-group-tab\s*\{[^}]*min-height:\s*40px/s.test(stylesMobile),
-    'terminal-group-tab must have a taller touch target on mobile'
+    /\.terminal-group-tab\s*\{[^}]*min-height:\s*44px/s.test(stylesMobile),
+    'terminal-group-tab must meet the 44px mobile touch target'
+  );
+});
+
+check('P1-3: terminal group close is a sibling semantic button', () => {
+  const body = methodBody(appJs, '_renderTabButtonHtml');
+  assert.ok(body, '_renderTabButtonHtml must exist');
+  assert.ok(
+    /<div class="terminal-group-tab-item[\s\S]*?<button type="button" class="terminal-group-tab[\s\S]*?<\/button>\s*<button type="button" class="terminal-group-tab-close"/.test(body),
+    'group tab and close controls must be sibling buttons inside a non-interactive wrapper'
+  );
+  assert.ok(
+    /class="terminal-group-tab-close"[\s\S]{0,180}aria-label="Close \$\{escapedName\} tab"/.test(body),
+    'group close button must have a tab-specific accessible name'
+  );
+  assert.ok(
+    !/<span class="terminal-group-tab-close"/.test(body),
+    'group close control must not regress to an unfocusable span'
+  );
+  assert.ok(
+    /\.terminal-group-tab-close:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--accent\)/s.test(styles),
+    'group close button needs a visible keyboard focus indicator'
   );
 });
 
@@ -387,8 +443,31 @@ check('P2: breakpoint-crossing listener rebuilds both tab strips', () => {
 
 check('P2: mobile tab-close has an enlarged hit area', () => {
   assert.ok(
-    /\.terminal-tab-close::before\s*\{[^}]*inset:\s*-12px/s.test(stylesMobile),
-    'terminal-tab-close::before must extend the tap target by 12px'
+    /\.terminal-tab-close::before\s*\{[^}]*inset:\s*-13px/s.test(stylesMobile),
+    'terminal-tab-close::before must extend the 18px control to a 44px tap target'
+  );
+  assert.ok(
+    /\.terminal-tab-close:focus-visible\s*\{[^}]*opacity:\s*1/s.test(stylesMobile),
+    'an inactive keyboard-focused close control must become visible'
+  );
+});
+
+check('P2: mobile terminal tab avoids nested buttons and names its close control', () => {
+  const body = methodBody(appJs, 'updateTerminalTabs');
+  assert.ok(body, 'updateTerminalTabs must exist');
+  assert.ok(
+    /<div class="terminal-tab-item[\s\S]*?<button type="button" class="terminal-tab[\s\S]*?<\/button>\s*<button type="button" class="terminal-tab-close"/.test(body),
+    'terminal selector and close controls must be sibling buttons'
+  );
+  assert.ok(
+    /class="terminal-tab-close"[\s\S]{0,200}aria-label="Close \$\{terminalName\} terminal"/.test(body),
+    'terminal close button must have a terminal-specific accessible name'
+  );
+  assert.ok(
+    /querySelectorAll\('\.terminal-tab-item'\)[\s\S]{0,220}classList\.toggle\('active'/.test(
+      methodBody(appJs, 'switchTerminalTab')
+    ),
+    'switching terminals must keep the non-interactive wrapper active state synchronized'
   );
 });
 

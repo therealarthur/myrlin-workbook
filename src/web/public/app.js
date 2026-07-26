@@ -164,6 +164,9 @@ class CWMApp {
       activeWorkspace: null,
       selectedSession: null,
       viewMode: localStorage.getItem('cwm_viewMode') || 'terminal',       // workspace | all | recent | terminal
+      density: (window.MyrlinExperienceModel
+        ? window.MyrlinExperienceModel.normalizeDensity(localStorage.getItem('cwm_density'))
+        : (localStorage.getItem('cwm_density') === 'informative' ? 'informative' : 'quiet')),
       stats: { totalWorkspaces: 0, totalSessions: 0, runningSessions: 0, activeWorkspace: null },
       notifications: [],
       sidebarOpen: false,
@@ -261,6 +264,10 @@ class CWMApp {
     // activity is detected, so each work -> idle transition produces at
     // most one toast/sound per SESSION_NOTIFY_DEDUPE_MS.
     this._sessionNotifyState = new Map();
+    // One provider-neutral presentation state per live session. The header
+    // queue derives its count, order, and labels from this map plus the server
+    // session roster.
+    this._attentionState = new Map();
     // Timestamp of the last audible chime, for the global sound cooldown.
     this._lastChimeAt = 0;
     // Lazily-created shared AudioContext for notification chimes. Reused
@@ -314,6 +321,7 @@ class CWMApp {
         document.documentElement.dataset.theme ||
         'system'
     );
+    this.setDensity(this.state.density, { persist: false });
     this.init();
 
     // Clear the init timeout - we made it
@@ -379,6 +387,8 @@ class CWMApp {
       themeToggleBtn: document.getElementById('theme-toggle-btn'),
       themeDropdown: document.getElementById('theme-dropdown'),
       focusedMoreBtn: document.getElementById('focused-more-btn'),
+      attentionQueueBtn: document.getElementById('attention-queue-btn'),
+      attentionQueueBadge: document.getElementById('attention-queue-badge'),
       vkbToggleBtn: document.getElementById('vkb-toggle-btn'),
       scaleDownBtn: document.getElementById('scale-down-btn'),
       scaleUpBtn: document.getElementById('scale-up-btn'),
@@ -488,6 +498,13 @@ class CWMApp {
       actionSheetItems: document.getElementById('action-sheet-items'),
       actionSheetCancel: document.getElementById('action-sheet-cancel'),
 
+      // Appearance dialog
+      appearanceOverlay: document.getElementById('appearance-overlay'),
+      appearanceDialog: document.getElementById('appearance-dialog'),
+      appearanceClose: document.getElementById('appearance-close'),
+      densityChoices: document.getElementById('density-choices'),
+      themeGallery: document.getElementById('theme-gallery'),
+
       // Sidebar resize & collapse
       sidebarResizeHandle: document.getElementById('sidebar-resize-handle'),
       sidebarCollapseBtn: document.getElementById('sidebar-collapse-btn'),
@@ -495,6 +512,8 @@ class CWMApp {
       // Docs panel
       docsPanel: document.getElementById('docs-panel'),
       docsWorkspaceName: document.getElementById('docs-workspace-name'),
+      docsWorkspaceSelect: document.getElementById('docs-workspace-select'),
+      docsProjectEmpty: document.getElementById('docs-project-empty'),
       docsToggleRaw: document.getElementById('docs-toggle-raw'),
       docsSaveBtn: document.getElementById('docs-save-btn'),
       docsStructured: document.getElementById('docs-structured'),
@@ -709,6 +728,10 @@ class CWMApp {
     if (this.els.themeToggleBtn) {
       this.els.themeToggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (document.documentElement.dataset.uiShell === 'focused') {
+          this.openAppearance(this.els.themeToggleBtn);
+          return;
+        }
         const dd = this.els.themeDropdown;
         if (dd) dd.hidden = !dd.hidden;
       });
@@ -802,6 +825,12 @@ class CWMApp {
       this.els.focusedMoreBtn.addEventListener('click', (event) => {
         event.stopPropagation();
         this.showMoreMenu(this.els.focusedMoreBtn);
+      });
+    }
+    if (this.els.attentionQueueBtn) {
+      this.els.attentionQueueBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.showAttentionQueue(this.els.attentionQueueBtn);
       });
     }
 
@@ -979,6 +1008,12 @@ class CWMApp {
     if (this.els.docsSaveBtn) {
       this.els.docsSaveBtn.addEventListener('click', () => this.saveDocsRaw());
     }
+    if (this.els.docsWorkspaceSelect) {
+      this.els.docsWorkspaceSelect.addEventListener('change', () => {
+        const workspaceId = this.els.docsWorkspaceSelect.value;
+        this.selectWorkspace(workspaceId || null);
+      });
+    }
     document.querySelectorAll('.docs-add-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -986,12 +1021,24 @@ class CWMApp {
       });
     });
     document.querySelectorAll('.docs-section-header').forEach(header => {
-      header.addEventListener('click', (e) => {
-        if (e.target.closest('button')) return;
-        const body = header.nextElementSibling;
-        const chevron = header.querySelector('.docs-section-chevron');
-        if (body) body.hidden = !body.hidden;
-        if (chevron) chevron.classList.toggle('open');
+      // Newer markup uses a real disclosure button inside the header so the
+      // adjacent add/refresh buttons remain separate interactive controls.
+      // Keep the header fallback while classic markup is still supported.
+      const disclosure = header.matches('button')
+        ? header
+        : (header.querySelector('.docs-section-toggle') || header);
+      const controlledId = disclosure.getAttribute('aria-controls');
+      const body = (controlledId && document.getElementById(controlledId))
+        || header.closest('.docs-section-heading')?.nextElementSibling
+        || header.nextElementSibling;
+      this._setDocsSectionExpanded(header, body ? !body.hidden : true);
+      disclosure.addEventListener('click', (e) => {
+        // A classic div header contains its action buttons. Those actions must
+        // not also collapse the section; clicks on the disclosure itself do.
+        const clickedButton = e.target.closest('button');
+        if (clickedButton && clickedButton !== disclosure) return;
+        const expanded = disclosure.getAttribute('aria-expanded') === 'true';
+        this._setDocsSectionExpanded(header, !expanded);
       });
     });
 
@@ -1005,6 +1052,10 @@ class CWMApp {
         document.querySelectorAll('.docs-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         const view = tab.dataset.tab;
+        if (!this.state.activeWorkspace) {
+          this.renderDocs();
+          return;
+        }
         // Toggle docs structured/raw views vs board
         if (this.els.docsStructured) this.els.docsStructured.hidden = (view === 'board');
         if (this.els.docsRaw) this.els.docsRaw.hidden = true; // always hide raw when switching tabs
@@ -1292,6 +1343,9 @@ class CWMApp {
         if (this.els.diffViewerOverlay && !this.els.diffViewerOverlay.hidden) {
           this.closeDiffViewer();
         } else
+        if (this.els.appearanceOverlay && !this.els.appearanceOverlay.hidden) {
+          this.closeAppearance();
+        } else
         if (this.els.newTaskOverlay && !this.els.newTaskOverlay.hidden) {
           this.closeNewTaskDialog();
         } else
@@ -1334,12 +1388,18 @@ class CWMApp {
       // next work -> idle transition toast again (see onTerminalIdle).
       if (activity && activity.type !== 'idle') {
         this._sessionNotifyState.delete(sessionId);
+        this._setAttentionState(sessionId, 'running');
       }
       // Find which slot has this session
       for (let i = 0; i < CWMApp.MAX_PANES; i++) {
         if (this.terminalPanes[i] && this.terminalPanes[i].sessionId === sessionId) {
+          if (activity && activity.type !== 'idle') {
+            this.terminalPanes[i]._needsInput = false;
+            const paneEl = document.getElementById(`term-pane-${i}`);
+            const header = paneEl && paneEl.querySelector('.terminal-pane-header');
+            if (header) header.dataset.needsInput = 'false';
+          }
           this.updatePaneActivity(i, activity);
-          break;
         }
       }
     });
@@ -1374,8 +1434,10 @@ class CWMApp {
     // an amber "Needs input" badge on the terminal pane header.
     document.addEventListener('terminal-needs-input', (e) => {
       const { sessionId, needsInput } = e.detail;
+      this._setAttentionState(sessionId, needsInput ? 'needs-input' : 'running');
       for (let i = 0; i < CWMApp.MAX_PANES; i++) {
         if (this.terminalPanes[i] && this.terminalPanes[i].sessionId === sessionId) {
+          this.terminalPanes[i]._needsInput = !!needsInput;
           // Pane elements are id'd term-pane-N (was terminal-pane-N, a
           // selector that matched nothing, so the badge never rendered).
           const paneEl = document.getElementById(`term-pane-${i}`);
@@ -1383,7 +1445,6 @@ class CWMApp {
             const header = paneEl.querySelector('.terminal-pane-header');
             if (header) header.dataset.needsInput = needsInput ? 'true' : 'false';
           }
-          break;
         }
       }
     });
@@ -1448,6 +1509,45 @@ class CWMApp {
     }
 
     // ─── Mobile: Touch Gestures ─────────────────────────────
+    // Appearance is a dedicated, scrollable dialog instead of a theme
+    // submenu. It keeps density and every palette reachable without turning
+    // the compact More menu into a long catalogue.
+    if (this.els.appearanceClose) {
+      this.els.appearanceClose.addEventListener('click', () => this.closeAppearance());
+    }
+    if (this.els.appearanceOverlay) {
+      this.els.appearanceOverlay.addEventListener('click', (e) => {
+        if (e.target === this.els.appearanceOverlay) this.closeAppearance();
+      });
+    }
+    if (this.els.appearanceDialog) {
+      this.els.appearanceDialog.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.closeAppearance();
+          return;
+        }
+        if (e.key !== 'Tab') return;
+        const focusable = Array.from(
+          this.els.appearanceDialog.querySelectorAll(
+            'button:not([disabled]), summary, [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter(el => !el.hidden && el.getClientRects().length > 0);
+        if (focusable.length === 0) {
+          e.preventDefault();
+          this.els.appearanceDialog.focus();
+          return;
+        }
+        const current = focusable.indexOf(document.activeElement);
+        const next = e.shiftKey
+          ? (current <= 0 ? focusable.length - 1 : current - 1)
+          : (current === focusable.length - 1 ? 0 : current + 1);
+        e.preventDefault();
+        focusable[next].focus();
+      });
+    }
+
     if ('ontouchstart' in window) {
       this.initTouchGestures();
     }
@@ -2546,44 +2646,73 @@ class CWMApp {
         });
       }
       this.state.workspaces = workspaces;
-      // Auto-select first workspace if none active
+      if (this.state.activeWorkspace) {
+        this.state.activeWorkspace =
+          this.state.workspaces.find(workspace =>
+            workspace.id === this.state.activeWorkspace.id
+          ) || null;
+      }
+      // Restore the deliberate project context before falling back to the
+      // first project for new users.
       if (!this.state.activeWorkspace && this.state.workspaces.length > 0) {
-        this.state.activeWorkspace = this.state.workspaces[0];
+        const savedWorkspaceId = localStorage.getItem('cwm_activeWorkspace');
+        this.state.activeWorkspace =
+          this.state.workspaces.find(workspace => workspace.id === savedWorkspaceId) ||
+          this.state.workspaces[0];
       }
       this.renderWorkspaces();
+      if (this.state.viewMode === 'docs') {
+        await Promise.all([this.loadDocs(), this.loadTdIssues()]);
+      }
     } catch (err) {
       this.showToast('Failed to load projects', 'error');
     }
   }
 
   async loadSessions() {
-    try {
-      const mode = this.state.viewMode;
+    const requestSequence = (this._sessionsRequestSequence || 0) + 1;
+    this._sessionsRequestSequence = requestSequence;
+    const mode = this.state.viewMode;
+    const requestedWorkspaceId = mode === 'workspace' && this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const requestIsCurrent = () => {
+      if (requestSequence !== this._sessionsRequestSequence) return false;
+      if (this.state.viewMode !== mode) return false;
+      if (mode !== 'workspace') return true;
+      const activeWorkspaceId = this.state.activeWorkspace
+        ? this.state.activeWorkspace.id
+        : null;
+      return activeWorkspaceId === requestedWorkspaceId;
+    };
 
-      // Always fetch ALL sessions for sidebar workspace rendering
+    try {
+      // Fetch into locals and publish atomically. A slower request for project
+      // A must never overwrite a later project-B selection.
       const allData = await this.api('GET', '/api/sessions?mode=all');
-      this.state.allSessions = allData.sessions || [];
+      if (!requestIsCurrent()) return false;
+      const allSessions = allData.sessions || [];
+      let sessions = allSessions;
 
       // If workspace mode but no workspace active, show empty
-      if (mode === 'workspace' && !this.state.activeWorkspace) {
-        this.state.sessions = [];
-        this.renderSessions();
-        this.renderWorkspaces();
-        return;
-      }
-
-      // Fetch mode-specific sessions for the main session list panel
-      if (mode === 'workspace' || mode === 'recent') {
+      if (mode === 'workspace' && !requestedWorkspaceId) {
+        sessions = [];
+      } else if (mode === 'workspace' || mode === 'recent') {
+        // Fetch mode-specific sessions for the main session list panel using
+        // the workspace captured at request start, never mutable live state.
         let path = `/api/sessions?mode=${mode}`;
-        if (mode === 'workspace' && this.state.activeWorkspace) {
-          path += `&workspaceId=${this.state.activeWorkspace.id}`;
+        if (mode === 'workspace') {
+          path += `&workspaceId=${requestedWorkspaceId}`;
         }
         const data = await this.api('GET', path);
-        this.state.sessions = data.sessions || [];
-      } else {
-        // 'all' mode - reuse the full list we already fetched
-        this.state.sessions = this.state.allSessions;
+        if (!requestIsCurrent()) return false;
+        sessions = data.sessions || [];
       }
+
+      if (!requestIsCurrent()) return false;
+      this.state.allSessions = allSessions;
+      this.state.sessions = sessions;
+      this._reconcileAttentionFromSessionRoster(allSessions);
 
       // Clear stale selectedSession if it no longer exists in the loaded session list
       // (e.g. deleted by another client or via SSE session:deleted event)
@@ -2604,11 +2733,18 @@ class CWMApp {
       if (this.state.settings.enableWorktreeTasks) {
         try {
           const wtData = await this.api('GET', '/api/worktree-tasks');
-          this._worktreeTaskCache = wtData.tasks || [];
+          if (requestIsCurrent()) {
+            this._worktreeTaskCache = wtData.tasks || [];
+            this.renderWorkspaces();
+          }
         } catch (_) { /* non-critical */ }
       }
+      return true;
     } catch (err) {
-      this.showToast('Failed to load sessions', 'error');
+      if (requestSequence === this._sessionsRequestSequence) {
+        this.showToast('Failed to load sessions', 'error');
+      }
+      return false;
     }
   }
 
@@ -2627,8 +2763,48 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   async selectWorkspace(id) {
+    const currentWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    // Seed the server-aligned rollback point before optimistic UI selection.
+    // Subsequent successful activation writes keep this value authoritative,
+    // including a request that succeeds after its UI selection is superseded.
+    if (this._lastActivatedWorkspaceId === undefined) {
+      this._lastActivatedWorkspaceId = currentWorkspaceId;
+    }
+    if (
+      id !== currentWorkspaceId &&
+      this.state.docsRawMode &&
+      this.els.docsRawEditor &&
+      this.state.docs &&
+      this.els.docsRawEditor.value !== (this.state.docs.raw || '')
+    ) {
+      const discard = window.confirm(
+        'Project Notes has unsaved raw Markdown. Discard it and switch projects?'
+      );
+      if (!discard) {
+        this.renderDocs();
+        return;
+      }
+    }
+
+    const selectionSequence = (this._workspaceSelectionSequence || 0) + 1;
+    this._workspaceSelectionSequence = selectionSequence;
     const ws = this.state.workspaces.find(w => w.id === id) || null;
     this.state.activeWorkspace = ws;
+
+    // Remove the previous project's interactive notes DOM immediately. A slow
+    // activation request must not leave project-A buttons alive while actions
+    // resolve their target from the newly-selected project B.
+    this._docsRequestSequence = (this._docsRequestSequence || 0) + 1;
+    this.state.docs = null;
+    this._docsRenderedWorkspaceId = null;
+    if (
+      this.els.notesEditorOverlay &&
+      !this.els.notesEditorOverlay.hidden
+    ) {
+      this.hideNotesEditor();
+    }
 
     // Persist to localStorage
     if (ws) {
@@ -2637,19 +2813,84 @@ class CWMApp {
       localStorage.removeItem('cwm_activeWorkspace');
     }
 
-    // Activate on server
-    if (ws) {
-      try {
-        await this.api('POST', `/api/workspaces/${id}/activate`);
-      } catch {
-        // non-critical
-      }
-    }
-
     this.renderWorkspaces();
+    if (this.state.viewMode === 'docs') this.renderDocs();
+
+    // Serialize activations and skip superseded requests before they start.
+    // If A is already in flight when B then C are chosen, C is guaranteed to
+    // execute after A; B is skipped. The server therefore finishes on the same
+    // project as the UI instead of whichever request happened to resolve last.
+    const priorActivation = this._workspaceActivationTail || Promise.resolve();
+    const activationTask = priorActivation
+      .catch(() => ({ started: false, succeeded: false }))
+      .then(async () => {
+        if (!ws || selectionSequence !== this._workspaceSelectionSequence) {
+          return {
+            started: false,
+            succeeded: !ws,
+            error: null,
+          };
+        }
+        try {
+          await this.api('POST', `/api/workspaces/${ws.id}/activate`);
+          // The server write succeeded even if the user selected another
+          // project while it was in flight. Preserve that fact so a later
+          // failed activation can restore the actual server-side project.
+          this._lastActivatedWorkspaceId = ws.id;
+          return { started: true, succeeded: true, error: null };
+        } catch (error) {
+          return { started: true, succeeded: false, error };
+        }
+      });
+    this._workspaceActivationTail = activationTask;
+    const activationResult = await activationTask;
+    if (selectionSequence !== this._workspaceSelectionSequence) return;
+
+    if (ws && !activationResult.succeeded) {
+      // The optimistic selection was never accepted by the server. Restore
+      // the last project whose activation write completed successfully rather
+      // than leaving the UI and server on different projects.
+      const rollbackWorkspace = this.state.workspaces.find(
+        workspace => workspace.id === this._lastActivatedWorkspaceId
+      ) || null;
+      this.state.activeWorkspace = rollbackWorkspace;
+      this._docsRequestSequence = (this._docsRequestSequence || 0) + 1;
+      this.state.docs = null;
+      this._docsRenderedWorkspaceId = null;
+      if (rollbackWorkspace) {
+        localStorage.setItem('cwm_activeWorkspace', rollbackWorkspace.id);
+      } else {
+        localStorage.removeItem('cwm_activeWorkspace');
+      }
+      this.renderWorkspaces();
+      if (this.state.viewMode === 'docs') this.renderDocs();
+
+      const failedName = ws.name ? `"${ws.name}"` : 'project';
+      const rollbackMessage = rollbackWorkspace
+        ? ` Restored "${rollbackWorkspace.name || rollbackWorkspace.id}".`
+        : ' No project is selected.';
+      const detail = activationResult.error && activationResult.error.message
+        ? ` ${activationResult.error.message}`
+        : '';
+      this.showToast(
+        `Failed to activate ${failedName}.${rollbackMessage}${detail}`,
+        'error'
+      );
+    }
 
     if (this.state.viewMode === 'workspace') {
       await this.loadSessions();
+      if (selectionSequence !== this._workspaceSelectionSequence) return;
+    }
+
+    if (this.state.viewMode === 'docs') {
+      await Promise.all([this.loadDocs(), this.loadTdIssues()]);
+      if (selectionSequence !== this._workspaceSelectionSequence) return;
+      const activeDocsTab = document.querySelector('.docs-tab.active');
+      if (activeDocsTab && activeDocsTab.dataset.tab === 'board') {
+        await this.loadFeatureBoard();
+        if (selectionSequence !== this._workspaceSelectionSequence) return;
+      }
     }
 
     // If the tasks tab is open, refresh whichever sub-tab is active for the new workspace
@@ -3427,7 +3668,7 @@ class CWMApp {
 
     // Spinoff Tasks — AI-extract tasks from conversation and create worktree branches
     items.push({
-      label: 'Spinoff Tasks', icon: '&#10547;',
+      label: 'Create agent tasks', icon: '&#10547;',
       action: () => this.openSpinoffDialog(sessionId),
     });
 
@@ -4262,6 +4503,11 @@ class CWMApp {
     const prefersLight = window.matchMedia &&
       window.matchMedia('(prefers-color-scheme: light)').matches;
     let choice = themeName;
+    if (registry && choice === registry.DEFAULT_DARK_THEME_ID) {
+      choice = 'myrlin-dark';
+    } else if (registry && choice === registry.DEFAULT_LIGHT_THEME_ID) {
+      choice = 'myrlin-light';
+    }
     let resolved = registry
       ? registry.resolveFeaturedChoice(choice, prefersLight ? 'light' : 'dark')
       : null;
@@ -4295,8 +4541,15 @@ class CWMApp {
         tp.term.options.theme = TerminalPane.getCurrentTheme();
       }
     });
+    Object.values(this._groupPaneCache || {}).forEach(cached => {
+      (cached && Array.isArray(cached.panes) ? cached.panes : []).forEach(tp => {
+        if (tp && tp.term) tp.term.options.theme = TerminalPane.getCurrentTheme();
+      });
+    });
 
     const themeMeta = registry && registry.getTheme(resolved);
+    document.documentElement.dataset.themeAppearance =
+      themeMeta && themeMeta.appearance === 'light' ? 'light' : 'dark';
     document.documentElement.style.colorScheme =
       themeMeta && themeMeta.appearance === 'light' ? 'light' : 'dark';
     const themeColor = document.querySelector('meta[name="theme-color"]');
@@ -4305,6 +4558,171 @@ class CWMApp {
         .getPropertyValue('--bg-secondary')
         .trim();
       if (color) themeColor.content = color;
+    }
+
+    if (this.els.appearanceOverlay && !this.els.appearanceOverlay.hidden) {
+      this.renderAppearance();
+    }
+  }
+
+  setDensity(value, { persist = true } = {}) {
+    const model = window.MyrlinExperienceModel;
+    const density = model
+      ? model.normalizeDensity(value)
+      : (value === 'informative' ? 'informative' : 'quiet');
+    this.state.density = density;
+    document.documentElement.dataset.density = density;
+    if (persist) localStorage.setItem('cwm_density', density);
+
+    if (this.state.docs) {
+      this._syncDocsSectionDensity({
+        notes: (this.state.docs.notes || []).length,
+        goals: (this.state.docs.goals || []).length,
+        tasks: (this.state.docs.tasks || []).length,
+        roadmap: (this.state.docs.roadmap || []).length,
+        rules: (this.state.docs.rules || []).length,
+      });
+    }
+    this.renderAttentionQueue();
+    if (this.els.appearanceOverlay && !this.els.appearanceOverlay.hidden) {
+      this.renderAppearance();
+    }
+
+    // Density changes presentation only. Preserve TerminalPane instances,
+    // buffers, WebSockets, selection, and scroll state; just refit their
+    // existing viewports after CSS has settled.
+    requestAnimationFrame(() => {
+      this.terminalPanes.forEach(tp => {
+        if (tp && typeof tp.safeFit === 'function') tp.safeFit();
+      });
+    });
+  }
+
+  _getThemeSwatchStyle(themeId) {
+    const option = this.els.themeDropdown &&
+      this.els.themeDropdown.querySelector(`.theme-option[data-theme="${themeId}"] .theme-swatch`);
+    return option ? option.getAttribute('style') || '' : '';
+  }
+
+  renderAppearance() {
+    const registry = window.MyrlinThemeRegistry;
+    const model = window.MyrlinExperienceModel;
+    if (!registry || !this.els.densityChoices || !this.els.themeGallery) return;
+    const focusedControl = document.activeElement;
+    const focusedDensity = focusedControl && focusedControl.dataset
+      ? focusedControl.dataset.densityChoice
+      : null;
+    const focusedTheme = focusedControl && focusedControl.dataset
+      ? focusedControl.dataset.themeChoice
+      : null;
+
+    const densityChoices = model && model.DENSITY_CHOICES
+      ? model.DENSITY_CHOICES
+      : [
+          { id: 'quiet', label: 'Quiet', description: 'Keep supporting detail out of the way until it matters.' },
+          { id: 'informative', label: 'Informative', description: 'Show more status and context while you work.' },
+        ];
+    this.els.densityChoices.innerHTML = densityChoices.map(choice => {
+      const active = choice.id === this.state.density;
+      return `<button class="density-choice" type="button" data-density-choice="${choice.id}"
+        aria-pressed="${active ? 'true' : 'false'}">
+        <span class="density-choice-label">${this.escapeHtml(choice.label)}</span>
+        <span class="density-choice-check" aria-hidden="true">${active ? '&#10003;' : ''}</span>
+        <span class="density-choice-description">${this.escapeHtml(choice.description)}</span>
+      </button>`;
+    }).join('');
+    this.els.densityChoices.querySelectorAll('[data-density-choice]').forEach(button => {
+      button.addEventListener('click', () => this.setDensity(button.dataset.densityChoice));
+    });
+
+    const activeChoice = document.documentElement.dataset.themeChoice ||
+      localStorage.getItem('cwm_theme_choice') ||
+      document.documentElement.dataset.theme ||
+      'system';
+    const preferredAppearance = document.documentElement.dataset.themeAppearance || 'dark';
+    const previousMore = this.els.themeGallery.querySelector('.theme-gallery-more');
+    const moreOpen = !!(previousMore && previousMore.open);
+    const renderCard = (choice, featured = false) => {
+      const themeId = featured
+        ? registry.resolveFeaturedChoice(choice.id, preferredAppearance)
+        : choice.id;
+      const active = choice.id === activeChoice;
+      return `<button class="theme-gallery-card" type="button"
+        data-theme-choice="${choice.id}" aria-pressed="${active ? 'true' : 'false'}">
+        <span class="theme-gallery-swatch" aria-hidden="true"
+          style="${this._getThemeSwatchStyle(themeId)}"></span>
+        <span>${this.escapeHtml(choice.label)}</span>
+        <span class="theme-gallery-check" aria-hidden="true">${active ? '&#10003;' : ''}</span>
+      </button>`;
+    };
+
+    const featured = registry.FEATURED_THEME_CHOICES.map(choice =>
+      renderCard(choice, true)
+    ).join('');
+    const grouped = model && typeof model.groupThemes === 'function'
+      ? model.groupThemes(registry)
+      : {
+          dark: registry.THEME_REGISTRY.filter(theme => theme.appearance === 'dark'),
+          light: registry.THEME_REGISTRY.filter(theme => theme.appearance === 'light'),
+        };
+    const legacyGroup = (appearance, label) => {
+      const cards = grouped[appearance]
+        .filter(theme => theme.tier === 'more')
+        .map(theme => renderCard(theme))
+        .join('');
+      return `<section class="theme-gallery-group" aria-labelledby="theme-${appearance}-heading">
+        <h4 id="theme-${appearance}-heading">${label}</h4>
+        <div class="theme-gallery-grid">${cards}</div>
+      </section>`;
+    };
+
+    this.els.themeGallery.innerHTML = `
+      <section class="theme-gallery-group" aria-labelledby="theme-featured-heading">
+        <h4 id="theme-featured-heading">Recommended</h4>
+        <div class="theme-gallery-grid theme-gallery-featured">${featured}</div>
+      </section>
+      <details class="theme-gallery-more"${moreOpen ? ' open' : ''}>
+        <summary>More themes</summary>
+        <div class="theme-gallery-more-groups">
+          ${legacyGroup('dark', 'Dark')}
+          ${legacyGroup('light', 'Light')}
+        </div>
+      </details>`;
+    this.els.themeGallery.querySelectorAll('[data-theme-choice]').forEach(button => {
+      button.addEventListener('click', () => this.setTheme(button.dataset.themeChoice));
+    });
+
+    const restoredFocus = focusedDensity
+      ? this.els.densityChoices.querySelector(`[data-density-choice="${focusedDensity}"]`)
+      : (focusedTheme
+          ? this.els.themeGallery.querySelector(`[data-theme-choice="${focusedTheme}"]`)
+          : null);
+    if (restoredFocus) restoredFocus.focus({ preventScroll: true });
+  }
+
+  openAppearance(returnFocus = document.activeElement) {
+    if (!this.els.appearanceOverlay) return;
+    this._appearanceReturnFocus = returnFocus;
+    this.renderAppearance();
+    this.els.appearanceOverlay.hidden = false;
+    document.body.classList.add('appearance-open');
+    requestAnimationFrame(() => {
+      const selected = this.els.appearanceDialog &&
+        this.els.appearanceDialog.querySelector('[aria-pressed="true"]');
+      if (selected) selected.focus({ preventScroll: true });
+      else if (this.els.appearanceClose) this.els.appearanceClose.focus({ preventScroll: true });
+      else if (this.els.appearanceDialog) this.els.appearanceDialog.focus({ preventScroll: true });
+    });
+  }
+
+  closeAppearance({ restoreFocus = true } = {}) {
+    if (!this.els.appearanceOverlay || this.els.appearanceOverlay.hidden) return;
+    this.els.appearanceOverlay.hidden = true;
+    document.body.classList.remove('appearance-open');
+    const returnFocus = this._appearanceReturnFocus;
+    this._appearanceReturnFocus = null;
+    if (restoreFocus && returnFocus && returnFocus.isConnected) {
+      returnFocus.focus({ preventScroll: true });
     }
   }
 
@@ -4413,7 +4831,7 @@ class CWMApp {
 
   /** Returns the full settings registry with metadata for rendering */
   getSettingsRegistry() {
-    return [
+    const registry = [
       { key: 'paneColorHighlights', label: 'Pane Color Highlights', description: 'Color-coded left border on terminal pane headers, with matching pips in sidebar', category: 'Terminal' },
       { key: 'activityIndicators', label: 'Activity Indicators', description: 'Show real-time activity labels (Reading, Writing, etc.) on pane headers', category: 'Terminal' },
       { key: 'autoOpenTerminal', label: 'Auto-open Terminal on Start', description: 'Automatically open a terminal when starting a session', category: 'Terminal' },
@@ -4424,15 +4842,19 @@ class CWMApp {
       { key: 'uiScale', label: 'UI Scale', description: 'Adjust the overall interface size', category: 'Interface', type: 'scale' },
       { key: 'headerHeight', label: 'Header Height', description: 'Adjust the height of the top header bar', category: 'Interface', type: 'slider', min: 35, max: 80, default: 80, unit: 'px' },
       { key: 'autoTrustDialogs', label: 'Auto-accept Trust Dialogs', description: 'Automatically accept safe trust/permission prompts in terminals. Dangerous prompts (delete, credentials) are never auto-accepted.', category: 'Automation' },
-      { key: 'enableWorktreeTasks', label: 'Worktree Tasks', description: 'Enable automated worktree task creation and review workflow', category: 'Advanced' },
-      { key: 'enableTd', label: 'td Task Management', description: 'Show td issue tracking integration (github.com/marcus/td). When disabled, hides all td UI including the docs panel section and sidebar toggle.', category: 'Advanced' },
+      { key: 'enableWorktreeTasks', label: 'Agent Tasks', description: 'Enable isolated-branch task creation and review for coding agents', category: 'Advanced' },
+      { key: 'enableTd', label: 'Issues integration', description: 'Show td issue tracking. When disabled, issue tabs and Project Notes issue sections stay hidden.', category: 'Advanced' },
       { key: 'tdBinary', label: 'td Binary Path', description: 'Optional. td is an alternative task management system (github.com/marcus/td); Myrlin works fine without it. If installed, set the absolute path to the binary here, or leave blank to use the TD_BINARY environment variable or "td" from PATH. Example: /home/user/go/bin/td', category: 'Advanced', type: 'server-text', placeholder: 'e.g. /home/user/go/bin/td', apiEndpoint: '/api/td/binary', apiField: 'binary' },
-      { key: 'maxConcurrentTasks', label: 'Max Concurrent Tasks', description: 'Maximum number of worktree tasks that can run simultaneously (1-8)', category: 'Advanced', type: 'number', min: 1, max: 8 },
+      { key: 'maxConcurrentTasks', label: 'Max Concurrent Agent Tasks', description: 'Maximum isolated agent tasks that can run simultaneously (1-8)', category: 'Advanced', type: 'number', min: 1, max: 8 },
       { key: 'defaultModelPlanning', label: 'Default Model (Planning)', description: 'Auto-assign when tasks enter Planning. Haiku is fast/cheap for exploration. Only applies to tasks without a model set.', category: 'Advanced', type: 'select', options: [{ value: '', label: 'None' }, { value: 'haiku', label: 'Haiku (fast, cheap)' }, { value: 'sonnet', label: 'Sonnet (balanced)' }, { value: 'opus', label: 'Opus (thorough)' }, { value: 'sonnet[1m]', label: 'Sonnet 1M' }, { value: 'opusplan', label: 'OpusPlan' }] },
       { key: 'defaultModelRunning', label: 'Default Model (Running)', description: 'Auto-assign when tasks enter Running. Sonnet balances speed and quality for implementation. Only applies to tasks without a model set.', category: 'Advanced', type: 'select', options: [{ value: '', label: 'None' }, { value: 'haiku', label: 'Haiku (fast, cheap)' }, { value: 'sonnet', label: 'Sonnet (balanced)' }, { value: 'opus', label: 'Opus (thorough)' }, { value: 'sonnet[1m]', label: 'Sonnet 1M' }, { value: 'opusplan', label: 'OpusPlan' }] },
       { key: 'anthropicApiKey', label: 'Anthropic API Key', description: 'Required for AI-powered session finder. Uses Claude Haiku for fast, low-cost semantic search across your projects and sessions. Get a key at console.anthropic.com.', category: 'AI', type: 'server-text', placeholder: 'sk-ant-...', apiEndpoint: '/api/keys/anthropic', apiField: 'key' },
       { key: 'cfNamedTunnel', label: 'Cloudflare Named Tunnel', description: 'Expose Myrlin on the internet via your own domain. Go to one.dash.cloudflare.com → Networks → Tunnels → Create a tunnel, then copy the token from the install command (the long eyJ... string).', category: 'Remote Access', type: 'tunnel' },
     ];
+
+    if (document.documentElement.dataset.uiShell !== 'focused') return registry;
+    const classicHeaderSettings = new Set(['sessionCountInHeader', 'headerHeight']);
+    return registry.filter(setting => !classicHeaderSettings.has(setting.key));
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -4756,8 +5178,8 @@ class CWMApp {
       },
       {
         id: 'feature-tasks-view',
-        name: 'Tasks View',
-        description: 'Dedicated view for worktree tasks showing active, review, and completed tasks with status indicators and quick actions.',
+        name: 'Agent Tasks',
+        description: 'Dedicated view for isolated agent tasks showing active, review, and completed work with quick actions.',
         category: 'feature',
         tags: ['tasks', 'worktree', 'branch', 'autonomous', 'agent', 'view'],
         icon: '&#128736;',
@@ -4765,7 +5187,7 @@ class CWMApp {
       },
       {
         id: 'action-new-task',
-        name: 'New Worktree Task',
+        name: 'New Agent Task',
         description: 'Create an isolated worktree branch for Claude to work on autonomously',
         category: 'action',
         tags: ['new', 'task', 'worktree', 'branch', 'create', 'autonomous'],
@@ -4804,7 +5226,7 @@ class CWMApp {
       {
         id: 'feature-pr-automation',
         name: 'Pull Request Automation',
-        description: 'Create GitHub PRs directly from worktree tasks. AI-generated descriptions from diffs. PR badges on kanban cards link to GitHub. Auto-advances tasks to Done when PR is merged. Available from review column, context menu, or session detail banner.',
+        description: 'Create GitHub PRs directly from agent tasks. AI-generated descriptions, PR badges, and merged-state tracking are built in.',
         category: 'feature',
         tags: ['pr', 'pull request', 'github', 'merge', 'review', 'branch', 'code review'],
         icon: '&#128279;',
@@ -5616,6 +6038,16 @@ class CWMApp {
     if (!tdEnabled && this._sidebarTasksMode === 'td') {
       this._setSidebarTasksMode('native');
     }
+    const tasksTdTab = document.getElementById('tasks-tab-td');
+    const tasksTabStrip = document.getElementById('tasks-tab-strip');
+    if (tasksTdTab) tasksTdTab.hidden = !tdEnabled;
+    if (tasksTabStrip) {
+      tasksTabStrip.hidden =
+        html.dataset.uiShell === 'focused' && !tdEnabled;
+    }
+    if (!tdEnabled && this._activeTasksTab === 'td') {
+      this._switchTasksTab('worktree');
+    }
     // Reload td docs section if currently visible
     if (typeof this.loadTdIssues === 'function') {
       this.loadTdIssues();
@@ -5805,7 +6237,10 @@ class CWMApp {
 
     // Show td tab only when enableTd is on
     const tdTab = document.getElementById('tasks-tab-td');
-    if (tdTab) tdTab.hidden = !this.getSetting('enableTd');
+    const tdEnabled = this.getSetting('enableTd');
+    if (tdTab) tdTab.hidden = !tdEnabled;
+    strip.hidden =
+      document.documentElement.dataset.uiShell === 'focused' && !tdEnabled;
 
     strip.addEventListener('click', e => {
       const tab = e.target.closest('.tasks-tab');
@@ -6854,8 +7289,8 @@ class CWMApp {
         const emptyHtml = `
           <div class="tasks-empty">
             <div class="tasks-empty-icon">&#128736;</div>
-            <div class="tasks-empty-title">No worktree tasks</div>
-            <div class="tasks-empty-desc">Create a task for an agent to work on a feature in an isolated git branch. Click "New Task" above to get started.</div>
+            <div class="tasks-empty-title">No agent tasks</div>
+            <div class="tasks-empty-desc">Give an agent a focused change to build in an isolated git branch. Choose "New agent task" to get started.</div>
           </div>`;
         if (this._tasksLayout === 'board' && this.els.kanbanBoard) {
           this.els.kanbanBoard.innerHTML = emptyHtml;
@@ -7838,7 +8273,7 @@ class CWMApp {
 
     // Show dialog in loading state
     this.els.spinoffOverlay.hidden = false;
-    this.els.spinoffTitle.textContent = 'Spinoff Tasks';
+    this.els.spinoffTitle.textContent = 'Create Agent Tasks';
     this.els.spinoffSubtitle.textContent = `Analyzing: ${sessionName}`;
     this.els.spinoffLoading.hidden = false;
     this.els.spinoffTasks.hidden = true;
@@ -8729,8 +9164,15 @@ class CWMApp {
 
     // ── Chip ──
     const active = cred.list.find(p => p.profileId === cred.activeId) || null;
-    const chipName = active ? this._accountDisplayName(active) : 'Unknown account';
-    if (els.accountChipAvatar) els.accountChipAvatar.textContent = active ? (chipName.charAt(0).toUpperCase() || '?') : '?';
+    const hasAccounts = Array.isArray(cred.list) && cred.list.length > 0;
+    const chipName = active
+      ? this._accountDisplayName(active)
+      : (hasAccounts ? 'Select account' : 'Accounts');
+    if (els.accountChipAvatar) {
+      els.accountChipAvatar.textContent = active
+        ? (chipName.charAt(0).toUpperCase() || 'A')
+        : 'A';
+    }
     if (els.accountChipLabel) els.accountChipLabel.textContent = chipName;
     if (els.accountChipMeta) {
       const fiveHour = active && active.usage && active.usage.five_hour;
@@ -12008,6 +12450,10 @@ class CWMApp {
 
     switch (data.type) {
       case 'session:started':
+        this._setAttentionState(
+          data.sessionId || data.id || (data.session && data.session.id),
+          'running'
+        );
         this.showToast(`Session "${data.name || 'unknown'}" started`, 'success');
         this._throttledLoadSessions();
         this._throttledLoadStats();
@@ -12017,20 +12463,52 @@ class CWMApp {
         this._patchProviderTabBadges();
         break;
       case 'session:stopped':
+        this._setAttentionState(
+          data.sessionId || data.id || (data.session && data.session.id),
+          null
+        );
         this.showToast(`Session "${data.name || 'unknown'}" stopped`, 'info');
         this._throttledLoadSessions();
         this._throttledLoadStats();
         this._patchProviderTabBadges();
         break;
       case 'session:error':
+        this._setAttentionState(
+          data.sessionId || data.id || (data.session && data.session.id),
+          'failed'
+        );
         this.showToast(`Session "${data.name || 'unknown'}" encountered an error`, 'error');
         this._throttledLoadSessions();
         this._throttledLoadStats();
         this._patchProviderTabBadges();
         break;
       case 'session:created':
-      case 'session:deleted':
-      case 'session:updated':
+      case 'session:updated': {
+        const session = data.session || data.data || data;
+        const sessionId = session.sessionId || session.id || data.sessionId || data.id;
+        const model = window.MyrlinExperienceModel;
+        const state = model
+          ? model.normalizeAttentionState(session.attentionState) ||
+            model.statusToAttentionState(session.status)
+          : null;
+        if (sessionId && (state || session.status)) {
+          this._setAttentionState(sessionId, state);
+        }
+        this._throttledLoadSessions();
+        this._throttledLoadStats();
+        this._patchProviderTabBadges();
+        break;
+      }
+      case 'session:deleted': {
+        const sessionId = data.sessionId || data.id ||
+          (data.session && data.session.id) ||
+          (data.data && data.data.id);
+        this._setAttentionState(sessionId, null);
+        this._throttledLoadSessions();
+        this._throttledLoadStats();
+        this._patchProviderTabBadges();
+        break;
+      }
       case 'session:moved':
         this._throttledLoadSessions();
         this._throttledLoadStats();
@@ -12041,6 +12519,12 @@ class CWMApp {
       case 'workspace:updated':
         this.loadWorkspaces();
         this._throttledLoadStats();
+        break;
+      case 'workspace:activated':
+        // Activation is a legacy server-side default, while each browser keeps
+        // its deliberate project context locally. Treat this broadcast as an
+        // acknowledgement; falling through to loadAll() caused every click to
+        // launch an unsequenced full-app reload on every connected client.
         break;
       case 'stats:updated':
         if (data.stats) {
@@ -12471,7 +12955,7 @@ class CWMApp {
             </div>
             ${groupChipHtml}
             <div class="workspace-actions">
-              ${this.state.settings.enableWorktreeTasks ? `<button class="btn btn-ghost btn-icon btn-sm ws-new-task-btn" data-ws-id="${ws.id}" title="New Task">+</button>` : ''}
+              ${this.state.settings.enableWorktreeTasks ? `<button class="btn btn-ghost btn-icon btn-sm ws-new-task-btn" data-ws-id="${ws.id}" title="New Agent Task">+</button>` : ''}
               <button class="btn btn-ghost btn-icon btn-sm ws-more-btn" data-id="${ws.id}" title="More actions">&#8230;</button>
             </div>
           </div>
@@ -12582,7 +13066,7 @@ class CWMApp {
       { label: 'New Feature Session', icon: '&#9733;', action: () => this.startFeatureSession(workspaceId) },
       { label: 'Create Worktree', icon: '&#128268;', action: () => this.createWorktree(workspaceId) },
       ...(this.getSetting('enableWorktreeTasks') ? [
-        { label: 'New Worktree Task', icon: '&#128736;', action: () => this.startWorktreeTask(workspaceId) },
+        { label: 'New Agent Task', icon: '&#128736;', action: () => this.startWorktreeTask(workspaceId) },
       ] : []),
       { type: 'sep' },
       { label: 'Edit', icon: '&#9998;', action: () => this.renameWorkspace(workspaceId) },
@@ -12875,6 +13359,7 @@ class CWMApp {
     if (sessions.length === 0) {
       list.innerHTML = '';
       empty.hidden = false;
+      this.renderAttentionQueue();
       return;
     }
 
@@ -12883,6 +13368,7 @@ class CWMApp {
     list.innerHTML = sessions.map(s => {
       const isSelected = this.state.selectedSession && this.state.selectedSession.id === s.id;
       const statusClass = `status-dot-${s.status || 'stopped'}`;
+      const attentionState = this._attentionStateForSession(s.id, s.status);
 
       // Build flags badges
       const flagBadges = [];
@@ -12893,7 +13379,8 @@ class CWMApp {
       }
 
       return `
-        <div class="session-item${isSelected ? ' active' : ''}" data-id="${s.id}" draggable="true">
+        <div class="session-item${isSelected ? ' active' : ''}${attentionState ? ' attention-state' : ''}"
+             data-id="${s.id}"${attentionState ? ` data-attention-state="${attentionState}"` : ''} draggable="true">
           <div class="session-status">
             <span class="status-dot ${statusClass}"></span>
           </div>
@@ -12908,6 +13395,7 @@ class CWMApp {
         </div>`;
     }).join('');
 
+    this.renderAttentionQueue();
 
     // Re-apply schedule indicators since renderSessions() rewrites the list
     if (this._scheduleCounts) this.applyScheduleIndicators();
@@ -14643,6 +15131,18 @@ class CWMApp {
     // Create and mount TerminalPane
     const tp = new TerminalPane(containerId, sessionId, sessionName, spawnOpts);
     this.terminalPanes[slotIdx] = tp;
+    // Restoring a pane is not evidence that its session is running. Use a
+    // real live signal when present, otherwise fall back to the authoritative
+    // server roster once it arrives. This avoids repainting failed/completed
+    // restored sessions as Running during concurrent startup.
+    const rosterSession = [
+      ...(this.state.allSessions || []),
+      ...(this.state.sessions || []),
+    ].find(session => session && session.id === sessionId);
+    this._applyAttentionStateToDom(
+      sessionId,
+      this._attentionStateForSession(sessionId, rosterSession && rosterSession.status)
+    );
 
     // Wire up mobile mode change callback to sync keyboard toggle button
     tp.onMobileModeChange = (mode) => {
@@ -14730,10 +15230,10 @@ class CWMApp {
 
     const labels = {
       'tasks-git': 'Git',
-      'tasks-td': 'Tasks',
-      'tasks-worktree': 'Worktree',
+      'tasks-td': 'Issues',
+      'tasks-worktree': 'Agent Tasks',
       'tasks-files': 'Files',
-      'doc': 'Doc',
+      'doc': 'Markdown',
       'mirror': 'Mirror'
     };
     const badge = paneEl.querySelector('.pane-view-badge');
@@ -14924,6 +15424,279 @@ class CWMApp {
    * Update the activity indicator on a terminal pane header.
    * Called when 'terminal-activity' events fire from TerminalPane.
    */
+  _setAttentionState(sessionId, state) {
+    if (!sessionId) return;
+    const model = window.MyrlinExperienceModel;
+    const normalized = model
+      ? model.normalizeAttentionState(state)
+      : (['needs-input', 'failed', 'complete', 'stale', 'running'].includes(state) ? state : null);
+    if (normalized) this._attentionState.set(sessionId, normalized);
+    else this._attentionState.delete(sessionId);
+
+    this._applyAttentionStateToDom(sessionId, normalized);
+    // Replacements such as renderSessions() may have created fresh DOM even
+    // when the logical state did not change.
+    this._syncTerminalGroupAttention();
+    this.renderAttentionQueue();
+  }
+
+  /**
+   * Reconcile durable server status with transient pane signals after a roster
+   * refresh. Pane-local needs-input and a just-observed completion remain more
+   * specific than a generic server "running" row; terminal states such as
+   * failed/stale/complete are authoritative and replace stale running state.
+   */
+  _reconcileAttentionFromSessionRoster(sessions) {
+    const model = window.MyrlinExperienceModel;
+    if (!model) return;
+    const roster = Array.isArray(sessions) ? sessions : [];
+    const rosterIds = new Set();
+    const paneBySession = new Map();
+    (this.terminalPanes || []).forEach(tp => {
+      if (tp && tp.sessionId) paneBySession.set(tp.sessionId, tp);
+    });
+
+    roster.forEach(session => {
+      if (!session || !session.id) return;
+      rosterIds.add(session.id);
+      const pane = paneBySession.get(session.id);
+      if (pane && pane._needsInput) return;
+      const serverState = model.normalizeAttentionState(session.attentionState)
+        || model.statusToAttentionState(session.status);
+      const explicit = this._attentionState.get(session.id) || null;
+
+      if (serverState && serverState !== 'running') {
+        this._attentionState.set(session.id, serverState);
+      } else if (
+        serverState === 'running' &&
+        (explicit === 'failed' || explicit === 'stale')
+      ) {
+        // A recovered server row supersedes an older terminal-state signal.
+        this._attentionState.set(session.id, 'running');
+      } else if (!serverState && !pane) {
+        // Stopped/archived rows do not belong in the live attention queue.
+        this._attentionState.delete(session.id);
+      }
+    });
+
+    for (const sessionId of this._attentionState.keys()) {
+      if (!rosterIds.has(sessionId) && !paneBySession.has(sessionId)) {
+        this._attentionState.delete(sessionId);
+      }
+    }
+
+    roster.forEach(session => {
+      if (!session || !session.id) return;
+      this._applyAttentionStateToDom(
+        session.id,
+        this._attentionStateForSession(session.id, session.status)
+      );
+    });
+    this._syncTerminalGroupAttention();
+    this.renderAttentionQueue();
+  }
+
+  _attentionStateForSession(sessionId, fallbackStatus = null) {
+    const explicit = this._attentionState.get(sessionId);
+    if (explicit) return explicit;
+    const model = window.MyrlinExperienceModel;
+    return model ? model.statusToAttentionState(fallbackStatus) : null;
+  }
+
+  _applyAttentionStateToDom(sessionId, state) {
+    document.querySelectorAll('.session-item[data-id]').forEach(item => {
+      if (item.dataset.id !== sessionId) return;
+      item.classList.toggle('attention-state', !!state);
+      if (state) item.dataset.attentionState = state;
+      else delete item.dataset.attentionState;
+    });
+
+    (this.terminalPanes || []).forEach((tp, slotIdx) => {
+      if (!tp || tp.sessionId !== sessionId) return;
+      const pane = document.getElementById(`term-pane-${slotIdx}`);
+      const header = pane && pane.querySelector('.terminal-pane-header');
+      if (!header) return;
+      header.classList.toggle('attention-state', !!state);
+      if (state) header.dataset.attentionState = state;
+      else delete header.dataset.attentionState;
+    });
+  }
+
+  _getAttentionQueue() {
+    const model = window.MyrlinExperienceModel;
+    if (!model) return [];
+    const rosterById = new Map();
+    [...(this.state.allSessions || []), ...(this.state.sessions || [])].forEach(session => {
+      if (session && session.id) rosterById.set(session.id, session);
+    });
+    const resolvedState = (sessionId) => {
+      const session = rosterById.get(sessionId);
+      return this._attentionStateForSession(sessionId, session && session.status);
+    };
+    const panes = (this.terminalPanes || []).map((tp, slot) => {
+      if (!tp || !tp.sessionId) return null;
+      return {
+        sessionId: tp.sessionId,
+        sessionName: tp.sessionName,
+        provider: tp.spawnOpts && tp.spawnOpts.provider,
+        slot,
+        state: tp._needsInput
+          ? 'needs-input'
+          : resolvedState(tp.sessionId),
+      };
+    }).filter(Boolean);
+    Object.values(this._groupPaneCache || {}).forEach(cached => {
+      (cached && Array.isArray(cached.panes) ? cached.panes : []).forEach(tp => {
+        if (!tp || !tp.sessionId) return;
+        panes.push({
+          sessionId: tp.sessionId,
+          sessionName: tp.sessionName,
+          provider: tp.spawnOpts && tp.spawnOpts.provider,
+          slot: null,
+          state: tp._needsInput
+            ? 'needs-input'
+            : resolvedState(tp.sessionId),
+        });
+      });
+    });
+    (this._tabGroups || []).forEach(group => {
+      (group.panes || []).forEach(pane => {
+        if (!pane || !pane.sessionId) return;
+        panes.push({
+          sessionId: pane.sessionId,
+          sessionName: pane.sessionName,
+          provider: pane.spawnOpts && pane.spawnOpts.provider,
+          slot: null,
+          state: resolvedState(pane.sessionId),
+        });
+      });
+    });
+    const byId = new Map();
+    rosterById.forEach(session => {
+      byId.set(session.id, {
+        ...session,
+        attentionState: this._attentionState.get(session.id) || session.attentionState,
+      });
+    });
+    return model.buildAttentionQueue(panes, Array.from(byId.values()));
+  }
+
+  renderAttentionQueue() {
+    const button = this.els && this.els.attentionQueueBtn;
+    const badge = this.els && this.els.attentionQueueBadge;
+    if (!button || !badge) return;
+    const queue = this._getAttentionQueue();
+    const actionable = queue.filter(item => item.actionable);
+    const informative = this.state.density === 'informative';
+    button.hidden = actionable.length === 0 && (!informative || queue.length === 0);
+    button.classList.toggle('has-actionable', actionable.length > 0);
+    badge.textContent = String(actionable.length || queue.length);
+    button.setAttribute(
+      'aria-label',
+      actionable.length > 0
+        ? `${actionable.length} session${actionable.length === 1 ? '' : 's'} need attention`
+        : `${queue.length} live session${queue.length === 1 ? '' : 's'}`
+    );
+    button.title = actionable.length > 0
+      ? `${actionable.length} need attention`
+      : `${queue.length} live`;
+  }
+
+  showAttentionQueue(anchorElement = this.els.attentionQueueBtn) {
+    const queue = this._getAttentionQueue();
+    const visible = this.state.density === 'informative'
+      ? queue
+      : queue.filter(item => item.actionable);
+    const items = visible.length > 0
+      ? visible.map(item => ({
+          label: item.sessionName,
+          hint: item.label,
+          icon: item.icon,
+          className: 'attention-state',
+          attentionState: item.state,
+          action: () => this._focusAttentionItem(item),
+        }))
+      : [{ label: 'No sessions need attention', icon: '&#10003;', disabled: true }];
+
+    if (this.isMobile || !anchorElement) {
+      this.showActionSheet('Session attention', items);
+      return;
+    }
+    const rect = anchorElement.getBoundingClientRect();
+    this._renderContextItems('Session attention', items, rect.left, rect.bottom + 6, {
+      focusMenu: true,
+      triggerElement: anchorElement,
+    });
+    const wrappers = this.els.contextMenuItems.querySelectorAll('.ctx-item-wrapper');
+    visible.forEach((item, index) => {
+      const button = wrappers[index] && wrappers[index].querySelector('.context-menu-item');
+      if (button) button.dataset.attentionState = item.state;
+    });
+  }
+
+  async _focusAttentionItem(item) {
+    if (!item || !item.sessionId) return;
+    const group = (this._tabGroups || []).find(candidate =>
+      (candidate.panes || []).some(pane => pane && pane.sessionId === item.sessionId)
+    );
+    if (group && group.id !== this._activeGroupId) {
+      this.switchTerminalGroup(group.id);
+    }
+    const slot = (this.terminalPanes || []).findIndex(tp =>
+      tp && tp.sessionId === item.sessionId
+    );
+    if (slot !== -1) {
+      this.setViewMode('terminal');
+      this.setActiveTerminalPane(slot);
+      return;
+    }
+
+    const session = [...(this.state.sessions || []), ...(this.state.allSessions || [])]
+      .find(candidate => candidate && candidate.id === item.sessionId);
+    if (session) {
+      if (
+        session.workspaceId &&
+        (!this.state.activeWorkspace || this.state.activeWorkspace.id !== session.workspaceId) &&
+        (this.state.workspaces || []).some(workspace => workspace.id === session.workspaceId)
+      ) {
+        await this.selectWorkspace(session.workspaceId);
+      }
+      this.state.selectedSession = session;
+      const inActiveProject = this.state.activeWorkspace &&
+        this.state.activeWorkspace.id === session.workspaceId;
+      this.setViewMode(inActiveProject ? 'workspace' : 'recent');
+      this.renderSessionDetail();
+      this.renderSessions();
+    }
+  }
+
+  _syncTerminalGroupAttention() {
+    const model = window.MyrlinExperienceModel;
+    if (!model || !this._tabGroups) return;
+    const sessionsById = new Map();
+    [...(this.state.allSessions || []), ...(this.state.sessions || [])].forEach(session => {
+      if (session && session.id) sessionsById.set(session.id, session);
+    });
+    for (const group of this._tabGroups) {
+      const states = (group.panes || []).map(pane => {
+        if (!pane || !pane.sessionId) return null;
+        const session = sessionsById.get(pane.sessionId);
+        return this._attentionState.get(pane.sessionId) ||
+          model.statusToAttentionState(session && session.status) ||
+          null;
+      }).filter(Boolean);
+      states.sort((a, b) =>
+        model.ATTENTION_STATES[a].priority - model.ATTENTION_STATES[b].priority
+      );
+      const state = states[0] || null;
+      const tab = document.querySelector(`.terminal-group-tab[data-group-id="${group.id}"]`);
+      if (!tab) continue;
+      tab.classList.toggle('attention-state', !!state);
+      if (state) tab.dataset.attentionState = state;
+      else delete tab.dataset.attentionState;
+    }
+  }
+
   updatePaneActivity(slotIdx, activity) {
     const el = document.getElementById(`term-activity-${slotIdx}`);
     if (!el) return;
@@ -14989,12 +15762,10 @@ class CWMApp {
    */
   _showEmptyPaneContextMenu(slotIdx, x, y) {
     const items = [
-      { label: 'Worktree Tasks', action: () => this.openViewInPane(slotIdx, 'tasks-worktree') },
-      { label: 'td Issues', action: () => this.openViewInPane(slotIdx, 'tasks-td') },
-      { label: 'Git Status', action: () => this.openViewInPane(slotIdx, 'tasks-git') },
-      { label: 'Files', action: () => this.openViewInPane(slotIdx, 'tasks-files') },
+      { label: 'Agent Tasks', action: () => this.openViewInPane(slotIdx, 'tasks-worktree') },
+      { label: 'Issues', action: () => this.openViewInPane(slotIdx, 'tasks-td') },
       { type: 'sep' },
-      { label: 'Workspace Doc', action: () => this.openViewInPane(slotIdx, 'doc') },
+      { label: 'Project Markdown', action: () => this.openViewInPane(slotIdx, 'doc') },
     ];
     this._renderContextItems('Open View', items, x, y);
   }
@@ -15547,11 +16318,9 @@ class CWMApp {
     items.push({
       label: 'Switch to view',
       submenu: [
-        { label: 'Worktree Tasks', action: () => this.openViewInPane(slotIdx, 'tasks-worktree') },
-        { label: 'td Issues', action: () => this.openViewInPane(slotIdx, 'tasks-td') },
-        { label: 'Git Status', action: () => this.openViewInPane(slotIdx, 'tasks-git') },
-        { label: 'Files', action: () => this.openViewInPane(slotIdx, 'tasks-files') },
-        { label: 'Workspace Doc', action: () => this.openViewInPane(slotIdx, 'doc') },
+        { label: 'Agent Tasks', action: () => this.openViewInPane(slotIdx, 'tasks-worktree') },
+        { label: 'Issues', action: () => this.openViewInPane(slotIdx, 'tasks-td') },
+        { label: 'Project Markdown', action: () => this.openViewInPane(slotIdx, 'doc') },
       ],
     });
 
@@ -16119,6 +16888,16 @@ class CWMApp {
    * when they're already looking at the terminal that finished.
    */
   onTerminalIdle({ sessionId, sessionName }) {
+    const activeIdx = this.terminalPanes.findIndex(tp => tp && tp.sessionId === sessionId);
+    const alreadySeen =
+      activeIdx === this._activeTerminalSlot && document.hasFocus();
+    // Completion is product state, not merely a notification. Keep unseen
+    // completion visible even when sounds/toasts are disabled; a pane already
+    // focused in the foreground is acknowledged immediately.
+    if (this._attentionState.get(sessionId) !== 'needs-input') {
+      this._setAttentionState(sessionId, alreadySeen ? 'running' : 'complete');
+    }
+
     // Respect completion notifications setting
     if (!this.getSetting('completionNotifications')) return;
 
@@ -16130,7 +16909,6 @@ class CWMApp {
     if (lastNotifiedAt && Date.now() - lastNotifiedAt < CWMApp.SESSION_NOTIFY_DEDUPE_MS) return;
 
     // Don't notify for the currently focused/active pane
-    const activeIdx = this.terminalPanes.findIndex(tp => tp && tp.sessionId === sessionId);
     if (activeIdx === this._activeTerminalSlot) return;
 
     // Record the notification BEFORE emitting any indicator so re-entrant
@@ -16303,18 +17081,15 @@ class CWMApp {
       // over any other device that resized the same session.
       if (typeof tp.activate === 'function') tp.activate();
 
-      // Acknowledge on focus: viewing a pane consumes its pending
-      // needs-attention state. Refresh the dedupe entry and mark the pane's
-      // idle cycle as already notified so a later tab switch or repaint
-      // cannot re-toast a prompt the user has already seen.
+      // Acknowledge completion on focus. An unresolved needs-input signal is
+      // deliberately not cleared simply because the pane received focus;
+      // only explicit needsInput:false or genuine new output can clear it.
       this._sessionNotifyState.set(tp.sessionId, Date.now());
       tp._idleNotified = true;
       tp._lastIdleFiredAt = Date.now();
-
-      // Clear the amber "Needs input" badge; the user is looking at it now.
-      tp._needsInput = false;
-      const headerEl = pane ? pane.querySelector('.terminal-pane-header') : null;
-      if (headerEl) headerEl.dataset.needsInput = 'false';
+      if (this._attentionState.get(tp.sessionId) === 'complete') {
+        this._setAttentionState(tp.sessionId, 'running');
+      }
     }
 
     // If Tasks > td tab is visible and not manually pinned, update to this pane's project
@@ -16600,7 +17375,7 @@ class CWMApp {
   /**
    * Show a bottom action sheet (mobile replacement for context menus).
    * @param {string} title - Header text (or empty string)
-   * @param {Array<{label:string, icon?:string, action:Function, danger?:boolean, check?:boolean, disabled?:boolean}|{type:'sep'}>} items
+   * @param {Array<{label:string, icon?:string, action:Function, danger?:boolean, check?:boolean, disabled?:boolean}|{type:'sep', label?:string}>} items
    */
   showActionSheet(title, items) {
     if (!this.els.actionSheetOverlay) return;
@@ -16633,15 +17408,27 @@ class CWMApp {
     // Build items HTML
     const container = this.els.actionSheetItems;
     container.innerHTML = flatItems.map((item, i) => {
-      if (item.type === 'sep') return '<div class="action-sheet-sep" role="separator"></div>';
+      if (item.type === 'sep') {
+        if (!item.label) return '<div class="action-sheet-sep" role="separator"></div>';
+        const separatorLabel = this.escapeHtml(String(item.label));
+        return `<div class="action-sheet-sep action-sheet-sep-labeled" role="separator" aria-label="${separatorLabel}"><span class="as-sep-label">${separatorLabel}</span></div>`;
+      }
       const cls = ['action-sheet-item'];
       if (item.danger) cls.push('as-danger');
       if (item.check) cls.push('as-checked');
+      if (item.className) cls.push(item.className);
       const disabledAttr = item.disabled ? ' disabled' : '';
+      const attentionAttr = item.attentionState
+        ? ` data-attention-state="${item.attentionState}"`
+        : '';
       const icon = item.icon ? `<span class="as-icon">${item.icon}</span>` : '';
+      const label = this.escapeHtml(String(item.label || ''));
+      const hint = item.hint
+        ? `<span class="as-hint">${this.escapeHtml(String(item.hint))}</span>`
+        : '';
       const check = (item.check !== undefined) ? `<span class="as-check">${item.check ? '&#10003;' : ''}</span>` : '';
-      return `<button class="${cls.join(' ')}"${disabledAttr} data-idx="${i}">
-        ${icon}${item.label}${check}
+      return `<button class="${cls.join(' ')}"${disabledAttr}${attentionAttr} data-idx="${i}">
+        ${icon}<span class="as-label">${label}</span>${hint}${check}
       </button>`;
     }).join('');
 
@@ -16754,53 +17541,52 @@ class CWMApp {
       return;
     }
 
-    const activeWorkspace = this.state.activeWorkspace;
+    const attentionCount = this._getAttentionQueue().filter(item => item.actionable).length;
     const items = [
-      // ── Views without a bottom-bar tab (P0-3) ──
-      { label: 'Recent activity', icon: '&#128337;', action: () => this.setViewMode('recent') },
-      { label: 'Costs', icon: '&#36;', action: () => this.setViewMode('costs') },
-      { label: 'System resources', icon: '&#128202;', action: () => this.setViewMode('resources') },
       {
-        label: activeWorkspace ? 'Project notes' : 'Project notes (choose a project)',
-        icon: '&#128196;',
-        disabled: !activeWorkspace,
+        label: attentionCount > 0 ? `Session attention (${attentionCount})` : 'Session attention',
+        action: () => this.showAttentionQueue(null),
+      },
+      { type: 'sep', label: 'Views' },
+      { label: 'Recent activity', action: () => this.setViewMode('recent') },
+      { label: 'Costs', action: () => this.setViewMode('costs') },
+      { label: 'System resources', action: () => this.setViewMode('resources') },
+      {
+        label: 'Project notes',
         action: () => this.setViewMode('docs'),
       },
-      { type: 'sep' },
-      // ── Hidden header-right actions (P0-2) ──
-      { label: 'Quick switcher', icon: '&#128269;', action: () => this.openQuickSwitcher() },
+      { type: 'sep', label: 'Session tools' },
+      { label: 'Quick switcher', action: () => this.openQuickSwitcher() },
       {
         label: 'Discover sessions',
-        icon: '&#128260;',
         action: () => {
           this.setProjectsCollapsed(false);
           if (this.isMobile && !this.state.sidebarOpen) this.toggleSidebar();
         },
       },
-      { label: 'All sessions', icon: '&#9776;', action: () => this.toggleSessionManager('all') },
-      { type: 'sep' },
-      { label: 'Settings', icon: '&#9881;', action: () => this.openSettings() },
-      { label: 'Appearance', icon: '&#127912;', submenu: this._buildThemeMenuItems() },
-      { label: 'Pair device', icon: '&#128241;', action: () => this.showPairMobileModal() },
+      { label: 'All sessions', action: () => this.toggleSessionManager('all') },
+      { type: 'sep', label: 'Preferences' },
+      { label: 'Settings', action: () => this.openSettings() },
+      { label: 'Appearance', action: () => this.openAppearance() },
+      { label: 'Pair device', action: () => this.showPairMobileModal() },
     ];
 
     // Conflicts entry only appears when the active workspace has conflicts,
     // mirroring the header indicator that is hidden at zero. Show the count in
     // the label so the sheet matches the badge the user cannot see on mobile.
     const conflictCount = (this._currentConflicts || []).length;
+    items.push({ type: 'sep', label: 'Operations' });
     if (conflictCount > 0) {
       items.push({
         label: `Conflicts (${conflictCount})`,
-        icon: '&#9888;',
         action: () => this.openConflictCenter(),
       });
     }
 
     items.push(
-      { type: 'sep' },
-      { label: 'Restart all sessions', icon: '&#8635;', action: () => this.restartAllSessions() },
-      { type: 'sep' },
-      { label: 'Sign out', icon: '&#9211;', action: () => this.logout(), danger: true },
+      { label: 'Restart all sessions', action: () => this.restartAllSessions() },
+      { type: 'sep', label: 'Account' },
+      { label: 'Sign out', action: () => this.logout(), danger: true },
     );
 
     if (this.isMobile || !anchorElement) {
@@ -16816,7 +17602,7 @@ class CWMApp {
 
   /**
    * Render items as an action sheet on mobile, or as a floating context menu on desktop.
-   * Both use the same item format: { label, icon, action, danger, check, disabled } | { type: 'sep' }
+   * Both use the same item format: { label, icon, action, danger, check, disabled } | { type: 'sep', label? }
    */
   _renderContextItems(title, items, x, y, options = {}) {
     if (this.isMobile) {
@@ -16835,7 +17621,7 @@ class CWMApp {
     const container = this.els.contextMenuItems;
     container.innerHTML = items.map((item, idx) => {
       if (item.type === 'sep') {
-        if (item.label) return `<div class="context-menu-sep" role="separator"><span class="ctx-sep-label">${item.label}</span></div>`;
+        if (item.label) return `<div class="context-menu-sep context-menu-sep-labeled" role="separator" aria-label="${this.escapeHtml(String(item.label))}"><span class="ctx-sep-label">${this.escapeHtml(String(item.label))}</span></div>`;
         return '<div class="context-menu-sep" role="separator"></div>';
       }
       const cls = ['context-menu-item'];
@@ -16845,27 +17631,33 @@ class CWMApp {
       if (item.submenu) cls.push('ctx-has-submenu');
       const disabledAttr = item.disabled ? ' disabled' : '';
       const checkMark = item.check !== undefined ? `<span class="ctx-check">${item.check ? '&#10003;' : ''}</span>` : '';
-      const hint = item.hint ? `<span class="ctx-hint">${item.hint}</span>` : '';
+      const safeLabel = this.escapeHtml(String(item.label || ''));
+      const hint = item.hint
+        ? `<span class="ctx-hint">${this.escapeHtml(String(item.hint))}</span>`
+        : '';
       const arrow = item.submenu ? '<span class="ctx-arrow">&#9656;</span>' : '';
       // Build submenu HTML if present
       let submenuHtml = '';
       if (item.submenu) {
-        submenuHtml = `<div class="ctx-submenu" data-parent-idx="${idx}" role="menu" aria-label="${item.label}">` +
+        submenuHtml = `<div class="ctx-submenu" data-parent-idx="${idx}" role="menu" aria-label="${safeLabel}">` +
           item.submenu.map((sub, si) => {
             const sCls = ['context-menu-item'];
             if (sub.check) sCls.push('ctx-checked');
             if (sub.danger) sCls.push('ctx-danger');
             const sCheck = sub.check !== undefined ? `<span class="ctx-check">${sub.check ? '&#10003;' : ''}</span>` : '';
             return `<button class="${sCls.join(' ')}" data-sub-idx="${si}" role="menuitem">
-              ${sub.label}${sCheck}
+              ${this.escapeHtml(String(sub.label || ''))}${sCheck}
             </button>`;
           }).join('') + '</div>';
       }
       const submenuAttrs = item.submenu
         ? ' aria-haspopup="menu" aria-expanded="false"'
         : '';
-      return `<div class="ctx-item-wrapper" data-idx="${idx}" role="none"><button class="${cls.join(' ')}"${disabledAttr} data-action="${item.label}" role="menuitem"${submenuAttrs}>
-        <span class="ctx-icon">${item.icon || ''}</span>${item.label}${hint}${checkMark}${arrow}
+      const attentionAttr = item.attentionState
+        ? ` data-attention-state="${item.attentionState}"`
+        : '';
+      return `<div class="ctx-item-wrapper" data-idx="${idx}" role="none"><button class="${cls.join(' ')}"${disabledAttr}${attentionAttr} data-action="${safeLabel}" role="menuitem"${submenuAttrs}>
+        <span class="ctx-icon">${item.icon || ''}</span>${safeLabel}${hint}${checkMark}${arrow}
       </button>${submenuHtml}</div>`;
     }).join('');
 
@@ -17045,10 +17837,14 @@ class CWMApp {
 
     strip.innerHTML = activePanes.map(p => {
       const isActive = p.idx === activeIdx;
-      return `<button class="terminal-tab${isActive ? ' active' : ''}" data-slot="${p.idx}">
-        ${this.escapeHtml(p.tp.sessionName || 'Terminal')}
-        <button class="terminal-tab-close" data-slot="${p.idx}" title="Close">&times;</button>
-      </button>`;
+      const terminalName = this.escapeHtml(p.tp.sessionName || 'Terminal');
+      return `<div class="terminal-tab-item${isActive ? ' active' : ''}" data-slot="${p.idx}">
+        <button type="button" class="terminal-tab${isActive ? ' active' : ''}" data-slot="${p.idx}">
+          ${terminalName}
+        </button>
+        <button type="button" class="terminal-tab-close" data-slot="${p.idx}"
+          title="Close terminal" aria-label="Close ${terminalName} terminal">&times;</button>
+      </div>`;
     }).join('') + `<button class="terminal-tab terminal-tab-add" title="Open terminal">+</button>`;
 
     // Add pane indicator dots (mobile)
@@ -17138,6 +17934,9 @@ class CWMApp {
     if (this.els.terminalTabStrip) {
       this.els.terminalTabStrip.querySelectorAll('.terminal-tab').forEach(tab => {
         tab.classList.toggle('active', parseInt(tab.dataset.slot, 10) === slotIdx);
+      });
+      this.els.terminalTabStrip.querySelectorAll('.terminal-tab-item').forEach(item => {
+        item.classList.toggle('active', parseInt(item.dataset.slot, 10) === slotIdx);
       });
     }
 
@@ -17301,22 +18100,66 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   async loadDocs() {
-    if (!this.state.activeWorkspace) {
+    const requestedWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const requestSequence = (this._docsRequestSequence || 0) + 1;
+    this._docsRequestSequence = requestSequence;
+    if (!requestedWorkspaceId) {
       this.state.docs = null;
       this.renderDocs();
       return;
     }
     try {
-      const data = await this.api('GET', `/api/workspaces/${this.state.activeWorkspace.id}/docs`);
+      const data = await this.api('GET', `/api/workspaces/${requestedWorkspaceId}/docs`);
+      const currentWorkspaceId = this.state.activeWorkspace
+        ? this.state.activeWorkspace.id
+        : null;
+      // A slower response for project A must never overwrite project B after
+      // a rapid selector change.
+      if (
+        requestSequence !== this._docsRequestSequence ||
+        currentWorkspaceId !== requestedWorkspaceId
+      ) return;
       this.state.docs = data;
       this.renderDocs();
     } catch (err) {
-      this.showToast('Failed to load documentation', 'error');
+      const currentWorkspaceId = this.state.activeWorkspace
+        ? this.state.activeWorkspace.id
+        : null;
+      if (
+        requestSequence === this._docsRequestSequence &&
+        currentWorkspaceId === requestedWorkspaceId
+      ) {
+        this.showToast('Failed to load documentation', 'error');
+      }
     }
+  }
+
+  /**
+   * Keep Project Notes disclosure state, its chevron, and the controlled body
+   * synchronized for mouse, keyboard, and density-driven changes.
+   */
+  _setDocsSectionExpanded(header, expanded) {
+    if (!header) return;
+    const disclosure = header.matches('button')
+      ? header
+      : (header.querySelector('.docs-section-toggle') || header);
+    const controlledId = disclosure.getAttribute('aria-controls');
+    const body = (controlledId && document.getElementById(controlledId))
+      || header.closest('.docs-section-heading')?.nextElementSibling
+      || header.nextElementSibling;
+    const isExpanded = Boolean(expanded);
+
+    if (body) body.hidden = !isExpanded;
+    disclosure.setAttribute('aria-expanded', String(isExpanded));
+    const chevron = header.querySelector('.docs-section-chevron');
+    if (chevron) chevron.classList.toggle('open', isExpanded);
   }
 
   _syncDocsSectionDensity(counts) {
     const focused = document.documentElement.dataset.uiShell === 'focused';
+    const quiet = focused && this.state.density !== 'informative';
     Object.entries(counts).forEach(([name, count]) => {
       const elementKey = `docs${name[0].toUpperCase()}${name.slice(1)}List`;
       const body = this.els[elementKey];
@@ -17327,15 +18170,13 @@ class CWMApp {
       section.dataset.empty = String(isEmpty);
       if (!focused) return;
 
-      const chevron = section.querySelector('.docs-section-chevron');
-      if (isEmpty) {
-        body.hidden = true;
+      const header = section.querySelector('.docs-section-header');
+      if (quiet && isEmpty) {
         section.dataset.autoCollapsed = 'true';
-        if (chevron) chevron.classList.remove('open');
+        this._setDocsSectionExpanded(header, false);
       } else if (section.dataset.autoCollapsed === 'true') {
-        body.hidden = false;
         delete section.dataset.autoCollapsed;
-        if (chevron) chevron.classList.add('open');
+        this._setDocsSectionExpanded(header, true);
       }
     });
 
@@ -17355,19 +18196,73 @@ class CWMApp {
   renderDocs() {
     const docs = this.state.docs;
     const ws = this.state.activeWorkspace;
+    const docsReady = !!(ws && docs && docs.raw !== null);
+    const renderedWorkspaceId = docsReady ? ws.id : null;
+    this._docsRenderedWorkspaceId = renderedWorkspaceId;
 
     // Update header
     if (this.els.docsWorkspaceName) {
       this.els.docsWorkspaceName.textContent = ws ? ws.name : 'No project selected';
     }
+    if (this.els.docsWorkspaceSelect) {
+      const previousValue = this.els.docsWorkspaceSelect.value;
+      const optionSignature = JSON.stringify(
+        (this.state.workspaces || []).map(workspace => [workspace.id, workspace.name])
+      );
+      if (this.els.docsWorkspaceSelect.dataset.optionSignature !== optionSignature) {
+        this.els.docsWorkspaceSelect.replaceChildren();
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Choose a project';
+        this.els.docsWorkspaceSelect.appendChild(placeholder);
+        (this.state.workspaces || []).forEach(workspace => {
+          const option = document.createElement('option');
+          option.value = workspace.id;
+          option.textContent = workspace.name;
+          this.els.docsWorkspaceSelect.appendChild(option);
+        });
+        this.els.docsWorkspaceSelect.dataset.optionSignature = optionSignature;
+      }
+      const selectedId = ws ? ws.id : '';
+      this.els.docsWorkspaceSelect.value = selectedId;
+      // Defensively preserve the no-project placeholder when a stale active
+      // project vanished from the refreshed project roster.
+      if (this.els.docsWorkspaceSelect.value !== selectedId) {
+        this.els.docsWorkspaceSelect.value = previousValue &&
+          (this.state.workspaces || []).some(workspace => workspace.id === previousValue)
+          ? previousValue
+          : '';
+      }
+    }
+
+    const activeDocsTab = document.querySelector('.docs-tab.active');
+    const boardActive = !!(activeDocsTab && activeDocsTab.dataset.tab === 'board');
+    if (this.els.docsProjectEmpty) this.els.docsProjectEmpty.hidden = !!ws;
+    if (this.els.featureBoard) this.els.featureBoard.hidden = !ws || !boardActive;
+    if (this.els.docsStructured) {
+      this.els.docsStructured.hidden = !ws || boardActive || this.state.docsRawMode;
+    }
+    if (this.els.docsRaw) {
+      this.els.docsRaw.hidden = !ws || boardActive || !this.state.docsRawMode;
+    }
+    if (this.els.docsToggleRaw) {
+      this.els.docsToggleRaw.disabled = !docsReady || boardActive;
+    }
+    document.querySelectorAll('.docs-add-btn').forEach(button => {
+      button.disabled = !docsReady;
+    });
 
     if (!docs || docs.raw === null) {
-      // Empty state
-      if (this.els.docsNotesList) this.els.docsNotesList.innerHTML = '<div class="docs-empty">No notes yet. Click + to add one.</div>';
-      if (this.els.docsGoalsList) this.els.docsGoalsList.innerHTML = '<div class="docs-empty">No goals yet. Click + to add one.</div>';
-      if (this.els.docsTasksList) this.els.docsTasksList.innerHTML = '<div class="docs-empty">No tasks yet. Click + to add one.</div>';
-      if (this.els.docsRoadmapList) this.els.docsRoadmapList.innerHTML = '<div class="docs-empty">No milestones yet. Click + to add one.</div>';
-      if (this.els.docsRulesList) this.els.docsRulesList.innerHTML = '<div class="docs-empty">No rules yet. Click + to add one.</div>';
+      // Loading/empty project context. The old project's actionable rows were
+      // already removed before activation began, so no stale handler can
+      // target the newly-selected project by index.
+      const pendingLabel = ws ? 'Loading project notes…' : 'Choose a project first.';
+      const pendingHtml = `<div class="docs-empty">${pendingLabel}</div>`;
+      if (this.els.docsNotesList) this.els.docsNotesList.innerHTML = pendingHtml;
+      if (this.els.docsGoalsList) this.els.docsGoalsList.innerHTML = pendingHtml;
+      if (this.els.docsTasksList) this.els.docsTasksList.innerHTML = pendingHtml;
+      if (this.els.docsRoadmapList) this.els.docsRoadmapList.innerHTML = pendingHtml;
+      if (this.els.docsRulesList) this.els.docsRulesList.innerHTML = pendingHtml;
       if (this.els.docsNotesCount) this.els.docsNotesCount.textContent = '0';
       if (this.els.docsGoalsCount) this.els.docsGoalsCount.textContent = '0';
       if (this.els.docsTasksCount) this.els.docsTasksCount.textContent = '0';
@@ -17431,7 +18326,7 @@ class CWMApp {
           pinBtn.title = 'Pin to focused terminal session';
           pinBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this._toggleNotePin(noteIndex, pinBtn);
+            this._toggleNotePin(noteIndex, pinBtn, renderedWorkspaceId);
           });
           noteRow.appendChild(pinBtn);
 
@@ -17473,7 +18368,7 @@ class CWMApp {
             <span class="docs-item-text">${this.escapeHtml(t.text)}</span>
             <button class="docs-item-delete btn btn-ghost btn-icon btn-sm" data-section="tasks" data-index="${i}" title="Remove">&times;</button>
           </div>`).join('')
-        : '<div class="docs-empty">No tasks yet. Click + to add one.</div>';
+        : '<div class="docs-empty">No checklist items yet. Click + to add one.</div>';
     }
 
     // Roadmap
@@ -17509,16 +18404,28 @@ class CWMApp {
     // Bind checkbox change events
     if (this.els.docsPanel) {
       this.els.docsPanel.querySelectorAll('.docs-checkbox input').forEach(cb => {
-        cb.addEventListener('change', () => this.toggleDocsItem(cb.dataset.section, parseInt(cb.dataset.index)));
+        cb.addEventListener('change', () => this.toggleDocsItem(
+          cb.dataset.section,
+          parseInt(cb.dataset.index),
+          renderedWorkspaceId
+        ));
       });
       // Bind delete buttons
       this.els.docsPanel.querySelectorAll('.docs-item-delete').forEach(btn => {
-        btn.addEventListener('click', () => this.removeDocsItem(btn.dataset.section, parseInt(btn.dataset.index)));
+        btn.addEventListener('click', () => this.removeDocsItem(
+          btn.dataset.section,
+          parseInt(btn.dataset.index),
+          renderedWorkspaceId
+        ));
       });
 
       // Bind roadmap status dot clicks (cycle planned > active > done)
       this.els.docsPanel.querySelectorAll('.roadmap-status-dot').forEach(dot => {
-        dot.addEventListener('click', () => this.toggleDocsItem(dot.dataset.section, parseInt(dot.dataset.index)));
+        dot.addEventListener('click', () => this.toggleDocsItem(
+          dot.dataset.section,
+          parseInt(dot.dataset.index),
+          renderedWorkspaceId
+        ));
       });
 
       // Click note text to edit in large editor
@@ -17538,7 +18445,7 @@ class CWMApp {
             else if (parent.id.includes('rules')) section = 'rules';
           }
           const text = e.target.textContent;
-          this.showNotesEditor(section, index, text);
+          this.showNotesEditor(section, index, text, renderedWorkspaceId);
         });
       });
     }
@@ -17555,23 +18462,31 @@ class CWMApp {
       this.showToast('Select a project first', 'warning');
       return;
     }
-    this.showNotesEditor(section);
+    this.showNotesEditor(section, null, '', this.state.activeWorkspace.id);
   }
 
-  async toggleDocsItem(section, index) {
-    if (!this.state.activeWorkspace) return;
+  async toggleDocsItem(section, index, workspaceId = null) {
+    const activeWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const targetWorkspaceId = workspaceId || this._docsRenderedWorkspaceId;
+    if (!targetWorkspaceId || targetWorkspaceId !== activeWorkspaceId) return;
     try {
-      await this.api('PUT', `/api/workspaces/${this.state.activeWorkspace.id}/docs/${section}/${index}`);
+      await this.api('PUT', `/api/workspaces/${targetWorkspaceId}/docs/${section}/${index}`);
       await this.loadDocs();
     } catch (err) {
       this.showToast(err.message || 'Failed to update item', 'error');
     }
   }
 
-  async removeDocsItem(section, index) {
-    if (!this.state.activeWorkspace) return;
+  async removeDocsItem(section, index, workspaceId = null) {
+    const activeWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const targetWorkspaceId = workspaceId || this._docsRenderedWorkspaceId;
+    if (!targetWorkspaceId || targetWorkspaceId !== activeWorkspaceId) return;
     try {
-      await this.api('DELETE', `/api/workspaces/${this.state.activeWorkspace.id}/docs/${section}/${index}`);
+      await this.api('DELETE', `/api/workspaces/${targetWorkspaceId}/docs/${section}/${index}`);
       await this.loadDocs();
     } catch (err) {
       this.showToast(err.message || 'Failed to remove item', 'error');
@@ -17587,10 +18502,14 @@ class CWMApp {
   }
 
   async saveDocsRaw() {
-    if (!this.state.activeWorkspace) return;
+    const activeWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const workspaceId = this._docsRenderedWorkspaceId;
+    if (!workspaceId || workspaceId !== activeWorkspaceId) return;
     const raw = this.els.docsRawEditor ? this.els.docsRawEditor.value : '';
     try {
-      await this.api('PUT', `/api/workspaces/${this.state.activeWorkspace.id}/docs`, { content: raw });
+      await this.api('PUT', `/api/workspaces/${workspaceId}/docs`, { content: raw });
       this.showToast('Documentation saved', 'success');
       await this.loadDocs();
     } catch (err) {
@@ -17602,8 +18521,9 @@ class CWMApp {
    * Toggle a pinned note on the currently focused terminal pane session.
    * @param {number} noteIndex - 0-based index of the note in the workspace docs.notes array
    * @param {HTMLButtonElement} buttonEl - The pin button element to update visually
+   * @param {string|null} workspaceId - Project that rendered the note row.
    */
-  async _toggleNotePin(noteIndex, buttonEl) {
+  async _toggleNotePin(noteIndex, buttonEl, workspaceId = null) {
     const slot = this._activeTerminalSlot;
     const tp = (slot !== null && slot !== undefined) ? this.terminalPanes[slot] : null;
     if (!tp || !tp.sessionId) {
@@ -17611,14 +18531,15 @@ class CWMApp {
       return;
     }
     const ws = this.state.activeWorkspace;
-    if (!ws) return;
+    if (!ws || !workspaceId || ws.id !== workspaceId) return;
     const isPinned = buttonEl.classList.contains('pinned');
     const action = isPinned ? 'unpin' : 'pin';
-    await this.api('POST', `/api/workspaces/${ws.id}/pinned-notes`, {
+    await this.api('POST', `/api/workspaces/${workspaceId}/pinned-notes`, {
       sessionId: tp.sessionId,
       noteIndex,
       action
     });
+    if (!this.state.activeWorkspace || this.state.activeWorkspace.id !== workspaceId) return;
     buttonEl.classList.toggle('pinned', !isPinned);
     await this._refreshPanePin(slot);
   }
@@ -17633,8 +18554,16 @@ class CWMApp {
     if (!tp || !tp.sessionId) return;
     const ws = this.state.activeWorkspace;
     if (!ws) return;
-    const data = await this.api('GET', `/api/workspaces/${ws.id}/pinned-notes`);
-    const pins = data[tp.sessionId] || [];
+    const workspaceId = ws.id;
+    const sessionId = tp.sessionId;
+    const data = await this.api('GET', `/api/workspaces/${workspaceId}/pinned-notes`);
+    if (
+      !this.state.activeWorkspace ||
+      this.state.activeWorkspace.id !== workspaceId ||
+      this.terminalPanes[slotIdx] !== tp ||
+      tp.sessionId !== sessionId
+    ) return;
+    const pins = data[sessionId] || [];
     const paneEl = document.getElementById(`term-pane-${slotIdx}`);
     if (!paneEl) return;
     const pinDocBtn = paneEl.querySelector('.terminal-pane-pinnedoc');
@@ -17656,6 +18585,8 @@ class CWMApp {
    */
   async loadTdIssues() {
     if (!this.els.docsTdSection) return;
+    const requestSequence = (this._tdRequestSequence || 0) + 1;
+    this._tdRequestSequence = requestSequence;
 
     // Respect global td toggle
     if (!this.getSetting('enableTd')) {
@@ -17674,6 +18605,11 @@ class CWMApp {
 
     try {
       const status = await this.api('GET', `/api/workspaces/${ws.id}/td/status`);
+      if (
+        requestSequence !== this._tdRequestSequence ||
+        !this.state.activeWorkspace ||
+        this.state.activeWorkspace.id !== ws.id
+      ) return;
 
       if (!status.available) {
         this._renderTdSetup('td is not installed. Install it from github.com/marcus/td', { showSetdir: false, showInit: false });
@@ -17692,13 +18628,26 @@ class CWMApp {
 
       // td is ready — hide setup bar and load issues
       if (this.els.docsTdSetupBar) this.els.docsTdSetupBar.hidden = true;
-      await this._fetchAndRenderTdIssues(ws.id);
+      await this._fetchAndRenderTdIssues(ws.id, requestSequence);
 
     } catch (err) {
-      if (this.els.docsTdList) this.els.docsTdList.textContent = 'Error loading td status: ' + (err.message || err);
+      if (
+        requestSequence === this._tdRequestSequence &&
+        this.state.activeWorkspace &&
+        this.state.activeWorkspace.id === ws.id &&
+        this.els.docsTdList
+      ) {
+        this.els.docsTdList.textContent = 'Error loading td status: ' + (err.message || err);
+      }
     }
 
-    this._wireTdEvents();
+    if (
+      requestSequence === this._tdRequestSequence &&
+      this.state.activeWorkspace &&
+      this.state.activeWorkspace.id === ws.id
+    ) {
+      this._wireTdEvents();
+    }
   }
 
   /** Show the td setup bar with a message. */
@@ -17712,15 +18661,27 @@ class CWMApp {
   }
 
   /** Fetch and render td issues for the workspace. */
-  async _fetchAndRenderTdIssues(workspaceId) {
+  async _fetchAndRenderTdIssues(workspaceId, requestSequence = this._tdRequestSequence) {
     if (this.els.docsTdList) this.els.docsTdList.textContent = 'Loading...';
     try {
       const data = await this.api('GET', `/api/workspaces/${workspaceId}/td/issues`);
+      if (
+        requestSequence !== this._tdRequestSequence ||
+        !this.state.activeWorkspace ||
+        this.state.activeWorkspace.id !== workspaceId
+      ) return;
       const issues = data.issues || [];
       this._tdIssuesCache = issues;
       this._renderTdIssues(issues);
     } catch (err) {
-      if (this.els.docsTdList) this.els.docsTdList.textContent = 'Failed to load issues: ' + (err.message || err);
+      if (
+        requestSequence === this._tdRequestSequence &&
+        this.state.activeWorkspace &&
+        this.state.activeWorkspace.id === workspaceId &&
+        this.els.docsTdList
+      ) {
+        this.els.docsTdList.textContent = 'Failed to load issues: ' + (err.message || err);
+      }
     }
   }
 
@@ -18374,15 +19335,41 @@ class CWMApp {
       const tp = this.terminalPanes.find((_, i) => p.slot === i);
       return tp !== null;
     });
+    const attentionModel = window.MyrlinExperienceModel;
+    const attentionSessions = [
+      ...(this.state.allSessions || []),
+      ...(this.state.sessions || []),
+    ];
+    const attentionStates = (g.panes || []).map(p => {
+      if (!p || !p.sessionId) return null;
+      const session = attentionSessions.find(candidate =>
+        candidate && candidate.id === p.sessionId
+      );
+      return this._attentionState.get(p.sessionId) ||
+        (attentionModel && attentionModel.statusToAttentionState(session && session.status)) ||
+        null;
+    }).filter(Boolean);
+    if (attentionModel) {
+      attentionStates.sort((a, b) =>
+        attentionModel.ATTENTION_STATES[a].priority -
+        attentionModel.ATTENTION_STATES[b].priority
+      );
+    }
+    const attentionState = attentionStates[0] || null;
     const tabColor = this.getTabColor(g.id);
-    return `<button class="terminal-group-tab${isActive ? ' active' : ''}"
-      data-group-id="${g.id}"
-      style="--tab-color:var(--${tabColor})">
-      <span class="terminal-group-tab-dot${hasActive ? '' : ' inactive'}"></span>
-      <span class="terminal-group-tab-name">${this.escapeHtml(g.name)}</span>
-      ${paneCount > 0 ? `<span class="terminal-group-tab-count">${paneCount}</span>` : ''}
-      <span class="terminal-group-tab-close" data-group-id="${g.id}" title="Close tab">&times;</span>
-    </button>`;
+    const escapedName = this.escapeHtml(g.name);
+    return `<div class="terminal-group-tab-item${isActive ? ' active' : ''}">
+      <button type="button" class="terminal-group-tab${isActive ? ' active' : ''}${attentionState ? ' attention-state' : ''}"
+        data-group-id="${g.id}"
+        ${attentionState ? `data-attention-state="${attentionState}"` : ''}
+        style="--tab-color:var(--${tabColor})">
+        <span class="terminal-group-tab-dot${hasActive ? '' : ' inactive'}"></span>
+        <span class="terminal-group-tab-name">${escapedName}</span>
+        ${paneCount > 0 ? `<span class="terminal-group-tab-count">${paneCount}</span>` : ''}
+      </button>
+      <button type="button" class="terminal-group-tab-close" data-group-id="${g.id}"
+        title="Close tab" aria-label="Close ${escapedName} tab">&times;</button>
+    </div>`;
   }
 
   renderTerminalGroupTabs() {
@@ -19567,9 +20554,15 @@ class CWMApp {
     });
   }
 
-  showNotesEditor(section, index = null, existingText = '') {
+  showNotesEditor(
+    section,
+    index = null,
+    existingText = '',
+    workspaceId = this.state.activeWorkspace ? this.state.activeWorkspace.id : null
+  ) {
     this._notesEditorSection = section;
     this._notesEditorIndex = index;
+    this._notesEditorWorkspaceId = workspaceId;
     const isEdit = index !== null;
     this.els.notesEditorTitle.textContent = isEdit ? `Edit ${section.slice(0, -1)}` : `Add ${section.slice(0, -1)}`;
     this.els.notesEditorTextarea.value = existingText;
@@ -19580,6 +20573,7 @@ class CWMApp {
   hideNotesEditor() {
     this.els.notesEditorOverlay.hidden = true;
     this.els.notesEditorTextarea.value = '';
+    this._notesEditorWorkspaceId = null;
   }
 
   async saveNotesEditor() {
@@ -19588,9 +20582,15 @@ class CWMApp {
       this.showToast('Note cannot be empty', 'warning');
       return;
     }
-    if (!this.state.activeWorkspace) return;
-
-    const wsId = this.state.activeWorkspace.id;
+    const activeWorkspaceId = this.state.activeWorkspace
+      ? this.state.activeWorkspace.id
+      : null;
+    const wsId = this._notesEditorWorkspaceId;
+    if (!wsId || wsId !== activeWorkspaceId) {
+      this.showToast('Project changed. Reopen the note before saving.', 'warning');
+      this.hideNotesEditor();
+      return;
+    }
     const section = this._notesEditorSection;
 
     try {
@@ -20213,19 +21213,184 @@ class CWMApp {
   async fetchResources() {
     const body = this.els.resourcesBody;
     if (!body) return;
+    const requestSequence = (this._resourcesRequestSequence || 0) + 1;
+    this._resourcesRequestSequence = requestSequence;
 
     try {
       const data = await this.api('GET', '/api/resources');
+      if (
+        requestSequence !== this._resourcesRequestSequence ||
+        body !== this.els.resourcesBody
+      ) return false;
       this.state.resourceData = data;
       this.renderResources(data);
+      return true;
     } catch (err) {
+      if (
+        requestSequence !== this._resourcesRequestSequence ||
+        body !== this.els.resourcesBody
+      ) return false;
       body.innerHTML = `<div class="resources-empty">Failed to load resources: ${this.escapeHtml(err.message)}</div>`;
+      return false;
     }
+  }
+
+  _buildResourceSessionActions(record) {
+    if (record.stopped) {
+      return [{
+        label: 'Start session',
+        icon: '&#9654;',
+        action: () => this._executeResourceAction('start', record),
+      }];
+    }
+    const actions = [
+      {
+        label: 'Restart session',
+        icon: '&#8635;',
+        action: () => this._executeResourceAction('restart', record),
+      },
+      {
+        label: 'Stop session',
+        icon: '&#9724;',
+        action: () => this._executeResourceAction('stop', record),
+      },
+    ];
+    if (record.pid) {
+      actions.push({
+        label: 'Force kill process',
+        icon: '&#9747;',
+        danger: true,
+        action: () => this._executeResourceAction('kill', record),
+      });
+    }
+    return actions;
+  }
+
+  async _executeResourceAction(action, record) {
+    const sessionId = record && record.sessionId;
+    const pid = record && Number(record.pid);
+    if (action === 'kill' && pid) {
+      const confirmed = await this.showConfirmModal({
+        title: 'Kill Process',
+        message: `Force kill PID ${pid}? This will terminate the process immediately without cleanup.`,
+        confirmText: 'Kill',
+        confirmClass: 'btn-danger',
+      });
+      if (!confirmed) return;
+      try {
+        await this.api('POST', '/api/resources/kill-process', { pid });
+        this.showToast(`Killed PID ${pid}`, 'success');
+        setTimeout(() => this.fetchResources(), 1000);
+      } catch (err) {
+        this.showToast(err.message || 'Failed to kill process', 'error');
+      }
+      return;
+    }
+
+    if (!sessionId || !['stop', 'restart', 'start'].includes(action)) return;
+    try {
+      await this.api('POST', `/api/sessions/${sessionId}/${action}`);
+      const messages = {
+        stop: 'Session stopped',
+        restart: 'Session restarting...',
+        start: 'Session starting...',
+      };
+      this.showToast(messages[action], 'success');
+      setTimeout(
+        () => this.fetchResources(),
+        action === 'stop' ? 1000 : 2000
+      );
+    } catch (err) {
+      this.showToast(err.message || `Failed to ${action} session`, 'error');
+    }
+  }
+
+  showResourceRowMenu(triggerElement) {
+    if (!triggerElement) return;
+    const type = triggerElement.dataset.resourceType || 'session';
+    let items;
+    if (type === 'pty') {
+      const ptyId = triggerElement.dataset.ptyId;
+      items = [{
+        label: 'Close terminal session',
+        icon: '&#9747;',
+        danger: true,
+        action: async () => {
+          try {
+            await this.api('POST', `/api/pty/${encodeURIComponent(ptyId)}/kill`);
+            this.showToast('Session closed', 'success');
+            setTimeout(() => this.fetchResources(), 500);
+          } catch (err) {
+            this.showToast(err.message || 'Failed to close session', 'error');
+          }
+        },
+      }];
+    } else if (type === 'tunnel') {
+      const tunnelId = triggerElement.dataset.tunnelId;
+      const url = triggerElement.dataset.url || '';
+      items = [];
+      if (url) {
+        items.push({
+          label: 'Copy public URL',
+          icon: '&#128203;',
+          action: () => this._copyWithToast(url, 'URL copied'),
+        });
+      }
+      items.push({
+        label: 'Close tunnel',
+        icon: '&#9747;',
+        danger: true,
+        action: async () => {
+          try {
+            await this.api('DELETE', `/api/tunnels/${tunnelId}`);
+            this.showToast('Tunnel closed', 'success');
+            this.fetchResources();
+          } catch (err) {
+            this.showToast(err.message || 'Failed to close tunnel', 'error');
+          }
+        },
+      });
+    }
+    const record = {
+      sessionId: triggerElement.dataset.sessionId || null,
+      pid: triggerElement.dataset.pid
+        ? parseInt(triggerElement.dataset.pid, 10)
+        : null,
+      stopped: triggerElement.dataset.resourceState === 'stopped',
+    };
+    if (!items) items = this._buildResourceSessionActions(record);
+    const rect = triggerElement.getBoundingClientRect();
+    this._renderContextItems(
+      triggerElement.dataset.sessionName || 'Session actions',
+      items,
+      rect.left,
+      rect.bottom + 4,
+      { focusMenu: true, triggerElement }
+    );
+  }
+
+  _resourceMenuOpenFor(container) {
+    if (!container) return false;
+    const trigger = this._contextMenuReturnFocus || this._actionSheetReturnFocus;
+    const contextMenuOpen = this.els.contextMenu && !this.els.contextMenu.hidden;
+    const actionSheetOpen = this.els.actionSheetOverlay && !this.els.actionSheetOverlay.hidden;
+    return !!(
+      trigger &&
+      container.contains(trigger) &&
+      (contextMenuOpen || actionSheetOpen)
+    );
   }
 
   renderResources(data) {
     const body = this.els.resourcesBody;
     if (!body || !data) return;
+
+    // Polling must not replace the trigger while its desktop menu or mobile
+    // action sheet is open. The next refresh applies the latest data after the
+    // menu closes, preserving keyboard focus and touch context.
+    if (this._resourceMenuOpenFor(body)) return;
+    const renderSequence = (this._resourcesRenderSequence || 0) + 1;
+    this._resourcesRenderSequence = renderSequence;
 
     const sys = data.system || {};
     const cpuPercent = Math.round(sys.cpuUsage || 0);
@@ -20285,20 +21450,23 @@ class CWMApp {
         const cpuText = cpuVal != null ? cpuVal.toFixed(1) + '%' : '--';
 
         html += `<tr>
-          <td class="session-name-cell">
+          <td class="session-name-cell" data-label="Session">
             ${this.escapeHtml(s.sessionName || s.sessionId)}
             ${s.workspaceName ? '<span class="resource-workspace-label">' + this.escapeHtml(s.workspaceName) + '</span>' : ''}
           </td>
-          <td class="pid-cell">${s.pid || '--'}</td>
-          <td class="cpu-cell ${cpuClass}">${cpuText}</td>
-          <td class="mem-cell">${s.memoryMB ? Math.round(s.memoryMB) + ' MB' : '--'}</td>
-          <td class="ports-cell">${(s.ports && s.ports.length > 0) ? s.ports.map(p => '<a href="http://localhost:' + p + '" target="_blank" rel="noopener" class="port-link">' + p + '</a><button class="btn btn-ghost btn-sm expose-port-btn" data-port="' + p + '" title="Expose via tunnel">&#8599;</button>').join(' ') : '<span style="color:var(--overlay0)">--</span>'}</td>
-          <td>
-            <div class="resource-actions">
-              <button class="resource-action-btn action-restart" data-session-id="${s.sessionId}" data-action="restart" title="Restart session">Restart</button>
-              <button class="resource-action-btn action-stop" data-session-id="${s.sessionId}" data-action="stop" title="Stop session">Stop</button>
-              <button class="resource-action-btn action-kill" data-pid="${s.pid}" data-action="kill" title="Force kill process">Kill</button>
-            </div>
+          <td class="pid-cell" data-label="PID">${s.pid || '--'}</td>
+          <td class="cpu-cell ${cpuClass}" data-label="CPU">${cpuText}</td>
+          <td class="mem-cell" data-label="Memory">${s.memoryMB ? Math.round(s.memoryMB) + ' MB' : '--'}</td>
+          <td class="ports-cell" data-label="Ports">${(s.ports && s.ports.length > 0) ? s.ports.map(p => '<a href="http://localhost:' + p + '" target="_blank" rel="noopener" class="port-link">' + p + '</a><button class="btn btn-ghost btn-sm expose-port-btn" data-port="' + p + '" title="Expose via tunnel">&#8599;</button>').join(' ') : '<span class="resource-value-muted">--</span>'}</td>
+          <td data-label="Actions">
+            <button class="resource-row-menu-btn" type="button"
+                    data-session-id="${this.escapeHtml(s.sessionId)}"
+                    data-session-name="${this.escapeHtml(s.sessionName || s.sessionId)}"
+                    data-pid="${s.pid || ''}" data-resource-type="session"
+                    data-resource-state="active"
+                    aria-haspopup="menu" aria-expanded="false"
+                    aria-label="Actions for ${this.escapeHtml(s.sessionName || s.sessionId)}"
+                    title="Session actions">&#8942;</button>
           </td>
         </tr>`;
       });
@@ -20328,14 +21496,20 @@ class CWMApp {
             <thead><tr><th>Session</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
             <tbody>`;
       uniqueStopped.slice(0, 20).forEach(s => {
-        const statusColor = s.status === 'error' || s.status === 'crashed' ? 'var(--red)' : 'var(--overlay0)';
+        const failedClass = s.status === 'error' || s.status === 'crashed'
+          ? ' resource-status-failed'
+          : '';
         html += `<tr>
-          <td class="session-name-cell">${this.escapeHtml(s.name || s.id.substring(0, 12))}</td>
-          <td style="color:${statusColor}">${s.status || 'stopped'}</td>
-          <td>
-            <div class="resource-actions">
-              <button class="resource-action-btn action-start" data-session-id="${s.id}" data-action="start" title="Start session">Start</button>
-            </div>
+          <td class="session-name-cell" data-label="Session">${this.escapeHtml(s.name || s.id.substring(0, 12))}</td>
+          <td class="resource-session-status${failedClass}" data-label="Status">${this.escapeHtml(s.status || 'stopped')}</td>
+          <td data-label="Actions">
+            <button class="resource-row-menu-btn" type="button"
+                    data-session-id="${this.escapeHtml(s.id)}"
+                    data-session-name="${this.escapeHtml(s.name || s.id.substring(0, 12))}"
+                    data-resource-type="session" data-resource-state="stopped"
+                    aria-haspopup="menu" aria-expanded="false"
+                    aria-label="Actions for ${this.escapeHtml(s.name || s.id.substring(0, 12))}"
+                    title="Session actions">&#8942;</button>
           </td>
         </tr>`;
       });
@@ -20350,54 +21524,12 @@ class CWMApp {
 
     body.innerHTML = html;
 
-    // Bind session action buttons (stop/restart/kill/start)
-    body.querySelectorAll('.resource-action-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const action = btn.dataset.action;
-        const sessionId = btn.dataset.sessionId;
-        const pid = btn.dataset.pid ? parseInt(btn.dataset.pid, 10) : null;
-
-        if (action === 'kill' && pid) {
-          // Show confirmation for kill
-          const confirmed = await this.showConfirmModal({
-            title: 'Kill Process',
-            message: `Force kill PID ${pid}? This will terminate the process immediately without cleanup.`,
-            confirmText: 'Kill',
-            confirmClass: 'btn-danger',
-          });
-          if (!confirmed) return;
-          try {
-            await this.api('POST', '/api/resources/kill-process', { pid });
-            this.showToast(`Killed PID ${pid}`, 'success');
-            setTimeout(() => this.fetchResources(), 1000);
-          } catch (err) {
-            this.showToast(err.message || 'Failed to kill process', 'error');
-          }
-        } else if (action === 'stop' && sessionId) {
-          try {
-            await this.api('POST', `/api/sessions/${sessionId}/stop`);
-            this.showToast('Session stopped', 'success');
-            setTimeout(() => this.fetchResources(), 1000);
-          } catch (err) {
-            this.showToast(err.message || 'Failed to stop session', 'error');
-          }
-        } else if (action === 'restart' && sessionId) {
-          try {
-            await this.api('POST', `/api/sessions/${sessionId}/restart`);
-            this.showToast('Session restarting...', 'success');
-            setTimeout(() => this.fetchResources(), 2000);
-          } catch (err) {
-            this.showToast(err.message || 'Failed to restart session', 'error');
-          }
-        } else if (action === 'start' && sessionId) {
-          try {
-            await this.api('POST', `/api/sessions/${sessionId}/start`);
-            this.showToast('Session starting...', 'success');
-            setTimeout(() => this.fetchResources(), 2000);
-          } catch (err) {
-            this.showToast(err.message || 'Failed to start session', 'error');
-          }
-        }
+    // Opening the overflow is non-mutating. The existing API actions run only
+    // after the user chooses an explicit menu item.
+    body.querySelectorAll('.resource-row-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.showResourceRowMenu(btn);
       });
     });
 
@@ -20425,23 +21557,46 @@ class CWMApp {
       });
     });
 
-    // Load token quota section
-    this.api('GET', '/api/quota-overview').then(quotaData => {
-      const quotaContainer = document.getElementById('resources-quota');
-      if (quotaContainer) this.renderQuotaOverview(quotaData, quotaContainer);
-    }).catch(() => {});
+    // These three calls can outlive this synchronous render. Their shared
+    // render sequence prevents a slow response from locating the replacement
+    // DOM created by a newer poll and filling it with stale quota/tunnel/PTY
+    // data.
+    void this._loadResourceSupplements(renderSequence, body);
+  }
 
-    // Load tunnels section
-    this.api('GET', '/api/tunnels').then(tunnelData => {
-      const tunnelContainer = document.getElementById('resources-tunnels');
-      if (tunnelContainer) this.renderTunnels(tunnelData, tunnelContainer);
-    }).catch(() => {});
+  async _loadResourceSupplements(renderSequence, body) {
+    const renderIfCurrent = (selector, renderer, data) => {
+      if (
+        renderSequence !== this._resourcesRenderSequence ||
+        body !== this.els.resourcesBody
+      ) return;
+      const container = body.querySelector(selector);
+      if (container) renderer.call(this, data, container);
+    };
 
-    // Load background PTY sessions
-    this.api('GET', '/api/pty').then(ptyData => {
-      const container = document.getElementById('resources-pty-bg');
-      if (container) this.renderBackgroundPtySessions(ptyData, container);
-    }).catch(() => {});
+    await Promise.all([
+      this.api('GET', '/api/quota-overview')
+        .then(data => renderIfCurrent(
+          '#resources-quota',
+          this.renderQuotaOverview,
+          data
+        ))
+        .catch(() => {}),
+      this.api('GET', '/api/tunnels')
+        .then(data => renderIfCurrent(
+          '#resources-tunnels',
+          this.renderTunnels,
+          data
+        ))
+        .catch(() => {}),
+      this.api('GET', '/api/pty')
+        .then(data => renderIfCurrent(
+          '#resources-pty-bg',
+          this.renderBackgroundPtySessions,
+          data
+        ))
+        .catch(() => {}),
+    ]);
   }
 
   /**
@@ -20451,6 +21606,7 @@ class CWMApp {
    * @param {HTMLElement} container - DOM element to render into
    */
   renderBackgroundPtySessions(data, container) {
+    if (this._resourceMenuOpenFor(container)) return;
     const sessions = (data.sessions || []);
     const orphaned = sessions.filter(s => s.clientCount === 0);
     const connected = sessions.filter(s => s.clientCount > 0);
@@ -20472,15 +21628,18 @@ class CWMApp {
         <thead><tr><th>Session</th><th>PID</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
         <tbody>`;
       for (const s of orphaned) {
-        const statusColor = s.alive ? 'var(--green)' : 'var(--overlay0)';
         html += `<tr>
-          <td class="session-name-cell">${this.escapeHtml(s.sessionId.substring(0, 20))}${s.sessionId.length > 20 ? '...' : ''}</td>
-          <td class="pid-cell">${s.pid || '--'}</td>
-          <td style="color:${statusColor}">${s.alive ? 'running' : 'exited'}</td>
-          <td>
-            <div class="resource-actions">
-              <button class="resource-action-btn action-stop" data-pty-id="${this.escapeHtml(s.sessionId)}" title="Close this PTY">Close</button>
-            </div>
+          <td class="session-name-cell" data-label="Session">${this.escapeHtml(s.sessionId.substring(0, 20))}${s.sessionId.length > 20 ? '...' : ''}</td>
+          <td class="pid-cell" data-label="PID">${s.pid || '--'}</td>
+          <td class="resource-session-status${s.alive ? ' resource-status-running' : ''}" data-label="Status">${s.alive ? 'running' : 'exited'}</td>
+          <td data-label="Actions">
+            <button class="resource-row-menu-btn" type="button"
+                    data-resource-type="pty"
+                    data-pty-id="${this.escapeHtml(s.sessionId)}"
+                    data-session-name="${this.escapeHtml(s.sessionId.substring(0, 20))}"
+                    aria-haspopup="menu" aria-expanded="false"
+                    aria-label="Actions for terminal ${this.escapeHtml(s.sessionId.substring(0, 20))}"
+                    title="Terminal actions">&#8942;</button>
           </td>
         </tr>`;
       }
@@ -20503,62 +21662,42 @@ class CWMApp {
       });
     }
 
-    // Bind individual close buttons
-    container.querySelectorAll('.resource-action-btn[data-pty-id]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const ptyId = btn.dataset.ptyId;
-        try {
-          await this.api('POST', `/api/pty/${encodeURIComponent(ptyId)}/kill`);
-          this.showToast('Session closed', 'success');
-          setTimeout(() => this.fetchResources(), 500);
-        } catch (err) {
-          this.showToast(err.message || 'Failed to close session', 'error');
-        }
+    container.querySelectorAll('.resource-row-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.showResourceRowMenu(btn);
       });
     });
   }
 
   renderTunnels(data, container) {
+    if (this._resourceMenuOpenFor(container)) return;
     const tunnels = data.tunnels || [];
     const available = data.cloudflaredAvailable;
     let html = '<div class="resources-section-title">Tunnels <span class="total-badge">' + (available ? tunnels.length + ' active' : 'cloudflared not installed') + '</span></div>';
     if (!available) {
-      html += '<div class="resources-empty"><p>cloudflared is not installed.</p><a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/" target="_blank" class="port-link" style="font-size:13px;">Install cloudflared</a></div>';
+      html += '<div class="resources-empty"><p>cloudflared is not installed.</p><a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/" target="_blank" rel="noopener" class="port-link" style="font-size:13px;">Install cloudflared</a></div>';
     } else if (tunnels.length === 0) {
       html += '<div class="resources-empty">No active tunnels. Click "Expose" on a port above to start one.</div>';
     } else {
-      html += '<table class="claude-session-table"><thead><tr><th>Label</th><th>Port</th><th>Public URL</th><th></th></tr></thead><tbody>';
+      html += '<table class="claude-session-table"><thead><tr><th>Label</th><th>Port</th><th>Public URL</th><th style="text-align:right">Actions</th></tr></thead><tbody>';
       tunnels.forEach(t => {
-        html += '<tr><td>' + this.escapeHtml(t.label) + '</td><td class="pid-cell">' + t.port + '</td><td>';
+        html += '<tr><td class="session-name-cell" data-label="Label">' + this.escapeHtml(t.label) + '</td><td class="pid-cell" data-label="Port">' + t.port + '</td><td data-label="Public URL">';
         if (t.url) {
-          html += '<a href="' + this.escapeHtml(t.url) + '" target="_blank" class="port-link">' + this.escapeHtml(t.url) + '</a>';
-          html += ' <button class="btn btn-ghost btn-sm copy-tunnel-url" data-url="' + this.escapeHtml(t.url) + '" title="Copy URL" style="padding:2px 6px;font-size:11px;">Copy</button>';
+          html += '<a href="' + this.escapeHtml(t.url) + '" target="_blank" rel="noopener" class="port-link">' + this.escapeHtml(t.url) + '</a>';
         } else {
-          html += '<span style="color:var(--overlay0)">Connecting...</span>';
+          html += '<span class="resource-value-muted">Connecting...</span>';
         }
-        html += '</td><td><button class="btn btn-ghost btn-sm close-tunnel-btn" data-tunnel-id="' + t.id + '" style="color:var(--red);">Close</button></td></tr>';
+        html += '</td><td data-label="Actions"><button class="resource-row-menu-btn" type="button" data-resource-type="tunnel" data-tunnel-id="' + this.escapeHtml(t.id) + '" data-url="' + this.escapeHtml(t.url || '') + '" data-session-name="' + this.escapeHtml(t.label || 'Tunnel') + '" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for tunnel ' + this.escapeHtml(t.label || String(t.port)) + '" title="Tunnel actions">&#8942;</button></td></tr>';
       });
       html += '</tbody></table>';
     }
     container.innerHTML = html;
 
-    // Bind close buttons
-    container.querySelectorAll('.close-tunnel-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        try {
-          await this.api('DELETE', '/api/tunnels/' + btn.dataset.tunnelId);
-          this.showToast('Tunnel closed', 'success');
-          this.fetchResources();
-        } catch (err) {
-          this.showToast(err.message || 'Failed to close tunnel', 'error');
-        }
-      });
-    });
-
-    // Bind copy buttons
-    container.querySelectorAll('.copy-tunnel-url').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this._copyWithToast(btn.dataset.url, 'URL copied');
+    container.querySelectorAll('.resource-row-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.showResourceRowMenu(btn);
       });
     });
   }
@@ -20619,9 +21758,9 @@ class CWMApp {
       const barWidth = Math.min(100, s.contextPct);
 
       html += `<tr>
-        <td class="session-name-cell">${this.escapeHtml(s.sessionName)}</td>
-        <td style="font-size:11px;color:var(--subtext0)">${this.escapeHtml(s.workspaceName)}</td>
-        <td style="min-width:140px">
+        <td class="session-name-cell" data-label="Session">${this.escapeHtml(s.sessionName)}</td>
+        <td class="resource-workspace-cell" data-label="Project">${this.escapeHtml(s.workspaceName)}</td>
+        <td data-label="Context" style="min-width:140px">
           <div style="display:flex;align-items:center;gap:6px">
             <span style="color:${urgencyColor};font-size:11px" title="${s.urgency}">${urgencyIcon}</span>
             <div style="flex:1">
@@ -20632,8 +21771,8 @@ class CWMApp {
             <span style="font-size:11px;color:var(--text);min-width:40px;text-align:right">${formatTokens(s.latestInputTokens)}</span>
           </div>
         </td>
-        <td class="cost-cell" style="font-size:12px">${formatCost(s.totalCost)}</td>
-        <td style="font-size:12px;color:var(--subtext0)">${s.messageCount}</td>
+        <td class="cost-cell" data-label="Cost">${formatCost(s.totalCost)}</td>
+        <td class="resource-message-count" data-label="Messages">${s.messageCount}</td>
       </tr>`;
     });
 
@@ -20785,7 +21924,7 @@ class CWMApp {
       : [];
 
     const fields = [
-      { key: 'description', label: 'What should Claude build?', type: 'textarea', placeholder: 'Implement OAuth login flow with Google provider...', required: true },
+      { key: 'description', label: 'What should the agent build?', type: 'textarea', placeholder: 'Implement OAuth login flow with Google provider...', required: true },
       { key: 'repoDir', label: 'Repository Path', value: defaultDir, required: true },
       { key: 'baseBranch', label: 'Base Branch', value: 'main', required: true },
       { key: 'branch', label: 'Branch Name', placeholder: 'Auto-generated from description' },
@@ -20807,9 +21946,9 @@ class CWMApp {
     ]});
 
     const result = await this.showPromptModal({
-      title: 'New Worktree Task',
+      title: 'New Agent Task',
       fields,
-      confirmText: 'Start Task',
+      confirmText: 'Start Agent Task',
     });
     if (!result) return;
 
@@ -20843,7 +21982,7 @@ class CWMApp {
         }
       }
 
-      this.showToast(`Worktree task started on ${branch}`, 'success');
+      this.showToast(`Agent task started on ${branch}`, 'success');
     } catch (err) {
       this.showToast(err.message || 'Failed to create worktree task', 'error');
     }
@@ -20917,7 +22056,7 @@ class CWMApp {
       banner.innerHTML = `
         <div class="wt-review-header">
           <span class="wt-review-icon" style="color:${statusColor}">&#128268;</span>
-          <span class="wt-review-title">Worktree Task: ${this.escapeHtml(task.description.slice(0, 60))}</span>
+          <span class="wt-review-title">Agent Task: ${this.escapeHtml(task.description.slice(0, 60))}</span>
           <span class="wt-review-branch">${this.escapeHtml(task.branch)}</span>
         </div>
         ${actionsHtml}`;
@@ -20935,7 +22074,7 @@ class CWMApp {
             await this.openMergeDialog(task);
           } else if (btn.classList.contains('wt-review-btn-reject')) {
             const ok = await this.showConfirmModal({
-              title: 'Reject Worktree Task',
+              title: 'Reject Agent Task',
               message: `Delete the worktree and branch "${task.branch}"? This cannot be undone.`,
               confirmText: 'Reject',
               confirmClass: 'btn-danger',
@@ -22306,15 +23445,32 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   async loadFeatureBoard() {
+    const requestSequence = (this._featureBoardRequestSequence || 0) + 1;
+    this._featureBoardRequestSequence = requestSequence;
     const ws = this.state.activeWorkspace;
-    if (!ws) return;
+    if (!ws) {
+      this._features = [];
+      this.renderFeatureBoard();
+      return;
+    }
 
     try {
       const data = await this.api('GET', `/api/workspaces/${ws.id}/features`);
+      if (
+        requestSequence !== this._featureBoardRequestSequence ||
+        !this.state.activeWorkspace ||
+        this.state.activeWorkspace.id !== ws.id
+      ) return;
       this._features = data.features || [];
       this.renderFeatureBoard();
     } catch (err) {
-      this.showToast(err.message || 'Failed to load features', 'error');
+      if (
+        requestSequence === this._featureBoardRequestSequence &&
+        this.state.activeWorkspace &&
+        this.state.activeWorkspace.id === ws.id
+      ) {
+        this.showToast(err.message || 'Failed to load features', 'error');
+      }
     }
   }
 
@@ -23236,9 +24392,20 @@ class CWMApp {
    */
   _syncTerminalTabHighlight() {
     if (!this.els.terminalTabStrip) return;
-    const tabs = this.els.terminalTabStrip.querySelectorAll('.terminal-tab');
-    tabs.forEach((tab, i) => {
-      tab.classList.toggle('active', i === this._activeTerminalSlot);
+    const activeSlot = this._activeTerminalSlot;
+    this.els.terminalTabStrip
+      .querySelectorAll('.terminal-tab:not(.terminal-tab-add)')
+      .forEach(tab => {
+        tab.classList.toggle(
+          'active',
+          parseInt(tab.dataset.slot, 10) === activeSlot
+        );
+      });
+    this.els.terminalTabStrip.querySelectorAll('.terminal-tab-item').forEach(item => {
+      item.classList.toggle(
+        'active',
+        parseInt(item.dataset.slot, 10) === activeSlot
+      );
     });
   }
 

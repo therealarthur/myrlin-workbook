@@ -281,6 +281,8 @@ check('empty Project Notes sections auto-collapse only in the focused shell', ()
   assert.match(syncBody, /section\.dataset\.empty\s*=\s*String\(isEmpty\)/);
   assert.match(syncBody, /section\.dataset\.autoCollapsed\s*=\s*'true'/);
   assert.match(syncBody, /delete section\.dataset\.autoCollapsed/);
+  assert.match(syncBody, /_setDocsSectionExpanded\(header,\s*false\)/);
+  assert.match(syncBody, /_setDocsSectionExpanded\(header,\s*true\)/);
   assert.match(syncBody, /Refresh to summarize sessions in this project/);
   assert.match(
     focusedCss,
@@ -288,19 +290,137 @@ check('empty Project Notes sections auto-collapse only in the focused shell', ()
   );
 });
 
-check('resource row actions reveal on hover and keyboard focus', () => {
+check('Project Notes disclosures are semantic buttons with static ARIA wiring', () => {
+  const headers = startTags(html, 'button')
+    .filter(tag => classTokens(tag).includes('docs-section-header'));
+  const controlledIds = headers.map(tag => attribute(tag, 'aria-controls'));
+
+  assert.deepStrictEqual(controlledIds, [
+    'docs-notes-list',
+    'docs-goals-list',
+    'docs-tasks-list',
+    'docs-td-list',
+    'docs-roadmap-list',
+    'docs-rules-list',
+    'docs-ai-insights',
+  ]);
+  for (const header of headers) {
+    assert.strictEqual(attribute(header, 'type'), 'button');
+    assert.strictEqual(attribute(header, 'aria-expanded'), 'true');
+  }
+  for (const id of controlledIds) {
+    assert.ok(startTagById(html, 'div', id), `Missing controlled region #${id}`);
+  }
+  const nonButtonHeaders = startTags(html, 'div')
+    .filter(tag => classTokens(tag).includes('docs-section-header'));
+  assert.strictEqual(nonButtonHeaders.length, 0);
+});
+
+check('Project Notes disclosure behavior keeps ARIA, body, and chevron synchronized', () => {
+  const bindBody = methodBody(appJs, 'bindEvents');
+  const disclosureBody = methodBody(appJs, '_setDocsSectionExpanded');
+  assert.match(bindBody, /disclosure\.getAttribute\('aria-expanded'\)\s*===\s*'true'/);
+  assert.match(bindBody, /_setDocsSectionExpanded\(header,\s*!expanded\)/);
+  assert.match(disclosureBody, /getAttribute\('aria-controls'\)/);
+  assert.match(disclosureBody, /body\.hidden\s*=\s*!isExpanded/);
+  assert.match(
+    disclosureBody,
+    /setAttribute\('aria-expanded',\s*String\(isExpanded\)\)/
+  );
+  assert.match(disclosureBody, /classList\.toggle\('open',\s*isExpanded\)/);
+});
+
+check('Project Notes disclosure reset avoids nested interactive controls', () => {
+  const reset = balancedBlock(
+    focusedCss,
+    '.docs-section-heading > .docs-section-header'
+  );
+  assert.match(reset, /appearance:\s*none\s*;/);
+  assert.match(reset, /border:\s*0\s*;/);
+  assert.match(reset, /background:\s*transparent\s*;/);
+  assert.match(reset, /text-align:\s*left\s*;/);
+  assert.match(focusedCss, /\.docs-section-actions\s*\{[\s\S]*?display:\s*inline-flex\s*;/);
+});
+
+check('focused settings omit obsolete header controls while classic keeps them', () => {
+  const registryBody = methodBody(appJs, 'getSettingsRegistry');
+  const getRegistry = new Function(
+    'document',
+    `return function getSettingsRegistry() {${registryBody}};`
+  );
+  const keysForShell = shell => getRegistry({
+    documentElement: { dataset: { uiShell: shell } },
+  })().map(setting => setting.key);
+
+  const focusedKeys = keysForShell('focused');
+  const classicKeys = keysForShell('classic');
+  for (const key of ['sessionCountInHeader', 'headerHeight']) {
+    assert.ok(!focusedKeys.includes(key), `${key} must be hidden in focused settings`);
+    assert.ok(classicKeys.includes(key), `${key} must remain available in classic settings`);
+  }
+  assert.ok(focusedKeys.includes('uiScale'), 'focused settings must retain useful controls');
+});
+
+check('focused sidebar supporting text uses the semantic tertiary token', () => {
   assert.match(
     focusedCss,
-    /\.claude-session-table tbody \.resource-actions[\s\S]*?opacity:\s*0\.32\s*;/
+    /\.sidebar :is\([\s\S]*?\.sidebar-meta,[\s\S]*?\.workspace-group-empty,[\s\S]*?\.ws-session-empty,[\s\S]*?\.project-session-time,[\s\S]*?\.sidebar-section-divider-label[\s\S]*?\)[\s\S]*?color:\s*var\(--text-tertiary\)\s*!important\s*;/
   );
   assert.match(
     focusedCss,
-    /\.claude-session-table tbody tr:hover \.resource-actions/
+    /\.sidebar-list \[style\*="color: var\(--overlay0\)"\][\s\S]*?color:\s*var\(--text-tertiary\)\s*!important\s*;/
   );
+});
+
+check('focused first-run sidebar hides only redundant zero-data scaffolding', () => {
+  assert.match(focusedCss, /@supports selector\(\.sidebar:has\(#sidebar-create-ws\)\)/);
   assert.match(
     focusedCss,
-    /\.claude-session-table tbody tr:focus-within \.resource-actions/
+    /\.sidebar:has\(#sidebar-create-ws\):not\(:has\(#projects-list \.project-accordion\)\)/
   );
+  for (const selector of [
+    '#sidebar-provider-tabs',
+    '.sidebar-footer',
+    '#sidebar-section-resize',
+    '#projects-header',
+    '#projects-search-bar',
+    '#projects-list',
+  ]) {
+    assert.match(focusedCss, new RegExp(escapeRegExp(selector)));
+  }
+  assert.match(focusedCss, /display:\s*none\s*;/);
+});
+
+check('coarse-pointer focused controls retain 44px targets beyond phone widths', () => {
+  const coarse = balancedBlock(focusedCss, '@media (pointer: coarse)');
+  for (const selector of [
+    '#sidebar-toggle',
+    '#account-chip',
+    '.terminal-group-tab',
+    '.terminal-groups-add',
+    '.docs-section-header',
+    '.docs-section-actions > button',
+    '#appearance-close',
+    '#resources-refresh-btn',
+    '.terminal-pane-header > button',
+  ]) {
+    assert.match(coarse, new RegExp(escapeRegExp(selector)));
+  }
+  assert.match(coarse, /min-height:\s*44px\s*;/);
+  const groupClose = balancedBlock(
+    coarse,
+    ':root[data-ui-shell="focused"] .terminal-group-tab-close'
+  );
+  assert.match(groupClose, /min-width:\s*44px\s*;/);
+  assert.match(groupClose, /min-height:\s*44px\s*;/);
+});
+
+check('resource rows use a single accessible overflow control', () => {
+  assert.match(focusedCss, /\.resource-row-menu-btn\s*\{/);
+  assert.match(appJs, /class="resource-row-menu-btn"/);
+  assert.match(appJs, /aria-haspopup="menu"\s+aria-expanded="false"/);
+  assert.match(appJs, /showResourceRowMenu\(btn\)/);
+  assert.doesNotMatch(appJs, /class="resource-action-btn/);
 });
 
 check('focused terminal chrome is quiet until pane interaction', () => {
@@ -325,17 +445,18 @@ check('focused terminal chrome is quiet until pane interaction', () => {
   assert.match(hoverControls, /opacity:\s*1\s*;/);
 });
 
-check('focused CSS hides preview task tabs without deleting them', () => {
-  const previewRule = balancedBlock(
+check('focused CSS retires Git and Files task tabs without deleting compatibility code', () => {
+  const retiredRule = balancedBlock(
     focusedCss,
-    ':root[data-ui-shell="focused"] .tasks-tab[data-shell-maturity="preview"]'
+    ':root[data-ui-shell="focused"] .tasks-tab[data-shell-maturity="retired"]'
   );
-  assert.match(previewRule, /display:\s*none\s*;/);
+  assert.match(retiredRule, /display:\s*none\s*;/);
   for (const tabName of ['git', 'files']) {
     const tab = startTags(html, 'button')
       .find(tag => attribute(tag, 'data-tasks-tab') === tabName);
     assert.ok(tab, `Missing ${tabName} task tab`);
-    assert.strictEqual(attribute(tab, 'data-shell-maturity'), 'preview');
+    assert.strictEqual(attribute(tab, 'data-shell-maturity'), 'retired');
+    assert.match(tab, /\shidden(?:\s|>)/i);
   }
 });
 

@@ -327,10 +327,25 @@ check('terminal-activity listener re-enables one notification per new work cycle
   );
 });
 
-check('setActiveTerminalPane acknowledges pending attention on focus', () => {
+check('setActiveTerminalPane acknowledges completion without dismissing unresolved input', () => {
+  const focusStart = appSrc.indexOf('  setActiveTerminalPane(slotIdx) {');
+  const focusEnd = appSrc.indexOf('  openTerminalReader(pane) {', focusStart);
+  const focusBlock = appSrc.slice(focusStart, focusEnd);
+
   assert.ok(appSrc.includes('tp._idleNotified = true;'), 'idle cycle consumed on focus');
   assert.ok(appSrc.includes('tp._lastIdleFiredAt = Date.now();'), 'cooldown stamped on focus');
-  assert.ok(appSrc.includes("headerEl.dataset.needsInput = 'false';"), 'amber badge cleared on focus');
+  assert.ok(
+    focusBlock.includes("this._attentionState.get(tp.sessionId) === 'complete'"),
+    'completed attention is acknowledged on focus'
+  );
+  assert.ok(
+    !focusBlock.includes('tp._needsInput = false'),
+    'focus alone must not clear unresolved needs-input state'
+  );
+  assert.ok(
+    !focusBlock.includes("dataset.needsInput = 'false'"),
+    'focus alone must not dismiss the needs-input badge'
+  );
 });
 
 check('switchTerminalGroup re-points _activeTerminalSlot at the restored group', () => {

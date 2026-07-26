@@ -684,6 +684,7 @@ class TerminalPane {
     this._activitySample = '';
     this._writeRaf = null;
     this._pasteHandled = false;
+    this._pasteHandledResetTimer = null;
     // Copy-mode root cause (user report, 2026-07-25): Claude Code's interactive
     // TUI turns on terminal mouse tracking (DECSET 1000/1002/1003 + SGR 1006).
     // While that is active, xterm forwards a plain drag/wheel to the PTY instead
@@ -850,6 +851,10 @@ class TerminalPane {
       this.term.attachCustomKeyEventHandler((e) => {
         if (e.type !== 'keydown') return true;
         const mod = e.ctrlKey || e.metaKey;
+        // KeyboardEvent.key follows Caps Lock and Shift ("C"/"V"). Normalize
+        // once so the safety-critical copy/paste branches cannot fall through
+        // to xterm's control-character path merely because letter case changed.
+        const shortcutKey = typeof e.key === 'string' ? e.key.toLowerCase() : '';
 
         // Ctrl+C / Cmd+C: copy selected text to clipboard (if selection exists)
         // Without selection, fall through so xterm sends \x03 (SIGINT) normally.
@@ -878,7 +883,7 @@ class TerminalPane {
         // guarantee: once a selection exists this branch always reaches
         // `return false` and consumes the key. Do not lift the copy call out
         // of the try.
-        if (mod && e.key === 'c' && this.term.hasSelection()) {
+        if (mod && shortcutKey === 'c' && this.term.hasSelection()) {
           try {
             // Returning false tells xterm not to forward Ctrl+C to the PTY,
             // but it does not cancel Chromium's native copy/default action.
@@ -917,36 +922,25 @@ class TerminalPane {
           return false;
         }
 
-        // Ctrl+V / Cmd+V: paste from clipboard. Two arms depending on whether
-        // the async Clipboard API is present, which is a secure-context check.
+        // Ctrl+V / Cmd+V always stays on the browser's trusted native paste
+        // path. Do not call preventDefault() here. Returning false only tells
+        // xterm not to process the key itself; Chromium still emits the trusted
+        // beforeinput/paste events that the capture listeners below bracket and
+        // forward exactly once.
         //
-        // Secure context (localhost or https): navigator.clipboard.readText
-        // exists. We call preventDefault() to cancel the browser's native paste
-        // so the beforeinput(insertFromPaste)/paste handlers below do NOT also
-        // fire, then read the clipboard explicitly and send once. This preserves
-        // the PR #45 (commit cee137a) fix that stopped a double-send on
-        // localhost, where both the native paste and the explicit read would
-        // otherwise send the text through the WebSocket twice.
+        // WHY this is origin- and permission-independent (user report,
+        // 2026-07-25): navigator.clipboard.readText can exist on localhost or
+        // HTTPS while still rejecting in embedded browsers. The old "secure"
+        // arm canceled native paste first, then awaited that permission-gated
+        // API. Its error message told the user to press Ctrl+V, but every retry
+        // entered the same canceled arm, creating a permanent dead end.
         //
-        // Insecure context (http over LAN, the documented remote-access mode):
-        // navigator.clipboard is undefined, so pasteFromClipboard() cannot run.
-        // Here we must NOT preventDefault. Returning false only tells xterm to
-        // skip the key; the browser still performs its native paste, which the
-        // beforeinput/paste handlers below bracket and send exactly once (deduped
-        // via _pasteHandled). A double-send is impossible in this arm because the
-        // clipboard-API path never executes here.
-        //
-        // Regression context: issue #64 (paste silently dead for every
-        // non-localhost user) was caused by PR #45 always calling
-        // preventDefault, which cancelled the native paste while the only other
-        // path (navigator.clipboard) does not exist on insecure origins. Do NOT
-        // collapse these two arms back into an unconditional preventDefault:
-        // that reintroduces #64.
-        if (mod && e.key === 'v') {
-          if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
-            e.preventDefault();
-            this.pasteFromClipboard();
-          }
+        // Programmatic clipboard reads remain available to the explicit Paste
+        // menu action in pasteFromClipboard(). Keyboard paste must use the
+        // browser's user-gesture path on every origin. The capture-phase paste
+        // listener calls stopImmediatePropagation(), so xterm's same-target
+        // listener cannot double-send (the original PR #45 concern).
+        if (mod && shortcutKey === 'v') {
           return false;
         }
 
@@ -985,12 +979,21 @@ class TerminalPane {
         xtermTextarea.addEventListener('beforeinput', (e) => {
           // Intercept paste-via-beforeinput to prevent xterm.js onData double-send.
           // Extract the pasted text and send it through our WebSocket instead.
-          // Set _pasteHandled flag so the paste event handler doesn't double-send.
+          // Arm _pasteHandled only after this handler actually sends text, so
+          // an empty/orphan beforeinput event can never suppress a later paste.
           if (e.inputType === 'insertFromPaste') {
             e.preventDefault();
-            this._pasteHandled = true;
             const text = e.data || (e.dataTransfer && e.dataTransfer.getData('text/plain')) || '';
             if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
+              this._pasteHandled = true;
+              // Some browsers/mobile keyboards emit beforeinput without a later
+              // paste event. Keep the latch only for the rest of this browser
+              // gesture; a missing companion event must not eat the next paste.
+              clearTimeout(this._pasteHandledResetTimer);
+              this._pasteHandledResetTimer = setTimeout(() => {
+                this._pasteHandled = false;
+                this._pasteHandledResetTimer = null;
+              }, 0);
               const bracketedText = '\x1b[200~' + text + '\x1b[201~';
               this.ws.send(JSON.stringify({ type: 'input', data: bracketedText }));
             }
@@ -1027,6 +1030,8 @@ class TerminalPane {
           // xterm's same-target listener to send the text a second time.
           e.stopImmediatePropagation();
           if (this._pasteHandled) {
+            clearTimeout(this._pasteHandledResetTimer);
+            this._pasteHandledResetTimer = null;
             this._pasteHandled = false;
             return;
           }
@@ -2369,13 +2374,17 @@ class TerminalPane {
 
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'terminal-pane-selectmode btn btn-ghost btn-icon btn-sm';
+    btn.className = 'terminal-pane-selectmode btn btn-ghost btn-sm';
     btn.setAttribute('aria-pressed', 'false');
     btn.style.transition = 'color 160ms ease, background 160ms ease';
-    // I-beam / text-selection glyph, sized to match the sibling header icons.
+    // I-beam / text-selection glyph plus a short label. Focused mode shows the
+    // label on the active pane (and whenever the mode is on) so the essential
+    // copy affordance is discoverable without adding five repeated labels to a
+    // dense grid.
     btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">'
       + '<path d="M5.5 2.5A.5.5 0 0 1 6 2h4a.5.5 0 0 1 0 1H8.5v10H10a.5.5 0 0 1 0 1H6a.5.5 0 0 1 0-1h1.5V3H6a.5.5 0 0 1-.5-.5z"/>'
-      + '<path d="M3.5 2h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 0-.5.5v1a.5.5 0 0 1-1 0v-1A1.5 1.5 0 0 1 3.5 2zm8 0A1.5 1.5 0 0 1 13 3.5v1a.5.5 0 0 1-1 0v-1a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 1 0-1h.5zM2.5 11a.5.5 0 0 1 .5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 1 0 1h-1A1.5 1.5 0 0 1 2 12.5v-1a.5.5 0 0 1 .5-.5zm11 0a.5.5 0 0 1 .5.5v1a1.5 1.5 0 0 1-1.5 1.5h-1a.5.5 0 0 1 0-1h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 1 .5-.5z"/></svg>';
+      + '<path d="M3.5 2h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 0-.5.5v1a.5.5 0 0 1-1 0v-1A1.5 1.5 0 0 1 3.5 2zm8 0A1.5 1.5 0 0 1 13 3.5v1a.5.5 0 0 1-1 0v-1a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 1 0-1h.5zM2.5 11a.5.5 0 0 1 .5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 1 0 1h-1A1.5 1.5 0 0 1 2 12.5v-1a.5.5 0 0 1 .5-.5zm11 0a.5.5 0 0 1 .5.5v1a1.5 1.5 0 0 1-1.5 1.5h-1a.5.5 0 0 1 0-1h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 1 .5-.5z"/></svg>'
+      + '<span class="terminal-selectmode-label">Select</span>';
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -2403,6 +2412,10 @@ class TerminalPane {
     if (this._selectModeBtn) {
       this._selectModeBtn.classList.toggle('active', on);
       this._selectModeBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      this._selectModeBtn.setAttribute(
+        'aria-label',
+        on ? 'Turn off Select text mode' : 'Turn on Select text mode'
+      );
       this._selectModeBtn.style.color = on ? 'var(--mauve, #cba6f7)' : '';
       this._selectModeBtn.style.background = on ? 'var(--surface1, rgba(203, 166, 247, 0.16))' : '';
       this._selectModeBtn.title = on
@@ -2494,6 +2507,9 @@ class TerminalPane {
     clearTimeout(this._activityDebounceTimer);
     clearTimeout(this._bgFlushTimer);
     clearTimeout(this._needsInputTimer);
+    clearTimeout(this._pasteHandledResetTimer);
+    this._pasteHandledResetTimer = null;
+    this._pasteHandled = false;
     if (this._writeRaf) cancelAnimationFrame(this._writeRaf);
     this._writeBuf = '';
     this._activitySample = '';

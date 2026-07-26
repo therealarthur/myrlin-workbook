@@ -214,6 +214,46 @@
   text-transform: uppercase;
 }
 
+/* Legacy sidebar rules use the palette's raw overlay token for several small
+   labels. The focused shell routes all of that supporting copy through the
+   semantic readable token instead. */
+:root[data-ui-shell="focused"] .sidebar :is(
+  .sidebar-meta,
+  .toggle-hidden-btn,
+  .workspace-group-empty,
+  .ws-chevron,
+  .ws-session-time,
+  .ws-session-empty,
+  .project-accordion-chevron,
+  .project-size,
+  .project-session-size,
+  .project-session-time,
+  .project-session-archived,
+  .sidebar-section-divider-label
+),
+:root[data-ui-shell="focused"] .sidebar-list [style*="color: var(--overlay0)"] {
+  color: var(--text-tertiary) !important;
+}
+
+/* On a genuine zero-data first run, keep the one useful Projects create
+   affordance and remove repeated zero counts, filters, and an empty
+   Discovered section. :has() makes this automatically reversible as soon as
+   either list receives a real row. */
+@supports selector(.sidebar:has(#sidebar-create-ws)) {
+  :root[data-ui-shell="focused"]
+    .sidebar:has(#sidebar-create-ws):not(:has(#projects-list .project-accordion))
+    :is(
+      #sidebar-provider-tabs,
+      .sidebar-footer,
+      #sidebar-section-resize,
+      #projects-header,
+      #projects-search-bar,
+      #projects-list
+    ) {
+    display: none;
+  }
+}
+
 :root[data-ui-shell="focused"] #projects-toggle[aria-expanded="false"] svg {
   transform: rotate(-90deg);
 }
@@ -308,6 +348,26 @@
   padding: 7px 12px;
   background: color-mix(in srgb, var(--mantle) 78%, var(--base));
   border-bottom-color: var(--border-subtle);
+}
+
+:root[data-ui-shell="focused"] .terminal-pane-selectmode {
+  min-width: 28px;
+  min-height: 28px;
+  gap: 5px;
+  padding-inline: 6px;
+  white-space: nowrap;
+}
+
+:root[data-ui-shell="focused"] .terminal-selectmode-label {
+  display: none;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+:root[data-ui-shell="focused"] .terminal-pane-active .terminal-selectmode-label,
+:root[data-ui-shell="focused"] .terminal-pane-selectmode.active .terminal-selectmode-label,
+:root[data-ui-shell="focused"][data-density="informative"] .terminal-selectmode-label {
+  display: inline;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -434,9 +494,10 @@
   color: var(--accent);
 }
 
-/* Git and Files remain implemented and recoverable in the classic shell, but
-   are not advertised as finished peers in the focused product hierarchy. */
-:root[data-ui-shell="focused"] .tasks-tab[data-shell-maturity="preview"] {
+/* Git and Files remain as compatibility code only. They are retired from the
+   product hierarchy until they can ship as complete, supported workflows. */
+:root[data-ui-shell="focused"] .tasks-tab[data-shell-maturity="preview"],
+:root[data-ui-shell="focused"] .tasks-tab[data-shell-maturity="retired"] {
   display: none;
 }
 
@@ -453,6 +514,44 @@
   color: var(--text-tertiary);
 }
 
+/* Accordion actions are siblings of the semantic disclosure button. This
+   avoids nested interactive controls while preserving the compact one-row
+   layout used by both shell variants. */
+.docs-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.docs-section-heading > .docs-section-header {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.docs-section-heading > .docs-section-header:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid var(--color-focus, var(--accent));
+  outline-offset: 2px;
+}
+
+.docs-section-actions {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.docs-section-actions .docs-add-btn {
+  margin-left: 0;
+}
+
 /* Empty project-note buckets remain available, but no longer dominate the
    page with five repeated "nothing here" messages. */
 :root[data-ui-shell="focused"] .docs-section[data-empty="true"] {
@@ -465,25 +564,533 @@
   padding: 8px 6px;
 }
 
-/* Operational controls stay keyboard-accessible while reducing repeated
-   restart/stop/kill color noise in the system monitor. Touch keeps them
-   visible because it has no hover preview. */
-@media (hover: hover) and (pointer: fine) {
-  :root[data-ui-shell="focused"] .claude-session-table tbody .resource-actions {
-    opacity: 0.32;
-    transition: opacity var(--transition-fast);
-  }
-
-  :root[data-ui-shell="focused"] .claude-session-table tbody tr:hover .resource-actions,
-  :root[data-ui-shell="focused"] .claude-session-table tbody tr:focus-within .resource-actions {
-    opacity: 1;
-  }
-}
-
 :root[data-ui-shell="focused"] .ctx-submenu {
   max-height: calc(100vh - 24px);
   overflow-y: auto;
   scrollbar-width: thin;
+}
+
+/* ─── Deliberate information density ───────────────────────── */
+
+:root[data-ui-shell="focused"][data-density="informative"] #header-stats {
+  display: flex !important;
+}
+
+:root[data-ui-shell="focused"][data-density="informative"] .terminal-pane-header > button {
+  opacity: 0.76;
+}
+
+:root[data-ui-shell="focused"][data-density="quiet"] .terminal-pane-activity {
+  width: 8px;
+  max-width: 8px;
+}
+
+:root[data-ui-shell="focused"][data-density="informative"] .terminal-pane-activity {
+  width: auto;
+  max-width: 200px;
+}
+
+:root[data-ui-shell="focused"][data-density="informative"] .docs-section[data-empty="true"] {
+  margin-bottom: 8px;
+}
+
+:root[data-ui-shell="focused"][data-density="informative"] .resource-workspace-label {
+  display: inline;
+}
+
+:root[data-ui-shell="focused"][data-density="quiet"] .resource-workspace-label {
+  display: none;
+}
+
+/* ─── Session attention queue ───────────────────────────────── */
+
+.attention-queue-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: transparent;
+  font: 600 11px var(--font-sans);
+  cursor: pointer;
+}
+
+.attention-queue-btn:hover,
+.attention-queue-btn:focus-visible,
+.attention-queue-btn[aria-expanded="true"] {
+  color: var(--text-primary);
+  background: var(--surface-interactive);
+}
+
+.attention-queue-btn:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.attention-queue-icon {
+  color: var(--status-running);
+  font-size: 9px;
+}
+
+.attention-queue-btn.has-actionable .attention-queue-icon {
+  color: var(--status-needs-input);
+}
+
+.attention-queue-badge {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  font-size: 10px;
+}
+
+.attention-state {
+  position: relative;
+}
+
+.attention-state::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-right: 1px;
+  border-radius: 50%;
+  background: var(--attention-color, var(--status-running));
+  flex: 0 0 auto;
+}
+
+.attention-state .ctx-icon,
+.attention-state .as-icon {
+  color: var(--attention-color, var(--status-running));
+}
+
+.session-item.attention-state::before,
+.terminal-group-tab.attention-state::before,
+.action-sheet-item.attention-state::before {
+  display: none;
+}
+
+.terminal-pane-header.attention-state[data-attention-state="needs-input"]::before,
+.terminal-group-tab.attention-state.tab-notify::after {
+  display: none;
+}
+
+.terminal-pane-header[data-needs-input="true"]::after {
+  color: var(--status-needs-input);
+  background: var(--status-needs-input-surface);
+}
+
+.session-item[data-attention-state] .status-dot,
+.terminal-group-tab[data-attention-state] .terminal-group-tab-dot {
+  background: var(--attention-color, var(--status-running));
+  box-shadow: none;
+}
+
+/* ─── Explicit Project Notes context ────────────────────────── */
+
+:root[data-ui-shell="focused"] .docs-header-left {
+  min-width: 0;
+  gap: 14px;
+}
+
+.docs-context {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+}
+
+.docs-context-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.docs-workspace-select {
+  width: clamp(170px, 24vw, 320px);
+  min-height: 32px;
+  padding: 5px 28px 5px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  color: var(--text-primary);
+  background: var(--surface-canvas);
+  font: 500 12px var(--font-sans);
+}
+
+.docs-workspace-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.docs-project-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 300px;
+  padding: 44px 24px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.docs-project-empty[hidden] {
+  display: none;
+}
+
+.docs-project-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 13px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 13px;
+  color: var(--color-focus);
+  background: var(--surface-raised);
+  font-size: 20px;
+}
+
+.docs-project-empty h3 {
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.docs-project-empty p {
+  max-width: 430px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ─── Appearance: density + grouped theme gallery ───────────── */
+
+.appearance-overlay {
+  align-items: center;
+  padding: 24px;
+}
+
+body.appearance-open {
+  overflow: hidden;
+}
+
+.appearance-dialog {
+  width: min(860px, 100%);
+  max-height: min(820px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  color: var(--text-primary);
+  background: var(--surface-canvas);
+  box-shadow: var(--shadow-xl);
+}
+
+.appearance-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-canvas) 96%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.appearance-header h2 {
+  font-size: 19px;
+}
+
+.appearance-header p,
+.appearance-section-heading p {
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.appearance-density,
+.appearance-themes {
+  padding: 22px 24px;
+}
+
+.appearance-density {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.appearance-section-heading h3 {
+  font-size: 13px;
+}
+
+.density-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 13px;
+}
+
+.density-choice {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  min-height: 76px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-primary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.density-choice:hover,
+.density-choice:focus-visible {
+  background: var(--surface-interactive);
+}
+
+.density-choice[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--color-focus) 64%, var(--border-default));
+  background: var(--surface-selected);
+}
+
+.density-choice-label {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.density-choice-description {
+  grid-column: 1 / -1;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.density-choice-check,
+.theme-gallery-check {
+  color: var(--color-success);
+  font-weight: 800;
+}
+
+.theme-gallery {
+  display: grid;
+  gap: 18px;
+  margin-top: 14px;
+}
+
+.theme-gallery-group {
+  display: grid;
+  gap: 9px;
+}
+
+.theme-gallery-group h4 {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.theme-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-gallery-grid.theme-gallery-featured {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.theme-gallery-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 52px;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  color: var(--text-primary);
+  background: transparent;
+  font: 550 11px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-gallery-card:hover,
+.theme-gallery-card:focus-visible {
+  background: var(--surface-interactive);
+}
+
+.theme-gallery-card[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--color-focus) 64%, var(--border-default));
+  background: var(--surface-selected);
+}
+
+.theme-gallery-swatch {
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, white 8%, transparent);
+}
+
+.theme-gallery-more {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 13px;
+}
+
+.theme-gallery-more > summary {
+  min-height: 38px;
+  padding: 9px 4px;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.theme-gallery-more > summary:hover,
+.theme-gallery-more > summary:focus-visible {
+  color: var(--text-primary);
+  background: var(--surface-interactive);
+}
+
+.theme-gallery-more-groups {
+  display: grid;
+  gap: 18px;
+  padding-top: 12px;
+}
+
+/* ─── System Resources overflow actions ─────────────────────── */
+
+.resource-row-menu-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  background: transparent;
+  font: 700 16px/1 var(--font-sans);
+  cursor: pointer;
+}
+
+.resource-row-menu-btn:hover,
+.resource-row-menu-btn:focus-visible,
+.resource-row-menu-btn[aria-expanded="true"] {
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+  background: var(--surface-interactive);
+}
+
+.resource-row-menu-btn:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+:root[data-ui-shell="focused"] .claude-session-table td[data-label="Actions"] {
+  text-align: right;
+}
+
+.resource-value-muted,
+.resource-workspace-cell,
+.resource-message-count {
+  color: var(--text-tertiary);
+}
+
+.resource-session-status {
+  color: var(--status-stale);
+}
+
+.resource-status-running {
+  color: var(--status-running);
+}
+
+.resource-status-failed {
+  color: var(--status-failed);
+}
+
+/* Legacy labeled separators were still one pixel tall, so their text painted
+   over the following command. Give focused menus a real section-heading row. */
+:root[data-ui-shell="focused"] .context-menu-sep-labeled {
+  height: auto;
+  margin: 8px 8px 3px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-subtle);
+  background: transparent;
+}
+
+:root[data-ui-shell="focused"] .context-menu-sep-labeled .ctx-sep-label {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--text-tertiary);
+  line-height: 14px;
+}
+
+/* Coarse-pointer devices include tablets and touch laptops wider than the
+   phone breakpoint. Keep every audited focused-shell target at least 44px
+   without inflating the mouse/trackpad layout. */
+@media (pointer: coarse) {
+  :root[data-ui-shell="focused"] :is(
+    #sidebar-toggle,
+    #account-chip,
+    .sidebar-launch-btn,
+    .focused-more-btn,
+    .terminal-group-tab,
+    .terminal-groups-add,
+    .docs-section-header,
+    .docs-section-actions > button,
+    #appearance-close,
+    #resources-refresh-btn,
+    .resource-row-menu-btn,
+    .terminal-pane-header > button,
+    #workspaces-refresh,
+    #create-workspace-btn,
+    #projects-refresh,
+    #projects-toggle
+  ) {
+    min-height: 44px;
+  }
+
+  :root[data-ui-shell="focused"] :is(
+    #sidebar-toggle,
+    .focused-more-btn,
+    .terminal-groups-add,
+    .docs-section-actions > button,
+    #appearance-close,
+    .resource-row-menu-btn,
+    .terminal-pane-header > button,
+    #workspaces-refresh,
+    #create-workspace-btn,
+    #projects-refresh,
+    #projects-toggle
+  ) {
+    min-width: 44px;
+  }
+
+  :root[data-ui-shell="focused"] .terminal-group-tab-close {
+    display: inline-grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 @media (max-width: 1120px) and (min-width: 769px) {
@@ -498,6 +1105,10 @@
 
   :root[data-ui-shell="focused"] .account-chip-meta,
   :root[data-ui-shell="focused"] .usage-meter {
+    display: none !important;
+  }
+
+  :root[data-ui-shell="focused"][data-density="informative"] #header-stats {
     display: none !important;
   }
 }
@@ -617,6 +1228,146 @@
   :root[data-ui-shell="focused"] .tasks-search-input {
     min-width: 0;
     flex: 1 1 100%;
+  }
+
+  :root[data-ui-shell="focused"] .attention-queue-label {
+    display: none;
+  }
+
+  :root[data-ui-shell="focused"] .attention-queue-btn {
+    min-width: 34px;
+    padding-inline: 7px;
+  }
+
+  :root[data-ui-shell="focused"] .docs-header {
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  :root[data-ui-shell="focused"] .docs-header-left {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  :root[data-ui-shell="focused"] .docs-context {
+    width: 100%;
+  }
+
+  :root[data-ui-shell="focused"] .docs-workspace-select {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .appearance-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .appearance-dialog {
+    width: 100%;
+    max-height: min(88vh, 820px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .appearance-header,
+  .appearance-density,
+  .appearance-themes {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .density-choices {
+    grid-template-columns: 1fr;
+  }
+
+  .density-choice {
+    min-height: 72px;
+  }
+
+  .theme-gallery-grid,
+  .theme-gallery-grid.theme-gallery-featured {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table,
+  :root[data-ui-shell="focused"] .claude-session-table tbody,
+  :root[data-ui-shell="focused"] .claude-session-table tr,
+  :root[data-ui-shell="focused"] .claude-session-table td {
+    display: block;
+    width: 100%;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table tr {
+    position: relative;
+    margin-bottom: 10px;
+    padding: 12px 48px 12px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--surface-raised) 38%, transparent);
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td {
+    display: grid;
+    grid-template-columns: minmax(74px, 0.34fr) minmax(0, 1fr);
+    gap: 8px;
+    padding: 3px 0;
+    border: 0;
+    text-align: left;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td.session-name-cell {
+    display: block;
+    padding-bottom: 8px;
+    font-weight: 650;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td.session-name-cell::before {
+    content: none;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td[data-label="Actions"] {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    display: block;
+    width: 36px;
+    padding: 0;
+  }
+
+  :root[data-ui-shell="focused"] .resource-row-menu-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table td[data-label="Actions"]::before {
+    content: none;
+  }
+
+  :root[data-ui-shell="focused"] .claude-session-table .port-link,
+  :root[data-ui-shell="focused"] .claude-session-table .ports-cell {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   :root[data-ui-shell="focused"] .kanban-board {
