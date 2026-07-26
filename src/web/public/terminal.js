@@ -210,9 +210,64 @@ class TerminalPane {
     brightWhite: '#d8f0e8',
   };
 
-  static getCurrentTheme() {
-    const t = document.documentElement.dataset.theme;
-    switch (t) {
+  /**
+   * Build an xterm palette from the semantic color slots shared by every
+   * Workbook CSS theme. Light themes use darker neutral slots for ANSI black
+   * and lighter surface slots for ANSI white so both ends remain legible.
+   */
+  static _buildThemePalette(tokens, isLight) {
+    return {
+      background: tokens.base,
+      foreground: tokens.text,
+      cursor: tokens.rosewater,
+      cursorAccent: tokens.base,
+      selectionBackground: TerminalPane._colorWithAlpha(
+        tokens.mauve,
+        isLight ? 0.2 : 0.25,
+        isLight ? 'rgba(136, 57, 239, 0.2)' : 'rgba(203, 166, 247, 0.25)'
+      ),
+      selectionForeground: tokens.text,
+      black: isLight ? tokens.subtext1 : tokens.surface1,
+      red: tokens.red,
+      green: tokens.green,
+      yellow: tokens.yellow,
+      blue: tokens.blue,
+      magenta: tokens.mauve,
+      cyan: tokens.teal,
+      white: isLight ? tokens.surface2 : tokens.subtext1,
+      brightBlack: isLight ? tokens.subtext0 : tokens.surface2,
+      brightRed: tokens.red,
+      brightGreen: tokens.green,
+      brightYellow: tokens.yellow,
+      brightBlue: tokens.blue,
+      brightMagenta: tokens.mauve,
+      brightCyan: tokens.teal,
+      brightWhite: isLight ? tokens.surface1 : tokens.text,
+    };
+  }
+
+  /**
+   * Apply alpha to a six-digit CSS hex color. Custom properties currently
+   * resolve to hex; if a future theme uses another format, preserve its
+   * complete static selection fallback rather than returning invalid CSS.
+   */
+  static _colorWithAlpha(color, alpha, fallback) {
+    const match = /^#([0-9a-f]{6})$/i.exec(String(color || '').trim());
+    if (!match) return fallback;
+    const value = parseInt(match[1], 16);
+    const red = (value >> 16) & 255;
+    const green = (value >> 8) & 255;
+    const blue = value & 255;
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+  }
+
+  /**
+   * Complete, theme-correct fallbacks for environments where computed CSS is
+   * unavailable (unit tests, early startup, or a detached document).
+   */
+  static _getThemeFallback(themeId) {
+    switch (themeId) {
+      case 'mocha': return TerminalPane.THEME_MOCHA;
       case 'latte': return TerminalPane.THEME_LATTE;
       case 'frappe': return TerminalPane.THEME_FRAPPE;
       case 'macchiato': return TerminalPane.THEME_MACCHIATO;
@@ -220,8 +275,161 @@ class TerminalPane {
       case 'ocean': return TerminalPane.THEME_OCEAN;
       case 'amber': return TerminalPane.THEME_AMBER;
       case 'mint': return TerminalPane.THEME_MINT;
-      default: return TerminalPane.THEME_MOCHA;
+      case 'nord':
+        return TerminalPane._buildThemePalette({
+          base: '#2e3440',
+          surface1: '#434c5e',
+          surface2: '#4c566a',
+          text: '#eceff4',
+          subtext0: '#a5b1c2',
+          subtext1: '#d8dee9',
+          mauve: '#b48ead',
+          blue: '#81a1c1',
+          green: '#a3be8c',
+          yellow: '#ebcb8b',
+          red: '#bf616a',
+          teal: '#8fbcbb',
+          rosewater: '#d8b4a0',
+        }, false);
+      case 'dracula':
+        return TerminalPane._buildThemePalette({
+          base: '#282a36',
+          surface1: '#44475a',
+          surface2: '#545768',
+          text: '#f8f8f2',
+          subtext0: '#b8b8b0',
+          subtext1: '#d8d8d0',
+          mauve: '#bd93f9',
+          blue: '#8be9fd',
+          green: '#50fa7b',
+          yellow: '#f1fa8c',
+          red: '#ff5555',
+          teal: '#8be9fd',
+          rosewater: '#ffd0e0',
+        }, false);
+      case 'tokyo-night':
+        return TerminalPane._buildThemePalette({
+          base: '#1a1b26',
+          surface1: '#3b4261',
+          surface2: '#545c7e',
+          text: '#c0caf5',
+          subtext0: '#9aa5ce',
+          subtext1: '#a9b1d6',
+          mauve: '#bb9af7',
+          blue: '#7aa2f7',
+          green: '#9ece6a',
+          yellow: '#e0af68',
+          red: '#f7768e',
+          teal: '#73daca',
+          rosewater: '#ffc0cb',
+        }, false);
+      case 'rose-pine-dawn':
+        return TerminalPane._buildThemePalette({
+          base: '#faf4ed',
+          surface1: '#dfdad9',
+          surface2: '#cecacd',
+          text: '#575279',
+          subtext0: '#6e6a86',
+          subtext1: '#635f7b',
+          mauve: '#907aa9',
+          blue: '#286983',
+          green: '#56949f',
+          yellow: '#ea9d34',
+          red: '#b4637a',
+          teal: '#56949f',
+          rosewater: '#d7827e',
+        }, true);
+      case 'gruvbox-light':
+        return TerminalPane._buildThemePalette({
+          base: '#fbf1c7',
+          surface1: '#bdae93',
+          surface2: '#a89984',
+          text: '#3c3836',
+          subtext0: '#504945',
+          subtext1: '#453e3a',
+          mauve: '#8f3f71',
+          blue: '#076678',
+          green: '#79740e',
+          yellow: '#b57614',
+          red: '#9d0006',
+          teal: '#427b58',
+          rosewater: '#c8956c',
+        }, true);
+      default:
+        return null;
     }
+  }
+
+  /**
+   * Resolve a palette from the active root custom properties. Each field has
+   * a complete static fallback, so a missing variable can never make xterm
+   * inherit colors from a different theme.
+   */
+  static _getCssVariableTheme(fallback, isLight) {
+    if (typeof document === 'undefined' || !document.documentElement) return fallback;
+
+    let styles;
+    try {
+      if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+        styles = window.getComputedStyle(document.documentElement);
+      } else if (typeof getComputedStyle === 'function') {
+        styles = getComputedStyle(document.documentElement);
+      } else {
+        return fallback;
+      }
+    } catch (_) {
+      return fallback;
+    }
+
+    const read = (property, fallbackValue) => {
+      try {
+        const value = styles.getPropertyValue(property).trim();
+        return value || fallbackValue;
+      } catch (_) {
+        return fallbackValue;
+      }
+    };
+
+    const tokens = {
+      base: read('--base', fallback.background),
+      surface1: read('--surface1', fallback.black),
+      surface2: read('--surface2', fallback.brightBlack),
+      text: read('--text', fallback.foreground),
+      subtext0: read('--subtext0', isLight ? fallback.brightBlack : fallback.brightWhite),
+      subtext1: read('--subtext1', isLight ? fallback.black : fallback.white),
+      mauve: read('--mauve', fallback.magenta),
+      blue: read('--blue', fallback.blue),
+      green: read('--green', fallback.green),
+      yellow: read('--yellow', fallback.yellow),
+      red: read('--red', fallback.red),
+      teal: read('--teal', fallback.cyan),
+      rosewater: read('--rosewater', fallback.cursor),
+    };
+    const palette = TerminalPane._buildThemePalette(tokens, isLight);
+
+    // _buildThemePalette derives selection alpha from --mauve. Retain the
+    // theme-specific static value if that custom property was not usable.
+    palette.selectionBackground = TerminalPane._colorWithAlpha(
+      tokens.mauve,
+      isLight ? 0.2 : 0.25,
+      fallback.selectionBackground
+    );
+    return palette;
+  }
+
+  static getCurrentTheme() {
+    const themeId = (document.documentElement.dataset.theme || 'mocha');
+    const fallback = TerminalPane._getThemeFallback(themeId);
+    if (!fallback) return TerminalPane.THEME_MOCHA;
+    const isCssDerivedTheme = themeId === 'nord'
+      || themeId === 'dracula'
+      || themeId === 'tokyo-night'
+      || themeId === 'rose-pine-dawn'
+      || themeId === 'gruvbox-light';
+    if (!isCssDerivedTheme) return fallback;
+    const isLight = themeId === 'rose-pine-dawn'
+      || themeId === 'gruvbox-light';
+    return TerminalPane._getCssVariableTheme(fallback, isLight);
   }
 
   // Resolve the smooth-scroll animation duration in ms. Reads the persisted

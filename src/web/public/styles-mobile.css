@@ -545,6 +545,11 @@
     overflow: hidden;
   }
 
+  /* The flex override above must never defeat setViewMode()'s hidden state. */
+  .terminal-grid[hidden] {
+    display: none !important;
+  }
+
   .terminal-pane {
     display: none !important;
     flex: 1;

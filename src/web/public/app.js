@@ -167,7 +167,11 @@ class CWMApp {
       stats: { totalWorkspaces: 0, totalSessions: 0, runningSessions: 0, activeWorkspace: null },
       notifications: [],
       sidebarOpen: false,
-      projectsCollapsed: false,
+      projectsCollapsed: (() => {
+        const saved = localStorage.getItem('cwm_projectsCollapsed');
+        if (saved !== null) return saved === 'true';
+        return document.documentElement.dataset.uiShell === 'focused';
+      })(),
       docs: null,
       docsRawMode: false,
       hiddenSessions: new Set(JSON.parse(localStorage.getItem('cwm_hiddenSessions') || '[]')),
@@ -304,6 +308,12 @@ class CWMApp {
     // ─── Boot ──────────────────────────────────────────────────
     this.cacheElements();
     this.bindEvents();
+    this.setProjectsCollapsed(this.state.projectsCollapsed, false);
+    this.setTheme(
+      document.documentElement.dataset.themeChoice ||
+        document.documentElement.dataset.theme ||
+        'system'
+    );
     this.init();
 
     // Clear the init timeout - we made it
@@ -368,6 +378,7 @@ class CWMApp {
       logoutBtn: document.getElementById('logout-btn'),
       themeToggleBtn: document.getElementById('theme-toggle-btn'),
       themeDropdown: document.getElementById('theme-dropdown'),
+      focusedMoreBtn: document.getElementById('focused-more-btn'),
       vkbToggleBtn: document.getElementById('vkb-toggle-btn'),
       scaleDownBtn: document.getElementById('scale-down-btn'),
       scaleUpBtn: document.getElementById('scale-up-btn'),
@@ -466,6 +477,8 @@ class CWMApp {
       // Terminal Grid
       terminalGrid: document.getElementById('terminal-grid'),
       terminalTabStrip: document.getElementById('terminal-tab-strip'),
+      workbenchStartBtn: document.getElementById('workbench-start-btn'),
+      workbenchProjectsBtn: document.getElementById('workbench-projects-btn'),
 
       // Mobile
       mobileTabBar: document.getElementById('mobile-tab-bar'),
@@ -713,6 +726,21 @@ class CWMApp {
       });
     }
 
+    // Keep the adaptive System theme in sync with the operating system.
+    const appearanceMq = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)');
+    if (appearanceMq) {
+      const onAppearanceChange = () => {
+        if (localStorage.getItem('cwm_theme_choice') === 'system') {
+          this.setTheme('system');
+        }
+      };
+      if (typeof appearanceMq.addEventListener === 'function') {
+        appearanceMq.addEventListener('change', onAppearanceChange);
+      } else if (typeof appearanceMq.addListener === 'function') {
+        appearanceMq.addListener(onAppearanceChange);
+      }
+    }
+
     // Issue #41: re-apply settings when the OS reduced-motion preference
     // changes, so terminal smooth scrolling honors it live (no reload).
     const reducedMotionMq = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -770,6 +798,12 @@ class CWMApp {
     this.els.viewTabs.forEach(tab => {
       tab.addEventListener('click', () => this.setViewMode(tab.dataset.mode));
     });
+    if (this.els.focusedMoreBtn) {
+      this.els.focusedMoreBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.showMoreMenu(this.els.focusedMoreBtn);
+      });
+    }
 
     // Workspaces refresh
     if (this.els.workspacesRefresh) {
@@ -812,6 +846,12 @@ class CWMApp {
     // Launcher button and overlay
     if (this.els.sidebarLaunchBtn) {
       this.els.sidebarLaunchBtn.addEventListener('click', () => this.openLauncher());
+    }
+    if (this.els.workbenchStartBtn) {
+      this.els.workbenchStartBtn.addEventListener('click', () => this.openLauncher());
+    }
+    if (this.els.workbenchProjectsBtn) {
+      this.els.workbenchProjectsBtn.addEventListener('click', () => this.setViewMode('workspace'));
     }
     if (this.els.launcherClose) {
       this.els.launcherClose.addEventListener('click', () => this.closeLauncher());
@@ -882,10 +922,17 @@ class CWMApp {
     document.addEventListener('click', (e) => {
       // Don't dismiss if clicking inside the context menu (submenus need to stay open)
       if (this.els.contextMenu && this.els.contextMenu.contains(e.target)) return;
-      this.hideContextMenu();
+      this.hideContextMenu({ restoreFocus: true });
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.hideContextMenu();
+      if (!this.els.contextMenu || this.els.contextMenu.hidden) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.hideContextMenu({ restoreFocus: true });
+        return;
+      }
+      this._handleContextMenuKeydown(e);
     });
 
     // Image upload - file input change handler
@@ -940,7 +987,7 @@ class CWMApp {
     });
     document.querySelectorAll('.docs-section-header').forEach(header => {
       header.addEventListener('click', (e) => {
-        if (e.target.closest('.docs-add-btn')) return;
+        if (e.target.closest('button')) return;
         const body = header.nextElementSibling;
         const chevron = header.querySelector('.docs-section-chevron');
         if (body) body.hidden = !body.hidden;
@@ -1350,8 +1397,12 @@ class CWMApp {
             this.showMoreMenu();
           } else if (view === 'workspace') {
             this.setViewMode('workspace');
-            // Also open sidebar on mobile for workspace access
-            if (this.isMobile && !this.state.sidebarOpen) {
+            const focusedShell = document.documentElement.dataset.uiShell === 'focused';
+            // In the focused shell, Sessions is a real destination; projects
+            // remain available from the hamburger drawer.
+            if (this.isMobile && focusedShell && this.state.sidebarOpen) {
+              this.toggleSidebar();
+            } else if (this.isMobile && !focusedShell && !this.state.sidebarOpen) {
               this.toggleSidebar();
             }
           } else {
@@ -1373,6 +1424,27 @@ class CWMApp {
     }
     if (this.els.actionSheetCancel) {
       this.els.actionSheetCancel.addEventListener('click', () => this.hideActionSheet());
+    }
+    if (this.els.actionSheet) {
+      this.els.actionSheet.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.hideActionSheet();
+          return;
+        }
+        if (e.key !== 'Tab') return;
+        const focusable = Array.from(
+          this.els.actionSheet.querySelectorAll('button:not([disabled])')
+        );
+        if (focusable.length === 0) return;
+        const current = focusable.indexOf(document.activeElement);
+        const next = e.shiftKey
+          ? (current <= 0 ? focusable.length - 1 : current - 1)
+          : (current === focusable.length - 1 ? 0 : current + 1);
+        e.preventDefault();
+        focusable[next].focus();
+      });
     }
 
     // ─── Mobile: Touch Gestures ─────────────────────────────
@@ -2242,8 +2314,14 @@ class CWMApp {
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
     if (urlToken) {
-      // Always strip token from URL to avoid leaking in browser history/referrer
-      window.history.replaceState({}, '', window.location.pathname);
+      // Always strip only the credential from URL history/referrers. Preserve
+      // benign switches such as ?ui=classic so a reload keeps its shell mode.
+      params.delete('token');
+      const remainingQuery = params.toString();
+      const sanitizedUrl = window.location.pathname +
+        (remainingQuery ? `?${remainingQuery}` : '') +
+        window.location.hash;
+      window.history.replaceState({}, '', sanitizedUrl);
       try {
         await this.tokenLogin(urlToken);
         return; // tokenLogin() handles showApp/loadAll/connectSSE
@@ -2420,7 +2498,7 @@ class CWMApp {
     // Restore persisted state
     const savedWorkspaceId = localStorage.getItem('cwm_activeWorkspace');
     const savedViewMode = localStorage.getItem('cwm_viewMode');
-    if (savedViewMode && ['workspace', 'all', 'costs', 'recent', 'terminal', 'docs', 'resources'].includes(savedViewMode)) {
+    if (savedViewMode && ['workspace', 'all', 'costs', 'recent', 'terminal', 'docs', 'resources', 'tasks'].includes(savedViewMode)) {
       this.state.viewMode = savedViewMode;
     }
     // Always apply the current view mode (handles default 'terminal' for new users)
@@ -3518,12 +3596,79 @@ class CWMApp {
     this._renderContextItems(session.name, items, x, y);
   }
 
-  hideContextMenu() {
-    // Hide any open submenus first
-    this.els.contextMenu.querySelectorAll('.ctx-submenu-visible').forEach(s => {
-      s.classList.remove('ctx-submenu-visible');
+  _handleContextMenuKeydown(e) {
+    const menu = this.els.contextMenu;
+    if (!menu || menu.hidden) return;
+
+    const items = Array.from(
+      menu.querySelectorAll('button.context-menu-item:not([disabled])')
+    ).filter(button => {
+      const submenu = button.closest('.ctx-submenu');
+      return !submenu || submenu.classList.contains('ctx-submenu-visible');
     });
-    this.els.contextMenu.hidden = true;
+    if (items.length === 0) return;
+
+    const current = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowRight' && document.activeElement?.matches('[aria-haspopup="menu"]')) {
+      e.preventDefault();
+      document.activeElement.click();
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      const submenu = document.activeElement?.closest('.ctx-submenu-visible');
+      if (submenu) {
+        e.preventDefault();
+        submenu.classList.remove('ctx-submenu-visible');
+        const parent = menu.querySelector(
+          `.ctx-item-wrapper[data-idx="${submenu.dataset.parentIdx}"] > .context-menu-item`
+        );
+        if (parent) {
+          parent.setAttribute('aria-expanded', 'false');
+          parent.focus();
+        }
+      }
+      return;
+    }
+
+    let next = null;
+    if (e.key === 'ArrowDown') {
+      next = current < 0 || current === items.length - 1 ? 0 : current + 1;
+    } else if (e.key === 'ArrowUp') {
+      next = current <= 0 ? items.length - 1 : current - 1;
+    } else if (e.key === 'Home') {
+      next = 0;
+    } else if (e.key === 'End') {
+      next = items.length - 1;
+    } else if (e.key === 'Tab') {
+      next = e.shiftKey
+        ? (current <= 0 ? items.length - 1 : current - 1)
+        : (current < 0 || current === items.length - 1 ? 0 : current + 1);
+    }
+
+    if (next !== null) {
+      e.preventDefault();
+      items[next].focus();
+    }
+  }
+
+  hideContextMenu({ restoreFocus = false } = {}) {
+    const focusWasInsideMenu = !!(
+      this.els.contextMenu &&
+      this.els.contextMenu.contains(document.activeElement)
+    );
+    // Hide any open submenus first
+    if (this.els.contextMenu) {
+      this.els.contextMenu.querySelectorAll('.ctx-submenu-visible').forEach(s => {
+        s.classList.remove('ctx-submenu-visible');
+      });
+      this.els.contextMenu.hidden = true;
+    }
+    const returnFocus = this._contextMenuReturnFocus;
+    if (returnFocus) returnFocus.setAttribute('aria-expanded', 'false');
+    this._contextMenuReturnFocus = null;
+    if (restoreFocus && focusWasInsideMenu && returnFocus && returnFocus.isConnected) {
+      returnFocus.focus({ preventScroll: true });
+    }
   }
 
   /**
@@ -4113,17 +4258,34 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   setTheme(themeName) {
-    if (themeName === 'mocha') {
-      delete document.documentElement.dataset.theme;
-    } else {
-      document.documentElement.dataset.theme = themeName;
+    const registry = window.MyrlinThemeRegistry;
+    const prefersLight = window.matchMedia &&
+      window.matchMedia('(prefers-color-scheme: light)').matches;
+    let choice = themeName;
+    let resolved = registry
+      ? registry.resolveFeaturedChoice(choice, prefersLight ? 'light' : 'dark')
+      : null;
+
+    if (!resolved && registry && registry.getTheme(choice)) {
+      resolved = choice;
     }
-    localStorage.setItem('cwm_theme', themeName);
+    if (!resolved) {
+      choice = registry ? registry.DEFAULT_DARK_THEME_ID : 'mocha';
+      resolved = choice;
+    }
+
+    document.documentElement.dataset.theme = resolved;
+    document.documentElement.dataset.themeChoice = choice;
+    localStorage.setItem('cwm_theme', resolved);
+    localStorage.setItem('cwm_theme_choice', choice);
 
     // Update active state in dropdown
     if (this.els.themeDropdown) {
       this.els.themeDropdown.querySelectorAll('.theme-option').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.theme === themeName);
+        const active = btn.dataset.theme === resolved ||
+          btn.dataset.themeChoice === choice;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       });
     }
 
@@ -4133,6 +4295,17 @@ class CWMApp {
         tp.term.options.theme = TerminalPane.getCurrentTheme();
       }
     });
+
+    const themeMeta = registry && registry.getTheme(resolved);
+    document.documentElement.style.colorScheme =
+      themeMeta && themeMeta.appearance === 'light' ? 'light' : 'dark';
+    const themeColor = document.querySelector('meta[name="theme-color"]');
+    if (themeColor) {
+      const color = getComputedStyle(document.documentElement)
+        .getPropertyValue('--bg-secondary')
+        .trim();
+      if (color) themeColor.content = color;
+    }
   }
 
   _applyVkbState() {
@@ -4154,7 +4327,10 @@ class CWMApp {
   // Legacy alias for any remaining callers
   toggleTheme() {
     const current = document.documentElement.dataset.theme || 'mocha';
-    const themes = ['mocha', 'macchiato', 'frappe', 'nord', 'dracula', 'tokyo-night', 'cherry', 'ocean', 'amber', 'mint', 'latte', 'rose-pine-dawn', 'gruvbox-light'];
+    const registry = window.MyrlinThemeRegistry;
+    const themes = registry
+      ? registry.LEGACY_THEME_IDS
+      : ['mocha', 'latte'];
     const next = themes[(themes.indexOf(current) + 1) % themes.length];
     this.setTheme(next);
   }
@@ -5640,12 +5816,25 @@ class CWMApp {
 
     // Restore persisted tab
     const saved = localStorage.getItem('cwm_tasksTab') || 'worktree';
-    this._switchTasksTab(saved);
+    const savedTab = Array.from(strip.querySelectorAll('.tasks-tab'))
+      .find(tab => tab.dataset.tasksTab === saved);
+    const savedIsAvailable = savedTab && !savedTab.hidden &&
+      getComputedStyle(savedTab).display !== 'none';
+    this._switchTasksTab(savedIsAvailable ? saved : 'worktree');
   }
 
   _switchTasksTab(name) {
     const strip = document.getElementById('tasks-tab-strip');
     if (!strip) return;
+
+    // Preview tabs remain available in the classic shell, but a stale
+    // preference must not reopen a surface hidden by the focused hierarchy.
+    const requestedTab = Array.from(strip.querySelectorAll('.tasks-tab'))
+      .find(tab => tab.dataset.tasksTab === name);
+    if (!requestedTab || requestedTab.hidden ||
+        getComputedStyle(requestedTab).display === 'none') {
+      name = 'worktree';
+    }
 
     // Guard: prompt before leaving files tab with unsaved changes
     if (this._activeTasksTab === 'files' && name !== 'files' && this._filesEditorDirty) {
@@ -6642,7 +6831,8 @@ class CWMApp {
   async renderTasksView(container = null) {
     // Initialize layout from localStorage (default: board)
     if (!this._tasksLayout) {
-      this._tasksLayout = localStorage.getItem('cwm_tasksLayout') || 'board';
+      this._tasksLayout = localStorage.getItem('cwm_tasksLayout') ||
+        (this.isMobile ? 'list' : 'board');
       // Sync toggle UI
       if (this.els.tasksLayoutToggle) {
         this.els.tasksLayoutToggle.querySelectorAll('.tasks-layout-btn').forEach(btn => {
@@ -6665,7 +6855,7 @@ class CWMApp {
           <div class="tasks-empty">
             <div class="tasks-empty-icon">&#128736;</div>
             <div class="tasks-empty-title">No worktree tasks</div>
-            <div class="tasks-empty-desc">Create a task to have Claude work on a feature in an isolated git branch. Click "New Task" above to get started.</div>
+            <div class="tasks-empty-desc">Create a task for an agent to work on a feature in an isolated git branch. Click "New Task" above to get started.</div>
           </div>`;
         if (this._tasksLayout === 'board' && this.els.kanbanBoard) {
           this.els.kanbanBoard.innerHTML = emptyHtml;
@@ -10508,6 +10698,7 @@ class CWMApp {
 
     this.state.viewMode = mode;
     localStorage.setItem('cwm_viewMode', mode);
+    document.documentElement.dataset.viewMode = mode;
 
     // Update desktop tab states
     this.els.viewTabs.forEach(tab => {
@@ -10515,11 +10706,22 @@ class CWMApp {
       tab.classList.toggle('active', isActive);
       tab.setAttribute('aria-selected', isActive);
     });
+    if (this.els.focusedMoreBtn) {
+      const isSecondaryView = ['costs', 'recent', 'docs', 'resources'].includes(mode);
+      this.els.focusedMoreBtn.classList.toggle('active', isSecondaryView);
+      if (isSecondaryView) this.els.focusedMoreBtn.setAttribute('aria-current', 'page');
+      else this.els.focusedMoreBtn.removeAttribute('aria-current');
+    }
 
     // Update mobile tab bar
     if (this.els.mobileTabBar) {
+      const isMoreDestination = ['costs', 'recent', 'docs', 'resources'].includes(mode);
       this.els.mobileTabBar.querySelectorAll('.mobile-tab').forEach(tab => {
-        tab.classList.toggle('active', tab.dataset.view === mode);
+        const isActive = tab.dataset.view === mode ||
+          (tab.dataset.view === 'more' && isMoreDestination);
+        tab.classList.toggle('active', isActive);
+        if (isActive) tab.setAttribute('aria-current', 'page');
+        else tab.removeAttribute('aria-current');
       });
     }
 
@@ -10552,6 +10754,7 @@ class CWMApp {
     } else {
       document.documentElement.classList.remove('terminal-active');
       document.body.classList.remove('terminal-active');
+      document.body.classList.remove('keyboard-open');
     }
     if (this.els.docsPanel) {
       this.els.docsPanel.hidden = !isDocs;
@@ -10592,7 +10795,7 @@ class CWMApp {
       });
     } else {
       // Update panel title
-      const titles = { workspace: 'Sessions', recent: 'Recent Sessions' };
+      const titles = { workspace: 'Sessions', recent: 'Recent activity' };
       this.els.sessionPanelTitle.textContent = titles[mode] || 'Sessions';
 
       // Load sessions for new mode
@@ -13642,21 +13845,31 @@ class CWMApp {
 
   }
 
-  toggleProjectsPanel() {
-    this.state.projectsCollapsed = !this.state.projectsCollapsed;
-    const list = this.els.projectsList;
-    if (list) {
-      list.hidden = this.state.projectsCollapsed;
-    }
-    // Rotate the toggle chevron
+  setProjectsCollapsed(collapsed, persist = true) {
+    this.state.projectsCollapsed = !!collapsed;
+    const targets = [
+      this.els.projectsList,
+      document.getElementById('projects-search-bar'),
+      document.getElementById('sidebar-section-resize'),
+    ];
+    targets.forEach(element => {
+      if (element) element.hidden = this.state.projectsCollapsed;
+    });
+
     const toggle = this.els.projectsToggle;
     if (toggle) {
-      const svg = toggle.querySelector('svg');
-      if (svg) {
-        svg.style.transform = this.state.projectsCollapsed ? 'rotate(-90deg)' : '';
-        svg.style.transition = 'transform var(--transition-fast)';
-      }
+      toggle.setAttribute('aria-expanded', this.state.projectsCollapsed ? 'false' : 'true');
+      toggle.title = this.state.projectsCollapsed
+        ? 'Show discovered sessions'
+        : 'Hide discovered sessions';
     }
+    if (persist) {
+      localStorage.setItem('cwm_projectsCollapsed', String(this.state.projectsCollapsed));
+    }
+  }
+
+  toggleProjectsPanel() {
+    this.setProjectsCollapsed(!this.state.projectsCollapsed);
   }
 
 
@@ -16392,16 +16605,25 @@ class CWMApp {
   showActionSheet(title, items) {
     if (!this.els.actionSheetOverlay) return;
 
+    const openingNewSheet = this.els.actionSheetOverlay.hidden;
+    if (openingNewSheet) {
+      this._actionSheetReturnFocus = document.activeElement;
+    }
+
     // Header
     this.els.actionSheetHeader.textContent = title || '';
 
-    // Flatten submenu items inline for mobile action sheets
+    // Keep submenus as a second sheet. Flattening Appearance into More used to
+    // turn one utility menu into a twenty-item theme catalogue.
     const flatItems = [];
     items.forEach(item => {
       if (item.submenu) {
-        flatItems.push({ label: item.label + ':', icon: item.icon, disabled: true });
-        item.submenu.forEach(sub => {
-          flatItems.push({ ...sub, label: '  ' + sub.label, icon: '&#183;' });
+        flatItems.push({
+          ...item,
+          label: item.label + ' \u203a',
+          submenu: undefined,
+          opensSubmenu: true,
+          action: () => this.showActionSheet(item.label, item.submenu),
         });
       } else {
         flatItems.push(item);
@@ -16411,7 +16633,7 @@ class CWMApp {
     // Build items HTML
     const container = this.els.actionSheetItems;
     container.innerHTML = flatItems.map((item, i) => {
-      if (item.type === 'sep') return '<div class="action-sheet-sep"></div>';
+      if (item.type === 'sep') return '<div class="action-sheet-sep" role="separator"></div>';
       const cls = ['action-sheet-item'];
       if (item.danger) cls.push('as-danger');
       if (item.check) cls.push('as-checked');
@@ -16429,7 +16651,7 @@ class CWMApp {
       const item = flatItems[idx];
       if (item && item.action) {
         btn.addEventListener('click', () => {
-          this.hideActionSheet();
+          if (!item.opensSubmenu) this.hideActionSheet();
           item.action();
         });
       }
@@ -16437,14 +16659,30 @@ class CWMApp {
 
     // Show
     this.els.actionSheetOverlay.hidden = false;
+    if (this.els.actionSheet) {
+      this.els.actionSheet.scrollTop = 0;
+      requestAnimationFrame(() => {
+        this.els.actionSheet.scrollTop = 0;
+        const firstItem = this.els.actionSheet.querySelector(
+          '.action-sheet-item:not([disabled])'
+        );
+        if (firstItem) firstItem.focus({ preventScroll: true });
+        else this.els.actionSheet.focus({ preventScroll: true });
+      });
+    }
     document.body.classList.add('sheet-open');
   }
 
-  hideActionSheet() {
+  hideActionSheet({ restoreFocus = true } = {}) {
     if (this.els.actionSheetOverlay) {
       this.els.actionSheetOverlay.hidden = true;
     }
     document.body.classList.remove('sheet-open');
+    const returnFocus = this._actionSheetReturnFocus;
+    this._actionSheetReturnFocus = null;
+    if (restoreFocus && returnFocus && returnFocus.isConnected) {
+      returnFocus.focus({ preventScroll: true });
+    }
   }
 
   /**
@@ -16455,6 +16693,25 @@ class CWMApp {
    * @returns {Array<{label: string, check: boolean, action: Function}>}
    */
   _buildThemeMenuItems() {
+    const registry = window.MyrlinThemeRegistry;
+    const activeChoice = document.documentElement.dataset.themeChoice ||
+      localStorage.getItem('cwm_theme_choice') ||
+      document.documentElement.dataset.theme ||
+      'system';
+    if (registry) {
+      const featured = registry.FEATURED_THEME_CHOICES.map(choice => ({
+        label: choice.label,
+        check: choice.id === activeChoice,
+        action: () => this.setTheme(choice.id),
+      }));
+      const more = registry.THEME_REGISTRY.map(theme => ({
+        label: `More themes · ${theme.label}`,
+        check: theme.id === activeChoice,
+        action: () => this.setTheme(theme.id),
+      }));
+      return featured.concat(more);
+    }
+
     const dropdown = this.els.themeDropdown;
     if (!dropdown) return [];
     const activeTheme = document.documentElement.dataset.theme || 'mocha';
@@ -16481,23 +16738,50 @@ class CWMApp {
    * P0-2 / P0-3: on mobile the entire header-right cluster is hidden and three
    * view modes have no bottom-bar entry. This sheet is the single reachable
    * surface for all of them, so it exposes: the Tasks/Recent/Resources views,
-   * Settings, Theme (submenu, flattened by showActionSheet), Pair Device, the
+   * Settings, Appearance, Pair Device, the
    * Session Manager, and Conflicts (only when there are active conflicts). Each
    * item reuses the exact function the hidden header button calls; no logic is
    * duplicated here.
    */
-  showMoreMenu() {
+  showMoreMenu(anchorElement = null) {
+    if (
+      anchorElement &&
+      this.els.contextMenu &&
+      !this.els.contextMenu.hidden &&
+      this._contextMenuReturnFocus === anchorElement
+    ) {
+      this.hideContextMenu({ restoreFocus: true });
+      return;
+    }
+
+    const activeWorkspace = this.state.activeWorkspace;
     const items = [
       // ── Views without a bottom-bar tab (P0-3) ──
-      { label: 'Tasks', icon: '&#9745;', action: () => this.setViewMode('tasks') },
-      { label: 'Recent', icon: '&#128337;', action: () => this.setViewMode('recent') },
-      { label: 'Resources', icon: '&#128202;', action: () => this.setViewMode('resources') },
+      { label: 'Recent activity', icon: '&#128337;', action: () => this.setViewMode('recent') },
+      { label: 'Costs', icon: '&#36;', action: () => this.setViewMode('costs') },
+      { label: 'System resources', icon: '&#128202;', action: () => this.setViewMode('resources') },
+      {
+        label: activeWorkspace ? 'Project notes' : 'Project notes (choose a project)',
+        icon: '&#128196;',
+        disabled: !activeWorkspace,
+        action: () => this.setViewMode('docs'),
+      },
       { type: 'sep' },
       // ── Hidden header-right actions (P0-2) ──
+      { label: 'Quick switcher', icon: '&#128269;', action: () => this.openQuickSwitcher() },
+      {
+        label: 'Discover sessions',
+        icon: '&#128260;',
+        action: () => {
+          this.setProjectsCollapsed(false);
+          if (this.isMobile && !this.state.sidebarOpen) this.toggleSidebar();
+        },
+      },
+      { label: 'All sessions', icon: '&#9776;', action: () => this.toggleSessionManager('all') },
+      { type: 'sep' },
       { label: 'Settings', icon: '&#9881;', action: () => this.openSettings() },
-      { label: 'Theme', icon: '&#127912;', submenu: this._buildThemeMenuItems() },
-      { label: 'Pair Device', icon: '&#128241;', action: () => this.showPairMobileModal() },
-      { label: 'Sessions', icon: '&#9776;', action: () => this.toggleSessionManager('all') },
+      { label: 'Appearance', icon: '&#127912;', submenu: this._buildThemeMenuItems() },
+      { label: 'Pair device', icon: '&#128241;', action: () => this.showPairMobileModal() },
     ];
 
     // Conflicts entry only appears when the active workspace has conflicts,
@@ -16514,33 +16798,45 @@ class CWMApp {
 
     items.push(
       { type: 'sep' },
-      { label: 'Quick Switcher', icon: '&#128269;', action: () => this.openQuickSwitcher() },
-      { label: 'Discover Sessions', icon: '&#128260;', action: () => this.discoverSessions() },
+      { label: 'Restart all sessions', icon: '&#8635;', action: () => this.restartAllSessions() },
       { type: 'sep' },
-      { label: 'Restart All Sessions', icon: '&#8635;', action: () => this.restartAllSessions() },
-      { type: 'sep' },
-      { label: 'Logout', icon: '&#9211;', action: () => this.logout(), danger: true },
+      { label: 'Sign out', icon: '&#9211;', action: () => this.logout(), danger: true },
     );
 
-    this.showActionSheet('', items);
+    if (this.isMobile || !anchorElement) {
+      this.showActionSheet('More', items);
+      return;
+    }
+    const rect = anchorElement.getBoundingClientRect();
+    this._renderContextItems('More', items, rect.left, rect.bottom + 6, {
+      focusMenu: true,
+      triggerElement: anchorElement,
+    });
   }
 
   /**
    * Render items as an action sheet on mobile, or as a floating context menu on desktop.
    * Both use the same item format: { label, icon, action, danger, check, disabled } | { type: 'sep' }
    */
-  _renderContextItems(title, items, x, y) {
+  _renderContextItems(title, items, x, y, options = {}) {
     if (this.isMobile) {
       this.showActionSheet(title, items);
       return;
     }
 
+    const { focusMenu = false, triggerElement = null } = options;
+    if (this._contextMenuReturnFocus && this._contextMenuReturnFocus !== triggerElement) {
+      this._contextMenuReturnFocus.setAttribute('aria-expanded', 'false');
+    }
+    this._contextMenuReturnFocus = triggerElement;
+    if (triggerElement) triggerElement.setAttribute('aria-expanded', 'true');
+
     // Desktop: render floating context menu (existing behavior)
     const container = this.els.contextMenuItems;
     container.innerHTML = items.map((item, idx) => {
       if (item.type === 'sep') {
-        if (item.label) return `<div class="context-menu-sep"><span class="ctx-sep-label">${item.label}</span></div>`;
-        return '<div class="context-menu-sep"></div>';
+        if (item.label) return `<div class="context-menu-sep" role="separator"><span class="ctx-sep-label">${item.label}</span></div>`;
+        return '<div class="context-menu-sep" role="separator"></div>';
       }
       const cls = ['context-menu-item'];
       if (item.danger) cls.push('ctx-danger');
@@ -16554,18 +16850,21 @@ class CWMApp {
       // Build submenu HTML if present
       let submenuHtml = '';
       if (item.submenu) {
-        submenuHtml = `<div class="ctx-submenu" data-parent-idx="${idx}">` +
+        submenuHtml = `<div class="ctx-submenu" data-parent-idx="${idx}" role="menu" aria-label="${item.label}">` +
           item.submenu.map((sub, si) => {
             const sCls = ['context-menu-item'];
             if (sub.check) sCls.push('ctx-checked');
             if (sub.danger) sCls.push('ctx-danger');
             const sCheck = sub.check !== undefined ? `<span class="ctx-check">${sub.check ? '&#10003;' : ''}</span>` : '';
-            return `<button class="${sCls.join(' ')}" data-sub-idx="${si}">
+            return `<button class="${sCls.join(' ')}" data-sub-idx="${si}" role="menuitem">
               ${sub.label}${sCheck}
             </button>`;
           }).join('') + '</div>';
       }
-      return `<div class="ctx-item-wrapper" data-idx="${idx}"><button class="${cls.join(' ')}"${disabledAttr} data-action="${item.label}">
+      const submenuAttrs = item.submenu
+        ? ' aria-haspopup="menu" aria-expanded="false"'
+        : '';
+      return `<div class="ctx-item-wrapper" data-idx="${idx}" role="none"><button class="${cls.join(' ')}"${disabledAttr} data-action="${item.label}" role="menuitem"${submenuAttrs}>
         <span class="ctx-icon">${item.icon || ''}</span>${item.label}${hint}${checkMark}${arrow}
       </button>${submenuHtml}</div>`;
     }).join('');
@@ -16599,6 +16898,10 @@ class CWMApp {
     const hideAllSubmenus = () => {
       container.querySelectorAll('.ctx-submenu').forEach(s => {
         s.classList.remove('ctx-submenu-visible');
+        const parent = container.querySelector(
+          `.ctx-item-wrapper[data-idx="${s.dataset.parentIdx}"] > .context-menu-item`
+        );
+        if (parent) parent.setAttribute('aria-expanded', 'false');
       });
     };
 
@@ -16610,6 +16913,10 @@ class CWMApp {
       cancelClose();
       submenuCloseTimer = setTimeout(() => {
         subEl.classList.remove('ctx-submenu-visible');
+        const parent = subEl.parentElement
+          ? subEl.parentElement.querySelector(':scope > .context-menu-item')
+          : null;
+        if (parent) parent.setAttribute('aria-expanded', 'false');
       }, 120); // 120ms grace period to cross the gap
     };
 
@@ -16627,7 +16934,10 @@ class CWMApp {
         wrapper.addEventListener('mouseenter', () => {
           cancelClose(); // cancel any pending close from a prior submenu
           hideAllSubmenus();
-          if (subEl) positionSubmenu(wrapper, subEl);
+          if (subEl) {
+            positionSubmenu(wrapper, subEl);
+            if (parentBtn) parentBtn.setAttribute('aria-expanded', 'true');
+          }
         });
         wrapper.addEventListener('mouseleave', () => {
           if (subEl) scheduleClose(subEl);
@@ -16646,7 +16956,16 @@ class CWMApp {
             if (subEl) {
               const isVisible = subEl.classList.contains('ctx-submenu-visible');
               hideAllSubmenus();
-              if (!isVisible) positionSubmenu(wrapper, subEl);
+              if (!isVisible) {
+                positionSubmenu(wrapper, subEl);
+                parentBtn.setAttribute('aria-expanded', 'true');
+                if (e.detail === 0) {
+                  const firstSubItem = subEl.querySelector(
+                    '.context-menu-item:not([disabled])'
+                  );
+                  if (firstSubItem) firstSubItem.focus();
+                }
+              }
             }
           });
         }
@@ -16658,7 +16977,7 @@ class CWMApp {
           if (sub && sub.action) {
             btn.addEventListener('click', (e) => {
               e.stopPropagation();
-              this.hideContextMenu();
+              this.hideContextMenu({ restoreFocus: true });
               sub.action();
             });
           }
@@ -16667,7 +16986,7 @@ class CWMApp {
         const btn = wrapper.querySelector('.context-menu-item');
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
-          this.hideContextMenu();
+          this.hideContextMenu({ restoreFocus: true });
           item.action();
         });
         // When hovering a non-submenu item, hide any open submenus
@@ -16677,12 +16996,20 @@ class CWMApp {
 
     // Position the menu, clamping to viewport
     const menu = this.els.contextMenu;
+    menu.setAttribute('aria-label', title || 'Context menu');
     menu.hidden = false;
     const rect = menu.getBoundingClientRect();
     const mx = Math.min(x, window.innerWidth - rect.width - 8);
     const my = Math.min(y, window.innerHeight - rect.height - 8);
     menu.style.left = Math.max(4, mx) + 'px';
     menu.style.top = Math.max(4, my) + 'px';
+
+    if (focusMenu) {
+      const firstItem = container.querySelector(
+        ':scope > .ctx-item-wrapper > .context-menu-item:not([disabled])'
+      );
+      if (firstItem) firstItem.focus({ preventScroll: true });
+    }
   }
 
   /* ─── Mobile Terminal Tab Strip ──────────────────────────── */
@@ -16988,6 +17315,43 @@ class CWMApp {
     }
   }
 
+  _syncDocsSectionDensity(counts) {
+    const focused = document.documentElement.dataset.uiShell === 'focused';
+    Object.entries(counts).forEach(([name, count]) => {
+      const elementKey = `docs${name[0].toUpperCase()}${name.slice(1)}List`;
+      const body = this.els[elementKey];
+      const section = body ? body.closest('.docs-section') : null;
+      if (!body || !section) return;
+
+      const isEmpty = count === 0;
+      section.dataset.empty = String(isEmpty);
+      if (!focused) return;
+
+      const chevron = section.querySelector('.docs-section-chevron');
+      if (isEmpty) {
+        body.hidden = true;
+        section.dataset.autoCollapsed = 'true';
+        if (chevron) chevron.classList.remove('open');
+      } else if (section.dataset.autoCollapsed === 'true') {
+        body.hidden = false;
+        delete section.dataset.autoCollapsed;
+        if (chevron) chevron.classList.add('open');
+      }
+    });
+
+    const insightPrompt = this.els.docsAiInsights
+      ? this.els.docsAiInsights.querySelector('.ai-insights-empty')
+      : null;
+    if (
+      insightPrompt
+      && /^(Select a project|Choose a project|Refresh to summarize)/.test(insightPrompt.textContent)
+    ) {
+      insightPrompt.textContent = this.state.activeWorkspace
+        ? 'Refresh to summarize sessions in this project.'
+        : 'Choose a project to see session summaries.';
+    }
+  }
+
   renderDocs() {
     const docs = this.state.docs;
     const ws = this.state.activeWorkspace;
@@ -17010,15 +17374,29 @@ class CWMApp {
       if (this.els.docsRoadmapCount) this.els.docsRoadmapCount.textContent = '0';
       if (this.els.docsRulesCount) this.els.docsRulesCount.textContent = '0';
       if (this.els.docsRawEditor) this.els.docsRawEditor.value = '';
+      this._syncDocsSectionDensity({
+        notes: 0,
+        goals: 0,
+        tasks: 0,
+        roadmap: 0,
+        rules: 0,
+      });
       return;
     }
 
     // Counts
-    if (this.els.docsNotesCount) this.els.docsNotesCount.textContent = (docs.notes || []).length;
-    if (this.els.docsGoalsCount) this.els.docsGoalsCount.textContent = (docs.goals || []).length;
-    if (this.els.docsTasksCount) this.els.docsTasksCount.textContent = (docs.tasks || []).length;
-    if (this.els.docsRoadmapCount) this.els.docsRoadmapCount.textContent = (docs.roadmap || []).length;
-    if (this.els.docsRulesCount) this.els.docsRulesCount.textContent = (docs.rules || []).length;
+    const docsCounts = {
+      notes: (docs.notes || []).length,
+      goals: (docs.goals || []).length,
+      tasks: (docs.tasks || []).length,
+      roadmap: (docs.roadmap || []).length,
+      rules: (docs.rules || []).length,
+    };
+    if (this.els.docsNotesCount) this.els.docsNotesCount.textContent = docsCounts.notes;
+    if (this.els.docsGoalsCount) this.els.docsGoalsCount.textContent = docsCounts.goals;
+    if (this.els.docsTasksCount) this.els.docsTasksCount.textContent = docsCounts.tasks;
+    if (this.els.docsRoadmapCount) this.els.docsRoadmapCount.textContent = docsCounts.roadmap;
+    if (this.els.docsRulesCount) this.els.docsRulesCount.textContent = docsCounts.rules;
 
     // Notes — built with DOM APIs to support pin buttons safely (no user HTML injected)
     if (this.els.docsNotesList) {
@@ -17169,6 +17547,7 @@ class CWMApp {
     if (this.els.docsRawEditor) {
       this.els.docsRawEditor.value = docs.raw || '';
     }
+    this._syncDocsSectionDensity(docsCounts);
   }
 
   async addDocsItem(section) {

@@ -915,6 +915,8 @@ const standaloneTests = [
   'codex-artifact-path.test.js',     // session-lifecycle: codex findArtifactPath/findArtifactByWorkingDir parity (cost 500 fix)
   'idle-notification-gating.test.js', // notification-storm fix: edge-triggered re-arm, replay suppression, refire cooldown, focus ack
   'mobile-ux-fixes.test.js',         // fix/mobile-ux: mobile tab scroll, More sheet, settings sheet, long-press + tab touch paths
+  'focused-shell.test.js',           // focused shell: reduced hierarchy, classic recovery, mobile parity, maturity/theme gates
+  'theme-registry.test.js',          // focused shell: canonical appearance registry + complete xterm palette parity
   'phantom-tokens.test.js',          // ui-token-repair: every consumed var(--x) must be defined (phantom-token gate)
   'smooth-scroll.test.js',           // issue #41: xterm smoothScrollDuration capability gate, setting/reduced-motion resolution, mobile engine guard
   'credential-manager.test.js',      // credential switcher T1: snapshot store, rotation write-back, corrected token-state model, apply transaction

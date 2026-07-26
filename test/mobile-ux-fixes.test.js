@@ -10,8 +10,9 @@
  *   P0-1  Tab strip is touch-scrollable (no touch-action:none on the tab; the
  *         strip and folder header opt into pan-x) and scroll is preserved
  *         across re-renders with the active tab scrolled into view.
- *   P0-2  The More sheet exposes Settings / Theme / Pair Device / Sessions.
- *   P0-3  The More sheet routes to the Tasks / Recent / Resources views.
+ *   P0-2  The More sheet exposes Settings / Appearance / Pair / All sessions.
+ *   P0-3  The More sheet routes to secondary, contextual views. Tasks is a
+ *          first-level destination in the focused mobile shell.
  *   P1-1  The Settings panel becomes a full-screen sheet on phones.
  *   P1-2  Pane long-press skips the terminal surface; sidebar long-press timers
  *         are cleared on dragstart.
@@ -187,13 +188,34 @@ function methodBody(src, methodName) {
   return src.slice(start, i + 1);
 }
 
-check('P0-2: More sheet exposes Settings / Theme / Pair Device / Sessions', () => {
+check('P0-2: More sheet exposes Settings / Appearance / Pair / All sessions', () => {
   const body = methodBody(appJs, 'showMoreMenu');
   assert.ok(body, 'showMoreMenu must exist');
   assert.ok(/label: 'Settings'.*this\.openSettings\(\)/s.test(body), 'Settings entry missing');
-  assert.ok(/label: 'Theme'.*_buildThemeMenuItems\(\)/s.test(body), 'Theme submenu missing');
-  assert.ok(/label: 'Pair Device'.*showPairMobileModal\(\)/s.test(body), 'Pair Device entry missing');
-  assert.ok(/label: 'Sessions'.*toggleSessionManager\(/s.test(body), 'Sessions entry missing');
+  assert.ok(/label: 'Appearance'.*_buildThemeMenuItems\(\)/s.test(body), 'Appearance submenu missing');
+  assert.ok(/label: 'Pair device'.*showPairMobileModal\(\)/s.test(body), 'Pair device entry missing');
+  assert.ok(/label: 'All sessions'.*toggleSessionManager\(/s.test(body), 'All sessions entry missing');
+});
+
+check('P0-2: mobile submenus open a second sheet instead of flattening', () => {
+  const body = methodBody(appJs, 'showActionSheet');
+  assert.ok(
+    /item\.submenu[\s\S]*this\.showActionSheet\(item\.label,\s*item\.submenu\)/.test(body),
+    'submenu rows must open their own action sheet'
+  );
+  assert.ok(
+    !/item\.submenu\.forEach/.test(body),
+    'submenus must not be expanded inline into the parent sheet'
+  );
+  assert.ok(
+    /actionSheetOverlay\.hidden\s*=\s*false[\s\S]*actionSheet\.scrollTop\s*=\s*0[\s\S]*requestAnimationFrame/.test(body),
+    'each nested sheet must start at its header and first option'
+  );
+  assert.ok(/_actionSheetReturnFocus/.test(body), 'the sheet must remember its trigger');
+  assert.ok(
+    /firstItem\.focus\(\{\s*preventScroll:\s*true\s*\}\)/.test(body),
+    'each sheet must focus its first enabled command'
+  );
 });
 
 check('P0-2: Conflicts entry is conditional on active conflict count', () => {
@@ -205,14 +227,46 @@ check('P0-2: Conflicts entry is conditional on active conflict count', () => {
   assert.ok(/Conflicts \(\$\{conflictCount\}\)/.test(body), 'Conflicts label must show the count');
 });
 
-check('P0-3: More sheet routes to Tasks / Recent / Resources views', () => {
+check('P0-3: More sheet routes to secondary and contextual views', () => {
   const body = methodBody(appJs, 'showMoreMenu');
-  assert.ok(/label: 'Tasks'.*setViewMode\('tasks'\)/s.test(body), 'Tasks view entry missing');
-  assert.ok(/label: 'Recent'.*setViewMode\('recent'\)/s.test(body), 'Recent view entry missing');
-  assert.ok(/label: 'Resources'.*setViewMode\('resources'\)/s.test(body), 'Resources view entry missing');
+  assert.ok(/label: 'Recent activity'.*setViewMode\('recent'\)/s.test(body), 'Recent activity entry missing');
+  assert.ok(/label: 'Costs'.*setViewMode\('costs'\)/s.test(body), 'Costs entry missing');
+  assert.ok(/label: 'System resources'.*setViewMode\('resources'\)/s.test(body), 'System resources entry missing');
+  assert.ok(/Project notes.*setViewMode\('docs'\)/s.test(body), 'Project notes entry missing');
 });
 
 // ─── P1-1: settings full-screen sheet ────────────────────────────────────────
+
+check('P0-3: secondary mobile views cannot leak terminal or keyboard state', () => {
+  assert.ok(
+    /\.terminal-grid\[hidden\]\s*\{[^}]*display:\s*none\s*!important/s.test(stylesMobile),
+    'the mobile flex terminal grid must still honor its hidden attribute'
+  );
+  const body = methodBody(appJs, 'setViewMode');
+  assert.ok(
+    /else\s*\{[\s\S]*classList\.remove\('terminal-active'\)[\s\S]*classList\.remove\('keyboard-open'\)/.test(body),
+    'leaving Workbench must clear stale terminal and soft-keyboard layout state'
+  );
+  assert.ok(
+    /tab\.dataset\.view\s*===\s*'more'\s*&&\s*isMoreDestination/.test(body),
+    'routes reached through More must leave that bottom destination selected'
+  );
+});
+
+check('P0-3: focused mobile Sessions opens the list, not the project drawer', () => {
+  assert.ok(
+    /view === 'workspace'[\s\S]{0,300}dataset\.uiShell === 'focused'/.test(appJs),
+    'the workspace handler must distinguish the focused Sessions destination'
+  );
+  assert.ok(
+    /this\.isMobile && focusedShell && this\.state\.sidebarOpen[\s\S]{0,80}this\.toggleSidebar\(\)/.test(appJs),
+    'focused Sessions must close an open project drawer'
+  );
+  assert.ok(
+    /this\.isMobile && !focusedShell && !this\.state\.sidebarOpen/.test(appJs),
+    'classic mobile must retain its legacy workspace-drawer behavior'
+  );
+});
 
 check('P1-1: settings panel becomes a full-screen sheet on mobile', () => {
   assert.ok(
