@@ -221,9 +221,13 @@
         button.className = 'fixture-menu-item';
         button.textContent = item.label;
         button.dataset.label = item.label;
-        button.addEventListener('click', async () => {
-          await item.action();
+        button.addEventListener('click', () => {
+          // Match the production _renderContextItems ordering exactly. The
+          // floating menu is hidden before the action runs, so clipboard tests
+          // exercise the same focus and transient-user-activation conditions
+          // as a real Workbook context-menu click.
           menu.hidden = true;
+          item.action();
         });
         menu.appendChild(button);
       }

@@ -114,11 +114,19 @@ function loadTerminalPane() {
  * creation, body append/remove bookkeeping, selection stubs, and an
  * execCommand that records what text was selected in the scratch textarea
  * at copy time (the observable "clipboard").
- * @param {Object} [opts] - { execThrows, execFails } failure injection.
+ * @param {Object} [opts] - { execThrows, execFails, execResults,
+ *   noCopyEvent } failure injection.
  * @returns {{doc: Object, record: Object}} The stub and its call record.
  */
 function makeStubDocument(opts) {
-  const record = { execCalls: [], copiedValues: [], appended: [], removed: [] };
+  const record = {
+    execCalls: [],
+    copiedValues: [],
+    clipboardPayloads: [],
+    copyEvents: [],
+    appended: [],
+    removed: [],
+  };
   const body = {
     children: [],
     appendChild(el) { el.parentNode = body; body.children.push(el); record.appended.push(el); },
@@ -134,6 +142,7 @@ function makeStubDocument(opts) {
     body,
     activeElement: body,
     createElement(tag) {
+      const listeners = new Map();
       return {
         tagName: tag,
         value: '',
@@ -143,6 +152,16 @@ function makeStubDocument(opts) {
         focus() {},
         select() {},
         setSelectionRange() {},
+        addEventListener(type, listener, options) {
+          const entries = listeners.get(type) || [];
+          entries.push({ listener, once: !!(options && options.once) });
+          listeners.set(type, entries);
+        },
+        __dispatch(type, event) {
+          const entries = (listeners.get(type) || []).slice();
+          for (const entry of entries) entry.listener(event);
+          listeners.set(type, entries.filter((entry) => !entry.once));
+        },
       };
     },
     getSelection() { return { rangeCount: 0, removeAllRanges() {}, addRange() {} }; },
@@ -151,10 +170,27 @@ function makeStubDocument(opts) {
       if (opts && opts.execThrows) throw new Error('execCommand blocked');
       const ta = body.children[body.children.length - 1];
       record.copiedValues.push(ta ? ta.value : null);
+      let result = !(opts && opts.execFails);
       if (opts && Array.isArray(opts.execResults) && opts.execResults.length > 0) {
-        return opts.execResults.shift();
+        result = opts.execResults.shift();
       }
-      return !(opts && opts.execFails);
+      if (!(opts && opts.noCopyEvent) && ta &&
+          typeof ta.__dispatch === 'function') {
+        const event = {
+          defaultPrevented: false,
+          clipboardData: {
+            setData(type, value) {
+              record.clipboardPayloads.push({ type, value });
+            },
+          },
+          preventDefault() {
+            this.defaultPrevented = true;
+          },
+        };
+        ta.__dispatch('copy', event);
+        record.copyEvents.push({ defaultPrevented: event.defaultPrevented });
+      }
+      return result;
     },
   };
   return { doc, record };
@@ -252,6 +288,10 @@ async function main() {
       body.indexOf('_copyViaExecCommand') < body.indexOf('navigator.clipboard.writeText'),
       'gesture-preserving execCommand copy must run before awaiting the Clipboard API'
     );
+    assert.ok(
+      !/if\s*\(\s*TerminalPane\._copyViaExecCommand\(value\)\s*\)\s*\{\s*return\s+Promise\.resolve\(true\)/.test(body),
+      'truthy execCommand must not return early and suppress the authoritative modern write'
+    );
   });
 
   await check('_copyViaExecCommand uses execCommand(copy) with cleanup in a finally', () => {
@@ -266,6 +306,12 @@ async function main() {
       /removeChild/.test(finallyRegion),
       'the scratch textarea must be removed inside the finally so failed copies never leak DOM nodes'
     );
+    assert.ok(/clipboardData\.setData\('text\/plain', value\)/.test(body),
+      'the legacy copy event must explicitly provide the exact plain-text payload');
+    assert.ok(/event\.preventDefault\(\)/.test(body),
+      'the explicit legacy clipboard payload must replace the browser default');
+    assert.ok(/commandAccepted\s*&&\s*copyEventHandled/.test(body),
+      'a truthy command without a handled copy event must not claim success');
   });
 
   // -------------------------------------------------------------------------
@@ -284,10 +330,33 @@ async function main() {
   await check('app.js _copyWithToast wrapper exists and routes through the helper', () => {
     const idx = appSrc.indexOf('_copyWithToast(text, successMessage, failureMessage)');
     assert.ok(idx !== -1, '_copyWithToast method not found in app.js');
-    const body = appSrc.slice(idx, idx + 700);
+    const end = appSrc.indexOf('\n  showToast(', idx);
+    assert.ok(end > idx, '_copyWithToast method boundary not found');
+    const body = appSrc.slice(idx, end);
     assert.ok(/TerminalPane\.copyTextToClipboard/.test(body), '_copyWithToast must delegate to TerminalPane.copyTextToClipboard');
     assert.ok(/showToast\(successMessage, 'success'\)/.test(body), '_copyWithToast must keep the success toast');
     assert.ok(/'error'/.test(body), '_copyWithToast must toast failures');
+    assert.ok(/return Promise\.resolve\(copied\)\.then/.test(body),
+      '_copyWithToast must return its settled promise so terminal actions can restore focus');
+  });
+
+  await check('terminal context-menu Copy restores the selected pane before the async write settles', () => {
+    const start = appSrc.indexOf("label: 'Copy', icon: '&#128203;'");
+    assert.ok(start !== -1, 'terminal Copy context item not found');
+    const end = appSrc.indexOf('// Save to Notes', start);
+    assert.ok(end > start, 'terminal Copy context item boundary not found');
+    const body = appSrc.slice(start, end);
+    const copyStart = body.indexOf('const copyPromise = this._copyWithToast');
+    const focusStart = body.indexOf('tp.focus()');
+    const copyReturn = body.indexOf('return copyPromise');
+    assert.ok(copyStart !== -1 && focusStart > copyStart && copyReturn > focusStart,
+      'terminal Copy must start the async write, restore focus synchronously, then return the promise');
+    assert.ok(/resolveLiveOwnerSlot\(\)\s*>=\s*0/.test(body),
+      'focus restoration must verify that the selected pane is still live');
+    assert.ok(/tp\.focus\(\)/.test(body),
+      'terminal Copy must restore xterm focus so the next Ctrl+C reaches the selection');
+    assert.ok(/tp\.term\.select\(start\.x, start\.y, length\)/.test(body),
+      'terminal Copy must restore the public xterm range if focus clears the selection');
   });
 
   await check('mobile Copy prefers pane-scoped DOM/xterm selection before the full buffer', () => {
@@ -304,8 +373,8 @@ async function main() {
 
   await check('index.html cache-busts the changed native-copy scripts', () => {
     assert.ok(
-      /terminal\.js\?v=20260725-copy-native5/.test(indexSrc) &&
-        /app\.js\?v=20260725-copy-native5/.test(indexSrc),
+      /terminal\.js\?v=20260727-copy-native8/.test(indexSrc) &&
+        /app\.js\?v=20260727-copy-native8/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
   });
@@ -336,16 +405,73 @@ async function main() {
     assert.deepStrictEqual(record.execCalls, ['copy']);
   });
 
-  await check('helper: trusted click prefers synchronous copy before the async API', async () => {
+  await check('helper: trusted legacy copy remains a fallback when the modern write is denied', async () => {
     const { sandbox, TerminalPane } = loadTerminalPane();
     const written = [];
-    sandbox.navigator = { clipboard: { writeText(v) { written.push(v); return Promise.resolve(); } } };
+    sandbox.navigator = {
+      clipboard: {
+        writeText(v) {
+          written.push(v);
+          return Promise.reject(new Error('NotAllowedError'));
+        },
+      },
+    };
     const { doc, record } = makeStubDocument();
     sandbox.document = doc;
     const ok = await TerminalPane.copyTextToClipboard('secure path');
     assert.strictEqual(ok, true);
     assert.deepStrictEqual(record.copiedValues, ['secure path']);
-    assert.deepStrictEqual(written, [], 'successful synchronous copy must preserve the gesture and skip writeText');
+    assert.deepStrictEqual(
+      written,
+      ['secure path'],
+      'the modern API must still be attempted immediately even when execCommand reports true'
+    );
+  });
+
+  await check('helper: truthy execCommand cannot suppress a working modern clipboard write', async () => {
+    const { sandbox, TerminalPane } = loadTerminalPane();
+    const written = [];
+    sandbox.navigator = { clipboard: { writeText(v) { written.push(v); return Promise.resolve(); } } };
+    // Chromium/WebView can report true from execCommand(copy) without changing
+    // the OS clipboard. This is the exact live right-click regression: the
+    // boolean means the command was handled, not that the clipboard committed.
+    const { doc, record } = makeStubDocument();
+    sandbox.document = doc;
+    const ok = await TerminalPane.copyTextToClipboard('false-positive exec result');
+    assert.strictEqual(ok, true);
+    assert.deepStrictEqual(record.execCalls, ['copy'], 'the gesture-preserving attempt must still run first');
+    assert.deepStrictEqual(
+      written,
+      ['false-positive exec result'],
+      'a truthy legacy result must not skip the authoritative Clipboard API write'
+    );
+  });
+
+  await check('helper: truthy no-op exec plus denied modern write reports failure', async () => {
+    const { sandbox, TerminalPane } = loadTerminalPane();
+    sandbox.navigator = {
+      clipboard: {
+        writeText() {
+          return Promise.reject(new Error('NotAllowedError'));
+        },
+      },
+    };
+    const { doc, record } = makeStubDocument({ noCopyEvent: true });
+    sandbox.document = doc;
+    const ok = await TerminalPane.copyTextToClipboard('dual failure must stay truthful');
+    assert.strictEqual(
+      ok,
+      false,
+      'execCommand true without a copy event plus writeText denial is not a successful copy'
+    );
+    assert.deepStrictEqual(
+      record.execCalls,
+      ['copy', 'copy'],
+      'the denied modern result may retry legacy once, but neither no-op is verified'
+    );
+    assert.deepStrictEqual(record.copyEvents, []);
+    assert.deepStrictEqual(record.clipboardPayloads, []);
+    assert.strictEqual(doc.body.children.length, 0, 'both scratch textareas must be removed');
   });
 
   await check('helper: secure context uses writeText when synchronous copy is unavailable', async () => {

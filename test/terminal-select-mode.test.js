@@ -59,8 +59,15 @@ function check(name, fn) {
 }
 
 // ── Source gates ─────────────────────────────────────────────
-check('terminal.js declares the _selectMode flag (OFF by default)', () => {
-  assert.ok(/this\._selectMode\s*=\s*false/.test(termSrc), 'expected this._selectMode = false');
+check('terminal.js restores Select mode per terminal session', () => {
+  assert.ok(/SELECT_MODE_STORAGE_PREFIX/.test(termSrc),
+    'expected a versioned per-session Select-mode storage key');
+  assert.ok(
+    /this\._selectMode\s*=\s*TerminalPane\._loadSelectModePreference\(this\.sessionId\)/.test(termSrc),
+    'constructor must restore the same terminal session preference after refresh'
+  );
+  assert.ok(/_saveSelectModePreference\(this\.sessionId,\s*this\._selectMode\)/.test(termSrc),
+    'setSelectMode must persist an explicit toggle');
 });
 
 check('setSelectMode + toggleSelectMode exist', () => {
@@ -153,12 +160,12 @@ check('dispose() tears the interceptor + injected DOM down', () => {
 });
 
 check('index.html cache-busts the native-copy terminal fix', () => {
-  assert.ok(/terminal\.js\?v=20260725-copy-native5/.test(indexSrc),
+  assert.ok(/terminal\.js\?v=20260727-copy-native8/.test(indexSrc),
     'expected the final terminal.js native-copy cache token');
 });
 
 check('index.html cache-busts the app pane-focus/host fix', () => {
-  assert.ok(/app\.js\?v=20260725-copy-native5/.test(indexSrc),
+  assert.ok(/app\.js\?v=20260727-copy-native8/.test(indexSrc),
     'expected the final app.js native-copy cache token');
 });
 
@@ -181,10 +188,15 @@ function loadTerminalPane() {
     requestAnimationFrame: () => 0,
     setTimeout: () => 1,
     clearTimeout: (id) => recorder.clearedTimers.push(id),
-    localStorage: { getItem: () => null, setItem: () => {} },
+    localStorage: {
+      getItem: (key) => recorder.storage.has(key) ? recorder.storage.get(key) : null,
+      setItem: (key, value) => recorder.storage.set(key, String(value)),
+      removeItem: (key) => recorder.storage.delete(key),
+    },
     console,
   };
   recorder.clearedTimers = [];
+  recorder.storage = new Map();
   sandbox.window.matchMedia = () => ({ matches: false });
   vm.createContext(sandbox);
   vm.runInContext(termSrc, sandbox, { filename: 'terminal.js' });
@@ -231,6 +243,35 @@ function installOnFakeContainer(selectMode, dispatched, hasSelection = false) {
     FakeMouseEvent,
   };
 }
+
+check('executed: Select mode survives refresh only for the same session', () => {
+  const { TerminalPane, recorder } = loadTerminalPane();
+  const first = new TerminalPane('x', 'session/a', 'Session A');
+  assert.strictEqual(first._selectMode, false, 'unseen sessions must keep clickable TUI mode');
+  first.setSelectMode(true);
+  assert.strictEqual(
+    recorder.storage.get('cwm_terminal_select_mode_v1:session%2Fa'),
+    '1',
+    'enabling Select mode must persist the encoded session key'
+  );
+
+  const restored = new TerminalPane('x', 'session/a', 'Session A');
+  const unrelated = new TerminalPane('y', 'session/b', 'Session B');
+  assert.strictEqual(restored._selectMode, true, 'same session must restore Select mode');
+  assert.strictEqual(unrelated._selectMode, false, 'other panes must retain clickable TUI controls');
+
+  restored.setSelectMode(false);
+  assert.strictEqual(
+    recorder.storage.has('cwm_terminal_select_mode_v1:session%2Fa'),
+    false,
+    'turning Select mode off must remove the saved preference'
+  );
+  assert.strictEqual(
+    new TerminalPane('x', 'session/a', 'Session A')._selectMode,
+    false,
+    'an explicit OFF choice must survive the next refresh'
+  );
+});
 
 /**
  * Compile the production app focus helper in isolation. Its body only calls
