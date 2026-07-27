@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.5] - 2026-07-27
+
+This corrective prerelease closes the remaining explicit terminal-copy failure found in the live embedded browser.
+
+### Fixed
+
+- **Right-click Copy no longer trusts a false-positive legacy result.** Some Chromium/WebView hosts return `true` from `document.execCommand('copy')` without changing the OS clipboard. Workbook still makes that synchronous attempt first for insecure LAN origins and denied-permission fallbacks, but a secure origin now invokes `navigator.clipboard.writeText` in the same trusted click even when the legacy command claims success. A legacy result is accepted only when its synchronous `copy` event handled the explicit payload; if both paths fail, the menu now reports failure instead of a false success.
+- **The insecure-origin fallback supplies and verifies its payload explicitly.** The temporary textarea handles the synchronous `copy` event, writes the exact plain-text value through `ClipboardEvent.clipboardData`, prevents the browser default, and records the handled event before cleanup. This keeps plain-HTTP remote access independent of the async Clipboard API without trusting an advisory command result.
+- **Terminal focus and selection survive menu Copy immediately.** The menu starts both clipboard attempts while the trusted click is live, then synchronously refocuses the exact pane and restores the public xterm range if focus cleared it. Ctrl+C therefore works even while a permission prompt is pending, and later promise settlement cannot overwrite a newer selection.
+- **Select mode survives refresh for the same terminal.** Workbook remembers an explicit Select-mode choice per session, so refreshing the authenticated public app no longer silently turns ordinary drag-to-select back into TUI mouse input. Other panes remain in clickable mode unless the user enables selection there.
+- **Fresh browsers receive the repair.** Terminal, shell, and mirror scripts use a new cache token.
+
+### Testing
+
+- Added VM coverage for a truthy no-op `execCommand`, the dual-failure cross-product with a denied modern write, insecure origins, exact fallback payloads, truthful toasts, and synchronous focus restoration.
+- Added real Chromium coverage in both the terminal interaction fixture and the complete Workbook shell. The terminal fixture now enables Select mode, reloads the page, and proves plain drag plus exact Ctrl+C still work. The shell test drives production xterm and the production context-menu renderer, seeds a clipboard sentinel, delays and counts the modern write, verifies no early toast, checks scratch-textarea cleanup, presses Ctrl+C while the write is still pending, and proves promise settlement preserves a newer selection.
+
 ## [1.3.0-alpha.4] - 2026-07-25
 
 This corrective prerelease closes the live terminal copy regression that remained after alpha.3.

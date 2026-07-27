@@ -566,6 +566,126 @@ async function run() {
     );
     assert.strictEqual(await page.evaluate(() => navigator.clipboard.readText()), rightClickSelection);
 
+    // execCommand's truthy result is advisory, not proof that the platform
+    // clipboard changed. Reproduce the live embedded-browser failure by making
+    // execCommand report true without dispatching a copy event or touching the
+    // clipboard. The modern write must still run during the same click and
+    // replace the sentinel with the exact contextmenu-time snapshot.
+    await page.evaluate(() => window.fixture.pane.term.select(0, 1, 18));
+    const truthyNoopSelection = (await readSelection(page)).text;
+    assert.ok(truthyNoopSelection, 'truthy-no-op scenario must begin with a real xterm selection');
+    await resetState(page);
+    const truthyNoopSentinel =
+      'MYRLIN_TRUTHY_NOOP_SENTINEL_' + process.pid + '_' + Date.now();
+    await page.evaluate(async (sentinel) => {
+      const nativeClipboard = navigator.clipboard;
+      await nativeClipboard.writeText(sentinel);
+      window.__nativeClipboardForTruthyNoop = nativeClipboard;
+      window.__hadOwnExecCommandForTruthyNoop =
+        Object.prototype.hasOwnProperty.call(document, 'execCommand');
+      window.__nativeExecCommandForTruthyNoop = document.execCommand;
+      window.__modernClipboardWrites = [];
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          readText: () => nativeClipboard.readText(),
+          writeText: (value) => {
+            window.__modernClipboardWrites.push(String(value));
+            return nativeClipboard.writeText(value);
+          },
+        },
+      });
+      // The command claims success but is a deliberate no-op, matching the
+      // false-positive observed in the live Workbook host.
+      document.execCommand = () => true;
+    }, truthyNoopSentinel);
+    await openContextMenu(page);
+    await page.locator('#fixture-context-menu [data-label="Copy"]').click();
+    await page.waitForFunction(() => window.__copyAttempts.length === 1 &&
+      window.__copyAttempts[0].result !== null);
+    assert.deepStrictEqual(
+      await page.evaluate(() => window.__copyAttempts),
+      [{ text: truthyNoopSelection, result: true }],
+      'truthy execCommand must not short-circuit the modern clipboard write'
+    );
+    assert.deepStrictEqual(
+      await page.evaluate(() => window.__modernClipboardWrites),
+      [truthyNoopSelection],
+      'modern writeText must receive the exact terminal selection once'
+    );
+    assert.strictEqual(
+      await page.evaluate(() => window.__nativeClipboardForTruthyNoop.readText()),
+      truthyNoopSelection,
+      'modern writeText must replace the sentinel after a truthy no-op execCommand'
+    );
+
+    // Cross the two failure modes: the legacy command claims success but
+    // dispatches no copy event, while the modern write is denied. Neither
+    // unverified attempt may produce a success toast or replace the sentinel.
+    await resetState(page);
+    const dualFailureSentinel =
+      'MYRLIN_DUAL_FAILURE_SENTINEL_' + process.pid + '_' + Date.now();
+    await page.evaluate(async (sentinel) => {
+      const nativeClipboard = window.__nativeClipboardForTruthyNoop;
+      await nativeClipboard.writeText(sentinel);
+      window.__dualFailureExecCalls = 0;
+      window.__dualFailureWriteCalls = 0;
+      document.execCommand = (command) => {
+        if (String(command).toLowerCase() === 'copy') {
+          window.__dualFailureExecCalls += 1;
+          return true;
+        }
+        return false;
+      };
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          readText: () => nativeClipboard.readText(),
+          writeText: () => {
+            window.__dualFailureWriteCalls += 1;
+            return Promise.reject(new Error('denied'));
+          },
+        },
+      });
+      window.fixture.pane.term.select(0, 1, 18);
+    }, dualFailureSentinel);
+    const dualFailureSelection = (await readSelection(page)).text;
+    assert.ok(dualFailureSelection, 'dual-failure scenario must retain a real selection');
+    await openContextMenu(page);
+    await page.locator('#fixture-context-menu [data-label="Copy"]').click();
+    await page.waitForFunction(() => window.__copyAttempts.length === 1 &&
+      window.__copyAttempts[0].result === false);
+    assert.deepStrictEqual(
+      await page.evaluate(() => window.__toast),
+      { message: 'Copy failed', level: 'error' },
+      'dual failure must report an honest error'
+    );
+    assert.strictEqual(
+      await page.evaluate(() => window.__nativeClipboardForTruthyNoop.readText()),
+      dualFailureSentinel,
+      'dual failure must leave the platform clipboard sentinel unchanged'
+    );
+    assert.strictEqual(await page.evaluate(() => window.__dualFailureWriteCalls), 1);
+    assert.strictEqual(
+      await page.evaluate(() => window.__dualFailureExecCalls),
+      2,
+      'modern denial may retry legacy once, but neither truthy no-op is verified'
+    );
+    await page.evaluate(() => {
+      if (window.__hadOwnExecCommandForTruthyNoop) {
+        document.execCommand = window.__nativeExecCommandForTruthyNoop;
+      } else {
+        delete document.execCommand;
+      }
+      delete navigator.clipboard;
+      delete window.__nativeClipboardForTruthyNoop;
+      delete window.__nativeExecCommandForTruthyNoop;
+      delete window.__hadOwnExecCommandForTruthyNoop;
+      delete window.__modernClipboardWrites;
+      delete window.__dualFailureExecCalls;
+      delete window.__dualFailureWriteCalls;
+    });
+
     // Embedded browsers may expose navigator.clipboard while denying its
     // programmatic write. Keyboard copy must not touch that API: Chromium's
     // trusted copy event and xterm's synchronous clipboardData path still
@@ -617,9 +737,9 @@ async function run() {
     assert.strictEqual(await page.evaluate(() => window.__toast), null,
       'successful native copy must not show a failure toast');
 
-    // The explicit right-click helper must preserve the trusted click by
-    // copying synchronously before the exposed-but-denied async API can expire
-    // user activation.
+    // The explicit right-click helper tries the synchronous path first, then
+    // invokes the modern API in the same trusted click. If the modern API is
+    // denied, the already-completed synchronous copy remains the fallback.
     await page.evaluate(() => {
       window.__copyAttempts.length = 0;
       window.__toast = null;
@@ -632,8 +752,8 @@ async function run() {
       await page.evaluate(() => window.__toast),
       { message: 'Copied to clipboard', level: 'success' }
     );
-    assert.strictEqual(await page.evaluate(() => window.__clipboardWriteAttempts), 0,
-      'successful synchronous menu copy must not call the denied Clipboard API');
+    assert.strictEqual(await page.evaluate(() => window.__clipboardWriteAttempts), 1,
+      'menu copy must attempt the modern Clipboard API even when execCommand reports success');
     assert.strictEqual(
       await page.evaluate(() => window.__nativeClipboardForDenial.readText()),
       deniedKeyboardSelection,
@@ -944,10 +1064,51 @@ async function run() {
     const afterWheel = await page.evaluate(() => window.fixture.pane.term.buffer.active.viewportY);
     assert.ok(afterWheel < beforeWheel, 'normal-buffer wheel must move into scrollback');
 
+    // The repeated live failure happened specifically after refresh: the user
+    // had enabled Select mode, but a newly constructed TerminalPane silently
+    // reset it to OFF. Prove the real browser persists the mode for this exact
+    // terminal session and that plain-drag + Ctrl+C still work after reload.
+    const persistenceToggle = page.locator('.terminal-pane-selectmode');
+    await persistenceToggle.click();
+    assert.strictEqual(await persistenceToggle.getAttribute('aria-pressed'), 'true');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() =>
+      window.fixture && window.fixture.pane &&
+      window.fixture.pane.term && window.fixture.pane.term.element
+    );
+    await page.waitForFunction(() => {
+      const pane = window.fixture && window.fixture.pane;
+      const line = pane && pane.term && pane.term.buffer.active.getLine(1);
+      return !!(line && line.translateToString(true).includes('COPY_TARGET_ALPHA_BETA'));
+    });
+    const restoredToggle = page.locator('.terminal-pane-selectmode');
+    assert.strictEqual(
+      await restoredToggle.getAttribute('aria-pressed'),
+      'true',
+      'Select mode must remain ON for the same terminal after refresh'
+    );
+    await page.evaluate(() => window.fixture.pane.term.clearSelection());
+    await resetState(page);
+    await dragCopyTarget(page, false);
+    const refreshedSelection = (await readSelection(page)).text;
+    assert.ok(
+      refreshedSelection.includes('OPY_TARGET_ALPHA_BETA'),
+      'restored Select mode must make a plain drag select real terminal text'
+    );
+    await page.keyboard.press('Control+c');
+    await page.waitForFunction(() => window.__nativeCopyEvents.length === 1);
+    assert.strictEqual(
+      await page.evaluate(() => navigator.clipboard.readText()),
+      refreshedSelection,
+      'Ctrl+C after refresh must copy the exact restored-mode selection'
+    );
+    await restoredToggle.click();
+    assert.strictEqual(await restoredToggle.getAttribute('aria-pressed'), 'false');
+
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
     console.log('PASS terminal browser acceptance');
     console.log('  Shift+drag: real selection, zero PTY mouse reports');
-    console.log('  Select mode: real selection + native Ctrl+C; mode off restores TUI mouse events');
+    console.log('  Select mode: persists across refresh; real selection + native Ctrl+C; mode off restores TUI mouse events');
     console.log('  Ctrl+C: trusted native copy; uppercase safety; denied API still works; no SIGINT');
     console.log('  Clipboard: native copy writes exact text under API denial; original formats restored');
     console.log('  Right-click: hover + both button edges preserve snapshot; truthful copy toast');

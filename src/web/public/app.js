@@ -12288,9 +12288,18 @@ class CWMApp {
         typeof TerminalPane.copyTextToClipboard === 'function')
       ? TerminalPane.copyTextToClipboard(text)
       : Promise.resolve(false);
-    copied.then((ok) => {
+    // Return the settled result so actions that own a focus target (notably a
+    // terminal context menu) can keep the clipboard attempt and their immediate
+    // focus restoration in the same click flow. Normalize an unexpected
+    // rejection as a truthful failure even though TerminalPane's helper itself
+    // promises never to reject.
+    return Promise.resolve(copied).then((ok) => {
       if (ok) this.showToast(successMessage, 'success');
       else this.showToast(failureMessage || 'Copy failed', 'error');
+      return !!ok;
+    }, () => {
+      this.showToast(failureMessage || 'Copy failed', 'error');
+      return false;
     });
   }
 
@@ -16259,6 +16268,22 @@ class CWMApp {
               source: 'xterm',
             });
     const selectedText = selection.hasSelection ? String(selection.text) : '';
+    // xterm may clear its model selection when keyboard focus returns from a
+    // floating menu. Keep a public-API position snapshot so Copy can restore
+    // the exact range for a retry (including a follow-up Ctrl+C).
+    let xtermSelectionPosition = null;
+    if (selection.hasSelection && selection.source === 'xterm' && tp.term &&
+        typeof tp.term.getSelectionPosition === 'function') {
+      try {
+        const position = tp.term.getSelectionPosition();
+        if (position && position.start && position.end) {
+          xtermSelectionPosition = {
+            start: { x: position.start.x, y: position.start.y },
+            end: { x: position.end.x, y: position.end.y },
+          };
+        }
+      } catch (_) {}
+    }
 
     // ── Terminal-specific actions ──────────────────────────────
 
@@ -16266,7 +16291,32 @@ class CWMApp {
     if (selection.hasSelection) {
       items.push({
         label: 'Copy', icon: '&#128203;', action: () => {
-          this._copyWithToast(selectedText, 'Copied to clipboard');
+          // Start both clipboard paths while the trusted menu click is live.
+          // Then restore focus/selection synchronously: a slow permission prompt
+          // must not leave Ctrl+C stranded on <body>, and a later promise
+          // settlement must never overwrite a newer user selection.
+          const copyPromise = this._copyWithToast(selectedText, 'Copied to clipboard');
+          if (resolveLiveOwnerSlot() >= 0 && typeof tp.focus === 'function') {
+            tp.focus();
+            if (xtermSelectionPosition && tp.term &&
+                typeof tp.term.select === 'function' &&
+                typeof tp.term.getSelection === 'function' &&
+                tp.term.getSelection() !== selectedText) {
+              const start = xtermSelectionPosition.start;
+              const end = xtermSelectionPosition.end;
+              const length = ((end.y - start.y) * tp.term.cols) - start.x + end.x;
+              if (length > 0) {
+                tp.term.select(start.x, start.y, length);
+                // Never leave a silently shifted range selected if the TUI
+                // repainted between contextmenu and the menu click.
+                if (tp.term.getSelection() !== selectedText &&
+                    typeof tp.term.clearSelection === 'function') {
+                  tp.term.clearSelection();
+                }
+              }
+            }
+          }
+          return copyPromise;
         },
       });
     }

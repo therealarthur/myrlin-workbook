@@ -22,6 +22,7 @@ const { chromium } = require('@playwright/test');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const SERVER_PATH = path.join(__dirname, 'workbook-shell-server.js');
+const CLIPBOARD_GUARD_PATH = path.join(__dirname, 'clipboard-guard.ps1');
 const SCREENSHOT_PATH = path.join(PROJECT_ROOT, 'screenshots', 'workbook-shell-e2e.png');
 const LIGHT_SCREENSHOT_PATH = path.join(PROJECT_ROOT, 'screenshots', 'workbook-shell-focused-light.png');
 const MOBILE_SCREENSHOT_PATH = path.join(PROJECT_ROOT, 'screenshots', 'workbook-shell-focused-mobile.png');
@@ -205,6 +206,90 @@ async function stopWorkbook(child) {
 }
 
 /**
+ * Snapshot every Windows clipboard format before the full-shell copy
+ * regression mutates it.
+ * @returns {Promise<import('child_process').ChildProcess>} Owned guard process.
+ */
+function startClipboardGuard() {
+  return new Promise((resolve, reject) => {
+    const child = spawn('powershell.exe', [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-STA',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      CLIPBOARD_GUARD_PATH,
+    ], {
+      cwd: PROJECT_ROOT,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let settled = false;
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(async () => {
+      if (settled) return;
+      settled = true;
+      try { child.stdin.end(); } catch (_) {}
+      if (!(await waitForExit(child, 3000))) {
+        try { child.kill('SIGKILL'); } catch (_) {}
+        await waitForExit(child, 3000);
+      }
+      reject(new Error('clipboard guard did not become ready'));
+    }, 15000);
+
+    child.stdout.on('data', (chunk) => {
+      if (settled) return;
+      stdout += chunk.toString('utf8');
+      if (!stdout.includes('CLIPBOARD_GUARD_READY')) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(child);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.once('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once('exit', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(new Error('clipboard guard exited ' + code + ': ' + stderr.trim()));
+    });
+  });
+}
+
+/**
+ * Ask the clipboard guard to restore its complete snapshot and confirm exit.
+ * @param {import('child_process').ChildProcess} child - Owned guard process.
+ * @returns {Promise<void>}
+ */
+async function stopClipboardGuard(child) {
+  if (!child) return;
+  if (child.exitCode !== null || child.signalCode !== null) {
+    throw new Error('clipboard guard exited before restoration was requested');
+  }
+
+  const restored = waitForExit(child, 15000);
+  try { child.stdin.end('RESTORE\n'); } catch (_) {}
+  if (!(await restored)) {
+    try { child.kill('SIGKILL'); } catch (_) {}
+    await waitForExit(child, 3000);
+    throw new Error('clipboard guard did not confirm clipboard restoration');
+  }
+  if (child.exitCode !== 0) {
+    throw new Error('clipboard guard failed while restoring the clipboard');
+  }
+}
+
+/**
  * Delete only the validated temporary directory created by this test.
  * @param {string} sandbox - Candidate sandbox root.
  */
@@ -238,6 +323,7 @@ async function run() {
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       colorScheme: 'dark',
+      permissions: ['clipboard-read', 'clipboard-write'],
     });
     const blockedExternalRequests = [];
     await context.route(/^https?:\/\//, (route) => {
@@ -277,8 +363,8 @@ async function run() {
     assert.strictEqual(shell.title, "myrlin's workbook");
     assert.strictEqual(shell.loginHidden, true, 'startup token must reveal the application shell');
     assert.strictEqual(shell.appHidden, false, 'application shell must be visible after startup auth');
-    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260725-copy-native5');
-    assert.strictEqual(shell.appScript, 'app.js?v=20260725-copy-native5');
+    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260727-copy-native8');
+    assert.strictEqual(shell.appScript, 'app.js?v=20260727-copy-native8');
     assert.strictEqual(shell.terminalClass, 'function', 'production TerminalPane must load');
     assert.strictEqual(shell.selectInterceptor, 'function', 'Select-mode interceptor must be present');
     assert.strictEqual(shell.themeRegistry, 'object', 'canonical theme registry must load before the app');
@@ -734,6 +820,483 @@ async function run() {
       'classic density query must survive reloads'
     );
     await classicPage.close();
+
+    // Exercise explicit terminal Copy through the complete Workbook shell:
+    // real xterm selection, production pane contextmenu capture, production
+    // #context-menu renderer, and the real menu-item click ordering. The
+    // isolated terminal never connects to a provider process.
+    //
+    // Chromium/WebView builds can report document.execCommand('copy') === true
+    // without changing the platform clipboard. That return value is therefore
+    // only a legacy attempt, not proof of success. Keep a working modern
+    // writeText path available and delay its promise so the assertions can
+    // prove the success toast waits for a real write.
+    const clipboardGuard = await startClipboardGuard();
+    let copyInstrumentationInstalled = false;
+    try {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      const copyMarker =
+        'FULL_SHELL_COPY_TARGET_' + process.pid + '_' + Date.now();
+      const copySentinel =
+        'FULL_SHELL_COPY_SENTINEL_' + process.pid + '_' + Date.now();
+
+      const copyGeometry = await page.evaluate(async (marker) => {
+        window.cwm.setViewMode('terminal');
+        if (window.cwm.els.toastContainer) {
+          window.cwm.els.toastContainer.replaceChildren();
+        }
+
+        const originalConnect = TerminalPane.prototype.connect;
+        TerminalPane.prototype.connect = function hermeticCopyConnect() {
+          this.connected = true;
+        };
+        try {
+          window.cwm.openTerminalInPane(
+            0,
+            'full-shell-copy-fixture',
+            'Copy regression',
+            { provider: 'claude' }
+          );
+          await new Promise((resolve, reject) => {
+            const deadline = Date.now() + 5000;
+            const poll = () => {
+              const pane = window.cwm.terminalPanes[0];
+              // mount() opens xterm before its double-rAF invokes connect().
+              // Keep the prototype stub installed until that deferred call has
+              // actually run; restoring it at element creation would let the
+              // fixture connect to the shell server and wipe the test buffer.
+              if (pane && pane.term && pane.term.element && pane.connected) {
+                resolve();
+                return;
+              }
+              if (Date.now() >= deadline) {
+                reject(new Error('hermetic terminal did not mount'));
+                return;
+              }
+              requestAnimationFrame(poll);
+            };
+            poll();
+          });
+        } finally {
+          TerminalPane.prototype.connect = originalConnect;
+        }
+
+        const pane = window.cwm.terminalPanes[0];
+        window.__fullShellCopyPane = pane;
+        await new Promise((resolve) => pane.term.write('\r\n' + marker, resolve));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const buffer = pane.term.buffer.active;
+        let row = -1;
+        let column = -1;
+        const lastRow = buffer.baseY + pane.term.rows;
+        for (let index = 0; index < lastRow; index++) {
+          const line = buffer.getLine(index);
+          const text = line ? line.translateToString(true) : '';
+          const markerColumn = text.indexOf(marker);
+          if (markerColumn !== -1) {
+            row = index;
+            column = markerColumn;
+            break;
+          }
+        }
+        if (row < 0 || column < 0) {
+          throw new Error('copy marker was not rendered into xterm');
+        }
+
+        pane.term.select(column, row, marker.length);
+        pane.focus();
+        const selection = pane.getCopySelection();
+        const screen = pane.term.element.querySelector('.xterm-screen');
+        const rect = screen.getBoundingClientRect();
+        const cellWidth = rect.width / pane.term.cols;
+        const cellHeight = rect.height / pane.term.rows;
+        return {
+          x: rect.left + cellWidth * (column + marker.length / 2),
+          y: rect.top + cellHeight * (row - buffer.viewportY + 0.5),
+          selection,
+          selectionPosition: pane.term.getSelectionPosition(),
+          activeClass: document.activeElement && document.activeElement.className,
+          directBodyTextareas: document.querySelectorAll(':scope > body > textarea').length,
+        };
+      }, copyMarker);
+
+      assert.deepStrictEqual(
+        {
+          hasSelection: copyGeometry.selection.hasSelection,
+          text: copyGeometry.selection.text,
+          source: copyGeometry.selection.source,
+        },
+        { hasSelection: true, text: copyMarker, source: 'xterm' },
+        'full-shell copy regression must begin with the exact highlighted xterm text'
+      );
+      assert.strictEqual(
+        copyGeometry.activeClass,
+        'xterm-helper-textarea',
+        'the highlighted terminal must own keyboard focus before right-click'
+      );
+
+      await page.evaluate(async ({ marker, sentinel }) => {
+        const nativeClipboard = navigator.clipboard;
+        await nativeClipboard.writeText(sentinel);
+        const state = {
+          marker,
+          sentinel,
+          nativeClipboard,
+          navigatorClipboardDescriptor:
+            Object.getOwnPropertyDescriptor(navigator, 'clipboard') || null,
+          documentExecDescriptor:
+            Object.getOwnPropertyDescriptor(document, 'execCommand') || null,
+          nativeExecCommand: document.execCommand,
+          execCalls: [],
+          writeCalls: [],
+          nativeWriteSettled: false,
+          releaseWrite: null,
+          released: false,
+          copyEvents: [],
+        };
+        state.copyListener = (event) => {
+          state.copyEvents.push({
+            trusted: event.isTrusted,
+            targetTag: event.target && event.target.tagName,
+            defaultPrevented: event.defaultPrevented,
+          });
+        };
+        document.addEventListener('copy', state.copyListener, true);
+
+        document.execCommand = function truthyNoOpExecCommand(command) {
+          if (String(command).toLowerCase() !== 'copy') {
+            return state.nativeExecCommand.apply(document, arguments);
+          }
+          const active = document.activeElement;
+          state.execCalls.push({
+            activeTag: active && active.tagName,
+            value: active && typeof active.value === 'string' ? active.value : null,
+            selectionStart:
+              active && typeof active.selectionStart === 'number'
+                ? active.selectionStart
+                : null,
+            selectionEnd:
+              active && typeof active.selectionEnd === 'number'
+                ? active.selectionEnd
+                : null,
+            directBodyTextareas:
+              document.querySelectorAll(':scope > body > textarea').length,
+          });
+          // Deliberately return true without dispatching a copy event or
+          // changing the platform clipboard.
+          return true;
+        };
+
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: {
+            readText: nativeClipboard.readText.bind(nativeClipboard),
+            writeText(value) {
+              const text = String(value);
+              state.writeCalls.push(text);
+              return nativeClipboard.writeText(text).then(() => {
+                state.nativeWriteSettled = true;
+                return new Promise((resolve) => {
+                  state.releaseWrite = () => {
+                    state.released = true;
+                    resolve();
+                  };
+                });
+              });
+            },
+          },
+        });
+        window.__fullShellCopyQa = state;
+      }, { marker: copyMarker, sentinel: copySentinel });
+      copyInstrumentationInstalled = true;
+
+      assert.strictEqual(
+        await page.evaluate(() =>
+          window.__fullShellCopyQa.nativeClipboard.readText()
+        ),
+        copySentinel,
+        'copy regression must seed a distinct clipboard sentinel'
+      );
+
+      await page.mouse.click(copyGeometry.x, copyGeometry.y, { button: 'right' });
+      const productionContextMenu = page.locator('#context-menu');
+      await productionContextMenu.waitFor({ state: 'visible' });
+      const productionCopyItem =
+        page.locator('#context-menu-items [data-action="Copy"]');
+      assert.strictEqual(
+        await productionCopyItem.count(),
+        1,
+        'production terminal context menu must expose Copy for highlighted text'
+      );
+      await productionCopyItem.click();
+
+      await page.waitForFunction(() => {
+        const state = window.__fullShellCopyQa;
+        return state && state.execCalls.length === 1 &&
+          state.writeCalls.length === 1 &&
+          state.nativeWriteSettled &&
+          typeof state.releaseWrite === 'function';
+      }, null, { timeout: 5000 });
+
+      const pendingCopy = await page.evaluate(() => {
+        const state = window.__fullShellCopyQa;
+        return {
+          execCalls: state.execCalls,
+          writeCalls: state.writeCalls,
+          copyEvents: state.copyEvents,
+          released: state.released,
+          menuHidden: document.getElementById('context-menu').hidden,
+          successToasts: Array.from(
+            document.querySelectorAll('#toast-container .toast-success .toast-message')
+          ).map((element) => element.textContent.trim()),
+          errorToasts: Array.from(
+            document.querySelectorAll('#toast-container .toast-error .toast-message')
+          ).map((element) => element.textContent.trim()),
+          directBodyTextareas:
+            document.querySelectorAll(':scope > body > textarea').length,
+        };
+      });
+      assert.deepStrictEqual(
+        pendingCopy.execCalls,
+        [{
+          activeTag: 'TEXTAREA',
+          value: copyMarker,
+          selectionStart: 0,
+          selectionEnd: copyMarker.length,
+          directBodyTextareas: copyGeometry.directBodyTextareas + 1,
+        }],
+        'legacy attempt must select the exact scratch textarea payload once'
+      );
+      assert.deepStrictEqual(
+        pendingCopy.writeCalls,
+        [copyMarker],
+        'truthy legacy result must not suppress the authoritative modern write'
+      );
+      assert.deepStrictEqual(
+        pendingCopy.copyEvents,
+        [],
+        'truthy no-op execCommand must not manufacture a native copy event'
+      );
+      assert.strictEqual(
+        pendingCopy.released,
+        false,
+        'modern write must remain pending until the test releases it'
+      );
+      assert.strictEqual(
+        pendingCopy.menuHidden,
+        true,
+        'production renderer must close the menu after Copy is activated'
+      );
+      assert.deepStrictEqual(
+        pendingCopy.successToasts,
+        [],
+        'success toast must wait for the authoritative clipboard write'
+      );
+      assert.deepStrictEqual(
+        pendingCopy.errorToasts,
+        [],
+        'a pending clipboard write must not show a false failure'
+      );
+      assert.strictEqual(
+        pendingCopy.directBodyTextareas,
+        copyGeometry.directBodyTextareas,
+        'temporary copy textarea must be removed before the async write settles'
+      );
+
+      // Focus and the contextmenu-time selection must be restored immediately,
+      // not after a slow Clipboard API promise. Otherwise Ctrl+C is stranded on
+      // <body> for the entire permission prompt.
+      const pendingOwner = await page.evaluate(() => {
+        const pane = window.__fullShellCopyPane;
+        return {
+          activeClass: document.activeElement && document.activeElement.className,
+          selection: pane.getCopySelection(),
+        };
+      });
+      assert.strictEqual(
+        pendingOwner.activeClass,
+        'xterm-helper-textarea',
+        'Copy must return focus to xterm before the modern write settles'
+      );
+      assert.strictEqual(
+        pendingOwner.selection.text,
+        copyMarker,
+        'Copy must restore the exact selection before the modern write settles'
+      );
+
+      const pendingCtrlCSentinel =
+        'FULL_SHELL_PENDING_CTRL_C_' + process.pid + '_' + Date.now();
+      await page.evaluate(
+        ({ sentinel }) =>
+          window.__fullShellCopyQa.nativeClipboard.writeText(sentinel),
+        { sentinel: pendingCtrlCSentinel }
+      );
+      await page.keyboard.press('Control+c');
+      await page.waitForFunction(async (marker) => (
+        await window.__fullShellCopyQa.nativeClipboard.readText()
+      ) === marker, copyMarker);
+      assert.deepStrictEqual(
+        await page.evaluate(async () => ({
+          clipboard: await window.__fullShellCopyQa.nativeClipboard.readText(),
+          selection: window.__fullShellCopyPane.getCopySelection().text,
+          modernWriteCalls: window.__fullShellCopyQa.writeCalls.slice(),
+        })),
+        {
+          clipboard: copyMarker,
+          selection: copyMarker,
+          modernWriteCalls: [copyMarker],
+        },
+        'Ctrl+C must work immediately while the explicit write promise is still pending'
+      );
+
+      // A user can create another selection while a permission prompt is open.
+      // Promise settlement must not restore the stale contextmenu snapshot over
+      // that newer selection.
+      const newerSelection = await page.evaluate((marker) => {
+        const pane = window.__fullShellCopyPane;
+        const position = pane.term.getSelectionPosition();
+        const length = Math.max(1, Math.floor(marker.length / 2));
+        pane.term.select(position.start.x, position.start.y, length);
+        return pane.getCopySelection().text;
+      }, copyMarker);
+      assert.ok(
+        newerSelection && newerSelection !== copyMarker,
+        'the pending-write race must install a distinct newer selection'
+      );
+
+      await page.evaluate(() => window.__fullShellCopyQa.releaseWrite());
+      await page.waitForFunction(() => (
+        Array.from(
+          document.querySelectorAll('#toast-container .toast-success .toast-message')
+        ).some((element) => element.textContent.trim() === 'Copied to clipboard')
+      ));
+
+      const completedCopy = await page.evaluate(async () => {
+        const pane = window.__fullShellCopyPane;
+        return {
+          clipboard: await window.__fullShellCopyQa.nativeClipboard.readText(),
+          successToasts: Array.from(
+            document.querySelectorAll('#toast-container .toast-success .toast-message')
+          ).map((element) => element.textContent.trim()),
+          errorToasts: Array.from(
+            document.querySelectorAll('#toast-container .toast-error .toast-message')
+          ).map((element) => element.textContent.trim()),
+          menuHidden: document.getElementById('context-menu').hidden,
+          activeClass: document.activeElement && document.activeElement.className,
+          selection: pane.getCopySelection(),
+          selectionPosition: pane.term.getSelectionPosition(),
+          directBodyTextareas:
+            document.querySelectorAll(':scope > body > textarea').length,
+        };
+      });
+      assert.strictEqual(
+        completedCopy.clipboard,
+        copyMarker,
+        'production right-click Copy must replace the sentinel with exact text'
+      );
+      assert.deepStrictEqual(
+        completedCopy.successToasts,
+        ['Copied to clipboard'],
+        'successful copy must produce exactly one truthful success toast'
+      );
+      assert.deepStrictEqual(
+        completedCopy.errorToasts,
+        [],
+        'successful copy must not also report a failure'
+      );
+      assert.strictEqual(completedCopy.menuHidden, true);
+      assert.strictEqual(
+        completedCopy.activeClass,
+        'xterm-helper-textarea',
+        'Copy must return focus to the owning terminal'
+      );
+      assert.strictEqual(
+        completedCopy.selection.text,
+        newerSelection,
+        'clipboard settlement must preserve the newer highlighted text: ' +
+          JSON.stringify({
+            initial: copyGeometry.selectionPosition,
+            completed: completedCopy.selectionPosition,
+          })
+      );
+      assert.strictEqual(
+        completedCopy.directBodyTextareas,
+        copyGeometry.directBodyTextareas,
+        'completed copy must leave no scratch textarea behind'
+      );
+
+      // The context-menu button must not strand focus on <body>. Seed another
+      // sentinel, press the real keyboard shortcut without re-focusing xterm,
+      // and prove the retained selection uses Chromium's trusted native copy
+      // path rather than calling the explicit helper a second time.
+      const postMenuCtrlCSentinel =
+        'FULL_SHELL_POST_MENU_CTRL_C_' + process.pid + '_' + Date.now();
+      await page.evaluate(
+        ({ sentinel }) =>
+          window.__fullShellCopyQa.nativeClipboard.writeText(sentinel),
+        { sentinel: postMenuCtrlCSentinel }
+      );
+      await page.keyboard.press('Control+c');
+      await page.waitForFunction(async (marker) => (
+        await window.__fullShellCopyQa.nativeClipboard.readText()
+      ) === marker, newerSelection);
+      const postMenuCtrlC = await page.evaluate(async () => {
+        const pane = window.cwm.terminalPanes[0];
+        return {
+          clipboard: await window.__fullShellCopyQa.nativeClipboard.readText(),
+          selection: pane.getCopySelection(),
+          modernWriteCalls: window.__fullShellCopyQa.writeCalls.slice(),
+        };
+      });
+      assert.strictEqual(
+        postMenuCtrlC.clipboard,
+        newerSelection,
+        'Ctrl+C after settlement must copy the newer retained selection'
+      );
+      assert.strictEqual(
+        postMenuCtrlC.selection.text,
+        newerSelection,
+        'native Ctrl+C must leave the xterm selection visible'
+      );
+      assert.deepStrictEqual(
+        postMenuCtrlC.modernWriteCalls,
+        [copyMarker],
+        'keyboard Ctrl+C must not re-enter the explicit async clipboard helper'
+      );
+    } finally {
+      try {
+        if (copyInstrumentationInstalled) {
+          await page.evaluate(() => {
+            const state = window.__fullShellCopyQa;
+            if (!state) return;
+            document.removeEventListener('copy', state.copyListener, true);
+            if (state.documentExecDescriptor) {
+              Object.defineProperty(
+                document,
+                'execCommand',
+                state.documentExecDescriptor
+              );
+            } else {
+              delete document.execCommand;
+            }
+            if (state.navigatorClipboardDescriptor) {
+              Object.defineProperty(
+                navigator,
+                'clipboard',
+                state.navigatorClipboardDescriptor
+              );
+            } else {
+              delete navigator.clipboard;
+            }
+            delete window.__fullShellCopyQa;
+            delete window.__fullShellCopyPane;
+          });
+        }
+      } finally {
+        await stopClipboardGuard(clipboardGuard);
+      }
+    }
 
     assert.deepStrictEqual(pageErrors, [], 'full Workbook page raised browser errors');
     const unexpectedExternalRequests = blockedExternalRequests.filter((requestUrl) => (

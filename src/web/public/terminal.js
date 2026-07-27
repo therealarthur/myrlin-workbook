@@ -474,11 +474,18 @@ class TerminalPane {
    *
    * Gesture ordering matters: an embedded browser may expose writeText but
    * reject it only after the trusted click has expired. Explicit copy actions
-   * therefore try the synchronous execCommand path FIRST, while user
-   * activation is unquestionably live, then use writeText when that path is
-   * unavailable (for example, an async action outside a click). The function
-   * check remains required because some engines expose a clipboard object
-   * without writeText.
+   * therefore make the synchronous execCommand attempt FIRST, while user
+   * activation is unquestionably live, then invoke writeText immediately in
+   * the SAME call stack whenever it exists.
+   *
+   * Both attempts are intentional. Chromium/WebView can return true from
+   * execCommand('copy') even though the OS clipboard was not changed. That
+   * boolean means the command was accepted, not that a clipboard commit can be
+   * verified, so it must never short-circuit the modern API. Conversely, the
+   * synchronous attempt remains the only viable path on insecure LAN origins
+   * and can rescue embedded browsers that expose but deny writeText. The
+   * function check remains required because some engines expose a clipboard
+   * object without writeText.
    *
    * Contract: NEVER throws and the returned promise NEVER rejects, under any
    * circumstance, so callers inside click handlers stay exception-safe.
@@ -493,27 +500,41 @@ class TerminalPane {
       // Preserve the trusted user gesture. If this helper was entered from a
       // menu/button click, execCommand(copy) runs synchronously in that same
       // stack and cannot lose activation while an async permission check is
-      // settling. When the helper is called outside a gesture it simply
-      // reports false and the modern Clipboard API remains available below.
+      // settling. Do not treat its return value as proof of an OS clipboard
+      // write: embedded Chromium has been observed returning true for a no-op.
+      let legacyVerified = false;
       try {
-        if (TerminalPane._copyViaExecCommand(value)) {
-          return Promise.resolve(true);
-        }
+        legacyVerified = TerminalPane._copyViaExecCommand(value);
       } catch (_) {}
 
       if (typeof navigator !== 'undefined' && navigator.clipboard &&
           typeof navigator.clipboard.writeText === 'function') {
-        // Modern async fallback. Map BOTH outcomes so the promise can never
-        // reject. A second execCommand attempt on rejection is harmless and
-        // can still help engines that retain activation for the microtask.
-        return navigator.clipboard.writeText(value).then(
+        // Invoke this before yielding/awaiting so the click activation is still
+        // live. A resolved writeText is the authoritative secure-origin result.
+        // Map BOTH outcomes so the promise returned to callers never rejects.
+        let modernWrite;
+        try {
+          modernWrite = navigator.clipboard.writeText(value);
+        } catch (_) {
+          // Some implementations throw synchronously instead of returning a
+          // rejected promise. Preserve any already-completed legacy copy, or
+          // retry that path once if the first attempt was unavailable.
+          if (legacyVerified) return Promise.resolve(true);
+          try {
+            return Promise.resolve(TerminalPane._copyViaExecCommand(value));
+          } catch (_) {
+            return Promise.resolve(false);
+          }
+        }
+        return Promise.resolve(modernWrite).then(
           () => true,
           () => {
+            if (legacyVerified) return true;
             try { return TerminalPane._copyViaExecCommand(value); } catch (_) { return false; }
           }
         );
       }
-      return Promise.resolve(false);
+      return Promise.resolve(legacyVerified);
     } catch (_) {
       // Belt and braces: callers never see a gesture-handler exception.
       return Promise.resolve(false);
@@ -538,7 +559,9 @@ class TerminalPane {
    * the docs panel) is selected.
    *
    * @param {string} value - Already-stringified text to copy.
-   * @returns {boolean} True when execCommand reported success. Never throws.
+   * @returns {boolean} True only when execCommand reported success AND its
+   *   synchronous copy event accepted the explicit clipboard payload. Never
+   *   throws.
    */
   static _copyViaExecCommand(value) {
     if (typeof document === 'undefined' || !document.body ||
@@ -567,6 +590,24 @@ class TerminalPane {
     ta.style.boxShadow = 'none';
     ta.style.background = 'transparent';
     ta.style.opacity = '0';
+    // Supplying the payload on the synchronous copy event is more reliable
+    // than trusting the textarea's default selection transfer in embedded
+    // browsers. The listener is scoped to the temporary element, and setting
+    // clipboardData is permitted during the trusted copy gesture even when the
+    // async Clipboard API is unavailable on an insecure origin.
+    let copyEventHandled = false;
+    if (typeof ta.addEventListener === 'function') {
+      ta.addEventListener('copy', (event) => {
+        try {
+          if (event.clipboardData &&
+              typeof event.clipboardData.setData === 'function') {
+            event.clipboardData.setData('text/plain', value);
+            event.preventDefault();
+            copyEventHandled = true;
+          }
+        } catch (_) {}
+      }, { once: true });
+    }
     let ok = false;
     try {
       document.body.appendChild(ta);
@@ -575,7 +616,12 @@ class TerminalPane {
       // iOS Safari ignores select() on some versions; the explicit range
       // makes the selection real there too.
       if (typeof ta.setSelectionRange === 'function') ta.setSelectionRange(0, value.length);
-      ok = !!document.execCommand('copy');
+      const commandAccepted = !!document.execCommand('copy');
+      // A truthy execCommand result only means the command was accepted. Some
+      // embedded Chromium hosts return true without dispatching `copy` or
+      // changing the platform clipboard. Require the synchronous event to
+      // confirm that our explicit payload was actually handled.
+      ok = commandAccepted && copyEventHandled;
     } catch (_) {
       ok = false;
     } finally {
@@ -610,11 +656,46 @@ class TerminalPane {
   // After a WebSocket (re)connect, mute idle detection for this long so the
   // server's scrollback replay burst cannot fire a "ready for input" toast.
   static REPLAY_SUPPRESS_MS = 3000;
+  // Select mode is intentionally per terminal session: enabling it should
+  // survive a browser refresh for that same session without disabling
+  // clickable TUI controls in every other pane.
+  static SELECT_MODE_STORAGE_PREFIX = 'cwm_terminal_select_mode_v1:';
   // Matches CSI escape sequences. Same pattern _detectActivity and
   // _analyzeForAutoTrust already use for ANSI stripping; hoisted to a named
   // constant so the re-arm gate shares it. Only used with .replace (safe
   // for a /g regex; lastIndex is not carried across replace calls).
   static ANSI_ESCAPE_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
+
+  static _selectModeStorageKey(sessionId) {
+    const id = (sessionId === null || sessionId === undefined)
+      ? ''
+      : String(sessionId).trim();
+    if (!id) return '';
+    try {
+      return TerminalPane.SELECT_MODE_STORAGE_PREFIX + encodeURIComponent(id);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  static _loadSelectModePreference(sessionId) {
+    const key = TerminalPane._selectModeStorageKey(sessionId);
+    if (!key || typeof localStorage === 'undefined') return false;
+    try {
+      return localStorage.getItem(key) === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static _saveSelectModePreference(sessionId, on) {
+    const key = TerminalPane._selectModeStorageKey(sessionId);
+    if (!key || typeof localStorage === 'undefined') return;
+    try {
+      if (on) localStorage.setItem(key, '1');
+      else localStorage.removeItem(key);
+    } catch (_) {}
+  }
 
   constructor(containerId, sessionId, sessionName, spawnOpts) {
     this.containerId = containerId;
@@ -672,8 +753,9 @@ class TerminalPane {
     // returns event.shiftKey on non-Mac), so Shift+drag always selects. This flag
     // powers an opt-in per-pane "Select mode" that makes a PLAIN drag behave like
     // a Shift+drag, so the user can copy without the interactive layer being
-    // disabled globally. OFF by default so clickable TUI options keep working.
-    this._selectMode = false;
+    // disabled globally. It starts OFF unless this same session was explicitly
+    // enabled before a refresh, so unrelated panes keep clickable TUI options.
+    this._selectMode = TerminalPane._loadSelectModePreference(this.sessionId);
     // References to the injected copy-mode DOM + the capture-phase mouse
     // interceptor, so dispose() can tear everything down cleanly.
     this._selectModeBtn = null;
@@ -2464,6 +2546,7 @@ class TerminalPane {
    */
   setSelectMode(on) {
     this._selectMode = !!on;
+    TerminalPane._saveSelectModePreference(this.sessionId, this._selectMode);
     if (this._selectMode) this._dismissCopyHint();
     this._updateSelectModeUI();
     return this._selectMode;
