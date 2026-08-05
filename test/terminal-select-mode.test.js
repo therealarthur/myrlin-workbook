@@ -281,13 +281,24 @@ check('executed: Select mode survives refresh only for the same session', () => 
  * Compile the production app focus helper in isolation. Its body only calls
  * other instance methods/properties, so a small object stub can execute the
  * real event-order logic without booting the Workbook SPA.
+ *
+ * The end anchor spans two lines, and src/web/public/app.js is stored with
+ * CRLF line endings, so a marker written with bare \n could never match it:
+ * indexOf returned -1 and every executed focus check below failed with
+ * "could not extract the production focus helper" while the file was
+ * perfectly healthy. Normalizing a copy first fixes the search without
+ * changing what is compiled, since line endings are insignificant to the
+ * parser. Single-line anchors (the one below and the scoped-body check
+ * further up) match either way because CRLF still ends in \n.
+ *
  * @returns {Function} Production _focusTerminalPaneFromPointer method.
  */
 function loadFocusHelper() {
-  const start = appSrc.indexOf('  _focusTerminalPaneFromPointer(slotIdx, event) {');
-  const end = appSrc.indexOf('\n  /**\n   * Set the active terminal pane', start);
+  const normalizedAppSrc = appSrc.replace(/\r\n/g, '\n');
+  const start = normalizedAppSrc.indexOf('  _focusTerminalPaneFromPointer(slotIdx, event) {');
+  const end = normalizedAppSrc.indexOf('\n  /**\n   * Set the active terminal pane', start);
   assert.ok(start >= 0 && end > start, 'could not extract the production focus helper');
-  const methodSource = appSrc.slice(start, end).trim();
+  const methodSource = normalizedAppSrc.slice(start, end).trim();
   return vm.runInNewContext(
     '({' + methodSource + '})._focusTerminalPaneFromPointer',
     {},
