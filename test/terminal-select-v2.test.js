@@ -124,7 +124,11 @@ function loadRuntime(container) {
     ' SELECT_FREEZE_WHEEL_LINES: SELECT_FREEZE_WHEEL_LINES,' +
     ' SELECT_NOTICE_MS: SELECT_NOTICE_MS,' +
     ' COPY_VIEW_DIVIDER: COPY_VIEW_DIVIDER,' +
-    ' COPY_VIEW_BLANK_RUN_LIMIT: COPY_VIEW_BLANK_RUN_LIMIT };'
+    ' COPY_VIEW_BLANK_RUN_LIMIT: COPY_VIEW_BLANK_RUN_LIMIT,' +
+    ' ACTIVATE_DEBOUNCE_MS: ACTIVATE_DEBOUNCE_MS,' +
+    ' ACTIVATE_REASSERT_MS: ACTIVATE_REASSERT_MS,' +
+    ' ACTIVATE_CONNECT_GUARD_MS: ACTIVATE_CONNECT_GUARD_MS,' +
+    ' ACTIVATE_VISIBILITY_RATIO: ACTIVATE_VISIBILITY_RATIO };'
   );
   return factory(
     win, doc, function () {}, { FitAddon: function () {} }, WebSocketStub, storage,
@@ -494,8 +498,10 @@ check('executed: the real RESET branch unfreezes BEFORE term.reset()', () => {
   // is the non-vacuous form of "a replay must never land in a frozen pane".
   const block = extractBlock(termSrc, "} else if (msg.type === 'reset') {");
   const body = block.slice(block.indexOf('{'));
-  const harness = new Function('cancelAnimationFrame', 'clearTimeout',
-    'return function () { if (true) ' + body + ' };')(() => {}, () => {});
+  // The branch also arms the width-claim quiet window, so that constant has to
+  // be in scope for the compiled harness.
+  const harness = new Function('cancelAnimationFrame', 'clearTimeout', 'ACTIVATE_CONNECT_GUARD_MS',
+    'return function () { if (true) ' + body + ' };')(() => {}, () => {}, rt.ACTIVATE_CONNECT_GUARD_MS);
   const order = [];
   const fake = {
     _selectMode: true,
@@ -982,6 +988,311 @@ check('a transient notice restores the standing strip text instead of sticking',
   assert.ok(notice.includes('_selNoticeTimer'), 'the notice must be time-bounded');
   assert.ok(notice.includes('_hideSelectModeStrip()'),
     'a notice shown after the mode ended must stand down again');
+});
+
+/* ============================================================
+   7. Visible-pane width claim
+   ============================================================ */
+
+/**
+ * Minimal pane fake for the geometry-claim paths: records what went out on the
+ * socket, counts fits, and starts with every guard open.
+ *
+ * @param {object} [over] - Fields to override.
+ * @returns {object} The fake pane instance (used as `this`).
+ */
+function makeClaimFake(over) {
+  const fake = Object.assign(Object.create(TerminalPane.prototype), {
+    sent: [],
+    fits: 0,
+    logs: [],
+    containerId: 'c', sessionId: 's',
+    paneEl: { classList: { remove() {}, toggle() {} } },
+    term: { cols: 60, rows: 24 },
+    ws: { readyState: 1, send(payload) { fake.sent.push(payload); } },
+    _selectMode: false,
+    _freezeBlockedUntil: 0,
+    _lastActivateAt: 0,
+    _lastActivateCols: null,
+    _lastActivateRows: null,
+    _activatePending: false,
+    _activateBlockedUntil: 0,
+    _activateRetryTimer: null,
+    _writeBuf: '',
+    _fitDeferredWhileFrozen: false,
+    _writeRaf: null,
+    _bgFlushTimer: null,
+    safeFit() { fake.fits++; },
+    _log(msg) { fake.logs.push(msg); },
+    _updateSelectModeUI() {},
+    _dismissCopyHint() {},
+  });
+  return Object.assign(fake, over || {});
+}
+
+/**
+ * Load a fresh runtime whose document.getElementById resolves to the given
+ * fake container and whose IntersectionObserver is a stub. Used by the
+ * executed visibility checks.
+ *
+ * @param {object} container - Fake element with addEventListener/querySelector.
+ * @param {Function} [observerCtor] - Stub IntersectionObserver constructor.
+ * @returns {object} { TerminalPane }
+ */
+function loadRuntimeWithObserver(container, observerCtor) {
+  const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+  const win = { matchMedia: () => ({ matches: false }) };
+  const doc = { documentElement: { dataset: {} }, getElementById: () => container };
+  const WebSocketStub = Object.assign(function () {}, { OPEN: 1 });
+  const factory = new Function(
+    'window', 'document', 'Terminal', 'FitAddon', 'WebSocket', 'localStorage',
+    'navigator', 'requestAnimationFrame', 'cancelAnimationFrame', 'setTimeout', 'clearTimeout',
+    'IntersectionObserver',
+    termSrc + '\nreturn { TerminalPane: TerminalPane };'
+  );
+  return factory(
+    win, doc, function () {}, { FitAddon: function () {} }, WebSocketStub, storage,
+    { maxTouchPoints: 0 }, (fn) => { if (typeof fn === 'function') fn(); return 1; }, () => {},
+    setTimeout, clearTimeout, observerCtor || undefined
+  );
+}
+
+check('a claim sends the existing activate control message and nothing else', () => {
+  const f = makeClaimFake();
+  assert.strictEqual(TerminalPane.prototype._requestActivate.call(f, 'visible'), true);
+  assert.strictEqual(f.sent.length, 1);
+  assert.deepStrictEqual(JSON.parse(f.sent[0]), { type: 'activate' },
+    'the claim must reuse the wire message the server already understands');
+});
+
+check('the pane fits BEFORE claiming so the server stores current geometry', () => {
+  const order = [];
+  const f = makeClaimFake();
+  f.safeFit = () => order.push('fit');
+  f.ws.send = () => order.push('send');
+  TerminalPane.prototype._requestActivate.call(f, 'visible');
+  assert.deepStrictEqual(order, ['fit', 'send']);
+});
+
+check('two rapid triggers claim once (debounce)', () => {
+  const f = makeClaimFake();
+  const first = TerminalPane.prototype._requestActivate.call(f, 'visible');
+  const second = TerminalPane.prototype._requestActivate.call(f, 'focus');
+  assert.strictEqual(first, true, 'the first trigger claims');
+  assert.strictEqual(second, false, 'a second trigger inside the debounce window is dropped');
+  assert.strictEqual(f.sent.length, 1, 'exactly one claim on the wire for one user gesture');
+  assert.ok(rt.ACTIVATE_DEBOUNCE_MS >= 500, 'debounce window must cover a visibility + focus pair');
+});
+
+check('an identical-geometry re-claim is suppressed, then allowed again after the reassert window', () => {
+  const f = makeClaimFake();
+  TerminalPane.prototype._requestActivate.call(f, 'visible');
+  assert.strictEqual(f.sent.length, 1);
+  // Past the debounce but still inside the reassert window, same cols/rows.
+  f._lastActivateAt = Date.now() - (rt.ACTIVATE_DEBOUNCE_MS + 50);
+  assert.strictEqual(TerminalPane.prototype._requestActivate.call(f, 'visible'), false);
+  assert.strictEqual(f.sent.length, 1, 'no wire traffic for an unchanged viewport');
+  // Past the reassert window: ownership may have moved, so claim again.
+  f._lastActivateAt = Date.now() - (rt.ACTIVATE_REASSERT_MS + 50);
+  assert.strictEqual(TerminalPane.prototype._requestActivate.call(f, 'visible'), true);
+  assert.strictEqual(f.sent.length, 2);
+});
+
+check('a changed viewport claims immediately once past the debounce', () => {
+  const f = makeClaimFake();
+  TerminalPane.prototype._requestActivate.call(f, 'visible');
+  f._lastActivateAt = Date.now() - (rt.ACTIVATE_DEBOUNCE_MS + 50);
+  f.term.cols = 60;
+  f.term.rows = 40; // rotation or keyboard dismissal
+  assert.strictEqual(TerminalPane.prototype._requestActivate.call(f, 'visible'), true);
+  assert.strictEqual(f.sent.length, 2, 'a real geometry change must not be suppressed');
+});
+
+check('no claim while output is frozen; it is remembered and sent on unfreeze', () => {
+  const f = makeClaimFake({ _selectMode: true, term: { cols: 60, rows: 24, write() {} } });
+  assert.strictEqual(TerminalPane.prototype._requestActivate.call(f, 'visible'), false);
+  assert.strictEqual(f.sent.length, 0, 'a claim would repaint the whole frame into the hold queue');
+  assert.strictEqual(f._activatePending, true, 'the intent must be remembered');
+  TerminalPane.prototype.setSelectMode.call(f, false);
+  assert.strictEqual(f.sent.length, 1, 'the deferred claim goes out once the freeze lifts');
+  assert.strictEqual(f._activatePending, false);
+});
+
+check('the public activate() also defers while frozen and never fits mid-selection', () => {
+  const f = makeClaimFake({ _selectMode: true });
+  TerminalPane.prototype.activate.call(f);
+  assert.strictEqual(f.sent.length, 0, 'app-layer activate must respect the freeze too');
+  assert.strictEqual(f.fits, 0, 'a fit could change the row count and clear the selection');
+  assert.strictEqual(f._activatePending, true);
+});
+
+check('the public activate() sends, fits and records bookkeeping when not frozen', () => {
+  const f = makeClaimFake();
+  TerminalPane.prototype.activate.call(f);
+  assert.strictEqual(f.sent.length, 1, 'the v1 behavior is unchanged for the app layer');
+  assert.strictEqual(f.fits, 1);
+  assert.strictEqual(f._lastActivateCols, 60, 'a manual claim must feed the debounce clock too');
+  assert.strictEqual(f._lastActivateRows, 24);
+  // The recorded claim now suppresses a redundant automatic one.
+  assert.strictEqual(TerminalPane.prototype._requestActivate.call(f, 'focus'), false);
+});
+
+check('a claim deferred by the freeze survives a resync as a queued retry', () => {
+  const f = makeClaimFake({ _selectMode: true, _activatePending: true, term: { cols: 60, rows: 24, write() {} } });
+  TerminalPane.prototype._discardSelectModeHold.call(f);
+  assert.strictEqual(f._activatePending, false, 'the pending flag is converted, not dropped');
+  assert.ok(f._activateRetryTimer, 'the intent must wait behind the replay as a retry');
+  clearTimeout(f._activateRetryTimer);
+  f._activateRetryTimer = null;
+});
+
+check('no claim during the connect or replay quiet window; a retry is queued instead', () => {
+  const f = makeClaimFake({ _activateBlockedUntil: Date.now() + rt.ACTIVATE_CONNECT_GUARD_MS });
+  assert.strictEqual(TerminalPane.prototype._requestActivate.call(f, 'visible'), false);
+  assert.strictEqual(f.sent.length, 0, 'resizing mid-replay would tear the replayed screen');
+  assert.ok(f._activateRetryTimer, 'the intent must survive the quiet window as a retry');
+  clearTimeout(f._activateRetryTimer);
+  f._activateRetryTimer = null;
+});
+
+check('only one retry timer is outstanding per pane', () => {
+  const f = makeClaimFake({ _activateBlockedUntil: Date.now() + rt.ACTIVATE_CONNECT_GUARD_MS });
+  TerminalPane.prototype._requestActivate.call(f, 'visible');
+  const first = f._activateRetryTimer;
+  TerminalPane.prototype._requestActivate.call(f, 'focus');
+  assert.strictEqual(f._activateRetryTimer, first, 'a second request must not stack timers');
+  clearTimeout(f._activateRetryTimer);
+  f._activateRetryTimer = null;
+});
+
+check('a closed or missing socket claims nothing', () => {
+  const closed = makeClaimFake({ ws: { readyState: 3, send() { assert.fail('must not send'); } } });
+  assert.strictEqual(TerminalPane.prototype._requestActivate.call(closed, 'visible'), false);
+  const none = makeClaimFake({ ws: null });
+  assert.strictEqual(TerminalPane.prototype._requestActivate.call(none, 'visible'), false);
+});
+
+check('a send failure is swallowed and not recorded as a successful claim', () => {
+  const f = makeClaimFake({ ws: { readyState: 1, send() { throw new Error('socket died'); } } });
+  assert.strictEqual(TerminalPane.prototype._requestActivate.call(f, 'visible'), false);
+  assert.strictEqual(f._lastActivateAt, 0, 'a failed claim must not arm the debounce');
+});
+
+check('executed: only the hidden-to-visible EDGE claims, and only past the ratio', () => {
+  let cb = null;
+  const observed = [];
+  let options = null;
+  const container = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    querySelector: () => null,
+  };
+  function FakeObserver(fn, opts) { cb = fn; options = opts; }
+  FakeObserver.prototype.observe = function (el) { observed.push(el); };
+  FakeObserver.prototype.disconnect = function () {};
+  const rt2 = loadRuntimeWithObserver(container, FakeObserver);
+  const claims = [];
+  const f = Object.assign(Object.create(rt2.TerminalPane.prototype), {
+    containerId: 'c', _paneVisible: false, _paneObserver: null,
+    _activateFocusHandler: null, _activateFocusTarget: null, _activateRetryTimer: null,
+    _activatePending: false,
+    _getOwnedContainer: () => container,
+    _requestActivate(reason) { claims.push(reason); return true; },
+  });
+  rt2.TerminalPane.prototype._installVisibilityActivate.call(f);
+  assert.strictEqual(observed.length, 1, 'the pane container must be observed');
+  assert.deepStrictEqual(options.threshold, [rt.ACTIVATE_VISIBILITY_RATIO]);
+  cb([{ isIntersecting: true, intersectionRatio: 0.2 }]);
+  assert.deepStrictEqual(claims, [], 'a barely visible pane is not the pane being looked at');
+  cb([{ isIntersecting: true, intersectionRatio: 0.9 }]);
+  assert.deepStrictEqual(claims, ['visible'], 'crossing the ratio claims once');
+  cb([{ isIntersecting: true, intersectionRatio: 0.95 }]);
+  assert.deepStrictEqual(claims, ['visible'], 'staying visible must not re-claim');
+  cb([{ isIntersecting: false, intersectionRatio: 0 }]);
+  cb([{ isIntersecting: true, intersectionRatio: 0.8 }]);
+  assert.deepStrictEqual(claims, ['visible', 'visible'], 'coming back into view claims again');
+});
+
+check('executed: keyboard focus on the terminal claims, and teardown detaches everything', () => {
+  const listeners = [];
+  let disconnected = 0;
+  const textarea = {
+    addEventListener: (type, fn) => listeners.push({ type, fn }),
+    removeEventListener: (type, fn) => {
+      const i = listeners.findIndex((l) => l.type === type && l.fn === fn);
+      if (i !== -1) listeners.splice(i, 1);
+    },
+  };
+  const container = {
+    addEventListener: () => {}, removeEventListener: () => {},
+    querySelector: (sel) => (sel === '.xterm-helper-textarea' ? textarea : null),
+  };
+  function FakeObserver() {}
+  FakeObserver.prototype.observe = function () {};
+  FakeObserver.prototype.disconnect = function () { disconnected++; };
+  const rt2 = loadRuntimeWithObserver(container, FakeObserver);
+  const claims = [];
+  const f = Object.assign(Object.create(rt2.TerminalPane.prototype), {
+    containerId: 'c', _paneVisible: false, _paneObserver: null,
+    _activateFocusHandler: null, _activateFocusTarget: null, _activateRetryTimer: null,
+    _activatePending: true,
+    _getOwnedContainer: () => container,
+    _requestActivate(reason) { claims.push(reason); return true; },
+  });
+  rt2.TerminalPane.prototype._installVisibilityActivate.call(f);
+  assert.strictEqual(listeners.length, 1, 'a focus listener must be attached to the hidden textarea');
+  assert.strictEqual(listeners[0].type, 'focus');
+  listeners[0].fn();
+  assert.deepStrictEqual(claims, ['focus']);
+  rt2.TerminalPane.prototype._removeVisibilityActivate.call(f);
+  assert.strictEqual(listeners.length, 0, 'the focus listener must be detached');
+  assert.strictEqual(disconnected, 1, 'the observer must be disconnected');
+  assert.strictEqual(f._activatePending, false, 'a stale deferred claim must not survive teardown');
+});
+
+check('executed: an engine without IntersectionObserver still wires the focus trigger', () => {
+  const listeners = [];
+  const textarea = { addEventListener: (type, fn) => listeners.push({ type, fn }), removeEventListener: () => {} };
+  const container = {
+    addEventListener: () => {}, removeEventListener: () => {},
+    querySelector: (sel) => (sel === '.xterm-helper-textarea' ? textarea : null),
+  };
+  const rt2 = loadRuntimeWithObserver(container, undefined);
+  const f = Object.assign(Object.create(rt2.TerminalPane.prototype), {
+    containerId: 'c', _paneVisible: false, _paneObserver: null,
+    _activateFocusHandler: null, _activateFocusTarget: null, _activateRetryTimer: null,
+    _activatePending: false,
+    _getOwnedContainer: () => container,
+    _requestActivate() { return true; },
+  });
+  rt2.TerminalPane.prototype._installVisibilityActivate.call(f);
+  assert.strictEqual(f._paneObserver, null, 'no observer where the API does not exist');
+  assert.strictEqual(listeners.length, 1, 'the focus trigger must still be wired');
+});
+
+check('the claim triggers follow the fixed-slot host lifecycle', () => {
+  const mount = extractBlock(termSrc, 'mount() {');
+  assert.ok(mount.includes('_installVisibilityActivate()'), 'mount must wire the triggers');
+  const rebind = extractBlock(termSrc, 'rebindHost(containerId) {');
+  assert.ok(rebind.includes('_installVisibilityActivate()'),
+    'a restored pane must observe its destination slot, not the one it left');
+  const detach = extractBlock(termSrc, 'detachHostBindings() {');
+  assert.ok(detach.includes('_removeVisibilityActivate()'),
+    'a cached pane must stop observing a slot another session can occupy');
+  const dispose = extractBlock(termSrc, 'dispose() {');
+  assert.ok(dispose.includes('_removeVisibilityActivate()'),
+    'a disposed pane must never claim geometry for a session it no longer shows');
+});
+
+check('the claim quiet window is armed on connect, on socket open, and on a server reset', () => {
+  const connectBlock = extractBlock(termSrc, 'const isReconnect = this._gotFirstData;');
+  assert.ok(/_activateBlockedUntil = Date\.now\(\) \+ ACTIVATE_CONNECT_GUARD_MS/.test(connectBlock) ||
+    termSrc.includes('this._activateBlockedUntil = Date.now() + ACTIVATE_CONNECT_GUARD_MS;'),
+    'connect must arm the quiet window');
+  const onopen = extractBlock(termSrc, 'this.ws.onopen = () => {');
+  assert.ok(onopen.includes('_activateBlockedUntil'), 'socket open must re-arm the quiet window');
+  const reset = extractBlock(termSrc, "} else if (msg.type === 'reset') {");
+  assert.ok(reset.includes('_activateBlockedUntil'), 'a server resync must arm the quiet window');
 });
 
 console.log('  ' + '='.repeat(58));

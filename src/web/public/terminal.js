@@ -56,6 +56,40 @@ const COPY_VIEW_DEFAULT_TOP_PX = 34;
 // How long the Copy view's "Copy all" button shows its result state.
 const COPY_VIEW_FEEDBACK_MS = 1400;
 
+/* ═══════════════════════════════════════════════════════════════════
+   VISIBLE-PANE WIDTH CLAIM CONSTANTS
+   One PTY is shared by every attached client, and the backend gives
+   geometry ownership to whichever client last typed or sent an explicit
+   'activate' (see claimSizeOwnership in src/web/pty-manager.js). The
+   app layer already claims on a pane click, a browser visibility
+   change, a window focus, and a tab-group restore. These constants
+   govern the two edges the app layer cannot see: a pane scrolling or
+   switching into view, and the terminal taking keyboard focus without
+   a click. Without them a phone that switches to a pane it was already
+   attached to keeps receiving frames laid out for a desktop.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Minimum gap between two activate claims from the same pane. Visibility and
+// focus can fire back to back for one user gesture; without this the pane
+// would send a burst of identical claims.
+const ACTIVATE_DEBOUNCE_MS = 500;
+
+// A claim with UNCHANGED cols/rows is normally redundant, but ownership can
+// move to another device at any time, so an identical claim is allowed again
+// once this much time has passed. The backend suppresses no-op resizes
+// (applyViewport returns early on identical dims), so a re-claim at the same
+// size costs one small control frame and no repaint.
+const ACTIVATE_REASSERT_MS = 5000;
+
+// Quiet window after a connect or a server-initiated resync. The server
+// replays scrollback immediately afterwards; claiming geometry in the middle
+// of that would resize the PTY mid-replay and produce a torn screen.
+const ACTIVATE_CONNECT_GUARD_MS = 1500;
+
+// Fraction of the pane that must be on screen before it counts as the pane the
+// user is actually looking at.
+const ACTIVATE_VISIBILITY_RATIO = 0.5;
+
 class TerminalPane {
   // ── Theme palettes for xterm.js ──────────────────────────
   static THEME_MOCHA = {
@@ -848,6 +882,29 @@ class TerminalPane {
     this._copyOverlayOpen = false;
     this._copyViewText = '';
     this._copyFeedbackTimer = null;
+    // ── Visible-pane width claim state ───────────────────────────
+    // One PTY is shared by every attached client and the backend hands
+    // geometry ownership to whichever client last typed or sent 'activate'.
+    // A pane that becomes the one the user is looking at claims ownership so
+    // the CLI repaints at THIS device's width, which is what makes a phone
+    // readable instead of showing 200 column frames wrapped to 60.
+    // _lastActivateAt / _lastActivateCols / _lastActivateRows: debounce and
+    //   no-op suppression inputs (see ACTIVATE_DEBOUNCE_MS / ACTIVATE_REASSERT_MS).
+    // _activatePending: a claim was requested while output was frozen and is
+    //   waiting for the freeze to lift.
+    // _activateBlockedUntil: quiet window covering connect and resync replays.
+    // _paneObserver / _paneVisible / _activateFocusHandler: the two triggers,
+    //   both host-owned and released by detachHostBindings.
+    this._lastActivateAt = 0;
+    this._lastActivateCols = null;
+    this._lastActivateRows = null;
+    this._activatePending = false;
+    this._activateBlockedUntil = 0;
+    this._activateRetryTimer = null;
+    this._paneObserver = null;
+    this._paneVisible = false;
+    this._activateFocusHandler = null;
+    this._activateFocusTarget = null;
     this._hostMobileTypeMode = undefined;
     this._mobileSelectionResetTimer = null;
     this._copyHintShown = false;
@@ -997,6 +1054,10 @@ class TerminalPane {
       // repaint every cell under the highlight.
       this._installSelectModeWheelGuard();
       this._injectCopyControls();
+      // Width claim: start watching for this pane becoming the one the user is
+      // actually looking at. Both triggers are inert until the WebSocket is
+      // open and the initial replay window has passed.
+      this._installVisibilityActivate();
 
       // IMPORTANT: Fit BEFORE connecting WebSocket so we know the real
       // terminal dimensions. The PTY spawns at whatever cols/rows we pass
@@ -1256,6 +1317,11 @@ class TerminalPane {
     // attaches, and a pane that restored Select mode from a previous visit
     // must paint that replay instead of holding it.
     this._freezeBlockedUntil = Date.now() + TerminalPane.REPLAY_SUPPRESS_MS;
+    // Width claim: open its own quiet window for the same reason. Claiming
+    // geometry mid-replay would resize the PTY underneath the replay and tear
+    // it. This window is shorter than the freeze one because a claim only has
+    // to wait for the replay to be UNDERWAY, not for it to be classified.
+    this._activateBlockedUntil = Date.now() + ACTIVATE_CONNECT_GUARD_MS;
 
     // Close any stale WebSocket before creating a new one
     if (this.ws) {
@@ -1343,6 +1409,10 @@ class TerminalPane {
       // really opened. The connect-time arm can have expired while a slow
       // handshake was in flight, and the replay only starts now.
       this._freezeBlockedUntil = Date.now() + TerminalPane.REPLAY_SUPPRESS_MS;
+      // Width claim: re-arm its quiet window from the moment the socket really
+      // opened (the connect-time arm can have expired while the handshake was
+      // in flight on a slow link).
+      this._activateBlockedUntil = Date.now() + ACTIVATE_CONNECT_GUARD_MS;
       this._log('WebSocket OPEN');
       this._status('Connected. Starting session...', 'green');
       // Forced send: this server-side connection is brand new and has no
@@ -1397,6 +1467,9 @@ class TerminalPane {
             // queue. The hold is dropped rather than flushed because the
             // replay that follows re-sends everything.
             this._discardSelectModeHold();
+            // Width claim: the replay that follows must not be interrupted by
+            // a geometry change, so open the same quiet window connect uses.
+            this._activateBlockedUntil = Date.now() + ACTIVATE_CONNECT_GUARD_MS;
             if (this._writeRaf) { cancelAnimationFrame(this._writeRaf); this._writeRaf = null; }
             if (this._bgFlushTimer) { clearTimeout(this._bgFlushTimer); this._bgFlushTimer = null; }
             this._writeBuf = '';
@@ -1639,6 +1712,11 @@ class TerminalPane {
       try { this._copyViewBtn.remove(); } catch (_) {}
       this._copyViewBtn = null;
     }
+    // Width claim: the IntersectionObserver watches the slot container and the
+    // focus listener sits on xterm's hidden textarea, so both are host-owned.
+    // A cached pane that kept observing would claim geometry the moment its old
+    // slot became visible again with a DIFFERENT session rendering into it.
+    this._removeVisibilityActivate();
 
     if (this.paneEl) this.paneEl.classList.remove('select-mode-on');
     if (this._selectModeBtn) {
@@ -1698,6 +1776,10 @@ class TerminalPane {
       // detachHostBindings() call above.
       this._installSelectModeWheelGuard();
       this._injectCopyControls();
+      // Width claim: rebuild both triggers against the destination slot. The
+      // hidden-to-visible edge then fires for the restored pane, which is
+      // exactly when this device should own the geometry again.
+      this._installVisibilityActivate();
       if (this._resizeObserver) this._resizeObserver.observe(container);
       if (this._isMobile()) {
         this.initMobileInputMode();
@@ -1809,10 +1891,175 @@ class TerminalPane {
    * deploy window.
    */
   activate() {
+    // Select mode v2 guard: never claim geometry while output is frozen. The
+    // claim makes the CLI repaint its whole frame, which would pour straight
+    // into the hold queue, and the safeFit below could change the row count
+    // and clear the selection outright. The intent is remembered and replayed
+    // when the freeze lifts.
+    if (this._isWriteFrozen()) { this._activatePending = true; return; }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try { this.ws.send(JSON.stringify({ type: 'activate' })); } catch (_) {}
     }
     this.safeFit();
+    this._noteActivateSent();
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     VISIBLE-PANE WIDTH CLAIM
+     The app layer already calls activate() when the user clicks a
+     pane, when the browser tab becomes visible, when the window
+     regains focus, and when a tab group is restored. These triggers
+     cover the cases it cannot see: a pane scrolling or switching into
+     view (a phone tab switch, a grid layout change) and the terminal
+     taking keyboard focus without a click. Claiming makes the shared
+     PTY resize to THIS client, and the CLI repaints its whole frame at
+     that width, which is what turns an unreadable wrapped phone view
+     into a clean narrow one. The honest cost of a single shared PTY: a
+     desktop watching the same session then sees the narrow frames too,
+     until it is interacted with again.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Record that a geometry claim just went out, so the debounce and the no-op
+   * suppression in _requestActivate have something to measure against.
+   * Reads the CURRENT grid, which is why callers fit before claiming.
+   */
+  _noteActivateSent() {
+    this._lastActivateAt = Date.now();
+    if (this.term) {
+      this._lastActivateCols = this.term.cols;
+      this._lastActivateRows = this.term.rows;
+    }
+  }
+
+  /**
+   * Claim PTY geometry ownership for this client, subject to every guard.
+   *
+   * Order of the guards is deliberate:
+   *   1. No socket, no terminal, no claim.
+   *   2. Frozen for a selection: remember and defer (see activate()).
+   *   3. Inside the connect or resync quiet window: retry after it closes
+   *      rather than dropping the intent, so a pane that becomes visible
+   *      during startup still ends up owning geometry.
+   *   4. Debounce: visibility and focus commonly fire together for one
+   *      gesture, and one claim per gesture is enough.
+   *   5. No-op suppression: an identical cols/rows claim is skipped, but only
+   *      for ACTIVATE_REASSERT_MS, because ownership can move to another
+   *      device at any time and re-claiming is how it comes back.
+   * The fit happens BEFORE the send so the viewport the server stores for this
+   * client is the geometry it is about to be asked to apply.
+   *
+   * @param {string} reason - Trigger label, for the debug log only.
+   * @returns {boolean} True when a claim was actually sent.
+   */
+  _requestActivate(reason) {
+    if (!this.term || !this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    if (this._isWriteFrozen()) { this._activatePending = true; return false; }
+    const now = Date.now();
+    if (now < this._activateBlockedUntil) {
+      this._scheduleActivateRetry(this._activateBlockedUntil - now, reason);
+      return false;
+    }
+    if (this._lastActivateAt && (now - this._lastActivateAt) < ACTIVATE_DEBOUNCE_MS) return false;
+    this.safeFit();
+    const cols = this.term.cols;
+    const rows = this.term.rows;
+    if (cols === this._lastActivateCols && rows === this._lastActivateRows &&
+        this._lastActivateAt && (now - this._lastActivateAt) < ACTIVATE_REASSERT_MS) {
+      return false;
+    }
+    try {
+      this.ws.send(JSON.stringify({ type: 'activate' }));
+    } catch (_) {
+      return false;
+    }
+    this._noteActivateSent();
+    this._log('Claimed PTY geometry (' + reason + ') at ' + cols + 'x' + rows);
+    return true;
+  }
+
+  /**
+   * Re-attempt a claim once the current quiet window closes. At most one timer
+   * is outstanding per pane; a second request while one is pending is already
+   * represented by that timer.
+   *
+   * @param {number} delayMs - Remaining quiet window.
+   * @param {string} reason - Trigger label carried through to the retry.
+   */
+  _scheduleActivateRetry(delayMs, reason) {
+    if (this._activateRetryTimer) return;
+    const wait = Math.max(0, Math.min(delayMs, ACTIVATE_CONNECT_GUARD_MS)) + 50;
+    this._activateRetryTimer = setTimeout(() => {
+      this._activateRetryTimer = null;
+      this._requestActivate(reason);
+    }, wait);
+  }
+
+  /**
+   * Wire the two "this pane is the one being looked at" triggers.
+   *
+   * (a) IntersectionObserver on the pane's owned container: fires when the
+   *     pane crosses ACTIVATE_VISIBILITY_RATIO of on-screen area, which is
+   *     what a phone tab switch, a tab-group restore, or a scroll into view
+   *     looks like from inside the pane. Only the hidden-to-visible EDGE
+   *     claims, so a pane that stays visible never re-claims on its own.
+   * (b) focus on xterm's hidden textarea: keyboard focus without a click (tab
+   *     key, programmatic focus, the mobile Type button) never reaches the
+   *     app's click handler, so it would otherwise not claim at all.
+   *
+   * Both are feature-detected and wrapped: an engine without
+   * IntersectionObserver simply keeps the app-layer activate() behavior. The
+   * container is resolved through _getOwnedContainer so a cached pane can
+   * never observe a slot another session is rendering into, and both bindings
+   * are released by detachHostBindings and rebuilt by rebindHost.
+   */
+  _installVisibilityActivate() {
+    const container = this._getOwnedContainer();
+    if (!container) return;
+    this._removeVisibilityActivate();
+    if (typeof IntersectionObserver === 'function') {
+      try {
+        this._paneObserver = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            const ratio = typeof entry.intersectionRatio === 'number' ? entry.intersectionRatio : 0;
+            const visible = !!entry.isIntersecting && ratio >= ACTIVATE_VISIBILITY_RATIO;
+            if (visible && !this._paneVisible) {
+              this._paneVisible = true;
+              this._requestActivate('visible');
+            } else if (!visible) {
+              this._paneVisible = false;
+            }
+          }
+        }, { threshold: [ACTIVATE_VISIBILITY_RATIO] });
+        this._paneObserver.observe(container);
+      } catch (_) {
+        this._paneObserver = null;
+      }
+    }
+    const textarea = container.querySelector('.xterm-helper-textarea');
+    if (textarea && typeof textarea.addEventListener === 'function') {
+      this._activateFocusHandler = () => { this._requestActivate('focus'); };
+      textarea.addEventListener('focus', this._activateFocusHandler);
+      this._activateFocusTarget = textarea;
+    }
+  }
+
+  /** Tear down the visibility and focus claim triggers and any pending retry. */
+  _removeVisibilityActivate() {
+    if (this._paneObserver) {
+      try { this._paneObserver.disconnect(); } catch (_) {}
+      this._paneObserver = null;
+    }
+    if (this._activateFocusTarget && this._activateFocusHandler) {
+      try {
+        this._activateFocusTarget.removeEventListener('focus', this._activateFocusHandler);
+      } catch (_) {}
+    }
+    this._activateFocusHandler = null;
+    this._activateFocusTarget = null;
+    if (this._activateRetryTimer) { clearTimeout(this._activateRetryTimer); this._activateRetryTimer = null; }
+    this._paneVisible = false;
+    this._activatePending = false;
   }
 
   // Re-apply the smooth-scroll setting live to this pane. No-op while the mobile
@@ -2843,6 +3090,12 @@ class TerminalPane {
       this._fitDeferredWhileFrozen = false;
       this.safeFit();
     }
+    // A geometry claim held back by the freeze runs now, after the drain and
+    // the re-fit, so the claim carries this pane's current cols/rows.
+    if (this._activatePending) {
+      this._activatePending = false;
+      this._requestActivate('unfreeze');
+    }
   }
 
   /**
@@ -2871,6 +3124,14 @@ class TerminalPane {
     // as "output arriving this soon after a (re)connect is replay, not new
     // work", which is exactly the output that must not be held.
     this._freezeBlockedUntil = Date.now() + TerminalPane.REPLAY_SUPPRESS_MS;
+    // A geometry claim deferred by the freeze is still wanted (the client that
+    // was being looked at has not changed), but it must wait for the replay
+    // that follows this resync. Queue it behind the quiet window instead of
+    // dropping it: the caller opens that window immediately after this returns.
+    if (this._activatePending) {
+      this._activatePending = false;
+      this._scheduleActivateRetry(ACTIVATE_CONNECT_GUARD_MS, 'post-resync');
+    }
     if (!this._selectMode) return;
     // A fit deferred before the resync is stale: term.reset() is about to
     // repaint everything anyway, and the ResizeObserver will fit again if the
@@ -3686,6 +3947,10 @@ class TerminalPane {
     this._fitDeferredWhileFrozen = false;
     if (this._selNoticeTimer) { clearTimeout(this._selNoticeTimer); this._selNoticeTimer = null; }
     this._removeSelectModeWheelGuard();
+    // Width claim teardown: disconnect the observer and the focus listener and
+    // cancel a queued retry, so a disposed pane can never claim geometry for a
+    // session it no longer displays.
+    this._removeVisibilityActivate();
     this._destroyCopyView();
     if (this._copyViewBtn) { try { this._copyViewBtn.remove(); } catch (_) {} this._copyViewBtn = null; }
     if (this.ws) { this.ws.onmessage = null; this.ws.onclose = null; this.ws.close(); }
