@@ -372,13 +372,14 @@ async function main() {
   });
 
   await check('index.html cache-busts the changed native-copy scripts', () => {
-    // The two scripts carry independent tokens. terminal.js advanced to the
-    // Select mode v2 token (freeze-while-selecting + Copy view overlay);
-    // app.js is unchanged by that work and keeps the native-copy token, so a
-    // terminal-only fix does not force every client to refetch the SPA bundle.
+    // The two scripts carry independent tokens and both moved on 2026-08-05:
+    // terminal.js for the focus-report fix plus the mobile Copy view geometry
+    // (r2), app.js because the mobile toolbar and the pane action sheet gained
+    // the Select mode and Copy view controls. They are still versioned
+    // separately so a terminal-only fix does not force a full SPA refetch.
     assert.ok(
-      /terminal\.js\?v=20260805-selectv2/.test(indexSrc) &&
-        /app\.js\?v=20260727-copy-native8/.test(indexSrc),
+      /terminal\.js\?v=20260805-selectv2r2/.test(indexSrc) &&
+        /app\.js\?v=20260805-mobile-select1/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
   });

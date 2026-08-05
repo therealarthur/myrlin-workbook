@@ -56,6 +56,42 @@ const COPY_VIEW_DEFAULT_TOP_PX = 34;
 // How long the Copy view's "Copy all" button shows its result state.
 const COPY_VIEW_FEEDBACK_MS = 1400;
 
+// Minimum height AND width (px) for every control in the Copy view bar once the
+// pane is laid out for a phone. The desktop sizing (a 26px tall text button) is
+// well under the 40px comfortable-touch floor, which made "Copy all" and
+// "Refresh" easy to miss and easy to mis-tap on a real device.
+const COPY_VIEW_TOUCH_TARGET_PX = 40;
+
+// Viewport width (px) at or below which the pane is treated as phone-laid-out
+// for the purposes of touch sizing. Matches the 768px breakpoint every mobile
+// rule in styles-mobile.css already uses, so JS sizing and CSS layout agree.
+const COPY_VIEW_TOUCH_MAX_WIDTH_PX = 768;
+
+/* ═══════════════════════════════════════════════════════════════════
+   SELECT MODE STRIP PLACEMENT CONSTANTS
+   The strip is absolutely positioned inside the pane, so it has to be
+   told about the two things that live at the bottom of a pane: the
+   floating action buttons on desktop (z-order) and the mobile toolbar
+   plus type-and-send row on a phone (vertical inset).
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Gap (px) between the strip and whatever sits below it.
+const SELECT_STRIP_BASE_BOTTOM_PX = 8;
+
+// Bottom inset (px) used on a mobile-active pane when the toolbar cannot be
+// measured (not yet laid out, or measured while the pane was hidden). Sized for
+// one row of 38px toolbar buttons plus its 6px padding, so the strip still
+// clears the toolbar rather than sitting on top of it.
+const SELECT_STRIP_MOBILE_CHROME_FALLBACK_PX = 50;
+
+// Stacking order for the strip. It is a pointer-events:none notice, so it must
+// paint ABOVE terminal text but BELOW the pane's interactive chrome. The
+// floating upload and schedule buttons sit at z-index 5 (styles.css), and at
+// the strip's old z-index of 20 they were painted over: still clickable, but
+// invisible, which reads as a rendering bug. Anything genuinely modal stays
+// above (the copy hint at 30, the Copy view overlay at 40).
+const SELECT_STRIP_Z_INDEX = 4;
+
 /* ═══════════════════════════════════════════════════════════════════
    TERMINAL-GENERATED REPORT FILTER
    ConPTY turns on DEC 1004 focus reporting for essentially every pane
@@ -1880,6 +1916,16 @@ class TerminalPane {
    */
   safeFit() {
     if (!this.fitAddon || !this.term) return;
+    // Select mode v2 (mobile placement): the strip sits above the pane's bottom
+    // chrome, and the size of that chrome changes on exactly the events that
+    // trigger a fit: a tab switch making this pane mobile-active (the strip may
+    // already be showing from a remembered preference, placed while the pane
+    // was still laid out as desktop), a rotation, and the mobile
+    // type-and-send row opening or closing. Re-placed BEFORE the freeze guard
+    // below on purpose, because the guard returns early and the strip is only
+    // ever on screen while that freeze is active. Costs one property check on
+    // a pane that has never shown the strip.
+    if (this._selStrip) this._applySelectStripPlacement();
     // Select mode v2: never reflow the grid while output is frozen. A fit that
     // changes the ROW count is one of the few things xterm 6 treats as a
     // reason to clear the selection outright, and any applied resize makes the
@@ -3453,6 +3499,46 @@ class TerminalPane {
     }
   }
 
+  // Name of the bubbling DOM event a pane fires whenever its Select mode or
+  // Copy view state changes. Kept as a static so the pane, the app shell, and
+  // the tests all spell it the same way exactly once.
+  static SELECT_CHROME_EVENT = 'cwm:select-chrome';
+
+  /**
+   * Announce a Select mode / Copy view state change on the pane element.
+   *
+   * WHY (mobile parity, 2026-08-05): the pane header that carries both controls
+   * is display:none at phone widths, so the app shell mirrors them onto the
+   * mobile toolbar. That mirror has to stay honest when the state changes with
+   * NO toolbar tap behind it: typing resumes live output, the hold-queue
+   * overflow valve trips, Esc closes the overlay, a host rebind rebuilds the
+   * chrome. A bubbling CustomEvent keeps the dependency one-way. The pane knows
+   * nothing about the toolbar, and the shell wires exactly one delegated
+   * listener instead of a hook per pane instance.
+   *
+   * Never throws: a missing host, a stubbed element, or an engine without
+   * CustomEvent simply means nobody is listening.
+   */
+  _notifySelectChromeState() {
+    try {
+      const host = this.paneEl;
+      if (!host || typeof host.dispatchEvent !== 'function') return;
+      // typeof on an undeclared identifier is safe, which matters because the
+      // source tests evaluate this file with no DOM globals at all.
+      if (typeof CustomEvent !== 'function') return;
+      host.dispatchEvent(new CustomEvent(TerminalPane.SELECT_CHROME_EVENT, {
+        bubbles: true,
+        detail: {
+          sessionId: this.sessionId,
+          selectMode: !!this._selectMode,
+          copyViewOpen: !!this._copyOverlayOpen,
+        },
+      }));
+    } catch (_) {
+      // Advisory notification only; a failure must never break a toggle.
+    }
+  }
+
   /**
    * Build the Select-mode toggle button inside this pane's header and, on the
    * first pane ever mounted, a dismissable one-time hint about copying. All
@@ -3513,6 +3599,10 @@ class TerminalPane {
     cvBtn.type = 'button';
     cvBtn.className = 'terminal-pane-copyview btn btn-ghost btn-icon btn-sm';
     cvBtn.setAttribute('aria-pressed', 'false');
+    // Icon-only button: give it an accessible name at creation as well as on
+    // every state change, so it is never announced as an unnamed button even in
+    // the window before _updateCopyViewUI runs.
+    cvBtn.setAttribute('aria-label', 'Open Copy view');
     cvBtn.style.transition = 'color 160ms ease, background 160ms ease';
     // Document with lines glyph: "take the text out of this pane".
     cvBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">'
@@ -3556,6 +3646,9 @@ class TerminalPane {
     if (on) this._showSelectModeStrip();
     else this._hideSelectModeStrip();
     if (this.paneEl) this.paneEl.classList.toggle('select-mode-on', on);
+    // Mobile parity: the app shell mirrors this toggle onto the mobile toolbar,
+    // and the mode can end without a toolbar tap (typing, the overflow valve).
+    this._notifySelectChromeState();
   }
 
   // Default strip copy while Select mode is on. v2 wording leads with the
@@ -3577,12 +3670,17 @@ class TerminalPane {
       this._selStrip.textContent = TerminalPane.SELECT_STRIP_TEXT;
       this._selStrip.hidden = false;
       this._selStrip.style.opacity = '1';
+      // Re-measured on every show, never cached: the same pane is desktop one
+      // moment and mobile-active the next, and the toolbar can appear, be
+      // hidden with a pane, or grow a second row between two shows.
+      this._applySelectStripPlacement();
       return;
     }
     const s = document.createElement('div');
     s.className = 'terminal-selectmode-strip';
     s.textContent = TerminalPane.SELECT_STRIP_TEXT;
-    s.style.cssText = 'position:absolute;left:8px;right:8px;bottom:8px;z-index:20;'
+    s.style.cssText = 'position:absolute;left:8px;right:8px;'
+      + 'bottom:' + SELECT_STRIP_BASE_BOTTOM_PX + 'px;z-index:' + SELECT_STRIP_Z_INDEX + ';'
       + "font:11px/1.4 'Plus Jakarta Sans', system-ui, sans-serif;"
       + 'color:var(--text, #cdd6f4);background:var(--surface0, rgba(24, 24, 37, 0.94));'
       + 'border:1px solid var(--mauve, #cba6f7);border-radius:8px;padding:6px 10px;'
@@ -3591,6 +3689,65 @@ class TerminalPane {
     this.paneEl.appendChild(s);
     requestAnimationFrame(() => { if (this._selStrip) this._selStrip.style.opacity = '1'; });
     this._selStrip = s;
+    this._applySelectStripPlacement();
+  }
+
+  /**
+   * Measure how far above the bottom of the pane the Select-mode strip has to
+   * sit so it never covers the mobile toolbar.
+   *
+   * On desktop the answer is the plain 8px inset: nothing else occupies the
+   * bottom edge, and the floating action buttons are handled by z-order rather
+   * than by moving the strip. On a mobile-active pane the toolbar (and the
+   * type-and-send row when it is open) are the LAST flex children of the pane,
+   * so the strip has to clear their combined height or it lands on top of them.
+   * That was the reported defect: the strip is pointer-events:none, so the
+   * toolbar under it stayed tappable but became invisible, which reads as the
+   * toolbar having disappeared the moment Select mode turned on.
+   *
+   * Hidden chrome measures 0 (display:none and the hidden attribute both
+   * collapse offsetHeight), so a pane with no toolbar shown naturally falls
+   * back to the desktop inset. A mobile-active pane whose toolbar cannot be
+   * measured yet uses a fallback sized for one row of buttons rather than
+   * guessing zero, because guessing zero is the failure mode being fixed.
+   *
+   * @returns {number} Bottom inset in CSS pixels.
+   */
+  _selectStripBottomPx() {
+    const pane = this.paneEl;
+    if (!pane || !pane.classList || typeof pane.classList.contains !== 'function') {
+      return SELECT_STRIP_BASE_BOTTOM_PX;
+    }
+    if (!pane.classList.contains('mobile-active')) return SELECT_STRIP_BASE_BOTTOM_PX;
+    let chrome = 0;
+    try {
+      if (typeof pane.querySelector === 'function') {
+        const toolbar = pane.querySelector('.terminal-mobile-toolbar');
+        const inputRow = pane.querySelector('.terminal-mobile-input-row');
+        if (toolbar && typeof toolbar.offsetHeight === 'number') chrome += toolbar.offsetHeight;
+        if (inputRow && typeof inputRow.offsetHeight === 'number') chrome += inputRow.offsetHeight;
+      }
+    } catch (_) {
+      chrome = 0;
+    }
+    if (!chrome) chrome = SELECT_STRIP_MOBILE_CHROME_FALLBACK_PX;
+    return SELECT_STRIP_BASE_BOTTOM_PX + chrome;
+  }
+
+  /**
+   * Apply the measured bottom inset (and re-assert the stacking order) on the
+   * live strip element. Split out from _showSelectModeStrip so both the
+   * first-show and the cached-show paths run exactly the same measurement.
+   */
+  _applySelectStripPlacement() {
+    const strip = this._selStrip;
+    if (!strip || !strip.style) return;
+    try {
+      strip.style.bottom = this._selectStripBottomPx() + 'px';
+      strip.style.zIndex = String(SELECT_STRIP_Z_INDEX);
+    } catch (_) {
+      // Placement is cosmetic; a stubbed element must not break the toggle.
+    }
   }
 
   /** Hide the Select-mode strip (kept in the DOM for cheap re-show). */
@@ -3765,8 +3922,10 @@ class TerminalPane {
     if (typeof document === 'undefined') return null;
     const host = this.paneEl || this._getOwnedContainer();
     if (!host) return null;
-    const header = this.paneEl ? this.paneEl.querySelector('.terminal-pane-header') : null;
-    const topPx = (header && header.offsetHeight) ? header.offsetHeight : COPY_VIEW_DEFAULT_TOP_PX;
+    // Measured here for the first paint and RE-measured on every open by
+    // _applyCopyOverlayMetrics, because the same pane can be desktop (header
+    // visible) or phone-laid-out (header display:none) at different opens.
+    const topPx = this._copyOverlayTopPx();
 
     const root = document.createElement('div');
     root.className = 'terminal-copyview';
@@ -3860,7 +4019,111 @@ class TerminalPane {
     this._copyOverlay = root;
     this._copyOverlayPre = pre;
     this._copyOverlayBtns = { copy: copyBtn, refresh: refreshBtn, close: closeBtn };
+    // Size the bar controls for the layout that exists right now. Re-applied on
+    // every open so a rotation or a window resize between opens is honored.
+    this._applyCopyOverlayMetrics();
     return root;
+  }
+
+  /**
+   * Offset (px) from the top of the pane to the top of the Copy view overlay.
+   *
+   * Three distinct cases, and the middle one is the reported mobile defect:
+   *   - Header measurable (desktop): sit exactly below it, so the pane title,
+   *     the Select toggle and the close button all stay reachable.
+   *   - Header present but measuring 0: styles-mobile.css sets display:none on
+   *     the pane header at phone widths, so a hidden header occupies no space
+   *     and the overlay must cover the pane FROM THE TOP. The old code fell
+   *     through to the 34px desktop fallback here and left a live, still
+   *     repainting band of terminal above the snapshot.
+   *   - No header element at all (a detached or unusual host): keep the
+   *     historical fallback, which assumes a header that will render later.
+   *
+   * @returns {number} Top inset in CSS pixels.
+   */
+  _copyOverlayTopPx() {
+    const pane = this.paneEl;
+    if (!pane || typeof pane.querySelector !== 'function') return COPY_VIEW_DEFAULT_TOP_PX;
+    let header = null;
+    try {
+      header = pane.querySelector('.terminal-pane-header');
+    } catch (_) {
+      header = null;
+    }
+    if (!header) return COPY_VIEW_DEFAULT_TOP_PX;
+    const measured = typeof header.offsetHeight === 'number' ? header.offsetHeight : null;
+    if (measured === null) return COPY_VIEW_DEFAULT_TOP_PX;
+    if (measured > 0) return measured;
+    // A header that exists and measures zero is a HIDDEN header, not an
+    // unmeasurable one: cover the pane from its very top.
+    return 0;
+  }
+
+  /**
+   * Whether this pane is laid out the way a phone lays it out.
+   *
+   * Two independent signals because either one alone is wrong somewhere: a real
+   * touch device (coarse primary pointer plus touch points, the same test the
+   * mobile scroll engine uses) always qualifies, and so does any viewport at or
+   * below the 768px breakpoint every mobile CSS rule keys off, which covers a
+   * narrow desktop window and a device-emulation session. Never throws.
+   *
+   * @returns {boolean} True when touch-sized controls are appropriate.
+   */
+  _isPhoneWidthLayout() {
+    try {
+      if (typeof this._isMobile === 'function' && this._isMobile()) return true;
+      return typeof window !== 'undefined' &&
+        typeof window.innerWidth === 'number' &&
+        window.innerWidth > 0 &&
+        window.innerWidth <= COPY_VIEW_TOUCH_MAX_WIDTH_PX;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Re-apply every Copy view measurement that depends on the CURRENT layout:
+   * the top offset (see _copyOverlayTopPx) and the touch sizing of the bar
+   * controls.
+   *
+   * Called from _ensureCopyOverlay for the first paint and from _openCopyView
+   * on every open, because the overlay is created once per pane and then
+   * reused: caching either value at creation time is what left a phone with a
+   * band of live terminal above the snapshot and with 26px tall buttons.
+   * Setting the minimums to '' rather than a number on desktop restores the
+   * stylesheet's own sizing instead of pinning a stale pixel value.
+   */
+  _applyCopyOverlayMetrics() {
+    if (!this._copyOverlay) return;
+    try {
+      if (this._copyOverlay.style) {
+        this._copyOverlay.style.top = this._copyOverlayTopPx() + 'px';
+      }
+    } catch (_) {
+      // Geometry is cosmetic; never let it stop the overlay from opening.
+    }
+    const btns = this._copyOverlayBtns;
+    if (!btns) return;
+    const touch = this._isPhoneWidthLayout();
+    const size = touch ? COPY_VIEW_TOUCH_TARGET_PX + 'px' : '';
+    for (const key of ['copy', 'refresh', 'close']) {
+      const btn = btns[key];
+      if (!btn || !btn.style) continue;
+      try {
+        btn.style.minHeight = size;
+        btn.style.minWidth = size;
+        // Center the label inside the enlarged hit box rather than leaving it
+        // top-aligned once the button is taller than its text.
+        if (touch) {
+          btn.style.display = 'inline-flex';
+          btn.style.alignItems = 'center';
+          btn.style.justifyContent = 'center';
+        }
+      } catch (_) {
+        // A stubbed element in a test harness has no style object to write.
+      }
+    }
   }
 
   /**
@@ -3945,6 +4208,11 @@ class TerminalPane {
     if (!root) return false;
     root.hidden = false;
     root.style.display = 'flex';
+    // Re-measure BEFORE the snapshot is composed and shown: the overlay is
+    // created once and reused, so a pane that was opened on a desktop layout
+    // and is now phone-laid-out (hidden header, touch targets) has to be
+    // re-fitted here or it keeps the geometry of its first ever open.
+    this._applyCopyOverlayMetrics();
     this._copyOverlayOpen = true;
     this._refreshCopyView();
     if (this._copyOverlayPre && typeof this._copyOverlayPre.focus === 'function') {
@@ -3996,10 +4264,18 @@ class TerminalPane {
 
   /** Reflect Copy view open/closed state on its header button. */
   _updateCopyViewUI() {
+    // Announced BEFORE the header-button guard below: the mobile toolbar mirror
+    // has to learn about an Esc-close even on a pane whose header button was
+    // never built (a detached host), and the listener reads pane state directly.
+    this._notifySelectChromeState();
     if (!this._copyViewBtn) return;
     const on = !!this._copyOverlayOpen;
     this._copyViewBtn.classList.toggle('active', on);
     this._copyViewBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    // aria-label as well as title: the button is icon-only, so a screen reader
+    // otherwise announces it as an unnamed button on engines that do not fall
+    // back to title. The label names the ACTION, the title explains it.
+    this._copyViewBtn.setAttribute('aria-label', on ? 'Close Copy view' : 'Open Copy view');
     this._copyViewBtn.style.color = on ? 'var(--mauve, #cba6f7)' : '';
     this._copyViewBtn.style.background = on ? 'var(--surface1, rgba(203, 166, 247, 0.16))' : '';
     this._copyViewBtn.title = on
@@ -4042,8 +4318,13 @@ class TerminalPane {
       + 'border:1px solid var(--surface2, #585b70);border-radius:10px;'
       + 'padding:9px 22px 9px 11px;box-shadow:0 8px 24px rgba(0, 0, 0, 0.42);'
       + 'opacity:0;transition:opacity 180ms ease;';
+    // Names all THREE copy paths: the always-available Shift+drag, the Select
+    // mode toggle, and the Copy view snapshot. Copy view was missing here even
+    // though it is the only path that reaches scrollback a full-screen CLI
+    // never wrote to the terminal, which is the case users hit first.
     h.innerHTML = 'Claude Code captures the mouse. Hold <b>Shift</b> and drag to select, '
-      + 'then <b>Ctrl+C</b> to copy, or use <b>Select mode</b> (this button).'
+      + 'then <b>Ctrl+C</b> to copy, or use <b>Select mode</b> (this button). '
+      + '<b>Copy view</b> (next to it) snapshots the whole transcript as plain text.'
       + '<button class="terminal-copy-hint-x" aria-label="Dismiss" '
       + 'style="position:absolute;top:3px;right:5px;background:none;border:none;'
       + 'color:inherit;cursor:pointer;font-size:15px;line-height:1;padding:2px;opacity:0.7;">&times;</button>';

@@ -1610,6 +1610,13 @@ class CWMApp {
     }
 
     // ─── Mobile: Terminal Toolbar ──────────────────────────────
+    // Select mode + Copy view are injected BEFORE the delegation loop below,
+    // so the same per-button click wiring picks them up with no second code
+    // path. Injected rather than hand-written into all six fixed-slot toolbars
+    // in index.html so the markup, the labels and the ordering have exactly one
+    // definition. See _injectMobileSelectControls.
+    this._injectMobileSelectControls();
+
     // Toolbar buttons send input directly via WebSocket - they work in
     // both scroll and type mode, no textarea focus needed.
     document.querySelectorAll('.terminal-mobile-toolbar button').forEach(btn => {
@@ -1699,6 +1706,17 @@ class CWMApp {
           return;
         }
 
+        // Select mode / Copy view (mobile parity, 2026-08-05).
+        // styles-mobile.css sets display:none on .terminal-pane-header at phone
+        // widths, and the header buttons were the ONLY callers of
+        // toggleSelectMode/toggleCopyView, so both features were unreachable on
+        // a phone. They route through the exact same TerminalPane methods the
+        // header buttons use, so behavior cannot drift between the surfaces.
+        if (key === 'select' || key === 'copyview') {
+          this._runMobileSelectToolbarAction(key, activePane);
+          return;
+        }
+
         // Full-screen reader overlay: extract terminal buffer as scrollable text
         if (key === 'reader') {
           this.openTerminalReader(activePane);
@@ -1722,6 +1740,24 @@ class CWMApp {
           activePane.ws.send(JSON.stringify({ type: 'input', data }));
         }
       });
+    });
+
+    // ── Mobile toolbar: keep Select / Copy view honest ───────────
+    // Both states can change with NO toolbar tap behind them: typing resumes
+    // live output, the hold-queue overflow valve trips, Esc closes the Copy
+    // view, a host rebind rebuilds the pane chrome. Each TerminalPane announces
+    // every such change as a bubbling CustomEvent on its own pane element (see
+    // TerminalPane._notifySelectChromeState), so ONE delegated listener keeps
+    // the toolbar in sync without wiring a callback per pane instance and
+    // without the pane knowing the toolbar exists.
+    document.addEventListener('cwm:select-chrome', (e) => {
+      const paneEl = (e.target && typeof e.target.closest === 'function')
+        ? e.target.closest('.terminal-pane')
+        : null;
+      if (!paneEl) return;
+      const slot = parseInt(paneEl.dataset.slot, 10);
+      const pane = (!isNaN(slot) && this.terminalPanes) ? this.terminalPanes[slot] : null;
+      this._syncMobileSelectToolbar(pane, paneEl);
     });
 
     // ── Mobile input field: Send button + Enter key ──────────────
@@ -1810,6 +1846,165 @@ class CWMApp {
     if (!this.terminalPanes || this._activeTerminalSlot === null || this._activeTerminalSlot === undefined) return;
     const tp = this.terminalPanes[this._activeTerminalSlot];
     if (tp && typeof tp.activate === 'function') tp.activate();
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     MOBILE PARITY: SELECT MODE + COPY VIEW
+     styles-mobile.css hides .terminal-pane-header at phone
+     widths (the mobile tab strip replaces it), and the two
+     copy controls lived ONLY in that header, so on a phone
+     they did not exist at all. The mobile toolbar and the pane
+     long-press action sheet are the two mobile surfaces, so
+     both now reach the same TerminalPane methods.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Add the Select mode and Copy view buttons to every fixed-slot mobile
+   * toolbar, immediately after the existing Copy button.
+   *
+   * Placement is deliberate: Read, Copy, Select and Copy view are the four
+   * "get text out of this pane" actions, so they sit together rather than
+   * being scattered among the key-sending buttons. The toolbar scrolls
+   * horizontally, so two extra entries cannot push anything off the strip.
+   *
+   * Idempotent: an existing entry is left alone, so a second call (a re-init,
+   * or a future dynamic toolbar rebuild) cannot stack duplicates. Runs BEFORE
+   * the delegated click wiring in the caller, which is what lets the new
+   * buttons share the one click handler instead of needing their own.
+   *
+   * @returns {number} How many buttons were created (0 when already present).
+   */
+  _injectMobileSelectControls() {
+    let created = 0;
+    const toolbars = document.querySelectorAll('.terminal-mobile-toolbar');
+    toolbars.forEach((toolbar) => {
+      const anchor = toolbar.querySelector('[data-key="copy"]');
+      // Descriptions are duplicated into title and aria-label on purpose: the
+      // label names the action for assistive tech, the title explains it on a
+      // long press / hover.
+      const specs = [
+        {
+          key: 'select',
+          className: 'toolbar-select',
+          label: 'Select',
+          title: 'Select mode: pause output and drag to select text',
+          ariaLabel: 'Toggle Select mode',
+        },
+        {
+          key: 'copyview',
+          className: 'toolbar-copyview',
+          label: 'Copy view',
+          title: 'Copy view: snapshot the whole transcript as selectable text',
+          ariaLabel: 'Toggle Copy view',
+        },
+      ];
+      let after = anchor;
+      for (const spec of specs) {
+        if (toolbar.querySelector('[data-key="' + spec.key + '"]')) continue;
+        const btn = document.createElement('button');
+        btn.className = spec.className;
+        btn.dataset.key = spec.key;
+        btn.textContent = spec.label;
+        btn.title = spec.title;
+        btn.setAttribute('aria-label', spec.ariaLabel);
+        btn.setAttribute('aria-pressed', 'false');
+        if (after && after.parentNode === toolbar) {
+          toolbar.insertBefore(btn, after.nextSibling);
+        } else {
+          toolbar.appendChild(btn);
+        }
+        after = btn;
+        created++;
+      }
+    });
+    return created;
+  }
+
+  /**
+   * Run a mobile toolbar Select mode / Copy view action against a live pane.
+   *
+   * Delegates to the SAME TerminalPane entry points the desktop header buttons
+   * use (toggleSelectMode / toggleCopyView) so the two surfaces can never
+   * disagree about what the control does. Method existence is checked because
+   * a mirror pane (read-only session mirror) occupies the same slot array
+   * without being a full TerminalPane.
+   *
+   * @param {string} key - 'select' or 'copyview'.
+   * @param {object} pane - The pane the toolbar is acting on.
+   * @returns {boolean} True when an action actually ran.
+   */
+  _runMobileSelectToolbarAction(key, pane) {
+    if (!pane) return false;
+    if (key === 'select') {
+      if (typeof pane.toggleSelectMode !== 'function') return false;
+      pane.toggleSelectMode();
+    } else if (key === 'copyview') {
+      if (typeof pane.toggleCopyView !== 'function') return false;
+      pane.toggleCopyView();
+    } else {
+      return false;
+    }
+    // The pane also announces this through cwm:select-chrome; syncing here as
+    // well makes the button state update in the same frame as the tap, which
+    // matters because the toolbar is the only feedback a phone user gets.
+    this._syncMobileSelectToolbar(pane);
+    return true;
+  }
+
+  /**
+   * Mirror a pane's Select mode and Copy view state onto its mobile toolbar
+   * buttons.
+   *
+   * Follows the toolbar's existing stateful-button idiom exactly: the keyboard
+   * button marks itself with the `toolbar-active` class and is re-asserted from
+   * pane state in switchTerminalTab. These two do the same, plus aria-pressed
+   * because they are genuine toggles.
+   *
+   * Reads pane state directly rather than trusting an event payload, so a
+   * caller that only has the element (the delegated listener) and a caller that
+   * only has the pane (a toolbar tap, the action sheet) both end up at the same
+   * answer. Tolerates a null pane by clearing the buttons, which is what an
+   * empty slot should show.
+   *
+   * @param {object} pane - The TerminalPane, or null for an empty slot.
+   * @param {HTMLElement} [paneEl] - The pane element, when the caller has it.
+   * @returns {boolean} True when a toolbar was found and updated.
+   */
+  _syncMobileSelectToolbar(pane, paneEl) {
+    let el = paneEl || null;
+    if (!el && pane && this.terminalPanes) {
+      const slot = this.terminalPanes.indexOf(pane);
+      if (slot >= 0) el = document.getElementById('term-pane-' + slot);
+    }
+    if (!el || typeof el.querySelector !== 'function') return false;
+    const selectBtn = el.querySelector('.terminal-mobile-toolbar [data-key="select"]');
+    const copyViewBtn = el.querySelector('.terminal-mobile-toolbar [data-key="copyview"]');
+    if (!selectBtn && !copyViewBtn) return false;
+    const selectOn = !!(pane && pane._selectMode);
+    const copyViewOn = !!(pane && pane._copyOverlayOpen);
+    /**
+     * Paint one toggle button. The class carries the toolbar's existing
+     * stateful idiom; the inline styles are what actually make the state
+     * VISIBLE, because index.html links styles-mobile.css with no cache token
+     * while app.js is cache-busted, so a class-only active state could sit
+     * unstyled on a client with a stale stylesheet. Mauve matches the accent
+     * the desktop header toggle and the Select-mode strip already use, and the
+     * empty string restores whatever the stylesheet says when the state is off.
+     *
+     * @param {HTMLElement} btn - The toolbar button.
+     * @param {boolean} on - Whether the feature is currently on.
+     */
+    const paint = (btn, on) => {
+      btn.classList.toggle('toolbar-active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.style.background = on ? 'var(--mauve, #cba6f7)' : '';
+      btn.style.color = on ? 'var(--crust, #11111b)' : '';
+      btn.style.borderColor = on ? 'var(--mauve, #cba6f7)' : '';
+      btn.style.fontWeight = on ? '600' : '';
+    };
+    if (selectBtn) paint(selectBtn, selectOn);
+    if (copyViewBtn) paint(copyViewBtn, copyViewOn);
+    return true;
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -15014,7 +15209,13 @@ class CWMApp {
         // here on the same hold double-fires. Skip when the touch lands on the
         // terminal surface (the xterm screen or its container); the pane menu
         // stays reachable from the pane header and the mobile tab strip.
-        const TERMINAL_SURFACE_SELECTOR = '.terminal-container, .xterm';
+        // The Copy view overlay is added to the exemption for a different
+        // reason than the two terminal surfaces: it renders the transcript as
+        // ordinary selectable DOM text, so a long press inside it is the user
+        // asking the browser to select that text. Opening the pane action sheet
+        // over it both cancels the selection and puts Kill Session one tap from
+        // a copy gesture. Verified in QA before this line existed.
+        const TERMINAL_SURFACE_SELECTOR = '.terminal-container, .xterm, .terminal-copyview';
         pane.addEventListener('touchstart', (e) => {
           if (this.isMobile && e.target && e.target.closest &&
               e.target.closest(TERMINAL_SURFACE_SELECTOR)) {
@@ -16361,6 +16562,32 @@ class CWMApp {
         }
       },
     });
+
+    // ── Select mode + Copy view (mobile parity, 2026-08-05) ────
+    // The pane header that carries these two controls is display:none at phone
+    // widths, so this sheet (reached by a long press on the pane) and the
+    // mobile toolbar are the only surfaces that can reach them there. Both
+    // items call the SAME TerminalPane methods the header buttons use, and both
+    // re-sync the toolbar so the two mobile surfaces agree. Labels state the
+    // action that will happen, matching the sheet's existing wording style.
+    if (typeof tp.toggleSelectMode === 'function') {
+      items.push({
+        label: tp._selectMode ? 'Turn off Select mode' : 'Select mode (pause output)',
+        icon: '&#9998;', action: () => {
+          tp.toggleSelectMode();
+          this._syncMobileSelectToolbar(tp);
+        },
+      });
+    }
+    if (typeof tp.toggleCopyView === 'function') {
+      items.push({
+        label: tp._copyOverlayOpen ? 'Close Copy view' : 'Copy view (whole transcript)',
+        icon: '&#128209;', action: () => {
+          tp.toggleCopyView();
+          this._syncMobileSelectToolbar(tp);
+        },
+      });
+    }
 
     items.push({ type: 'sep' });
 
@@ -18544,6 +18771,11 @@ class CWMApp {
         keyboardBtn.classList.toggle('toolbar-active', isTyping);
         keyboardBtn.textContent = isTyping ? '\u2328 Typing' : '\u2328 Type';
       }
+      // Same per-pane truth rule for the two copy toggles: Select mode is a
+      // per-session preference that survives a refresh, and the Copy view can
+      // still be open from an earlier visit to this tab, so both are re-read
+      // from the pane rather than assumed off.
+      this._syncMobileSelectToolbar(tp, activeEl);
     }
 
     // Update pane indicator dots

@@ -160,17 +160,20 @@ check('dispose() tears the interceptor + injected DOM down', () => {
 });
 
 check('index.html cache-busts the native-copy terminal fix', () => {
-  // Bumped for Select mode v2 (freeze-while-selecting + Copy view overlay).
-  // app.js keeps its own token below because that file is unchanged by v2;
-  // the two scripts are versioned independently on purpose so a terminal-only
-  // change does not force every client to re-download the SPA bundle.
-  assert.ok(/terminal\.js\?v=20260805-selectv2/.test(indexSrc),
+  // Bumped for Select mode v2 (freeze-while-selecting + Copy view overlay),
+  // then again (r2) for the focus-report fix plus the mobile overlay/strip
+  // geometry. The two scripts are versioned independently on purpose, so a
+  // terminal-only change does not force a re-download of the whole SPA bundle.
+  assert.ok(/terminal\.js\?v=20260805-selectv2r2/.test(indexSrc),
     'expected the current terminal.js cache token');
 });
 
 check('index.html cache-busts the app pane-focus/host fix', () => {
-  assert.ok(/app\.js\?v=20260727-copy-native8/.test(indexSrc),
-    'expected the final app.js native-copy cache token');
+  // Bumped when the mobile toolbar and the pane action sheet gained the
+  // Select mode and Copy view controls: those live in app.js, so clients need
+  // a fresh copy of it to reach either feature on a phone.
+  assert.ok(/app\.js\?v=20260805-mobile-select1/.test(indexSrc),
+    'expected the current app.js cache token');
 });
 
 // ── Executed proof: run the real interceptor ─────────────────

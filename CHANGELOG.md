@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.8] - 2026-08-05
+
+This corrective prerelease fixes the defect that made Select mode cancel itself on the click that started a selection, and gives phones the two copy controls they could not reach at all.
+
+### Added
+
+- **Select mode and Copy view are reachable on a phone.** The pane header that carries both controls is hidden at phone widths, and its buttons were the only callers of either feature, so on a phone neither existed. Both now appear in the mobile toolbar next to Read and Copy, and both are also offered in the pane long-press action sheet. They call the same pane methods the desktop header buttons use, so the surfaces cannot drift. The toolbar Select button shows a clear active state and re-reads pane state whenever the mode changes without a tap, including when typing resumes live output, when the hold-queue overflow valve trips, when Escape closes the Copy view, and when a tab switch brings a pane back with the mode still remembered.
+
+### Fixed
+
+- **A focus report no longer cancels Select mode.** Windows ConPTY enables focus reporting on effectively every pane, so xterm emits a focus-in report through the same channel it uses for keystrokes whenever its hidden textarea gains focus. Select mode treats input as a request to resume live output, so clicking the toggle and then pressing the mouse down to drag turned the mode straight back off and selected against a repainting screen. Payloads that consist only of terminal-generated reports (focus in and out, cursor position responses, device attributes responses) no longer count as user input on either the keystroke channel or the socket. What reaches the session is unchanged; a chunk that mixes a report with anything else still resumes live output. The toggle also hands keyboard focus back to the terminal when it turns the mode on, so the first drag selects with no focus transition at all.
+- **The Copy view covers the whole pane on a phone.** The overlay measured its top offset once, at creation, and fell back to a desktop header height when the header could not be measured. A hidden mobile header measures zero, so the snapshot started about 35px down and left a live, still repainting band of terminal above it. The offset is recomputed on every open, and a hidden header now means the overlay starts at the top of the pane.
+- **Copy view buttons are big enough to tap.** Copy all and Refresh were 26px tall. Every control in the overlay bar is at least 40px on a phone-laid-out pane, and the sizing is re-applied on each open so a rotation between opens is honored.
+- **A long press inside the Copy view selects text instead of opening the action sheet.** The overlay renders the transcript as ordinary selectable text, so a long press there is a selection gesture. It was opening the pane action sheet, which cancelled the selection and put Kill Session one tap away.
+- **The Select mode notice no longer covers the mobile toolbar.** The notice strip is click-through, so on a phone it hid the toolbar while leaving it tappable, which read as the toolbar disappearing. It is now placed above the toolbar and the type-and-send row, re-measured on every show. On desktop it also stops painting over the pane's floating action buttons.
+- **The copy hint and the Copy view button read correctly.** The one-time hint now names Copy view alongside Shift+drag and Select mode, and the icon-only Copy view button carries an accessible name rather than only a tooltip.
+
+### Testing
+
+- Added 32 checks to `test/terminal-select-v2.test.js` (78 to 110). The report filter is covered by a full truth table: focus in and out, concatenated bursts, cursor position and both device attributes forms, arrow keys, modified arrows, application-mode keys, printable text, control characters, bracketed paste, mixed chunks, empty, non-string and oversized payloads. The production keystroke handler and the socket hook are compiled from source and executed, proving a report is forwarded without resuming output while a keystroke, a mixed chunk and an unparseable frame all still resume it.
+- Added executed coverage for the mobile work: overlay top offset across measured, hidden and absent headers, touch sizing applied and cleared, strip placement against a measured toolbar and its fallback, the toolbar injector including idempotency and ordering, the toolbar actions delegating to the pane methods, per-pane state mirroring including the self-exit case, and a fit re-placing the strip on the frozen early-return path (the reachable case where a remembered Select mode is shown before the pane becomes mobile-active).
+
 ## [1.3.0-alpha.7] - 2026-08-05
 
 This prerelease makes terminal selection trustworthy under a full-screen CLI and adds a way to copy more than the visible screen. Version alpha.6 is claimed by a separate in-flight branch, so the gap here is expected.

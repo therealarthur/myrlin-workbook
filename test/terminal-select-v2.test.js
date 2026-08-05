@@ -40,7 +40,14 @@ const path = require('path');
 const assert = require('assert');
 
 const TERMINAL_JS_PATH = path.join(__dirname, '..', 'src', 'web', 'public', 'terminal.js');
+const APP_JS_PATH = path.join(__dirname, '..', 'src', 'web', 'public', 'app.js');
 const termSrc = fs.readFileSync(TERMINAL_JS_PATH, 'utf8');
+// src/web/public/*.js is stored with CRLF endings. Every anchor used against
+// app.js below is single-line, which matches either way, but the normalized
+// copy is what gets COMPILED so a multi-line template inside a method body can
+// never depend on the checkout's line endings. Same reasoning (and the same
+// fix) as test/terminal-select-mode.test.js.
+const appSrc = fs.readFileSync(APP_JS_PATH, 'utf8').replace(/\r\n/g, '\n');
 
 let passed = 0;
 let failed = 0;
@@ -1495,6 +1502,428 @@ check('executed: _refocusTerminalForSelect defers to the pane focus policy and n
   const boom = { term: {}, focus() { throw new Error('detached host'); } };
   assert.strictEqual(TerminalPane.prototype._refocusTerminalForSelect.call(boom), false,
     'a failed refocus must never break the toggle');
+});
+
+/* ============================================================
+   9. Mobile parity: the controls have to EXIST on a phone
+
+   styles-mobile.css sets display:none on .terminal-pane-header
+   at phone widths, and the header buttons were the only callers
+   of toggleSelectMode/toggleCopyView, so both features were
+   unreachable on a phone. The mobile toolbar and the pane
+   long-press action sheet are the two mobile surfaces. This
+   section also covers the geometry a hidden header breaks: the
+   overlay's top offset, the strip against the toolbar, and the
+   touch sizing of the overlay bar.
+   ============================================================ */
+
+/**
+ * Compile ONE production app.js method in isolation and hand it back.
+ *
+ * The method bodies exercised here only touch their arguments, `this`, and
+ * `document`, so an object stub plus an injected document runs the real logic
+ * with no SPA boot. Balanced-brace extraction keeps the scope exact, the same
+ * way the terminal.js checks above avoid file-wide regexes.
+ *
+ * @param {string} anchor - Single-line method signature, indentation included.
+ * @param {object} [doc] - Stub used for the compiled body's `document`.
+ * @returns {Function} The production method, unbound.
+ */
+function compileAppMethod(anchor, doc) {
+  const methodSource = extractBlock(appSrc, anchor);
+  const name = anchor.trim().split('(')[0];
+  const obj = new Function('document', 'return ({' + methodSource + '});')(doc || null);
+  const fn = obj[name];
+  assert.strictEqual(typeof fn, 'function', 'could not compile app method ' + name);
+  return fn;
+}
+
+/**
+ * Minimal element stub good enough for the toolbar paths: records attributes,
+ * class toggles and inline styles.
+ *
+ * @param {object} [over] - Extra fields (dataset, querySelector, ...).
+ * @returns {object} The fake element.
+ */
+function fakeEl(over) {
+  const el = {
+    dataset: {},
+    style: {},
+    classes: new Set(),
+    attrs: {},
+    className: '',
+    textContent: '',
+    title: '',
+    classList: {
+      toggle: (name, on) => { if (on) el.classes.add(name); else el.classes.delete(name); },
+      contains: (name) => el.classes.has(name),
+      add: (name) => el.classes.add(name),
+      remove: (name) => el.classes.delete(name),
+    },
+    setAttribute: (k, v) => { el.attrs[k] = v; },
+    getAttribute: (k) => (k in el.attrs ? el.attrs[k] : null),
+  };
+  return Object.assign(el, over || {});
+}
+
+/**
+ * Build a fake mobile toolbar carrying only the existing Copy button, so the
+ * injector has the anchor it inserts after.
+ *
+ * @returns {{toolbar: object, children: object[]}}
+ */
+function fakeToolbar() {
+  const children = [];
+  const toolbar = fakeEl({
+    querySelector: (sel) => {
+      const m = /\[data-key="([^"]+)"\]/.exec(sel);
+      if (!m) return null;
+      return children.find((c) => c.dataset.key === m[1]) || null;
+    },
+    insertBefore: (node, ref) => {
+      const i = children.indexOf(ref);
+      children.splice(i < 0 ? children.length : i, 0, node);
+      node.parentNode = toolbar;
+    },
+    appendChild: (node) => { children.push(node); node.parentNode = toolbar; },
+  });
+  const copyBtn = fakeEl({ dataset: { key: 'copy' }, parentNode: toolbar });
+  children.push(copyBtn);
+  toolbar.children = children;
+  return { toolbar, children };
+}
+
+check('the Copy view overlay top offset is recomputed, and a HIDDEN header means top 0', () => {
+  const T = TerminalPane.prototype._copyOverlayTopPx;
+  // Desktop: sit exactly under the measured header.
+  const desktop = { paneEl: { querySelector: () => ({ offsetHeight: 30 }) } };
+  assert.strictEqual(T.call(desktop), 30);
+  // Phone: styles-mobile.css hides the header, so it measures 0 and the
+  // overlay must cover the pane FROM THE TOP. The old code fell through to the
+  // 34px desktop fallback and left a live band of terminal above the snapshot.
+  const phone = { paneEl: { querySelector: () => ({ offsetHeight: 0 }) } };
+  assert.strictEqual(T.call(phone), 0, 'a hidden header occupies no space');
+  // No header element at all: keep the historical fallback.
+  const headerless = { paneEl: { querySelector: () => null } };
+  assert.strictEqual(headerless.paneEl.querySelector('.terminal-pane-header'), null);
+  assert.ok(T.call(headerless) > 0, 'an absent header keeps the measured-later fallback');
+  assert.strictEqual(T.call({}), T.call(headerless), 'no host answers the same way');
+  const throwing = { paneEl: { querySelector: () => { throw new Error('detached'); } } };
+  assert.ok(T.call(throwing) > 0, 'a throwing lookup must fall back, never propagate');
+});
+
+check('executed: _applyCopyOverlayMetrics re-fits top offset and touch targets on every open', () => {
+  const btns = { copy: fakeEl(), refresh: fakeEl(), close: fakeEl() };
+  // Built on the real prototype so the method under test reaches its sibling
+  // _copyOverlayTopPx exactly as it does in production.
+  const f = Object.assign(Object.create(TerminalPane.prototype), {
+    paneEl: { querySelector: () => ({ offsetHeight: 0 }) },
+    _copyOverlay: fakeEl(),
+    _copyOverlayBtns: btns,
+    _isPhoneWidthLayout: () => true,
+  });
+  TerminalPane.prototype._applyCopyOverlayMetrics.call(f);
+  assert.strictEqual(f._copyOverlay.style.top, '0px', 'the hidden-header case must cover the pane');
+  for (const key of ['copy', 'refresh', 'close']) {
+    assert.strictEqual(btns[key].style.minHeight, '40px',
+      key + ' must meet the 40px touch floor (Copy all and Refresh shipped at 26px)');
+    assert.strictEqual(btns[key].style.minWidth, '40px');
+    assert.strictEqual(btns[key].style.alignItems, 'center', 'the label must center in the taller box');
+  }
+  // Back on a desktop layout the minimums are cleared, not pinned to a stale
+  // pixel value, so the stylesheet sizing applies again.
+  const desk = Object.assign(Object.create(TerminalPane.prototype), {
+    paneEl: { querySelector: () => ({ offsetHeight: 30 }) },
+    _copyOverlay: fakeEl(),
+    _copyOverlayBtns: btns,
+    _isPhoneWidthLayout: () => false,
+  });
+  TerminalPane.prototype._applyCopyOverlayMetrics.call(desk);
+  assert.strictEqual(desk._copyOverlay.style.top, '30px');
+  assert.strictEqual(btns.copy.style.minHeight, '');
+  // No overlay yet, or no buttons: never throws.
+  TerminalPane.prototype._applyCopyOverlayMetrics.call({});
+  TerminalPane.prototype._applyCopyOverlayMetrics.call({ _copyOverlay: fakeEl(), paneEl: null });
+});
+
+check('the overlay geometry is applied at creation AND on every open', () => {
+  const ensure = extractBlock(termSrc, '_ensureCopyOverlay() {');
+  assert.ok(ensure.includes('this._copyOverlayTopPx()'),
+    'creation must measure through the helper, not inline the old ternary');
+  assert.ok(ensure.includes('this._applyCopyOverlayMetrics()'), 'first paint must be sized');
+  const open = extractBlock(termSrc, '_openCopyView() {');
+  assert.ok(open.includes('this._applyCopyOverlayMetrics()'),
+    'the overlay is created once and reused, so every open must re-measure');
+  assert.ok(open.indexOf('_applyCopyOverlayMetrics') < open.indexOf('_refreshCopyView'),
+    'geometry before content, so the snapshot is laid out into its final box');
+});
+
+check('_isPhoneWidthLayout accepts a real touch device or a phone-width viewport', () => {
+  const P = TerminalPane.prototype._isPhoneWidthLayout;
+  assert.strictEqual(P.call({ _isMobile: () => true }), true, 'a real touch device qualifies');
+  assert.strictEqual(P.call({ _isMobile: () => false }), false,
+    'a desktop window (the sandbox has no window.innerWidth) does not');
+  assert.strictEqual(P.call({ _isMobile: () => { throw new Error('no matchMedia'); } }), false,
+    'a throwing probe answers false rather than propagating');
+});
+
+check('the Select-mode strip clears the mobile toolbar instead of covering it', () => {
+  const B = TerminalPane.prototype._selectStripBottomPx;
+  // Desktop pane: the plain inset, because nothing else owns the bottom edge.
+  const desktop = { paneEl: { classList: { contains: () => false } } };
+  assert.strictEqual(B.call(desktop), 8);
+  // Mobile-active pane: clear the toolbar plus the type-and-send row.
+  const mobile = {
+    paneEl: {
+      classList: { contains: (c) => c === 'mobile-active' },
+      querySelector: (sel) => {
+        if (sel === '.terminal-mobile-toolbar') return { offsetHeight: 50 };
+        if (sel === '.terminal-mobile-input-row') return { offsetHeight: 40 };
+        return null;
+      },
+    },
+  };
+  assert.strictEqual(B.call(mobile), 8 + 50 + 40,
+    'the strip is pointer-events:none, so covering the toolbar hides it while leaving it tappable');
+  // Hidden chrome measures 0, which naturally falls back to the fallback inset
+  // rather than to zero (zero is the failure mode being fixed).
+  const unmeasured = {
+    paneEl: {
+      classList: { contains: (c) => c === 'mobile-active' },
+      querySelector: () => ({ offsetHeight: 0 }),
+    },
+  };
+  assert.ok(B.call(unmeasured) > 8, 'an unmeasurable toolbar still gets cleared');
+  assert.strictEqual(B.call({}), 8, 'no host answers with the desktop inset');
+});
+
+check('executed: the strip re-measures its placement on every show', () => {
+  const strip = fakeEl();
+  // Prototype-backed: _applySelectStripPlacement calls _selectStripBottomPx.
+  const f = Object.assign(Object.create(TerminalPane.prototype), {
+    _selStrip: strip,
+    paneEl: {
+      classList: { contains: (c) => c === 'mobile-active' },
+      querySelector: (sel) => (sel === '.terminal-mobile-toolbar' ? { offsetHeight: 50 } : null),
+    },
+  });
+  TerminalPane.prototype._applySelectStripPlacement.call(f);
+  assert.strictEqual(strip.style.bottom, '58px');
+  // The same pane, now shown on a desktop layout: the placement must follow.
+  f.paneEl.classList.contains = () => false;
+  TerminalPane.prototype._applySelectStripPlacement.call(f);
+  assert.strictEqual(strip.style.bottom, '8px', 'placement must never be cached from a previous show');
+  TerminalPane.prototype._applySelectStripPlacement.call({});
+  const show = extractBlock(termSrc, '_showSelectModeStrip() {');
+  const firstApply = show.indexOf('_applySelectStripPlacement');
+  assert.ok(firstApply !== -1 && show.indexOf('_applySelectStripPlacement', firstApply + 1) !== -1,
+    'both the cached-show and the create paths must measure');
+});
+
+check('executed: a fit re-places the strip even on the frozen (early-return) path', () => {
+  // The reachable regression: a pane whose Select mode was remembered shows
+  // its strip at mount, BEFORE switchTerminalTab marks the pane mobile-active,
+  // so the strip is placed with the desktop inset and lands on the toolbar.
+  // safeFit runs on that tab switch (and on a rotation, and when the mobile
+  // type row opens), so it has to re-place before it defers for the freeze.
+  const strip = fakeEl();
+  const f = Object.assign(Object.create(TerminalPane.prototype), {
+    fitAddon: { fit() { assert.fail('must not fit while frozen'); } },
+    term: {},
+    _selStrip: strip,
+    _selectMode: true,
+    _freezeBlockedUntil: 0,
+    _fitDeferredWhileFrozen: false,
+    paneEl: {
+      classList: { contains: (c) => c === 'mobile-active' },
+      querySelector: (sel) => (sel === '.terminal-mobile-toolbar' ? { offsetHeight: 50 } : null),
+    },
+  });
+  TerminalPane.prototype.safeFit.call(f);
+  assert.strictEqual(strip.style.bottom, '58px', 'the strip must clear the toolbar after the switch');
+  assert.strictEqual(f._fitDeferredWhileFrozen, true, 'the freeze deferral itself must be unchanged');
+  const fit = extractBlock(termSrc, '  safeFit() {');
+  assert.ok(fit.indexOf('_applySelectStripPlacement') < fit.indexOf('_isWriteFrozen()'),
+    'placing after the freeze guard would never run while the strip is on screen');
+});
+
+check('the strip paints below the floating action buttons, not over them', () => {
+  const show = extractBlock(termSrc, '_showSelectModeStrip() {');
+  assert.ok(!/z-index:20/.test(show), 'z-index 20 painted over the pane FABs (z-index 5)');
+  assert.ok(show.includes('SELECT_STRIP_Z_INDEX'), 'the stacking order must come from the named constant');
+  const apply = extractBlock(termSrc, '_applySelectStripPlacement() {');
+  assert.ok(apply.includes('SELECT_STRIP_Z_INDEX'), 'a cached strip must be re-asserted at the same layer');
+  const decl = /const SELECT_STRIP_Z_INDEX = (\d+);/.exec(termSrc);
+  assert.ok(decl, 'the constant must be declared');
+  assert.ok(Number(decl[1]) < 5,
+    'the FABs sit at z-index 5 in styles.css and must render above a pointer-events:none notice');
+});
+
+check('the Copy view button carries an accessible name, not just a tooltip', () => {
+  const inject = extractBlock(termSrc, '_injectCopyControls() {');
+  assert.ok(/cvBtn\.setAttribute\('aria-label'/.test(inject),
+    'an icon-only button needs a name before any state update runs');
+  const update = extractBlock(termSrc, '_updateCopyViewUI() {');
+  assert.ok(/setAttribute\('aria-label'/.test(update), 'the name must track open/closed state');
+  assert.ok(/aria-pressed/.test(update), 'and it is still announced as a toggle');
+});
+
+check('the one-time hint names Copy view alongside Shift+drag and Select mode', () => {
+  const hint = extractBlock(termSrc, '_maybeShowCopyHint() {');
+  assert.ok(/Shift/.test(hint), 'Shift+drag is still the always-available path');
+  assert.ok(/Select mode/.test(hint), 'the toggle is still named');
+  assert.ok(/Copy view/.test(hint), 'the copy-everything path was missing from the onboarding card');
+  assert.ok(hint.indexOf(String.fromCharCode(0x2014)) === -1, 'no em dashes in user-facing copy');
+});
+
+check('every Select/Copy view state change is announced for the mobile toolbar', () => {
+  const selectUi = extractBlock(termSrc, '_updateSelectModeUI() {');
+  assert.ok(selectUi.includes('_notifySelectChromeState()'),
+    'a mode that ends without a toolbar tap (typing, overflow) must still be mirrored');
+  const copyUi = extractBlock(termSrc, '_updateCopyViewUI() {');
+  assert.ok(copyUi.includes('_notifySelectChromeState()'), 'Esc-closing the overlay must be mirrored');
+  assert.ok(copyUi.indexOf('_notifySelectChromeState') < copyUi.indexOf('if (!this._copyViewBtn) return;'),
+    'the announcement must precede the header-button guard, or a detached host swallows it');
+  assert.strictEqual(TerminalPane.SELECT_CHROME_EVENT, 'cwm:select-chrome');
+  assert.ok(appSrc.includes("document.addEventListener('cwm:select-chrome'"),
+    'the app shell must listen for exactly that event name');
+});
+
+check('executed: the chrome notifier carries pane state and never throws', () => {
+  const N = TerminalPane.prototype._notifySelectChromeState;
+  // Every shape of missing host is tolerated: a toggle must never fail because
+  // nothing is listening.
+  N.call({});
+  N.call({ paneEl: null });
+  N.call({ paneEl: {} });
+  N.call({ paneEl: { dispatchEvent: () => { throw new Error('detached host'); } } });
+  const seen = [];
+  N.call({
+    paneEl: { dispatchEvent: (e) => seen.push(e) },
+    sessionId: 's-1', _selectMode: true, _copyOverlayOpen: false,
+  });
+  if (typeof CustomEvent === 'function') {
+    assert.strictEqual(seen.length, 1, 'the pane must announce the change');
+    assert.strictEqual(seen[0].type, TerminalPane.SELECT_CHROME_EVENT);
+    assert.strictEqual(seen[0].bubbles, true, 'the app shell listens on document by delegation');
+    assert.strictEqual(seen[0].detail.selectMode, true);
+    assert.strictEqual(seen[0].detail.copyViewOpen, false);
+    assert.strictEqual(seen[0].detail.sessionId, 's-1');
+  } else {
+    // Older engines: the typeof guard short-circuits instead of throwing a
+    // ReferenceError into the toggle, which is the property that matters.
+    assert.strictEqual(seen.length, 0, 'no CustomEvent constructor means nobody can be listening');
+  }
+});
+
+check('executed: the app injects Select + Copy view right after the toolbar Copy button', () => {
+  const { toolbar, children } = fakeToolbar();
+  const created = [];
+  const doc = {
+    querySelectorAll: () => [toolbar],
+    createElement: () => { const el = fakeEl(); created.push(el); return el; },
+  };
+  const inject = compileAppMethod('  _injectMobileSelectControls() {', doc);
+  assert.strictEqual(inject.call({}), 2, 'both controls must be created');
+  assert.deepStrictEqual(children.map((c) => c.dataset.key), ['copy', 'select', 'copyview'],
+    'they belong with the other get-text-out actions, not among the key senders');
+  const [selectBtn, copyViewBtn] = created;
+  assert.strictEqual(selectBtn.className, 'toolbar-select');
+  assert.strictEqual(copyViewBtn.className, 'toolbar-copyview');
+  assert.ok(selectBtn.textContent && copyViewBtn.textContent, 'both need a visible label');
+  assert.ok(selectBtn.attrs['aria-label'] && copyViewBtn.attrs['aria-label'], 'both need an accessible name');
+  assert.strictEqual(selectBtn.attrs['aria-pressed'], 'false', 'both are toggles');
+  assert.strictEqual(copyViewBtn.attrs['aria-pressed'], 'false');
+  // A second pass must not stack duplicates (re-init, or a future rebuild).
+  assert.strictEqual(inject.call({}), 0, 'injection must be idempotent');
+  assert.strictEqual(children.length, 3);
+});
+
+check('executed: the toolbar actions call the SAME pane methods the header buttons use', () => {
+  const run = compileAppMethod('  _runMobileSelectToolbarAction(key, pane) {');
+  const calls = [];
+  const app = { synced: 0, _syncMobileSelectToolbar() { app.synced++; } };
+  const pane = {
+    toggleSelectMode: () => calls.push('toggleSelectMode'),
+    toggleCopyView: () => calls.push('toggleCopyView'),
+  };
+  assert.strictEqual(run.call(app, 'select', pane), true);
+  assert.strictEqual(run.call(app, 'copyview', pane), true);
+  assert.deepStrictEqual(calls, ['toggleSelectMode', 'toggleCopyView'],
+    'the mobile surface must not reimplement either behavior');
+  assert.strictEqual(app.synced, 2, 'the button state must update in the same frame as the tap');
+  assert.strictEqual(run.call(app, 'select', null), false, 'an empty slot does nothing');
+  assert.strictEqual(run.call(app, 'nonsense', pane), false, 'an unknown key does nothing');
+  // A read-only mirror pane shares the slot array without being a TerminalPane.
+  assert.strictEqual(run.call(app, 'select', {}), false, 'a pane without the method is skipped');
+  assert.strictEqual(app.synced, 2, 'a skipped action must not repaint');
+});
+
+check('executed: the toolbar mirrors Select mode and Copy view state per pane', () => {
+  const sync = compileAppMethod('  _syncMobileSelectToolbar(pane, paneEl) {');
+  const selectBtn = fakeEl();
+  const copyViewBtn = fakeEl();
+  const paneEl = {
+    querySelector: (sel) => {
+      if (sel.includes('"select"')) return selectBtn;
+      if (sel.includes('"copyview"')) return copyViewBtn;
+      return null;
+    },
+  };
+  assert.strictEqual(sync.call({}, { _selectMode: true, _copyOverlayOpen: false }, paneEl), true);
+  assert.strictEqual(selectBtn.classes.has('toolbar-active'), true,
+    'Select ON needs a clear active state, matching the keyboard button idiom');
+  assert.strictEqual(selectBtn.attrs['aria-pressed'], 'true');
+  assert.ok(selectBtn.style.background, 'the active state must be visible without a stylesheet refresh');
+  assert.strictEqual(copyViewBtn.classes.has('toolbar-active'), false);
+  // The mode can end without a tap (typing resumes live output); re-reading
+  // pane state is what keeps the button honest.
+  sync.call({}, { _selectMode: false, _copyOverlayOpen: true }, paneEl);
+  assert.strictEqual(selectBtn.classes.has('toolbar-active'), false, 'a self-exit must clear the button');
+  assert.strictEqual(selectBtn.attrs['aria-pressed'], 'false');
+  assert.strictEqual(selectBtn.style.background, '', 'the off state restores the stylesheet');
+  assert.strictEqual(copyViewBtn.classes.has('toolbar-active'), true);
+  // An empty slot clears both rather than keeping the previous pane's state.
+  sync.call({}, null, paneEl);
+  assert.strictEqual(copyViewBtn.classes.has('toolbar-active'), false);
+  assert.strictEqual(sync.call({}, null, { querySelector: () => null }), false,
+    'a pane with no toolbar reports that it did nothing');
+});
+
+check('the toolbar click handler routes both new keys to the shared action', () => {
+  const handler = extractBlock(appSrc, "document.querySelectorAll('.terminal-mobile-toolbar button').forEach(btn => {");
+  assert.ok(/key === 'select' \|\| key === 'copyview'/.test(handler), 'both keys must be handled');
+  assert.ok(handler.includes('_runMobileSelectToolbarAction(key, activePane)'),
+    'the handler must delegate rather than inline the pane calls');
+  assert.ok(appSrc.indexOf('this._injectMobileSelectControls();') <
+    appSrc.indexOf("document.querySelectorAll('.terminal-mobile-toolbar button')"),
+    'the buttons must exist before the delegated click wiring runs, or they are dead');
+});
+
+check('the mobile tab switch re-asserts both toggles from pane state', () => {
+  const switchTab = extractBlock(appSrc, '  switchTerminalTab(slotIdx) {');
+  assert.ok(switchTab.includes('_syncMobileSelectToolbar(tp, activeEl)'),
+    'Select mode survives a refresh, so a tab switch must re-read it rather than assume off');
+  assert.ok(switchTab.includes("keyboardBtn.classList.toggle('toolbar-active', isTyping)"),
+    'the existing stateful-button idiom must be preserved, not replaced');
+});
+
+check('the pane action sheet offers Select mode and Copy view', () => {
+  const menu = extractBlock(appSrc, '  showTerminalContextMenu(slotIdx, x, y, copySelection, terminalPane) {');
+  assert.ok(/label: tp\._selectMode \?/.test(menu), 'the label must state what the tap will do');
+  assert.ok(menu.includes('tp.toggleSelectMode();'), 'the sheet must use the same entry point');
+  assert.ok(menu.includes('tp.toggleCopyView();'), 'the sheet must use the same entry point');
+  assert.ok(/Copy view/.test(menu), 'Copy view must be named in the sheet');
+  assert.ok(menu.indexOf('tp.toggleSelectMode();') < menu.indexOf("items.push({ type: 'sep' });"),
+    'the copy actions belong with the other text actions, above the destructive group');
+});
+
+check('a long press inside the Copy view selects text instead of opening the action sheet', () => {
+  assert.ok(
+    /TERMINAL_SURFACE_SELECTOR = '\.terminal-container, \.xterm, \.terminal-copyview'/.test(appSrc),
+    'the overlay must be exempt: it renders selectable DOM text, and the sheet has Kill Session in reach');
+  assert.ok(/closest\(TERMINAL_SURFACE_SELECTOR\)/.test(appSrc),
+    'the exemption must still be applied through the long-press guard');
 });
 
 console.log('  ' + '='.repeat(58));
