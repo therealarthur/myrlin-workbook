@@ -372,8 +372,12 @@ async function main() {
   });
 
   await check('index.html cache-busts the changed native-copy scripts', () => {
+    // The two scripts carry independent tokens. terminal.js advanced to the
+    // Select mode v2 token (freeze-while-selecting + Copy view overlay);
+    // app.js is unchanged by that work and keeps the native-copy token, so a
+    // terminal-only fix does not force every client to refetch the SPA bundle.
     assert.ok(
-      /terminal\.js\?v=20260727-copy-native8/.test(indexSrc) &&
+      /terminal\.js\?v=20260805-selectv2/.test(indexSrc) &&
         /app\.js\?v=20260727-copy-native8/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );

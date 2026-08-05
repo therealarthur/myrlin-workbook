@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.7] - 2026-08-05
+
+This prerelease makes terminal selection trustworthy under a full-screen CLI and adds a way to copy more than the visible screen. Version alpha.6 is claimed by a separate in-flight branch, so the gap here is expected.
+
+### Added
+
+- **Copy view.** A new button beside the Select toggle in each pane header opens an in-pane snapshot of that terminal as ordinary selectable text. While a full-screen CLI is running it composes everything the normal buffer still holds (the pre-app transcript plus shell scrollback), a `[ current screen ]` divider, then the live frame; otherwise it shows the normal buffer including scrollback. Runs of three or more blank lines collapse and trailing padding is trimmed, so a mostly-empty TUI frame reads as text. Native drag selection, Ctrl+A scoped to the snapshot, long-press on touch, Escape, Refresh, and a Copy all button that works on plain HTTP LAN origins are all available. It is a snapshot: the session underneath keeps streaming while it is open.
+
+### Fixed
+
+- **Select mode now pauses output while you select.** xterm anchors a selection to absolute buffer coordinates and only clears it on user input, scrollback trim, a row-count resize, or a buffer switch. A plain write leaves the selection in place while repainting the cells underneath, so a repainting CLI turned a valid highlight into stale text within a frame. Select mode now holds incoming output in the existing write queue instead of rendering it, so the screen being dragged over stops changing. Turning the mode off drains everything held in a single write.
+- **Every input path resumes live output before it sends.** Typing, both paste listeners, Ctrl+V, Shift+Enter, the explicit Paste action, and app-driven commands leave Select mode first, so the echo lands on a current screen rather than behind a frozen one. The pane's own socket enforces the same rule for input frames built elsewhere, notably the mobile toolbar keys and the mobile type-and-send row, so tapping Send on a phone can never leave the answer stuck in the queue. Copying with Ctrl+C deliberately does not unfreeze, so a copy never disturbs the selection it is reading.
+- **A wheel notch can no longer repaint the screen under a selection.** With mouse tracking active xterm forwards the wheel to the session and offers no Shift bypass. While Select mode is on the wheel is swallowed in the alternate buffer, where there is no scrollback to reach anyway, and translated into local scrolling in the normal buffer so shell panes still scroll while selecting.
+- **Resync and resize can no longer strand a frozen pane.** A reconnect and a server-initiated reset both drop the freeze before `term.reset()`, because the scrollback replay that follows re-sends everything. A container resize during a freeze is deferred and applied after the drain, since a row-count change would clear the selection outright. A pane detached into a cached tab group stops holding output and drains, and a 2MB cap on held output resumes the stream and says so.
+- **A remembered Select mode no longer hides its own scrollback.** The server sends a reset marker plus a full replay on every attach, the first one after a refresh included, so a pane that restored the toggle from a previous visit would have held the screen it was being handed. The freeze is now suspended for the replay window that idle detection already trusts, then resumes. Turning Select mode off is still the user's decision alone: a reconnect no longer rewrites the stored per-session preference.
+
+### Testing
+
+- Added `test/terminal-select-v2.test.js` (60 checks) with executed proofs of the freeze gate, the single-write drain and its ordering against the deferred re-fit, the real server-reset branch, the host-detach drain, the overflow valve, all three wheel delta modes and both buffer types, and snapshot composition across the alternate and normal buffers, plus scoped source gates on every input path and both teardown paths.
+
 ## [1.3.0-alpha.5] - 2026-07-27
 
 This corrective prerelease closes the remaining explicit terminal-copy failure found in the live embedded browser.

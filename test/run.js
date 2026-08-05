@@ -944,6 +944,7 @@ const standaloneTests = [
   'copy-secure-context-fallback.test.js', // 2026-07-25: native selected Ctrl+C contract + explicit-action universal helper + zero bare writeText gate
   'terminal-select-mode.test.js', // 2026-07-25: Select drag event ordering + selected hover/right-edge preservation + active/inactive focus execution
   'terminal-host-ownership.test.js', // 2026-07-25 copy regression: moved/cached xterm owner + fixed-host listener/control/resize lifecycle
+  'terminal-select-v2.test.js', // 2026-08-05 Select mode v2: freeze-while-selecting write gate, wheel guard, Copy view snapshot overlay, host-lifecycle teardown
 ];
 
 let standaloneFailed = 0;

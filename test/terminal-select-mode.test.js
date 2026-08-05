@@ -160,8 +160,12 @@ check('dispose() tears the interceptor + injected DOM down', () => {
 });
 
 check('index.html cache-busts the native-copy terminal fix', () => {
-  assert.ok(/terminal\.js\?v=20260727-copy-native8/.test(indexSrc),
-    'expected the final terminal.js native-copy cache token');
+  // Bumped for Select mode v2 (freeze-while-selecting + Copy view overlay).
+  // app.js keeps its own token below because that file is unchanged by v2;
+  // the two scripts are versioned independently on purpose so a terminal-only
+  // change does not force every client to re-download the SPA bundle.
+  assert.ok(/terminal\.js\?v=20260805-selectv2/.test(indexSrc),
+    'expected the current terminal.js cache token');
 });
 
 check('index.html cache-busts the app pane-focus/host fix', () => {
