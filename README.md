@@ -457,6 +457,41 @@ npm install -g windows-build-tools
 ### `npx myrlin-workbook` hangs on install
 Same issue. node-pty is compiling. If it fails, install the C++ build tools first, then try again.
 
+### npm blocked the node-pty install script (terminals disabled)
+Modern npm blocks dependency install scripts by default until you approve them.
+When node-pty's build script is blocked, the native terminal binary is never
+compiled, so the server boots in degraded mode with the terminal panes disabled
+(everything else keeps working). Approve the script and rebuild:
+
+```bash
+npm install-scripts approve node-pty
+npm rebuild node-pty --foreground-scripts
+```
+
+Then restart the app.
+
+### `npx` crash: `Cannot find module './prebuilds/linux-x64//pty.node'`
+node-pty ships prebuilt binaries only for macOS and Windows; on Linux it must
+compile during install. If the toolchain was missing or the install script was
+blocked, an `npx` run can crash with an error like
+`Cannot find module './prebuilds/linux-x64//pty.node'`.
+
+As of the fix for [issue #68](https://github.com/therealarthur/myrlin-workbook/issues/68),
+the app no longer crashes in this case: it boots without terminals and prints a
+platform-specific remediation banner. To restore terminals on Linux:
+
+1. Install the build toolchain (Debian / Ubuntu):
+   ```bash
+   sudo apt install build-essential python3
+   ```
+2. Clear the stale `npx` cache so it reinstalls fresh, then rerun:
+   ```bash
+   npx clear-npx-cache
+   # or remove it manually: rm -rf ~/.npm/_npx
+   ```
+3. If npm blocked the install script, approve and rebuild as shown in the
+   previous section.
+
 **Still stuck?** Open an [issue](https://github.com/therealarthur/myrlin-workbook/issues) with your full error output and OS version.
 
 ---

@@ -331,10 +331,24 @@ app.use((req, res, next) => {
 const serverStartTime = Date.now();
 
 app.get('/api/health', (req, res) => {
+  // PTY capability (issue #68): report whether the native terminal engine
+  // loaded so clients and monitoring can distinguish a degraded boot from a
+  // healthy one. This endpoint is PUBLIC (no auth), so the payload exposes
+  // only { available } plus a stable machine code on failure. The raw error
+  // string, filesystem paths, and usernames are withheld here and kept in the
+  // server logs only (see pty-diagnostics.getHealthPtyField). Lazily required
+  // so a diagnostics fault can never break the health check itself.
+  let ptyStatus;
+  try {
+    ptyStatus = require('./pty-diagnostics').getHealthPtyField();
+  } catch (_) {
+    ptyStatus = { available: true };
+  }
   res.json({
     status: 'ok',
     uptime: Math.floor((Date.now() - serverStartTime) / 1000),
     timestamp: new Date().toISOString(),
+    pty: ptyStatus,
   });
 });
 
@@ -8684,10 +8698,34 @@ function startServer(port = 3456, host = '127.0.0.1') {
   server.keepAliveTimeout = 120000;
   server.headersTimeout = 125000;
 
-  // Attach PTY WebSocket server
-  const { attachPtyWebSocket } = require('./pty-server');
-  const { ptyWss, ptyManager } = attachPtyWebSocket(server);
+  // Attach PTY WebSocket server.
+  //
+  // Boot resilience (issue #68): node-pty load failures are now contained
+  // inside pty-manager (pty stays null, spawns fail per-call), so this require
+  // + attach no longer throws on the reported crash. This try/catch is
+  // belt-and-braces for ANY future load-time failure: even then, the rest of
+  // startServer (scheduler, credential watcher, schedule routes, shutdown
+  // cleanup) must still wire up. On a throw, ptyManager stays null and the
+  // downstream `if (_ptyManager)` guards + the scheduler's null-tolerant
+  // getSession() checks keep the process at its normal ready state.
+  let ptyManager = null;
+  try {
+    const { attachPtyWebSocket } = require('./pty-server');
+    ({ ptyManager } = attachPtyWebSocket(server));
+  } catch (err) {
+    console.error('[Server] Failed to attach PTY WebSocket server:', (err && err.message) || err);
+  }
   _ptyManager = ptyManager;
+
+  // Degraded-boot banner (issue #68): if the native terminal engine did not
+  // load, print ONE prominent, platform-specific remediation banner. Terminal
+  // panes are disabled; everything else keeps working. Best effort only.
+  try {
+    const ptyDiag = require('./pty-diagnostics');
+    if (!ptyDiag.getPtyAvailability().available) {
+      console.error(ptyDiag.buildRemediationText(process.platform));
+    }
+  } catch (_) { /* diagnostics must never block boot */ }
 
   // ─── Scheduler ───────────────────────────────────────────────
   const { Scheduler } = require('./scheduler');
