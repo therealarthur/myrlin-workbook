@@ -57,6 +57,36 @@ const COPY_VIEW_DEFAULT_TOP_PX = 34;
 const COPY_VIEW_FEEDBACK_MS = 1400;
 
 /* ═══════════════════════════════════════════════════════════════════
+   TERMINAL-GENERATED REPORT FILTER
+   ConPTY turns on DEC 1004 focus reporting for essentially every pane
+   (term.modes.sendFocusMode is true on plain shells and on CLI panes
+   alike). xterm answers a focus change by emitting \x1b[I / \x1b[O
+   through the SAME term.onData channel keystrokes use, and the app
+   shell relays it as an ordinary { type: 'input' } frame. Select mode
+   treats input as "the user is typing, resume live output", so the
+   click that STARTS a selection was cancelling the mode it was made
+   in. These constants back the filter that tells a machine-generated
+   report apart from a keystroke.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Longest payload still considered for the report-only test. A concatenated
+// burst of reports is tiny (a focus report is 3 chars, a cursor position report
+// about 8, a device attributes response about 12). Anything larger is treated
+// as user input, which is the fail-safe direction: the cost of being wrong is
+// an unwanted unfreeze, never a swallowed selection-cancel.
+const TERMINAL_REPORT_MAX_CHARS = 64;
+
+// One or more concatenated terminal reports and NOTHING else:
+//   \x1b[I / \x1b[O        DEC 1004 focus in / focus out
+//   \x1b[<row>;<col>R      DSR cursor position report (CPR)
+//   \x1b[?...c / \x1b[>...c  primary / secondary device attributes (DA)
+// Anchored at both ends so a mixed chunk (a report plus a real keystroke)
+// fails and the pane unfreezes. Every alternative starts with CSI (ESC [), so
+// printable text, control characters (\r, \t, \x03, \x7f) and SS3 sequences
+// (\x1bO...) are rejected on the first two characters.
+const TERMINAL_REPORT_ONLY_RE = /^(?:\x1b\[[IO]|\x1b\[\d+;\d+R|\x1b\[[?>][0-9;]*c)+$/;
+
+/* ═══════════════════════════════════════════════════════════════════
    VISIBLE-PANE WIDTH CLAIM CONSTANTS
    One PTY is shared by every attached client, and the backend gives
    geometry ownership to whichever client last typed or sent an explicit
@@ -1275,7 +1305,20 @@ class TerminalPane {
         // A Ctrl+C that copies a selection never reaches here: the custom key
         // handler returns false for it, so xterm produces no data and the
         // freeze (and the selection) survive the copy.
-        this._exitSelectModeForInput();
+        //
+        // FOCUS-REPORT GUARD (ship blocker, 2026-08-05): onData is not a
+        // keystroke-only channel. With DEC 1004 focus reporting on (ConPTY
+        // turns it on for effectively every pane) xterm sends \x1b[I / \x1b[O
+        // here whenever its hidden textarea gains or loses focus, and a device
+        // status or device attributes reply arrives the same way. Treating
+        // those as typing cancelled Select mode on the very mousedown that
+        // started a selection. A payload made up only of such reports is
+        // therefore forwarded WITHOUT leaving the mode; anything else, mixed
+        // chunks included, still unfreezes. The send below is deliberately
+        // outside the branch: what goes to the PTY is unchanged in every case.
+        if (!TerminalPane._isTerminalReportOnly(data)) {
+          this._exitSelectModeForInput();
+        }
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'input', data }));
         }
@@ -3155,6 +3198,82 @@ class TerminalPane {
   }
 
   /**
+   * Whether a payload heading for the PTY consists ONLY of reports the
+   * TERMINAL generated, with no user input mixed in.
+   *
+   * WHY THIS EXISTS (ship blocker, 2026-08-05). ConPTY enables DEC 1004 focus
+   * reporting on every pane, so xterm emits \x1b[I when its hidden textarea
+   * gains focus and \x1b[O when it loses it, through the same term.onData
+   * channel that carries keystrokes. Select mode's contract is "typing resumes
+   * live output", so the reproduction was brutal: the user clicks the header
+   * toggle (the button takes focus), then presses the mouse down in the
+   * terminal to drag. xterm refocuses its textarea, emits \x1b[I, onData treats
+   * it as typing, the mode turns itself off and the freeze lifts on the exact
+   * click that starts the selection. The same bytes also travel the wrapped
+   * ws.send as an input frame, so both unfreeze funnels fired.
+   *
+   * WHY IT CANNOT SWALLOW REAL INPUT. Every accepted token begins with CSI
+   * (ESC + '['), so a printable character, a control character (\r, \t, \x03,
+   * \x7f), and every SS3 sequence (\x1bOA..\x1bOS, which is how xterm encodes
+   * application-mode cursor and F1..F4 keys) are rejected immediately. Within
+   * CSI, the accepted final bytes are I, O, R and c only: arrow keys end in
+   * A..D, Home/End in H/F, the editing keys and bracketed paste in '~', and
+   * modified arrows in A..D as well. The pattern is anchored at both ends and
+   * repeats whole tokens, so a chunk that mixes a report with anything else
+   * fails and the caller unfreezes, which is the fail-safe direction.
+   *
+   * KNOWN, DELIBERATE AMBIGUITY. xterm encodes F3 with a modifier as
+   * \x1b[1;<mod>R, which is byte-identical to a cursor position report for row
+   * 1. There is no way to tell them apart from the bytes alone, and dropping
+   * CPR from the grammar would leave Select mode cancelling itself whenever a
+   * CLI probes the cursor. The cost of the ambiguity is bounded: a modified F3
+   * pressed while Select mode is on still reaches the session, it just does not
+   * resume live output; any other key does.
+   *
+   * @param {*} data - Candidate payload (only strings can qualify).
+   * @returns {boolean} True when the whole payload is terminal-generated.
+   */
+  static _isTerminalReportOnly(data) {
+    if (typeof data !== 'string') return false;
+    // Empty is not a report: "one or more" is part of the contract, and an
+    // empty payload should never suppress an unfreeze.
+    if (data.length === 0 || data.length > TERMINAL_REPORT_MAX_CHARS) return false;
+    // Cheapest possible reject for ordinary typing: real keystrokes almost
+    // never start with ESC, and this skips the regex entirely for them.
+    if (data.charCodeAt(0) !== 0x1b) return false;
+    return TERMINAL_REPORT_ONLY_RE.test(data);
+  }
+
+  /**
+   * Whether a serialized WebSocket frame is an input frame whose payload is
+   * nothing but terminal-generated reports.
+   *
+   * Used by the socket hook, which previously decided on a substring match
+   * alone and therefore unfroze on the relayed focus report as well. Parsing is
+   * confined to frames that already passed the cheap substring gate, so
+   * geometry traffic still costs one indexOf.
+   *
+   * Conservative on every uncertainty: a frame that will not parse, a frame
+   * whose parsed type is not 'input', and any thrown error all return false,
+   * which means the caller unfreezes exactly as it did before this filter
+   * existed. Only a positively identified report-only input frame is skipped.
+   *
+   * @param {*} payload - The exact value handed to ws.send.
+   * @returns {boolean} True when the frame carries reports and nothing else.
+   */
+  static _isReportOnlyInputFrame(payload) {
+    if (typeof payload !== 'string') return false;
+    try {
+      const msg = JSON.parse(payload);
+      if (!msg || msg.type !== 'input') return false;
+      return TerminalPane._isTerminalReportOnly(msg.data);
+    } catch (_) {
+      // Unparseable frame: fall back to the pre-filter behavior.
+      return false;
+    }
+  }
+
+  /**
    * Wrap a freshly created WebSocket so that ANY input frame this pane sends
    * leaves Select mode first, whichever layer built the frame.
    *
@@ -3166,12 +3285,23 @@ class TerminalPane {
    * Send and watch a terminal that never answers, because the reply was
    * sitting in the hold queue.
    *
-   * Substring matching rather than JSON.parse: every producer builds the frame
-   * with JSON.stringify, whose output for this shape always contains the exact
-   * token, and a parse on every keystroke frame would be pure overhead. The
-   * Select-mode check comes first so an unfrozen pane pays one boolean.
-   * Idempotent (a re-wrap after a reconnect is a no-op on the same socket) and
-   * exception-safe: a failure here must never swallow the user's keystroke.
+   * Substring matching comes FIRST rather than JSON.parse: every producer
+   * builds the frame with JSON.stringify, whose output for this shape always
+   * contains the exact token, and parsing every geometry frame would be pure
+   * overhead. The Select-mode check comes before even that, so an unfrozen pane
+   * pays one boolean. Idempotent (a re-wrap after a reconnect is a no-op on the
+   * same socket) and exception-safe: a failure here must never swallow the
+   * user's keystroke.
+   *
+   * FOCUS-REPORT GUARD (ship blocker, 2026-08-05): the substring gate alone was
+   * not enough. xterm's DEC 1004 focus reports travel this socket as ordinary
+   * input frames, so the relayed \x1b[I from the mousedown that starts a
+   * selection unfroze the pane here even after onData learned to ignore it.
+   * Frames that pass the substring gate are now parsed, and a frame whose data
+   * is nothing but terminal-generated reports is sent without leaving Select
+   * mode. Every other input frame behaves exactly as before, including frames
+   * that fail to parse (see _isReportOnlyInputFrame, which is conservative on
+   * every uncertainty).
    *
    * @param {WebSocket} ws - The socket to wrap.
    * @returns {WebSocket} The same socket, for call-site convenience.
@@ -3183,7 +3313,8 @@ class TerminalPane {
     ws.send = (payload) => {
       try {
         if (this._selectMode && typeof payload === 'string' &&
-            payload.indexOf('"type":"input"') !== -1) {
+            payload.indexOf('"type":"input"') !== -1 &&
+            !TerminalPane._isReportOnlyInputFrame(payload)) {
           // Unfreeze BEFORE the bytes go out, so held frames land first and
           // the echo renders on top of a current screen.
           this._exitSelectModeForInput();
@@ -3301,6 +3432,28 @@ class TerminalPane {
   }
 
   /**
+   * Hand keyboard focus back to the terminal after a Select-mode control took
+   * it, so the pointer gesture that follows produces no focus transition.
+   *
+   * Routed through the pane's own focus() rather than term.focus() on purpose:
+   * focus() already declines to steal focus from a mobile pane in scroll mode
+   * (which would raise the software keyboard over the text the user is trying
+   * to select) and already refuses a hidden or unowned container. Never throws;
+   * a refocus that cannot happen is a small UX loss, not a failed toggle.
+   *
+   * @returns {boolean} True when focus was actually requested.
+   */
+  _refocusTerminalForSelect() {
+    try {
+      if (!this.term || typeof this.focus !== 'function') return false;
+      this.focus();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
    * Build the Select-mode toggle button inside this pane's header and, on the
    * first pane ever mounted, a dismissable one-time hint about copying. All
    * visual state is set with inline styles that reference Catppuccin CSS
@@ -3333,6 +3486,15 @@ class TerminalPane {
       const on = this.toggleSelectMode();
       // Turning OFF restores the clickable layer; refocus so typing resumes.
       if (!on && this.term) this.term.focus();
+      // Turning ON refocuses too (ship blocker follow-up, 2026-08-05). Clicking
+      // this button moves keyboard focus to the button, so the user's next
+      // mousedown inside the terminal moves it back and, with DEC 1004 focus
+      // reporting on, emits \x1b[I on the exact click that starts the drag.
+      // _isTerminalReportOnly already stops that report from cancelling the
+      // mode; handing focus back here means the transition never happens at
+      // all, so the very first drag selects. Routed through the pane's own
+      // focus() so a phone in scroll mode is not forced to raise its keyboard.
+      if (on) this._refocusTerminalForSelect();
     });
 
     const closeBtn = header.querySelector('.terminal-pane-close');

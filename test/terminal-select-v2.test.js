@@ -1295,6 +1295,208 @@ check('the claim quiet window is armed on connect, on socket open, and on a serv
   assert.ok(reset.includes('_activateBlockedUntil'), 'a server resync must arm the quiet window');
 });
 
+/* ============================================================
+   8. Focus reports are not user input (ship blocker, 2026-08-05)
+
+   ConPTY enables DEC 1004 focus reporting on every pane, so xterm
+   forwards \x1b[I / \x1b[O through term.onData, the exact channel
+   Select mode watches for "the user is typing". Reproduced stack:
+   toggle Select ON with the header button (the button takes focus),
+   press the mouse down in the terminal to drag, xterm refocuses its
+   textarea, \x1b[I arrives, the mode turns itself off, and the
+   selection is made against a live screen. The relayed input frame
+   hit the socket hook on the same gesture, so BOTH funnels fired.
+   ============================================================ */
+
+/**
+ * Compile the production term.onData body and hand back a callable handler.
+ *
+ * Same technique as the RESET-branch check above: the real source is executed
+ * against a fake `this`, so the test cannot pass while the shipped body says
+ * something else. WebSocket is injected because the body reads its OPEN
+ * constant, and TerminalPane because the body calls the static report filter.
+ *
+ * @returns {Function} function (data) with the production body.
+ */
+function compileOnDataHandler() {
+  const block = extractBlock(termSrc, 'this.term.onData((data) => {');
+  const body = block.slice(block.indexOf('{'));
+  return new Function('TerminalPane', 'WebSocket',
+    'return function (data) ' + body + ';')(TerminalPane, { OPEN: 1 });
+}
+
+check('_isTerminalReportOnly accepts focus reports, alone and concatenated', () => {
+  const R = TerminalPane._isTerminalReportOnly;
+  assert.strictEqual(R('\x1b[I'), true, 'DEC 1004 focus in');
+  assert.strictEqual(R('\x1b[O'), true, 'DEC 1004 focus out');
+  assert.strictEqual(R('\x1b[O\x1b[I'), true, 'a blur/focus pair in one chunk is still all report');
+  assert.strictEqual(R('\x1b[I\x1b[I\x1b[I'), true, 'repeats stay report-only');
+});
+
+check('_isTerminalReportOnly accepts DSR cursor position and device attributes', () => {
+  const R = TerminalPane._isTerminalReportOnly;
+  assert.strictEqual(R('\x1b[12;34R'), true, 'CPR response');
+  assert.strictEqual(R('\x1b[1;1R'), true, 'CPR at the origin');
+  assert.strictEqual(R('\x1b[?62;1;6c'), true, 'primary device attributes');
+  assert.strictEqual(R('\x1b[>0;10;1c'), true, 'secondary device attributes');
+  assert.strictEqual(R('\x1b[I\x1b[12;34R\x1b[?62c'), true,
+    'a burst mixing report KINDS is still nothing but reports');
+});
+
+check('_isTerminalReportOnly rejects every real keystroke shape', () => {
+  const R = TerminalPane._isTerminalReportOnly;
+  for (const key of ['\x1b[A', '\x1b[B', '\x1b[C', '\x1b[D']) {
+    assert.strictEqual(R(key), false, 'arrow key ' + JSON.stringify(key) + ' is user input');
+  }
+  assert.strictEqual(R('\x1b[1;5A'), false, 'a modified arrow is user input');
+  assert.strictEqual(R('\x1bOA'), false, 'an SS3 application cursor key is user input');
+  assert.strictEqual(R('\x1bOR'), false, 'SS3 F3 is user input, not a cursor report');
+  assert.strictEqual(R('\x1b[H'), false, 'Home is user input');
+  assert.strictEqual(R('\x1b[3~'), false, 'Delete is user input');
+  assert.strictEqual(R('\x1b'), false, 'a bare Escape is user input');
+  assert.strictEqual(R('a'), false, 'a printable character is user input');
+  assert.strictEqual(R('hello'), false, 'typed text is user input');
+  assert.strictEqual(R('\r'), false, 'Enter is user input');
+  assert.strictEqual(R('\t'), false, 'Tab is user input');
+  assert.strictEqual(R('\x03'), false, 'Ctrl+C is user input');
+  assert.strictEqual(R('\x04'), false, 'Ctrl+D is user input');
+  assert.strictEqual(R('\x7f'), false, 'Backspace is user input');
+  assert.strictEqual(R('\x1b[200~pasted\x1b[201~'), false, 'a bracketed paste is user input');
+});
+
+check('_isTerminalReportOnly treats a MIXED chunk as input, so the pane unfreezes', () => {
+  const R = TerminalPane._isTerminalReportOnly;
+  assert.strictEqual(R('\x1b[Ia'), false, 'report + keystroke must unfreeze');
+  assert.strictEqual(R('a\x1b[I'), false, 'keystroke + report must unfreeze');
+  assert.strictEqual(R('\x1b[I\r'), false, 'report + Enter must unfreeze');
+  assert.strictEqual(R('\x1b[12;34Rx'), false, 'report + trailing byte must unfreeze');
+});
+
+check('_isTerminalReportOnly rejects empty, non-string and oversized payloads', () => {
+  const R = TerminalPane._isTerminalReportOnly;
+  assert.strictEqual(R(''), false, '"one or more" is part of the contract');
+  assert.strictEqual(R(null), false);
+  assert.strictEqual(R(undefined), false);
+  assert.strictEqual(R(42), false);
+  assert.strictEqual(R({}), false);
+  // Past the length cap the answer is deliberately "input", the fail-safe
+  // direction: an unwanted unfreeze beats a swallowed selection-cancel.
+  assert.strictEqual(R('\x1b[I'.repeat(64)), false, 'an implausibly long burst is not trusted');
+});
+
+check('executed: the real onData body forwards a focus report WITHOUT unfreezing', () => {
+  const handler = compileOnDataHandler();
+  const sent = [];
+  const f = makeFreezeFake({ _selectMode: true, _writeBuf: 'held' });
+  f.ws = { readyState: 1, send: (p) => sent.push(p) };
+  handler.call(f, '\x1b[I');
+  assert.strictEqual(f._selectMode, true,
+    'the focus report from the mousedown that starts a drag must not cancel Select mode');
+  assert.strictEqual(f.writes.length, 0, 'the freeze must still be holding the screen still');
+  assert.strictEqual(sent.length, 1, 'the report must still go to the PTY');
+  assert.deepStrictEqual(JSON.parse(sent[0]), { type: 'input', data: '\x1b[I' },
+    'what reaches the PTY is unchanged in every case');
+});
+
+check('executed: the real onData body still unfreezes for a genuine keystroke', () => {
+  const handler = compileOnDataHandler();
+  const sent = [];
+  const f = makeFreezeFake({ _selectMode: true, _writeBuf: 'held' });
+  f.ws = { readyState: 1, send: (p) => sent.push(p) };
+  handler.call(f, 'a');
+  assert.strictEqual(f._selectMode, false, 'typing still resumes live output');
+  assert.strictEqual(f.writes.join(''), 'held', 'held frames land before the echo');
+  assert.deepStrictEqual(JSON.parse(sent[0]), { type: 'input', data: 'a' });
+});
+
+check('executed: the real onData body unfreezes on a mixed report + keystroke chunk', () => {
+  const handler = compileOnDataHandler();
+  const sent = [];
+  const f = makeFreezeFake({ _selectMode: true, _writeBuf: 'held' });
+  f.ws = { readyState: 1, send: (p) => sent.push(p) };
+  handler.call(f, '\x1b[Ix');
+  assert.strictEqual(f._selectMode, false, 'any non-report content in the chunk means input');
+  assert.strictEqual(f.writes.join(''), 'held');
+  assert.strictEqual(sent.length, 1, 'the whole chunk still goes out unchanged');
+  assert.deepStrictEqual(JSON.parse(sent[0]).data, '\x1b[Ix');
+});
+
+check('_isReportOnlyInputFrame parses the frame instead of substring matching', () => {
+  const F = TerminalPane._isReportOnlyInputFrame;
+  assert.strictEqual(F(JSON.stringify({ type: 'input', data: '\x1b[I' })), true);
+  assert.strictEqual(F(JSON.stringify({ type: 'input', data: '\x1b[12;34R' })), true);
+  assert.strictEqual(F(JSON.stringify({ type: 'input', data: 'a' })), false);
+  assert.strictEqual(F(JSON.stringify({ type: 'input', data: '' })), false);
+  assert.strictEqual(F(JSON.stringify({ type: 'resize', data: '\x1b[I' })), false,
+    'only an input frame can be report-only');
+  // Every uncertainty resolves to "not a report", which means the caller
+  // unfreezes exactly as it did before the filter existed.
+  assert.strictEqual(F('{"type":"input", this is not json'), false, 'a broken frame is treated as input');
+  assert.strictEqual(F('null'), false);
+  assert.strictEqual(F(''), false);
+  assert.strictEqual(F(null), false);
+  assert.strictEqual(F(undefined), false);
+});
+
+check('executed: the socket hook lets a report-only input frame pass without unfreezing', () => {
+  const order = [];
+  const f = makeFreezeFake({ _selectMode: true, _writeBuf: 'held' });
+  f.term.write = (s) => order.push('write:' + s);
+  const ws = { send: (payload) => order.push('send:' + payload) };
+  TerminalPane.prototype._installInputUnfreezeHook.call(f, ws);
+  ws.send(JSON.stringify({ type: 'input', data: '\x1b[I' }));
+  assert.strictEqual(f._selectMode, true,
+    'the relayed focus report must not resume live output');
+  assert.deepStrictEqual(order.filter((e) => e.startsWith('write:')), [],
+    'nothing may be flushed for a focus report');
+  assert.strictEqual(order.length, 1, 'the frame still reaches the socket');
+  assert.ok(order[0].startsWith('send:'));
+});
+
+check('executed: the socket hook still unfreezes for real input and for broken frames', () => {
+  const real = makeFreezeFake({ _selectMode: true, _writeBuf: 'held' });
+  const sentReal = [];
+  TerminalPane.prototype._installInputUnfreezeHook.call(real, { send: (p) => sentReal.push(p) })
+    .send(JSON.stringify({ type: 'input', data: 'ls\r' }));
+  assert.strictEqual(real._selectMode, false, 'a typed frame still resumes live output');
+  assert.strictEqual(real.writes.join(''), 'held');
+  assert.strictEqual(sentReal.length, 1);
+
+  // A frame that carries the token but cannot be parsed keeps the pre-filter
+  // behavior: unfreeze, because a stuck frozen pane is the worse failure.
+  const broken = makeFreezeFake({ _selectMode: true, _writeBuf: 'held' });
+  const sentBroken = [];
+  TerminalPane.prototype._installInputUnfreezeHook.call(broken, { send: (p) => sentBroken.push(p) })
+    .send('{"type":"input","data":');
+  assert.strictEqual(broken._selectMode, false, 'an unparseable input frame must still unfreeze');
+  assert.strictEqual(broken.writes.join(''), 'held');
+  assert.strictEqual(sentBroken.length, 1, 'a malformed frame is still forwarded untouched');
+});
+
+check('the Select toggle hands focus back to the terminal when it turns ON', () => {
+  const inject = extractBlock(termSrc, '_injectCopyControls() {');
+  const click = extractBlock(inject, "btn.addEventListener('click', (e) => {");
+  assert.ok(/_refocusTerminalForSelect\(\)/.test(click),
+    'turning the mode ON must return focus so the next mousedown makes no focus transition');
+  assert.ok(/if \(on\)\s*this\._refocusTerminalForSelect\(\)/.test(click),
+    'the refocus belongs to the turn-ON edge');
+  assert.ok(click.includes('this.term.focus()'),
+    'the pre-existing turn-OFF refocus must survive');
+});
+
+check('executed: _refocusTerminalForSelect defers to the pane focus policy and never throws', () => {
+  let focused = 0;
+  const ok = { term: {}, focus() { focused++; } };
+  assert.strictEqual(TerminalPane.prototype._refocusTerminalForSelect.call(ok), true);
+  assert.strictEqual(focused, 1,
+    'pane.focus() is the entry point because it already declines on a mobile pane in scroll mode');
+  assert.strictEqual(TerminalPane.prototype._refocusTerminalForSelect.call({ term: null }), false,
+    'a pane with no terminal has nothing to focus');
+  const boom = { term: {}, focus() { throw new Error('detached host'); } };
+  assert.strictEqual(TerminalPane.prototype._refocusTerminalForSelect.call(boom), false,
+    'a failed refocus must never break the toggle');
+});
+
 console.log('  ' + '='.repeat(58));
 console.log('  [terminal-select-v2] ' + passed + '/' + (passed + failed) + ' tests passed');
 
