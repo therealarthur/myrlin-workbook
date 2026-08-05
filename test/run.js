@@ -937,6 +937,7 @@ const standaloneTests = [
   'mirror-routes.test.js',           // issue #10 T1 P0+P3: /api/mirror routes, SSE deviceId scoping, discovery live/lastActiveMs flags
   'copy-secure-context-fallback.test.js', // 2026-07-24 user report: Ctrl+C copy sent SIGINT on plain-http; universal copy helper + exception-proof branch + zero bare writeText gate
   'terminal-select-mode.test.js', // 2026-07-25 mouse-mode copy fix: per-pane Select toggle (plain drag -> synthetic Shift+drag) + one-time Shift/Select hint, interceptor no-op when OFF
+  'terminal-select-v2.test.js', // Select mode v2: freeze-while-selecting (write-queue gate, input/reset unfreeze, 2MB overflow valve, wheel guard), Copy view snapshot overlay, visible-pane width claim
 ];
 
 let standaloneFailed = 0;

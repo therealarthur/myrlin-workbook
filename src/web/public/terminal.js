@@ -8,6 +8,81 @@
 // kept short because each intermediate row step refreshes the DOM renderer.
 const SMOOTH_SCROLL_DURATION_MS = 120;
 
+/* ═══════════════════════════════════════════════════════════════════
+   SELECT MODE v2 TUNING CONSTANTS
+   Select mode v1 only re-dispatched a plain drag as a Shift+drag so
+   xterm would force a selection. That is necessary but not sufficient:
+   xterm anchors a selection to ABSOLUTE buffer coordinates and clears
+   it only on user input, scrollback trim, a row-count resize, or a
+   buffer switch. A plain PTY write does NOT clear it, but the CLI's
+   full-frame repaint rewrites the cells underneath, so the highlight
+   silently goes stale and the copied text is nonsense. v2 therefore
+   FREEZES the write pipeline for the duration of the selection: the
+   screen the user is dragging over stops changing, so the selection
+   stays exactly what they see.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Upper bound on output held back while Select mode is frozen, measured in
+// JavaScript string length (close enough to bytes for terminal output, which
+// is overwhelmingly ASCII plus box-drawing). A pane left frozen in front of a
+// chatty build would otherwise grow the hold queue without limit and then
+// stall the main thread on one giant term.write() at unfreeze. On overflow the
+// pane leaves Select mode, flushes, and says so in the strip.
+const SELECT_FREEZE_MAX_HOLD_CHARS = 2 * 1024 * 1024;
+
+// Rows scrolled per wheel notch while Select mode is on and the NORMAL buffer
+// is active. Only meaningful there: the alternate buffer has no scrollback, so
+// a wheel event under a full-screen TUI has nowhere to go and is swallowed.
+const SELECT_FREEZE_WHEEL_LINES = 3;
+
+// How long a transient Select-mode notice (for example the overflow message)
+// stays on screen before the strip reverts to its normal state.
+const SELECT_NOTICE_MS = 3600;
+
+// Divider inserted in the Copy view between the scrollback transcript held in
+// the normal buffer and the live full-screen frame in the alternate buffer.
+const COPY_VIEW_DIVIDER = '[ current screen ]';
+
+// Runs of this many or more consecutive blank lines collapse to a single blank
+// line in the Copy view. Full-screen TUI frames are mostly padding, so without
+// this the composed text is dominated by empty rows.
+const COPY_VIEW_BLANK_RUN_LIMIT = 3;
+
+// Fallback offset (px) from the top of the pane to the Copy view overlay when
+// the pane header cannot be measured (detached or display:none at open time).
+const COPY_VIEW_DEFAULT_TOP_PX = 34;
+
+// How long the Copy view's "Copy all" button shows its result state.
+const COPY_VIEW_FEEDBACK_MS = 1400;
+
+/* ═══════════════════════════════════════════════════════════════════
+   VISIBLE-PANE WIDTH CLAIM CONSTANTS
+   One PTY is shared by every attached client, and the backend gives
+   geometry ownership to whichever client last typed or sent an explicit
+   'activate'. A phone that switches to a pane must claim ownership or
+   it keeps rendering frames laid out for a 200 column desktop.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Minimum gap between two activate claims from the same pane. Visibility and
+// focus can fire back to back for one user gesture; without this the pane
+// would send a burst of identical claims.
+const ACTIVATE_DEBOUNCE_MS = 500;
+
+// A claim with UNCHANGED cols/rows is normally redundant, but ownership can
+// move to another device at any time, so an identical claim is allowed again
+// once this much time has passed. The backend suppresses no-op resizes, so a
+// re-claim at the same size costs one small control frame and no repaint.
+const ACTIVATE_REASSERT_MS = 5000;
+
+// Quiet window after a connect or a server-initiated resync. The server
+// replays scrollback immediately afterwards; claiming geometry in the middle
+// of that would resize the PTY mid-replay and produce a torn screen.
+const ACTIVATE_CONNECT_GUARD_MS = 1500;
+
+// Fraction of the pane that must be on screen before it counts as the pane the
+// user is actually looking at.
+const ACTIVATE_VISIBILITY_RATIO = 0.5;
+
 class TerminalPane {
   // ── Theme palettes for xterm.js ──────────────────────────
   static THEME_MOCHA = {
@@ -466,6 +541,29 @@ class TerminalPane {
     this._selMouseHandler = null;
     this._selInterceptorContainer = null;
     this._selectDragging = false;
+    // ── Select mode v2: freeze-while-selecting state ─────────────
+    // _selectFrozenAt: when the current freeze started (diagnostics only).
+    // _selWheelHandler/_selWheelTarget: the capture-phase wheel guard that
+    //   stops the app from scrolling (and therefore repainting) underneath a
+    //   selection. Installed once and inert while Select mode is off.
+    // _selNoticeTimer: timer that clears a transient strip message.
+    // _fitDeferredWhileFrozen: a container resize arrived while frozen and was
+    //   deliberately not applied (a row-count change would clear the xterm
+    //   selection and reflow the snapshot). Re-fit on unfreeze.
+    this._selectFrozenAt = 0;
+    this._selWheelHandler = null;
+    this._selWheelTarget = null;
+    this._selNoticeTimer = null;
+    this._fitDeferredWhileFrozen = false;
+    // ── Copy view overlay state (per pane, never shared) ─────────
+    this._copyViewBtn = null;
+    this._copyOverlay = null;
+    this._copyOverlayPre = null;
+    this._copyOverlayBtns = null;
+    this._copyOverlayKeyHandler = null;
+    this._copyOverlayOpen = false;
+    this._copyViewText = '';
+    this._copyFeedbackTimer = null;
     // Issue #41: true while a mobile touch gesture (or its momentum tail) is
     // driving term.scrollLines() directly. xterm's smoothScrollDuration is
     // zeroed for that window so the engine's per-frame interpolation is not
@@ -571,6 +669,13 @@ class TerminalPane {
       // this interceptor only acts on left-button MOUSE drags while the toggle
       // is on, so the two never fight over the same gesture.
       this._installSelectModeInterceptor();
+      // Select mode v2: the wheel guard is installed alongside the mouse
+      // interceptor and is equally inert while the toggle is off. It exists
+      // because xterm 6 forwards the wheel to the PTY whenever the app has
+      // mouse tracking on and offers no Shift bypass for local scrolling, so
+      // a single wheel notch during a selection would scroll the app and
+      // repaint every cell under the highlight.
+      this._installSelectModeWheelGuard();
       this._injectCopyControls();
 
       // IMPORTANT: Fit BEFORE connecting WebSocket so we know the real
@@ -675,6 +780,11 @@ class TerminalPane {
         // collapse these two arms back into an unconditional preventDefault:
         // that reintroduces #64.
         if (mod && e.key === 'v') {
+          // Select mode v2: a paste is input, and input resumes live output.
+          // Exiting here (rather than inside pasteFromClipboard) covers BOTH
+          // arms below, including the insecure-origin arm where the browser's
+          // native paste travels through the beforeinput/paste listeners.
+          this._exitSelectModeForInput();
           if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
             e.preventDefault();
             this.pasteFromClipboard();
@@ -695,6 +805,10 @@ class TerminalPane {
         // and submits, same pattern as the Ctrl+V handler above.
         if (e.key === 'Enter' && e.shiftKey) {
           e.preventDefault();
+          // Select mode v2: this branch bypasses onData and writes straight to
+          // the socket, so it needs its own unfreeze or the newline the user
+          // just inserted would never render.
+          this._exitSelectModeForInput();
           if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             const data = this._getShiftEnterSequence();
             this.ws.send(JSON.stringify({ type: 'input', data }));
@@ -720,6 +834,8 @@ class TerminalPane {
           // Set _pasteHandled flag so the paste event handler doesn't double-send.
           if (e.inputType === 'insertFromPaste') {
             e.preventDefault();
+            // Select mode v2: pasted text is input, so live output resumes.
+            this._exitSelectModeForInput();
             this._pasteHandled = true;
             const text = e.data || (e.dataTransfer && e.dataTransfer.getData('text/plain')) || '';
             if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -731,6 +847,8 @@ class TerminalPane {
 
           if (e.inputType === 'insertReplacementText') {
             e.preventDefault();
+            // Select mode v2: an autocorrect replacement is input too.
+            this._exitSelectModeForInput();
             const replacement = e.data || (e.dataTransfer && e.dataTransfer.getData('text/plain')) || '';
             if (!replacement || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
@@ -755,6 +873,8 @@ class TerminalPane {
         xtermTextarea.addEventListener('paste', (e) => {
           e.preventDefault();
           e.stopPropagation();
+          // Select mode v2: right-click Paste and touch-paste land here.
+          this._exitSelectModeForInput();
           if (this._pasteHandled) {
             this._pasteHandled = false;
             return;
@@ -768,6 +888,12 @@ class TerminalPane {
       }
 
       this.term.onData((data) => {
+        // Select mode v2: this is the single funnel every keystroke xterm
+        // decides to forward passes through, so it is where "typing resumes
+        // live output" is enforced. The unfreeze happens BEFORE the bytes go
+        // out, so the queued frames land first and the echo of what was just
+        // typed renders on top of them instead of behind them.
+        this._exitSelectModeForInput();
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(JSON.stringify({ type: 'input', data }));
         }
@@ -814,6 +940,11 @@ class TerminalPane {
     // Without draining the write pipeline first, a stale rAF/timer could flush
     // old data into the terminal AFTER reset(), causing duplicate content.
     if (isReconnect && this.term) {
+      // Select mode v2: a reconnect is followed by a full scrollback replay.
+      // Replaying into a frozen pane would pile the entire transcript into the
+      // hold queue behind a selection that term.reset() is about to
+      // invalidate anyway, so drop the freeze (and the stale hold) first.
+      this._discardSelectModeHold();
       if (this._writeRaf) { cancelAnimationFrame(this._writeRaf); this._writeRaf = null; }
       if (this._bgFlushTimer) { clearTimeout(this._bgFlushTimer); this._bgFlushTimer = null; }
       this._writeBuf = '';
@@ -925,6 +1056,14 @@ class TerminalPane {
             // buffered partial writes and clear the screen so the replay
             // cannot interleave with or duplicate stale frames. Must be safe
             // mid-stream: everything here is idempotent.
+            //
+            // Select mode v2: unfreeze BEFORE the reset. term.reset() switches
+            // back to the normal buffer and clears the screen, which discards
+            // any selection the user had, so holding output past this point
+            // would protect nothing and would stall the replay behind a frozen
+            // queue. The hold is dropped rather than flushed because the
+            // replay that follows re-sends everything.
+            this._discardSelectModeHold();
             if (this._writeRaf) { cancelAnimationFrame(this._writeRaf); this._writeRaf = null; }
             if (this._bgFlushTimer) { clearTimeout(this._bgFlushTimer); this._bgFlushTimer = null; }
             this._writeBuf = '';
@@ -1081,6 +1220,10 @@ class TerminalPane {
    * Send a raw command string to the PTY (e.g., "reset\r").
    */
   sendCommand(cmd) {
+    // Select mode v2: an app-driven command (slash command, "reset", a
+    // scheduled message) is still input to the PTY, and its output must be
+    // visible, so it resumes the live stream exactly like typing does.
+    this._exitSelectModeForInput();
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'input', data: cmd }));
     }
@@ -1094,6 +1237,13 @@ class TerminalPane {
    */
   safeFit() {
     if (!this.fitAddon || !this.term) return;
+    // Select mode v2: never reflow the grid while output is frozen. A fit that
+    // changes the ROW count is one of the few things xterm 6 treats as a
+    // reason to clear the selection outright, and any applied resize makes the
+    // CLI repaint its whole frame straight into the hold queue. The intent is
+    // remembered and replayed the moment the freeze lifts, so a pane that was
+    // resized mid-selection still ends up at the correct geometry.
+    if (this._selectMode) { this._fitDeferredWhileFrozen = true; return; }
     // Bail when this pane's terminal element is detached from the document,
     // e.g. cached inside a DocumentFragment during a tab-group switch. The
     // ResizeObserver watches the slot container by id, so a DIFFERENT
@@ -1329,6 +1479,8 @@ class TerminalPane {
     };
 
     const onTouchStart = (e) => {
+      // Copy view overlay owns its own scrolling and long-press selection.
+      if (this._isInsideCopyView(e.target)) return;
       // In type mode, let xterm.js handle everything
       if (this._mobileTypeMode) return;
       // If currently selecting, let xterm handle
@@ -1358,6 +1510,8 @@ class TerminalPane {
     };
 
     const onTouchMove = (e) => {
+      // Copy view overlay scrolls natively; never convert it to term scroll.
+      if (this._isInsideCopyView(e.target)) return;
       if (this._mobileTypeMode) return;
       // If selecting, let xterm.js handle the selection drag
       if (this._mobileSelecting) return;
@@ -1395,6 +1549,8 @@ class TerminalPane {
     };
 
     const onTouchEnd = (e) => {
+      // Copy view overlay: leave the gesture entirely to the browser.
+      if (this._isInsideCopyView(e.target)) return;
       if (!this._mobileTypeMode && !this._mobileSelecting) e.stopPropagation();
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
@@ -1521,6 +1677,19 @@ class TerminalPane {
     this._writeBuf += data;
     this._activitySample += data;
 
+    // Select mode v2 freeze gate. While the toggle is on, bytes accumulate in
+    // the SAME queue the batching pipeline already uses and no flush is
+    // scheduled, so the visible screen becomes a stable snapshot and an
+    // in-progress selection can never be repainted out from under the user.
+    // Nothing is dropped: the queue drains in one write when the mode ends.
+    // Scheduling is skipped entirely (rather than relying on the flush-side
+    // guard alone) so a chatty session cannot spin a rAF or a 150ms timer on
+    // every chunk for as long as the user keeps selecting.
+    if (this._isWriteFrozen()) {
+      if (this._writeBuf.length >= SELECT_FREEZE_MAX_HOLD_CHARS) this._overflowSelectFreeze();
+      return;
+    }
+
     if (this._isFocused) {
       // Active terminal: flush every frame for real-time responsiveness
       if (this._bgFlushTimer) { clearTimeout(this._bgFlushTimer); this._bgFlushTimer = null; }
@@ -1562,6 +1731,11 @@ class TerminalPane {
    */
   _flushWriteBuffer() {
     this._writeRaf = null;
+    // Select mode v2 freeze gate, second line of defense. A rAF or background
+    // timer scheduled just BEFORE the toggle went on still fires afterwards;
+    // returning here (before the buffer is consumed) keeps the held bytes
+    // queued instead of letting one stray frame repaint under a selection.
+    if (this._isWriteFrozen()) return;
     if (!this._writeBuf) return;
 
     const buf = this._writeBuf;
@@ -2032,14 +2206,203 @@ class TerminalPane {
 
   /**
    * Enable or disable Select mode for this pane and refresh its UI.
+   *
+   * v2: this is also the freeze boundary. Turning the mode ON stops the write
+   * pipeline (see _enqueueWrite) so the screen under the pointer stops moving;
+   * turning it OFF drains everything that arrived in the meantime in a single
+   * write, applies any resize that was deferred during the freeze, and (once
+   * the width-claim feature is wired) re-asserts a geometry claim that was
+   * held back. The signature is deliberately unchanged from v1 so every
+   * existing caller and gate keeps working.
+   *
    * @param {boolean} on - true to make plain drags select text.
    * @returns {boolean} The resulting mode.
    */
   setSelectMode(on) {
+    const was = !!this._selectMode;
     this._selectMode = !!on;
     if (this._selectMode) this._dismissCopyHint();
     this._updateSelectModeUI();
+    if (!was && this._selectMode) {
+      this._selectFrozenAt = Date.now();
+    } else if (was && !this._selectMode) {
+      this._selectFrozenAt = 0;
+      this._unfreezeAndFlush();
+    }
     return this._selectMode;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     SELECT MODE v2: FREEZE-WHILE-SELECTING
+     xterm 6 anchors a selection to absolute buffer coordinates and
+     clears it only on user input, scrollback trim, a row-count
+     resize, or a buffer switch. A plain PTY write leaves the
+     selection object intact but repaints the cells beneath it, so a
+     full-screen TUI turns a valid selection into stale garbage
+     within one frame. Freezing the write pipeline for the duration
+     of the selection is what makes plain drag-to-copy trustworthy.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Whether the write pipeline is currently holding output back.
+   * Single source of truth for both gates (_enqueueWrite schedules nothing
+   * while this is true, _flushWriteBuffer refuses to consume the queue), so a
+   * future freeze trigger only has to change this one predicate.
+   * @returns {boolean} True while output is held for a selection.
+   */
+  _isWriteFrozen() {
+    return !!this._selectMode;
+  }
+
+  /**
+   * Resume the live stream: drain everything held during the freeze in one
+   * write, then apply a resize that was deliberately skipped while frozen.
+   *
+   * Order matters. The held bytes were produced for the geometry the PTY had
+   * while they were generated, so they are written FIRST and re-fitting
+   * happens after; fitting first would render old-width frames into a new-width
+   * grid and leave torn output on screen until the CLI repainted.
+   */
+  _unfreezeAndFlush() {
+    if (this._writeBuf && this.term) {
+      if (this._writeRaf) { cancelAnimationFrame(this._writeRaf); this._writeRaf = null; }
+      if (this._bgFlushTimer) { clearTimeout(this._bgFlushTimer); this._bgFlushTimer = null; }
+      this._flushWriteBuffer();
+    }
+    if (this._fitDeferredWhileFrozen) {
+      this._fitDeferredWhileFrozen = false;
+      this.safeFit();
+    }
+  }
+
+  /**
+   * Leave Select mode and DISCARD whatever was held, without writing it.
+   *
+   * Used by the two resync paths (WebSocket reconnect and a server-initiated
+   * reset), where a full scrollback replay is about to arrive and term.reset()
+   * is about to clear the screen. Flushing there would write frames the replay
+   * is about to duplicate. Safe to call unconditionally and repeatedly: the
+   * write buffer is cleared by the caller in both of those paths.
+   */
+  _discardSelectModeHold() {
+    if (!this._selectMode) return;
+    this._selectMode = false;
+    this._selectFrozenAt = 0;
+    this._fitDeferredWhileFrozen = false;
+    this._updateSelectModeUI();
+  }
+
+  /**
+   * Leave Select mode because the user is sending input to the session.
+   * Called from every path that puts bytes on the wire (onData, the paste
+   * listeners, Ctrl+V, Shift+Enter, sendCommand) BEFORE the send, so held
+   * frames land first and the echo renders on top of a current screen.
+   * @returns {boolean} True when a freeze was actually lifted.
+   */
+  _exitSelectModeForInput() {
+    if (!this._selectMode) return false;
+    this.setSelectMode(false);
+    return true;
+  }
+
+  /**
+   * Overflow valve for the hold queue: leave Select mode, flush, and say why.
+   *
+   * Reached when a session produces more than SELECT_FREEZE_MAX_HOLD_CHARS
+   * while frozen (a build log, a test run, a `cat` of something large). The
+   * alternative, holding without limit, trades a stale selection for unbounded
+   * memory growth and a multi-second stall at unfreeze, which is worse.
+   */
+  _overflowSelectFreeze() {
+    this.setSelectMode(false);
+    this._showSelectModeNotice('Live output resumed: too much new output to hold while selecting.');
+  }
+
+  /**
+   * Install the capture-phase wheel guard for Select mode.
+   *
+   * Inert while the toggle is off, so normal panes keep xterm's own wheel
+   * behavior (including its smooth scrolling). While on:
+   *   - ALTERNATE buffer (a full-screen TUI): the wheel is swallowed. There is
+   *     no scrollback in the alt buffer, so local scrolling is meaningless,
+   *     and forwarding the wheel to the app would scroll ITS view and repaint
+   *     every cell under the selection.
+   *   - NORMAL buffer (a plain shell pane): the wheel is translated into a
+   *     local viewport scroll. Scrollback genuinely exists there, so Select
+   *     mode still allows scrolling to older output and drag-at-edge
+   *     auto-extension keeps working.
+   *
+   * Capture phase on the pane container is deliberate: it runs before any
+   * listener xterm registered on its own element or viewport, which is the
+   * only reliable way to preempt them without touching xterm internals (the
+   * browser loads the minified vendor bundle, where they are name-mangled).
+   * Registered non-passive so preventDefault is honored.
+   */
+  _installSelectModeWheelGuard() {
+    const container = document.getElementById(this.containerId);
+    if (!container) return;
+    // Idempotent across remounts into the same slot.
+    this._removeSelectModeWheelGuard();
+    const handler = (e) => {
+      if (!this._selectMode) return;
+      // Never steal wheel events that belong to the Copy view overlay; it is
+      // an ordinary scrollable DOM element and scrolls natively.
+      if (this._copyOverlay && typeof this._copyOverlay.contains === 'function' &&
+          e.target && this._copyOverlay.contains(e.target)) {
+        return;
+      }
+      if (e.cancelable) e.preventDefault();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      if (!this.term || !this.term.buffer || !this.term.buffer.active) return;
+      if (this.term.buffer.active.type === 'alternate') return; // nothing to scroll
+      const lines = TerminalPane._wheelLinesFromEvent(e, this.term.rows);
+      if (lines) {
+        try { this.term.scrollLines(lines); } catch (_) {}
+      }
+    };
+    this._selWheelHandler = handler;
+    this._selWheelTarget = container;
+    container.addEventListener('wheel', handler, { capture: true, passive: false });
+  }
+
+  /** Remove the capture-phase wheel guard, if one is installed. */
+  _removeSelectModeWheelGuard() {
+    if (this._selWheelTarget && this._selWheelHandler) {
+      try {
+        this._selWheelTarget.removeEventListener('wheel', this._selWheelHandler, { capture: true });
+      } catch (_) {}
+    }
+    this._selWheelHandler = null;
+    this._selWheelTarget = null;
+  }
+
+  /**
+   * Convert a wheel event into a signed row count for term.scrollLines().
+   *
+   * Browsers report wheel deltas in three units (pixels, lines, pages) and the
+   * pixel magnitude varies wildly by device and OS, so pixel-mode events are
+   * normalized to a fixed number of rows per notch rather than trusted
+   * verbatim. Positive means scroll toward newer output, matching both the
+   * DOM convention and xterm's scrollLines sign.
+   *
+   * Static and side-effect free so it can be exercised without a terminal.
+   *
+   * @param {WheelEvent|object} ev - The wheel event (or a stub with deltaY).
+   * @param {number} rows - Current viewport height, used for page-mode deltas.
+   * @returns {number} Signed row count; 0 when there is nothing to scroll.
+   */
+  static _wheelLinesFromEvent(ev, rows) {
+    const dy = (ev && typeof ev.deltaY === 'number') ? ev.deltaY : 0;
+    if (!dy) return 0;
+    const mode = (ev && typeof ev.deltaMode === 'number') ? ev.deltaMode : 0;
+    if (mode === 1) { // DOM_DELTA_LINE
+      return Math.round(dy) || (dy > 0 ? 1 : -1);
+    }
+    if (mode === 2) { // DOM_DELTA_PAGE
+      const page = Math.max(1, rows || SELECT_FREEZE_WHEEL_LINES);
+      return (Math.round(dy) || (dy > 0 ? 1 : -1)) * page;
+    }
+    return dy > 0 ? SELECT_FREEZE_WHEEL_LINES : -SELECT_FREEZE_WHEEL_LINES;
   }
 
   /** Flip Select mode. Returns the new state. */
@@ -2083,8 +2446,35 @@ class TerminalPane {
     else header.appendChild(btn);
     this._selectModeBtn = btn;
 
+    // ── Copy view control (Select mode v2) ───────────────────────
+    // Sits immediately after the Select toggle because the two answer the same
+    // question at different scopes: Select mode copies what is on screen, Copy
+    // view copies everything the pane has. Same button classes and sizing as
+    // the sibling header icons.
+    const existingCopyView = header.querySelector('.terminal-pane-copyview');
+    if (existingCopyView) existingCopyView.remove();
+    const cvBtn = document.createElement('button');
+    cvBtn.type = 'button';
+    cvBtn.className = 'terminal-pane-copyview btn btn-ghost btn-icon btn-sm';
+    cvBtn.setAttribute('aria-pressed', 'false');
+    cvBtn.style.transition = 'color 160ms ease, background 160ms ease';
+    // Document with lines glyph: "take the text out of this pane".
+    cvBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">'
+      + '<path d="M4 1.5A1.5 1.5 0 0 1 5.5 0h4.086a1.5 1.5 0 0 1 1.06.44l2.915 2.914A1.5 1.5 0 0 1 14 4.414V12.5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 4 12.5v-11zM5.5 1a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V5h-2.5A1.5 1.5 0 0 1 9 3.5V1H5.5zm4.5.207V3.5a.5.5 0 0 0 .5.5h2.293L10 1.207z"/>'
+      + '<path d="M2 4.5a.5.5 0 0 1 .5.5v9a.5.5 0 0 0 .5.5h7a.5.5 0 0 1 0 1H3A1.5 1.5 0 0 1 1.5 14V5a.5.5 0 0 1 .5-.5z"/>'
+      + '<path d="M6.5 6h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1zm0 2.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1zm0 2.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1 0-1z"/></svg>';
+    cvBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleCopyView();
+    });
+    if (closeBtn) header.insertBefore(cvBtn, closeBtn);
+    else header.appendChild(cvBtn);
+    this._copyViewBtn = cvBtn;
+
     this._maybeShowCopyHint();
     this._updateSelectModeUI();
+    this._updateCopyViewUI();
   }
 
   /**
@@ -2100,25 +2490,38 @@ class TerminalPane {
       this._selectModeBtn.style.color = on ? 'var(--mauve, #cba6f7)' : '';
       this._selectModeBtn.style.background = on ? 'var(--surface1, rgba(203, 166, 247, 0.16))' : '';
       this._selectModeBtn.title = on
-        ? 'Select mode ON: drag selects text, Ctrl+C copies. Clickable options are paused. Click to turn off.'
-        : 'Select / Copy mode: drag to select text. Tip: hold Shift and drag to select any time. Clickable options pause while this is on.';
+        ? 'Select mode ON: output is paused, drag selects text, Ctrl+C copies. Clickable options are paused. Click to turn off, or just type.'
+        : 'Select / Copy mode: pause output and drag to select text. Tip: hold Shift and drag to select any time. Clickable options pause while this is on.';
     }
     if (on) this._showSelectModeStrip();
     else this._hideSelectModeStrip();
     if (this.paneEl) this.paneEl.classList.toggle('select-mode-on', on);
   }
 
+  // Default strip copy while Select mode is on. v2 wording leads with the
+  // output pause because that is the behavior change users notice first, and
+  // it names both exits (Copy view for everything, typing for live output).
+  // Kept as a static so the strip, the notice path, and tests share one string.
+  static SELECT_STRIP_TEXT = 'Select mode: output paused. Drag to select, Ctrl+C copies. Copy view captures everything. Typing resumes live output.';
+
   /**
    * Show a compact non-blocking strip at the bottom of the pane while Select
    * mode is on, so the user knows the interactive layer is paused and how to
    * resume it. pointer-events:none so it never intercepts a selection drag.
+   * Re-asserts the default text on every show so a transient notice
+   * (see _showSelectModeNotice) can never stick.
    */
   _showSelectModeStrip() {
     if (!this.paneEl) return;
-    if (this._selStrip) { this._selStrip.hidden = false; this._selStrip.style.opacity = '1'; return; }
+    if (this._selStrip) {
+      this._selStrip.textContent = TerminalPane.SELECT_STRIP_TEXT;
+      this._selStrip.hidden = false;
+      this._selStrip.style.opacity = '1';
+      return;
+    }
     const s = document.createElement('div');
     s.className = 'terminal-selectmode-strip';
-    s.textContent = 'Select mode: drag to select, Ctrl+C to copy. Clickable options paused, toggle off to resume.';
+    s.textContent = TerminalPane.SELECT_STRIP_TEXT;
     s.style.cssText = 'position:absolute;left:8px;right:8px;bottom:8px;z-index:20;'
       + "font:11px/1.4 'Plus Jakarta Sans', system-ui, sans-serif;"
       + 'color:var(--text, #cdd6f4);background:var(--surface0, rgba(24, 24, 37, 0.94));'
@@ -2136,6 +2539,429 @@ class TerminalPane {
       this._selStrip.style.opacity = '0';
       this._selStrip.hidden = true;
     }
+  }
+
+  /**
+   * Flash a transient message in the Select-mode strip.
+   *
+   * Reuses the strip rather than introducing a second overlay so the message
+   * appears exactly where the user was already told about Select mode, and so
+   * it inherits pointer-events:none (a notice can never eat a click). The
+   * strip is created on demand, which is what lets the overflow path speak up
+   * even though it has just turned Select mode off.
+   *
+   * @param {string} text - Short sentence to display. No markup.
+   * @param {number} [ms] - Visible duration; defaults to SELECT_NOTICE_MS.
+   */
+  _showSelectModeNotice(text, ms) {
+    if (!this.paneEl) return;
+    this._showSelectModeStrip();
+    if (!this._selStrip) return;
+    this._selStrip.textContent = text;
+    if (this._selNoticeTimer) { clearTimeout(this._selNoticeTimer); this._selNoticeTimer = null; }
+    this._selNoticeTimer = setTimeout(() => {
+      this._selNoticeTimer = null;
+      // Whichever state the pane is in by the time this fires is authoritative:
+      // still selecting means restore the standing text, otherwise stand down.
+      if (this._selectMode) this._showSelectModeStrip();
+      else this._hideSelectModeStrip();
+    }, typeof ms === 'number' ? ms : SELECT_NOTICE_MS);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     COPY VIEW OVERLAY
+     Select mode makes the VISIBLE screen selectable, which still
+     cannot answer "copy the whole conversation": an interactive CLI
+     keeps its history inside the app, repaints a width-locked frame
+     in the alternate buffer, and writes nothing to terminal
+     scrollback. The Copy view is the honest answer to that. It
+     renders a text SNAPSHOT of both buffers as ordinary DOM text, so
+     native selection, Ctrl+A, long-press on touch, and the browser's
+     own copy all work with no terminal semantics in the way.
+     All styling is injected from here (no stylesheet edits) to keep
+     the pane self-contained, matching how v1 injects its controls.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Read every line of an xterm buffer as plain text.
+   *
+   * Works on either buffer namespace member. For the normal buffer `length`
+   * spans the scrollback plus the viewport; for the alternate buffer it is
+   * exactly the viewport, which is what makes "everything plus the current
+   * screen" expressible as two calls. Right-trimmed per line because a
+   * terminal grid pads every row to the full width with spaces.
+   *
+   * Static and defensive: any line that cannot be read is treated as blank
+   * rather than aborting the snapshot, since a partially readable transcript
+   * is still far more useful than an error.
+   *
+   * @param {object} buf - An xterm IBuffer (active, normal or alternate).
+   * @returns {string[]} One entry per row, in buffer order.
+   */
+  static _readBufferLines(buf) {
+    const out = [];
+    if (!buf || typeof buf.getLine !== 'function') return out;
+    const len = typeof buf.length === 'number' ? buf.length : 0;
+    for (let i = 0; i < len; i++) {
+      let text = '';
+      try {
+        const line = buf.getLine(i);
+        if (line && typeof line.translateToString === 'function') {
+          text = line.translateToString(true) || '';
+        }
+      } catch (_) {
+        text = '';
+      }
+      out.push(text);
+    }
+    return out;
+  }
+
+  /**
+   * Collapse padding runs and trailing blanks in composed snapshot text.
+   *
+   * A full-screen frame is mostly empty rows, and the normal buffer keeps the
+   * blank remainder of the last screen before the app took over, so a raw
+   * join is unreadable. Runs of COPY_VIEW_BLANK_RUN_LIMIT or more blank lines
+   * collapse to one; shorter runs are preserved because one or two blank lines
+   * are meaningful paragraph structure in real output. Leading and trailing
+   * blank runs are dropped entirely.
+   *
+   * @param {string[]} lines - Raw lines in document order.
+   * @returns {string[]} Cleaned lines.
+   */
+  static _collapseBlankRuns(lines) {
+    const out = [];
+    let run = 0;
+    for (const raw of (Array.isArray(lines) ? lines : [])) {
+      const line = typeof raw === 'string' ? raw : '';
+      if (line.trim() === '') { run++; continue; }
+      if (run > 0) {
+        // Drop the run entirely at the very top of the document; otherwise
+        // emit it, collapsed when it is longer than the limit.
+        if (out.length > 0) {
+          const keep = run >= COPY_VIEW_BLANK_RUN_LIMIT ? 1 : run;
+          for (let i = 0; i < keep; i++) out.push('');
+        }
+        run = 0;
+      }
+      out.push(line);
+    }
+    // A trailing run is never emitted: it is padding, not content.
+    return out;
+  }
+
+  /**
+   * Compose the Copy view snapshot text from an xterm buffer namespace.
+   *
+   * When the alternate buffer is active (an interactive CLI is running) the
+   * normal buffer is still readable and still holds everything printed before
+   * the app took over, including shell scrollback. That transcript is emitted
+   * first, then a divider, then the live frame, which is the closest thing to
+   * "everything this pane has shown" that the terminal layer can offer. When
+   * no app is running, the active buffer IS the normal buffer and one pass
+   * over it (scrollback included) is the whole story.
+   *
+   * Takes the namespace as an argument instead of reading this.term so it can
+   * be exercised against stub buffers with no xterm instance.
+   *
+   * @param {object} bufferApi - term.buffer (with active/normal members).
+   * @returns {string} Newline-joined snapshot text; '' when nothing is readable.
+   */
+  _composeCopyViewText(bufferApi) {
+    if (!bufferApi) return '';
+    const active = bufferApi.active || null;
+    const normal = bufferApi.normal || null;
+    const isAlt = !!(active && active.type === 'alternate');
+    let lines;
+    if (isAlt) {
+      lines = TerminalPane._readBufferLines(normal);
+      // Only announce a divider when there is genuinely something above it. A
+      // pane that launched straight into a full-screen app has an empty normal
+      // buffer, and a lone divider at the top of the snapshot would be noise.
+      if (lines.some((l) => l && l.trim() !== '')) lines.push(COPY_VIEW_DIVIDER);
+      else lines = [];
+      lines = lines.concat(TerminalPane._readBufferLines(active));
+    } else {
+      lines = TerminalPane._readBufferLines(active || normal);
+    }
+    return TerminalPane._collapseBlankRuns(lines).join('\n');
+  }
+
+  /**
+   * Create the Copy view overlay once per pane and return it.
+   *
+   * Hosted on the pane element (not the terminal container) for two reasons:
+   * the pane is the positioned ancestor, and the mobile touch engine's
+   * capture-phase handlers live on the container, so an overlay outside it
+   * scrolls natively on touch without fighting them. Styles are inline and
+   * reference theme custom properties so the overlay follows the active
+   * Catppuccin flavor with no stylesheet changes.
+   *
+   * @returns {HTMLElement|null} The overlay root, or null if there is no host.
+   */
+  _ensureCopyOverlay() {
+    if (this._copyOverlay) return this._copyOverlay;
+    if (typeof document === 'undefined') return null;
+    const host = this.paneEl || document.getElementById(this.containerId);
+    if (!host) return null;
+    const header = this.paneEl ? this.paneEl.querySelector('.terminal-pane-header') : null;
+    const topPx = (header && header.offsetHeight) ? header.offsetHeight : COPY_VIEW_DEFAULT_TOP_PX;
+
+    const root = document.createElement('div');
+    root.className = 'terminal-copyview';
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-label', 'Copy view');
+    root.style.cssText = 'position:absolute;left:0;right:0;bottom:0;top:' + topPx + 'px;z-index:40;'
+      + 'display:flex;flex-direction:column;overflow:hidden;'
+      + 'background:var(--mantle, #181825);color:var(--text, #cdd6f4);'
+      + 'border-top:1px solid var(--surface1, #45475a);';
+
+    const bar = document.createElement('div');
+    bar.className = 'terminal-copyview-bar';
+    bar.style.cssText = 'display:flex;align-items:center;gap:8px;flex:0 0 auto;'
+      + 'padding:6px 8px 6px 12px;background:var(--surface0, #313244);'
+      + 'border-bottom:1px solid var(--surface1, #45475a);'
+      + "font:600 12px/1.4 'Plus Jakarta Sans', system-ui, sans-serif;";
+
+    const title = document.createElement('span');
+    title.className = 'terminal-copyview-title';
+    title.textContent = 'Copy view';
+    title.style.cssText = 'flex:1 1 auto;color:var(--text, #cdd6f4);';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'terminal-copyview-copy btn btn-ghost btn-sm';
+    copyBtn.textContent = 'Copy all';
+    const refreshBtn = document.createElement('button');
+    refreshBtn.type = 'button';
+    refreshBtn.className = 'terminal-copyview-refresh btn btn-ghost btn-sm';
+    refreshBtn.textContent = 'Refresh';
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'terminal-copyview-close btn btn-ghost btn-icon btn-sm';
+    closeBtn.setAttribute('aria-label', 'Close copy view');
+    closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">'
+      + '<path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>';
+    // Literal fallbacks alongside the tokens keep the buttons legible even if
+    // a cached stylesheet has not picked up the btn classes yet.
+    const btnCss = 'flex:0 0 auto;cursor:pointer;border-radius:6px;padding:3px 9px;'
+      + 'border:1px solid var(--surface2, #585b70);background:var(--surface1, #45475a);'
+      + 'color:var(--text, #cdd6f4);'
+      + "font:600 11px/1.6 'Plus Jakarta Sans', system-ui, sans-serif;";
+    copyBtn.style.cssText = btnCss;
+    refreshBtn.style.cssText = btnCss;
+    closeBtn.style.cssText = 'flex:0 0 auto;cursor:pointer;border-radius:6px;padding:2px 5px;'
+      + 'border:1px solid transparent;background:none;color:var(--subtext0, #a6adc8);'
+      + 'display:inline-flex;align-items:center;';
+
+    const pre = document.createElement('pre');
+    pre.className = 'terminal-copyview-text';
+    pre.tabIndex = 0;
+    pre.style.cssText = 'margin:0;flex:1 1 auto;overflow:auto;padding:10px 12px;'
+      + "font:12px/1.5 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;"
+      + 'white-space:pre-wrap;overflow-wrap:anywhere;'
+      + 'user-select:text;-webkit-user-select:text;-webkit-overflow-scrolling:touch;'
+      + 'background:var(--mantle, #181825);color:var(--text, #cdd6f4);outline:none;';
+
+    bar.appendChild(title);
+    bar.appendChild(copyBtn);
+    bar.appendChild(refreshBtn);
+    bar.appendChild(closeBtn);
+    root.appendChild(bar);
+    root.appendChild(pre);
+
+    copyBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this._copyAllFromCopyView(); });
+    refreshBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this._refreshCopyView(); });
+    closeBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this._closeCopyView(); });
+
+    // Keep pane-level and app-level handlers out of the overlay: a click here
+    // must not re-focus the terminal (which would steal the keyboard back from
+    // the snapshot) and a keystroke here must not reach a global shortcut.
+    root.addEventListener('mousedown', (e) => e.stopPropagation());
+    root.addEventListener('click', (e) => e.stopPropagation());
+    const onKey = (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); this._closeCopyView(); return; }
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === 'a' || e.key === 'A')) {
+        // Scope select-all to the snapshot. Without this, Ctrl+A in a plain
+        // focusable element selects the whole document in most engines.
+        e.preventDefault();
+        this._selectAllInCopyView();
+      }
+      // Ctrl+C is deliberately NOT handled: with a DOM selection present the
+      // browser's own copy already does the right thing on every origin.
+    };
+    root.addEventListener('keydown', onKey);
+    this._copyOverlayKeyHandler = onKey;
+
+    host.appendChild(root);
+    this._copyOverlay = root;
+    this._copyOverlayPre = pre;
+    this._copyOverlayBtns = { copy: copyBtn, refresh: refreshBtn, close: closeBtn };
+    return root;
+  }
+
+  /**
+   * Rebuild the snapshot from the live buffers and show it, scrolled to the
+   * most recent content. Uses textContent, never innerHTML: terminal output is
+   * untrusted text and must never be parsed as markup.
+   */
+  _refreshCopyView() {
+    if (!this._copyOverlayPre) return;
+    const text = (this.term && this.term.buffer) ? this._composeCopyViewText(this.term.buffer) : '';
+    this._copyViewText = text;
+    this._copyOverlayPre.textContent = text;
+    this._scrollCopyViewToBottom();
+  }
+
+  /**
+   * Pin the snapshot to its end (newest output), the way a terminal sits at
+   * the bottom of its scrollback. Deferred a frame so the layout that follows
+   * a textContent swap has happened before scrollHeight is read.
+   */
+  _scrollCopyViewToBottom() {
+    const pre = this._copyOverlayPre;
+    if (!pre) return;
+    const pin = () => { try { pre.scrollTop = pre.scrollHeight; } catch (_) {} };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(pin);
+    else pin();
+  }
+
+  /** Select the entire snapshot, and nothing outside it, as a DOM selection. */
+  _selectAllInCopyView() {
+    try {
+      if (typeof document === 'undefined' || typeof window === 'undefined') return;
+      const pre = this._copyOverlayPre;
+      if (!pre || typeof document.createRange !== 'function') return;
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      const sel = window.getSelection ? window.getSelection() : null;
+      if (!sel) return;
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch (_) {
+      // A selection failure is cosmetic; the user can still drag-select.
+    }
+  }
+
+  /**
+   * Copy the whole snapshot through the universal clipboard helper (which
+   * works on insecure origins too, the documented LAN access mode) and report
+   * the outcome on the button for a moment. Never throws.
+   */
+  _copyAllFromCopyView() {
+    const btn = this._copyOverlayBtns ? this._copyOverlayBtns.copy : null;
+    const done = (ok) => {
+      if (!btn) return;
+      btn.textContent = ok ? 'Copied' : 'Copy failed';
+      if (this._copyFeedbackTimer) clearTimeout(this._copyFeedbackTimer);
+      this._copyFeedbackTimer = setTimeout(() => {
+        this._copyFeedbackTimer = null;
+        if (this._copyOverlayBtns && this._copyOverlayBtns.copy) {
+          this._copyOverlayBtns.copy.textContent = 'Copy all';
+        }
+      }, COPY_VIEW_FEEDBACK_MS);
+    };
+    try {
+      const p = TerminalPane.copyTextToClipboard(this._copyViewText || '');
+      if (p && typeof p.then === 'function') p.then(done, () => done(false));
+      else done(true);
+    } catch (_) {
+      done(false);
+    }
+  }
+
+  /**
+   * Open the Copy view. Deliberately does NOT freeze the terminal: the overlay
+   * is a snapshot taken at open time, so the session underneath can keep
+   * streaming. Opening it while Select mode is on is allowed and leaves that
+   * freeze exactly as it was.
+   * @returns {boolean} True when the overlay is open.
+   */
+  _openCopyView() {
+    const root = this._ensureCopyOverlay();
+    if (!root) return false;
+    root.hidden = false;
+    root.style.display = 'flex';
+    this._copyOverlayOpen = true;
+    this._refreshCopyView();
+    if (this._copyOverlayPre && typeof this._copyOverlayPre.focus === 'function') {
+      try { this._copyOverlayPre.focus({ preventScroll: true }); } catch (_) {}
+    }
+    this._updateCopyViewUI();
+    return true;
+  }
+
+  /** Close the Copy view and hand focus back to the terminal. */
+  _closeCopyView() {
+    if (this._copyOverlay) {
+      this._copyOverlay.style.display = 'none';
+      this._copyOverlay.hidden = true;
+    }
+    this._copyOverlayOpen = false;
+    this._updateCopyViewUI();
+    // focus() already declines to steal focus on a mobile pane in scroll mode.
+    this.focus();
+  }
+
+  /**
+   * Toggle the Copy view. Public so the app layer (context menu, keyboard
+   * shortcut) can reach the same entry point the header button uses.
+   * @returns {boolean} True when the overlay ends up open.
+   */
+  toggleCopyView() {
+    if (this._copyOverlayOpen) { this._closeCopyView(); return false; }
+    return this._openCopyView();
+  }
+
+  /**
+   * Whether an event target sits inside this pane's Copy view overlay.
+   *
+   * Used by the mobile touch engine, whose capture-phase handlers live on the
+   * pane container and would otherwise translate a scroll gesture inside the
+   * overlay into terminal scrolling. Normally the overlay is hosted OUTSIDE
+   * that container (on the pane element), so this only matters in the fallback
+   * host case, but the check is cheap and makes the touch path correct
+   * regardless of where the overlay landed.
+   *
+   * @param {EventTarget} target - The event target to test.
+   * @returns {boolean} True when the target is within the open overlay.
+   */
+  _isInsideCopyView(target) {
+    return !!(this._copyOverlayOpen && this._copyOverlay && target &&
+      typeof this._copyOverlay.contains === 'function' && this._copyOverlay.contains(target));
+  }
+
+  /** Reflect Copy view open/closed state on its header button. */
+  _updateCopyViewUI() {
+    if (!this._copyViewBtn) return;
+    const on = !!this._copyOverlayOpen;
+    this._copyViewBtn.classList.toggle('active', on);
+    this._copyViewBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    this._copyViewBtn.style.color = on ? 'var(--mauve, #cba6f7)' : '';
+    this._copyViewBtn.style.background = on ? 'var(--surface1, rgba(203, 166, 247, 0.16))' : '';
+    this._copyViewBtn.title = on
+      ? 'Copy view open: select and copy any part of the transcript. Esc closes.'
+      : 'Copy view: snapshot the whole transcript as plain text you can select and copy.';
+  }
+
+  /** Remove the Copy view overlay and its timers from the DOM. */
+  _destroyCopyView() {
+    if (this._copyFeedbackTimer) { clearTimeout(this._copyFeedbackTimer); this._copyFeedbackTimer = null; }
+    if (this._copyOverlay) {
+      if (this._copyOverlayKeyHandler) {
+        try { this._copyOverlay.removeEventListener('keydown', this._copyOverlayKeyHandler); } catch (_) {}
+      }
+      try { this._copyOverlay.remove(); } catch (_) {}
+    }
+    this._copyOverlay = null;
+    this._copyOverlayPre = null;
+    this._copyOverlayBtns = null;
+    this._copyOverlayKeyHandler = null;
+    this._copyOverlayOpen = false;
+    this._copyViewText = '';
   }
 
   /**
@@ -2204,6 +3030,17 @@ class TerminalPane {
     }
     this._selMouseHandler = null;
     this._selInterceptorContainer = null;
+    // Select mode v2 teardown: drop the freeze (so nothing is left waiting on
+    // a mode that no longer has UI), remove the wheel guard, cancel the strip
+    // notice timer, and take the Copy view overlay with its listeners out of
+    // the DOM. All of it must survive a remount into the same slot.
+    this._selectMode = false;
+    this._selectFrozenAt = 0;
+    this._fitDeferredWhileFrozen = false;
+    if (this._selNoticeTimer) { clearTimeout(this._selNoticeTimer); this._selNoticeTimer = null; }
+    this._removeSelectModeWheelGuard();
+    this._destroyCopyView();
+    if (this._copyViewBtn) { try { this._copyViewBtn.remove(); } catch (_) {} this._copyViewBtn = null; }
     if (this._selectModeBtn) { try { this._selectModeBtn.remove(); } catch (_) {} this._selectModeBtn = null; }
     if (this._selStrip) { try { this._selStrip.remove(); } catch (_) {} this._selStrip = null; }
     if (this._copyHint) { try { this._copyHint.remove(); } catch (_) {} this._copyHint = null; }
