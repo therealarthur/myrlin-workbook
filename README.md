@@ -458,10 +458,11 @@ npm install -g windows-build-tools
 Same issue. node-pty is compiling. If it fails, install the C++ build tools first, then try again.
 
 ### npm blocked the node-pty install script (terminals disabled)
-Modern npm blocks dependency install scripts by default until you approve them.
-When node-pty's build script is blocked, the native terminal binary is never
-compiled, so the server boots in degraded mode with the terminal panes disabled
-(everything else keeps working). Approve the script and rebuild:
+Modern npm (11.16 and later; the default in npm 12) blocks dependency install
+scripts until you approve them. When node-pty's build script is blocked, the
+native terminal binary is never compiled, so the server boots in degraded mode
+with the terminal panes disabled (everything else keeps working). Approve the
+script and rebuild (approving alone does not rebuild an already-installed copy):
 
 ```bash
 npm install-scripts approve node-pty
