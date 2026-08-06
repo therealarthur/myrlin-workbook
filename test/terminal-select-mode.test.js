@@ -166,7 +166,7 @@ check('index.html cache-busts the native-copy terminal fix', () => {
   // over a mouse-tracking CLI also cancelled the mode. The two scripts are
   // versioned independently on purpose, so a terminal-only change does not
   // force a re-download of the whole SPA bundle.
-  assert.ok(/terminal\.js\?v=20260806-hoverfix/.test(indexSrc),
+  assert.ok(/terminal\.js\?v=20260806-selectv3/.test(indexSrc),
     'expected the current terminal.js cache token');
 });
 
@@ -228,7 +228,25 @@ function installOnFakeContainer(selectMode, dispatched, hasSelection = false) {
     removeEventListener: () => {},
     dispatchEvent: (e) => dispatched.push(e),
   };
+  // Select mode v3 (2026-08-06) moved the output pause off the toggle and onto
+  // the drag, so the interceptor now engages a hold on mousedown and releases
+  // it on a selectionless mouseup. Both are recorded here rather than stubbed
+  // silently, so this fixture can also prove the drag-start ordering.
+  const holdCalls = [];
   const ctx = { containerId: 'x', _selectMode: selectMode, _selectDragging: false,
+    _selectHold: false, holdCalls,
+    _engageSelectHold(reason) {
+      if (!this._selectMode || this._selectHold) return false;
+      this._selectHold = true;
+      holdCalls.push('engage:' + (reason || ''));
+      return true;
+    },
+    _releaseSelectHold(reason) {
+      if (!this._selectHold) return false;
+      this._selectHold = false;
+      holdCalls.push('release:' + (reason || ''));
+      return true;
+    },
     _selInterceptorContainer: null, _selMouseHandler: null,
     term: {
       hasSelection: () => hasSelection,
@@ -250,6 +268,8 @@ function installOnFakeContainer(selectMode, dispatched, hasSelection = false) {
     handlers,
     TerminalPane,
     FakeMouseEvent,
+    ctx,
+    holdCalls,
   };
 }
 
@@ -332,7 +352,7 @@ check('executed: interceptor is a no-op while Select mode is OFF', () => {
 
 check('executed: ON turns a plain left-drag into a shiftKey-true clone', () => {
   const dispatched = [];
-  const { handler, FakeMouseEvent } = installOnFakeContainer(true, dispatched);
+  const { handler, FakeMouseEvent, holdCalls } = installOnFakeContainer(true, dispatched);
   assert.ok(typeof handler === 'function', 'handler registered');
 
   let stopped = false;
@@ -355,6 +375,10 @@ check('executed: ON turns a plain left-drag into a shiftKey-true clone', () => {
   assert.strictEqual(clone.__cwmSelSynthetic, true, 'the clone must be flagged synthetic');
   assert.strictEqual(clone.type, 'mousedown', 'clone preserves the event type');
   assert.strictEqual(clone.clientX, 7, 'clone preserves the pointer position');
+  // v3: the same press also starts the output pause, and it must do so before
+  // the clone reaches xterm and anchors the selection.
+  assert.deepStrictEqual(holdCalls, ['engage:drag-start'],
+    'the drag start must engage the hold exactly once');
 });
 
 check('executed: a right-button press without selection passes through untouched when ON', () => {

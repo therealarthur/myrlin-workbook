@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.10] - 2026-08-06
+
+This prerelease changes when Select mode pauses output, and lets the Copy view read the whole conversation instead of only what fit on the screen.
+
+### Changed
+
+- **Select mode no longer freezes the pane the moment you turn it on.** Turning the mode on used to stop output immediately and swallow the scroll wheel, so a pane you only wanted to scroll looked hung: "when i toggle select, the window freezes and i cannot scroll or drag up". The pause is now part of the drag rather than part of the toggle. With the mode on and nothing selected the pane is fully live: output keeps painting, and the wheel works the way it does normally, scrolling the running app's own history under a full-screen CLI and the terminal's scrollback in a plain shell. Output pauses the instant you press the mouse to start selecting, which is what keeps the text from moving under the pointer, and it resumes as soon as the selection goes away, whether you click somewhere else, clear it, or start typing. Copying does not resume output, so the highlight survives the copy. A click that selects nothing releases immediately, and so does a drag that ended outside the pane, so the pane cannot get stuck paused.
+- **The Select mode notice describes the new behavior.** It now leads with scrolling being available, ties the pause to the drag, and names both ways back to live output. The one-time copy hint was updated to match.
+
+### Added
+
+- **Copy view can copy the whole conversation.** The Copy view header gains a source switch. "Terminal" is unchanged and still copies what the terminal has shown, including the current screen. "Full transcript" reads the session's own transcript through the existing read-only session-mirror path, so it reaches the entire conversation, including everything an interactive CLI kept inside its own interface and never wrote to terminal scrollback. Turns are labelled by role, tool calls and results collapse to one line each so the copy stays readable, and a "Load earlier" control pages further back until the beginning is reached. Copy all copies whatever is loaded, and Refresh fetches the current end of the conversation. It is a snapshot and it never touches the running session: the mirror path only reads the transcript file, and the subscription is released as soon as the snapshot is taken. If the session has no transcript yet, the transcript is empty, or the read fails, the Copy view says so inline and the Terminal source keeps working.
+
+### Testing
+
+- Existing freeze tests were updated to the new semantics rather than removed: what asserted freeze-on-toggle now asserts live-on-toggle plus freeze-on-drag-start plus release-on-selection-clear. New executed coverage drives the real mouse interceptor through complete gestures, including the ordering that matters (the pause starts before the click reaches the terminal), a click that selects nothing, a drag that ends outside the pane, intermediate selection updates during a drag, and copying.
+- Added transcript coverage: rendering from a stubbed history payload including role labels and one-line tool summaries, the snapshot opening and immediately closing its subscription, "Load earlier" paging backward and prepending, exhaustion hiding the control, and every gated failure path (endpoint error, no session identity, empty transcript) leaving the Terminal source working.
+
 ## [1.3.0-alpha.9] - 2026-08-06
 
 This corrective prerelease fixes a field report: Select mode switched itself off as soon as the pointer moved over the terminal.

@@ -68,6 +68,34 @@ const COPY_VIEW_TOUCH_TARGET_PX = 40;
 const COPY_VIEW_TOUCH_MAX_WIDTH_PX = 768;
 
 /* ═══════════════════════════════════════════════════════════════════
+   COPY VIEW SOURCES
+   The terminal source can only ever offer what the TERMINAL saw: the
+   normal buffer plus the current full-screen frame. An interactive CLI
+   keeps the conversation inside its own app and repaints a width-locked
+   frame, so everything older than the visible screen exists only in the
+   session transcript on disk. The server already publishes that through
+   the mirror API (open/history/close, live since v1.2.0), which is the
+   same read-only path the mirror pane uses, so the Copy view can offer
+   the real conversation as a second source without a new endpoint and
+   without ever touching the running session.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// The two Copy view sources. Terminal is the default because it is always
+// available and needs no network round trip.
+const COPY_VIEW_SOURCE_TERMINAL = 'terminal';
+const COPY_VIEW_SOURCE_TRANSCRIPT = 'transcript';
+
+// Characters of a tool payload kept on its one-line summary. Tool events are
+// noise in a copied conversation, but dropping them entirely loses the thread
+// of what the assistant actually did, so each collapses to a single labelled
+// line the way the mirror pane collapses them into a details summary.
+const COPY_VIEW_TRANSCRIPT_TOOL_CHARS = 120;
+
+// Bytes requested per "Load earlier" page. The server clamps this to its own
+// history window cap, so this is a request, not a guarantee.
+const COPY_VIEW_TRANSCRIPT_PAGE_BYTES = 262144;
+
+/* ═══════════════════════════════════════════════════════════════════
    SELECT MODE STRIP PLACEMENT CONSTANTS
    The strip is absolutely positioned inside the pane, so it has to be
    told about the two things that live at the bottom of a pane: the
@@ -964,11 +992,21 @@ class TerminalPane {
     //   mode is a per-session preference that survives that refresh. Without
     //   this window a user who left the toggle on would come back to a pane
     //   that holds its own replay and looks blank.
+    // ── Select mode v3: the hold is what freezes, not the toggle ──
+    // _selectHold: true only while a selection is being made or is being held.
+    //   v2 froze the write pipeline the instant the toggle went ON, which is
+    //   what the user hit: "when i toggle select, the window freezes and i
+    //   cannot scroll or drag up". Real usage is toggle first, position the
+    //   content, THEN drag. So the pause now starts at drag start and ends
+    //   when the selection goes away. Select mode itself is unchanged: it is
+    //   still the per-session preference that makes a plain drag select.
+    this._selectHold = false;
     this._selectFrozenAt = 0;
     this._freezeBlockedUntil = 0;
     this._selWheelHandler = null;
     this._selWheelTarget = null;
     this._selNoticeTimer = null;
+    this._selSelectionDisposable = null;
     this._fitDeferredWhileFrozen = false;
     // ── Copy view overlay state (per pane, never shared) ─────────
     // The overlay is hosted on paneEl, so it is host-owned state: created
@@ -982,6 +1020,22 @@ class TerminalPane {
     this._copyOverlayOpen = false;
     this._copyViewText = '';
     this._copyFeedbackTimer = null;
+    // ── Copy view: Full transcript source state ──────────────────
+    // _copyViewSource: which source the overlay is showing right now.
+    // _copyViewMessages: transcript messages in document order, oldest first.
+    // _copyViewStartOffset: byte offset of the OLDEST loaded line; the cursor
+    //   "Load earlier" pages backward from. null means nothing loaded yet.
+    // _copyViewTruncatedHead: the server reported that the window it returned
+    //   started mid-file, so there is genuinely more above what is shown.
+    // _copyViewLoading: a fetch is in flight; keeps the controls idempotent.
+    this._copyViewSource = COPY_VIEW_SOURCE_TERMINAL;
+    this._copyViewMessages = [];
+    this._copyViewStartOffset = null;
+    this._copyViewTruncatedHead = false;
+    this._copyViewLoading = false;
+    this._copyViewSourceBtns = null;
+    this._copyViewLoadEarlierBtn = null;
+    this._copyViewNoticeEl = null;
     // ── Visible-pane width claim state ───────────────────────────
     // One PTY is shared by every attached client and the backend hands
     // geometry ownership to whichever client last typed or sent 'activate'.
@@ -1473,6 +1527,18 @@ class TerminalPane {
         }
       });
 
+      // Select mode v3: the selection going away is what ends the pause.
+      // Registered here, next to onData, because both are terminal-level
+      // subscriptions rather than host-owned chrome: they belong to this
+      // xterm instance for its whole life and are disposed with it. The
+      // handler itself decides whether the event really means "gesture over"
+      // (see _onSelectionChanged), because xterm also fires this on every
+      // intermediate update during a drag.
+      if (typeof this.term.onSelectionChange === 'function') {
+        this._selSelectionDisposable =
+          this.term.onSelectionChange(() => this._onSelectionChanged());
+      }
+
       this._resizeObserver = new ResizeObserver((entries) => {
         // Guard: skip fit when container is hidden (e.g., tab switch sets display:none).
         // A 0×0 contentRect causes fitAddon to calculate 1×1 cols/rows, which sends a
@@ -1934,6 +2000,12 @@ class TerminalPane {
       this._copyHint = null;
     }
     this.paneEl = null;
+    // Select mode v3: an unhosted pane cannot be holding a selection the user
+    // can see, and a stale hold would re-freeze the moment the pane is rebound
+    // into a new slot. Cleared before the drain so _isWriteFrozen agrees.
+    this._selectHold = false;
+    this._selectFrozenAt = 0;
+    this._selectDragging = false;
     // Select mode v2: the pane is now unhosted, so _isWriteFrozen() is false
     // and anything the freeze was holding must go to the terminal instead of
     // sitting in the queue until the next chunk happens to arrive. A pane the
@@ -3169,9 +3241,31 @@ class TerminalPane {
       if (!this._selectMode) return;
       // Our own re-dispatched clone: let it reach xterm untouched.
       if (e.__cwmSelSynthetic) return;
+      // v3 safety net: a drag that ended OUTSIDE the pane never delivered its
+      // mouseup to this container listener (xterm tracks the rest of the drag
+      // on document), so _selectDragging would stay armed and the hold would
+      // outlive the gesture. The first buttonless move that comes back over
+      // the terminal closes it. Unreachable while a selection exists, because
+      // the selected-hover branch above returns first, which is correct: a
+      // held selection must keep the pause.
+      if (e.type === 'mousemove' && this._selectDragging &&
+          (e.buttons === 0 || e.buttons === undefined)) {
+        this._selectDragging = false;
+        if (!this.getCopySelection().hasSelection) {
+          this._releaseSelectHold('drag-ended-outside-pane');
+        }
+        return;
+      }
       if (e.type === 'mousedown') {
         if (e.button !== 0) return;        // pass right/middle through
         this._selectDragging = true;
+        // v3: the pause starts HERE, synchronously, before the clone below
+        // reaches xterm and anchors the selection. A frame written between the
+        // press and the anchor would slide the text out from under the
+        // pointer, which is the exact failure v2 froze the whole session to
+        // avoid. Freezing at drag start buys the same protection without
+        // pausing a pane the user is only trying to scroll.
+        this._engageSelectHold('drag-start');
       } else if (!this._selectDragging) {
         return;                            // only steer moves/ups of our own drag
       }
@@ -3208,6 +3302,14 @@ class TerminalPane {
       if (e.cancelable) e.preventDefault();
       e.stopImmediatePropagation();
       (e.target || container).dispatchEvent(clone);
+      // v3: xterm finalizes the selection inside the clone dispatch above, so
+      // by this line the answer is settled. A click that selected nothing must
+      // not leave the pane paused; that is the single most likely way a user
+      // would end up stuck, since a stray click is not a gesture they would
+      // think to undo.
+      if (e.type === 'mouseup' && !this.getCopySelection().hasSelection) {
+        this._releaseSelectHold('click-without-selection');
+      }
     };
     this._selMouseHandler = handler;
     this._selInterceptorContainer = container;
@@ -3236,9 +3338,16 @@ class TerminalPane {
     if (this._selectMode) this._dismissCopyHint();
     this._updateSelectModeUI();
     if (!was && this._selectMode) {
-      this._selectFrozenAt = Date.now();
+      // v3: turning the mode ON freezes NOTHING. Output stays live so the user
+      // can scroll to the part they want before they drag. The pause starts at
+      // drag start (see _engageSelectHold).
+      this._selectHold = false;
+      this._selectFrozenAt = 0;
     } else if (was && !this._selectMode) {
       this._selectFrozenAt = 0;
+      // Clear the hold BEFORE draining: _flushWriteBuffer consults
+      // _isWriteFrozen, and a stale hold would make the drain a no-op.
+      this._selectHold = false;
       this._unfreezeAndFlush();
     }
     return this._selectMode;
@@ -3275,12 +3384,105 @@ class TerminalPane {
    * the pane is being handed. Connect, socket open, and a server resync each
    * open the window, so a restored-ON pane still paints its scrollback.
    *
+   * v3 ADDS THE HOLD, and it is the decisive term. v2 answered true for the
+   * whole time the toggle was on, so switching Select mode on froze the pane
+   * immediately: "when i toggle select, the window freezes and i cannot scroll
+   * or drag up". Nothing about that pause was useful before a selection
+   * existed. Now the answer is true only while a selection is actually being
+   * made or held, which is the only window where an incoming repaint can turn
+   * a valid selection into stale text.
+   *
    * @returns {boolean} True while output is held for a selection.
    */
   _isWriteFrozen() {
     if (!this._selectMode || !this.paneEl) return false;
+    // v3: the toggle alone pauses nothing. See _engageSelectHold.
+    if (!this._selectHold) return false;
     if (this._freezeBlockedUntil && Date.now() < this._freezeBlockedUntil) return false;
     return true;
+  }
+
+  /**
+   * Start holding output because a selection gesture just began.
+   *
+   * Called synchronously from the Select-mode mouse interceptor on the
+   * mousedown that starts a drag, BEFORE the shift-forced clone is dispatched
+   * to xterm. The ordering is the whole point: xterm anchors the selection to
+   * absolute buffer coordinates during that clone, so any frame written
+   * between the press and the anchor would move the text out from under the
+   * user's own pointer.
+   *
+   * Refuses to engage when Select mode is off, so a stray call can never pause
+   * an ordinary pane. Idempotent: a second mousedown inside one gesture keeps
+   * the existing hold and its start timestamp.
+   *
+   * @param {string} [reason] - Diagnostic label for the log line.
+   * @returns {boolean} True when this call started the hold.
+   */
+  _engageSelectHold(reason) {
+    if (!this._selectMode || this._selectHold) return false;
+    this._selectHold = true;
+    this._selectFrozenAt = Date.now();
+    this._updateSelectModeUI();
+    if (reason) this._log('Select hold engaged (' + reason + ')');
+    return true;
+  }
+
+  /**
+   * Stop holding output and drain everything that arrived during the hold.
+   *
+   * The release paths are deliberately several, because a selection can end in
+   * several ways and every one of them has to resume the stream:
+   *   - a click that selected nothing (mouseup with no selection),
+   *   - a drag that ended outside the pane and came back buttonless,
+   *   - the selection being cleared by anything at all (onSelectionChange),
+   *   - the mode being switched off, a resync, the overflow valve, dispose.
+   *
+   * Select mode itself is untouched here. Releasing the hold is not the user
+   * changing their mind about the mode; it just means there is nothing left to
+   * protect, so the pane goes back to being live and scrollable.
+   *
+   * @param {string} [reason] - Diagnostic label for the log line.
+   * @returns {boolean} True when a hold was actually released.
+   */
+  _releaseSelectHold(reason) {
+    if (!this._selectHold) return false;
+    this._selectHold = false;
+    this._selectFrozenAt = 0;
+    this._updateSelectModeUI();
+    // Drain AFTER the flag is cleared: the drain consults _isWriteFrozen.
+    this._unfreezeAndFlush();
+    if (reason) this._log('Select hold released (' + reason + ')');
+    return true;
+  }
+
+  /**
+   * React to xterm's selection changing while Select mode is on.
+   *
+   * xterm fires this on every drag update as well as on the final clear, so
+   * two guards decide whether the gesture is really over:
+   *   - a hold has to be active (nothing to release otherwise), and
+   *   - no drag may be in progress, because an intermediate update during a
+   *     drag can legitimately report an empty selection (the pointer is back
+   *     at the anchor cell) and releasing there would resume output in the
+   *     middle of the user's gesture.
+   *
+   * The pane-scoped selection helper is used rather than term.hasSelection so
+   * a DOM-rendered selection inside the same pane also counts as "still
+   * selected", matching what Ctrl+C and the Copy menu act on.
+   *
+   * @returns {boolean} True when this event ended the hold.
+   */
+  _onSelectionChanged() {
+    if (!this._selectHold) return false;
+    if (this._selectDragging) return false;
+    try {
+      if (this.getCopySelection().hasSelection) return false;
+    } catch (_) {
+      // A selection that cannot be read is treated as gone, which resumes
+      // output. Erring toward live is the safe direction here.
+    }
+    return this._releaseSelectHold('selection-cleared');
   }
 
   /**
@@ -3336,6 +3538,13 @@ class TerminalPane {
     // as "output arriving this soon after a (re)connect is replay, not new
     // work", which is exactly the output that must not be held.
     this._freezeBlockedUntil = Date.now() + TerminalPane.REPLAY_SUPPRESS_MS;
+    // v3: drop the hold itself as well, not just suspend it for the window.
+    // term.reset() is about to clear the buffer, which destroys the selection
+    // the hold was protecting, so there is nothing left to protect. Cleared
+    // WITHOUT a flush on purpose: the caller empties the queue immediately
+    // after this returns, because the replay re-sends all of it.
+    this._selectHold = false;
+    this._selectFrozenAt = 0;
     // A geometry claim deferred by the freeze is still wanted (the client that
     // was being looked at has not changed), but it must wait for the replay
     // that follows this resync. Queue it behind the quiet window instead of
@@ -3554,10 +3763,28 @@ class TerminalPane {
       // Never steal wheel events that belong to the Copy view overlay; it is
       // an ordinary scrollable DOM element and scrolls natively.
       if (this._isInsideCopyView(e.target)) return;
+      const holding = !!this._selectHold;
+      const isAlt = !!(this.term && this.term.buffer && this.term.buffer.active &&
+        this.term.buffer.active.type === 'alternate');
+      // v3: with Select mode ON but NOTHING selected yet, the wheel is the user
+      // positioning the content they are about to drag over. Under a
+      // full-screen CLI the only thing that can scroll is the app's own
+      // history, so the wheel is forwarded to it (xterm turns it into the
+      // mouse report the app expects) and the repaint that follows is exactly
+      // what was asked for. v2 swallowed this, which is why the pane felt
+      // stuck: "i cannot scroll or drag up".
+      if (!holding && isAlt) return;
       if (e.cancelable) e.preventDefault();
       if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
       if (!this.term || !this.term.buffer || !this.term.buffer.active) return;
-      if (this.term.buffer.active.type === 'alternate') return; // nothing to scroll
+      // Holding a selection under a full-screen CLI: swallow. The alternate
+      // buffer has no scrollback of its own, and forwarding would make the app
+      // repaint every cell underneath the selection.
+      if (isAlt) return;
+      // Normal buffer, either state: local scrolling. This moves the viewport
+      // without writing a single cell, so a held selection (anchored to
+      // absolute buffer coordinates) survives it intact, and drag-at-edge
+      // extension keeps working. That is why it stays available while holding.
       const lines = TerminalPane._wheelLinesFromEvent(e, this.term.rows);
       if (lines) {
         try { this.term.scrollLines(lines); } catch (_) {}
@@ -3787,11 +4014,13 @@ class TerminalPane {
     this._notifySelectChromeState();
   }
 
-  // Default strip copy while Select mode is on. v2 wording leads with the
-  // output pause because that is the behavior change users notice first, and
-  // it names both exits (Copy view for everything, typing for live output).
+  // Default strip copy while Select mode is on. v3 rewording: the v2 text led
+  // with "output paused", which was true the moment the toggle went on and was
+  // exactly the behavior the user rejected. Now the pause is a property of the
+  // drag, so the text leads with what is available (scrolling), then says when
+  // output pauses, then names both ways back to live.
   // Kept as a static so the strip, the notice path, and tests share one string.
-  static SELECT_STRIP_TEXT = 'Select mode: output paused. Drag to select, Ctrl+C copies. Copy view captures everything. Typing resumes live output.';
+  static SELECT_STRIP_TEXT = 'Select mode: scroll freely. Drag to select and output pauses while you do. Ctrl+C copies. Click away or type to resume. Copy view captures the whole conversation.';
 
   /**
    * Show a compact non-blocking strip at the bottom of the pane while Select
@@ -4082,7 +4311,44 @@ class TerminalPane {
     const title = document.createElement('span');
     title.className = 'terminal-copyview-title';
     title.textContent = 'Copy view';
-    title.style.cssText = 'flex:1 1 auto;color:var(--text, #cdd6f4);';
+    title.style.cssText = 'flex:0 0 auto;color:var(--text, #cdd6f4);';
+
+    // ── Source switch: Terminal | Full transcript ────────────────
+    // Two mutually exclusive buttons rather than a select element: it is two
+    // options, it has to be a comfortable touch target, and a native select
+    // popup on mobile would render outside the overlay and escape its
+    // keydown containment.
+    const sourceWrap = document.createElement('div');
+    sourceWrap.className = 'terminal-copyview-sources';
+    sourceWrap.setAttribute('role', 'group');
+    sourceWrap.setAttribute('aria-label', 'Copy view source');
+    sourceWrap.style.cssText = 'flex:1 1 auto;display:flex;align-items:center;gap:4px;';
+    const mkSource = (source, label, hint) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'terminal-copyview-source';
+      b.dataset.source = source;
+      b.textContent = label;
+      b.title = hint;
+      b.setAttribute('aria-label', hint);
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._setCopyViewSource(source);
+      });
+      return b;
+    };
+    const terminalSourceBtn = mkSource(
+      COPY_VIEW_SOURCE_TERMINAL, 'Terminal',
+      'Copy what this terminal has shown, including the current screen'
+    );
+    const transcriptSourceBtn = mkSource(
+      COPY_VIEW_SOURCE_TRANSCRIPT, 'Full transcript',
+      'Copy the whole conversation from the session transcript, not just what fit on screen'
+    );
+    sourceWrap.appendChild(terminalSourceBtn);
+    sourceWrap.appendChild(transcriptSourceBtn);
 
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
@@ -4119,11 +4385,54 @@ class TerminalPane {
       + 'user-select:text;-webkit-user-select:text;-webkit-overflow-scrolling:touch;'
       + 'background:var(--mantle, #181825);color:var(--text, #cdd6f4);outline:none;';
 
+    // Sizing for the two source buttons: same literal-fallback approach as the
+    // action buttons so they stay legible against a stale cached stylesheet.
+    const sourceCss = 'flex:0 0 auto;cursor:pointer;border-radius:6px;padding:3px 9px;'
+      + 'border:1px solid var(--surface2, #585b70);background:transparent;'
+      + 'color:var(--subtext0, #a6adc8);'
+      + "font:600 11px/1.6 'Plus Jakarta Sans', system-ui, sans-serif;";
+    terminalSourceBtn.style.cssText = sourceCss;
+    transcriptSourceBtn.style.cssText = sourceCss;
+
+    // "Load earlier" pages backward through the transcript. Docked above the
+    // text rather than in the bar because that is where the content it
+    // prepends appears, matching the mirror pane.
+    const loadEarlier = document.createElement('button');
+    loadEarlier.type = 'button';
+    loadEarlier.className = 'terminal-copyview-earlier';
+    loadEarlier.textContent = 'Load earlier';
+    loadEarlier.title = 'Fetch the previous page of this conversation';
+    loadEarlier.setAttribute('aria-label', 'Load earlier conversation');
+    loadEarlier.hidden = true;
+    loadEarlier.style.cssText = 'flex:0 0 auto;display:none;width:100%;cursor:pointer;'
+      + 'border:0;border-bottom:1px solid var(--surface1, #45475a);'
+      + 'background:var(--surface0, #313244);color:var(--subtext0, #a6adc8);'
+      + "font:600 11px/1.6 'Plus Jakarta Sans', system-ui, sans-serif;padding:6px 10px;";
+    loadEarlier.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._loadEarlierTranscript();
+    });
+
+    // Inline notice: every failure mode of the transcript source reports here
+    // instead of throwing away the overlay the user already had open.
+    const notice = document.createElement('div');
+    notice.className = 'terminal-copyview-notice';
+    notice.hidden = true;
+    notice.setAttribute('role', 'status');
+    notice.style.cssText = 'flex:0 0 auto;display:none;padding:6px 12px;'
+      + 'background:var(--surface0, #313244);color:var(--subtext0, #a6adc8);'
+      + 'border-bottom:1px solid var(--surface1, #45475a);'
+      + "font:11px/1.5 'Plus Jakarta Sans', system-ui, sans-serif;";
+
     bar.appendChild(title);
+    bar.appendChild(sourceWrap);
     bar.appendChild(copyBtn);
     bar.appendChild(refreshBtn);
     bar.appendChild(closeBtn);
     root.appendChild(bar);
+    root.appendChild(notice);
+    root.appendChild(loadEarlier);
     root.appendChild(pre);
 
     copyBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this._copyAllFromCopyView(); });
@@ -4155,6 +4464,10 @@ class TerminalPane {
     this._copyOverlay = root;
     this._copyOverlayPre = pre;
     this._copyOverlayBtns = { copy: copyBtn, refresh: refreshBtn, close: closeBtn };
+    this._copyViewSourceBtns = { terminal: terminalSourceBtn, transcript: transcriptSourceBtn };
+    this._copyViewLoadEarlierBtn = loadEarlier;
+    this._copyViewNoticeEl = notice;
+    this._updateCopyViewSourceUI();
     // Size the bar controls for the layout that exists right now. Re-applied on
     // every open so a rotation or a window resize between opens is honored.
     this._applyCopyOverlayMetrics();
@@ -4243,6 +4556,24 @@ class TerminalPane {
     if (!btns) return;
     const touch = this._isPhoneWidthLayout();
     const size = touch ? COPY_VIEW_TOUCH_TARGET_PX + 'px' : '';
+    // The source switch and the paging control are bar chrome too, so they
+    // meet the same touch floor as the actions beside them.
+    const sourceBtns = this._copyViewSourceBtns || {};
+    for (const key of [COPY_VIEW_SOURCE_TERMINAL, COPY_VIEW_SOURCE_TRANSCRIPT]) {
+      const btn = sourceBtns[key];
+      if (!btn || !btn.style) continue;
+      try {
+        btn.style.minHeight = size;
+        if (touch) {
+          btn.style.display = 'inline-flex';
+          btn.style.alignItems = 'center';
+          btn.style.justifyContent = 'center';
+        }
+      } catch (_) { /* stubbed element in a test harness */ }
+    }
+    if (this._copyViewLoadEarlierBtn && this._copyViewLoadEarlierBtn.style) {
+      try { this._copyViewLoadEarlierBtn.style.minHeight = size; } catch (_) {}
+    }
     for (const key of ['copy', 'refresh', 'close']) {
       const btn = btns[key];
       if (!btn || !btn.style) continue;
@@ -4266,13 +4597,388 @@ class TerminalPane {
    * Rebuild the snapshot from the live buffers and show it, scrolled to the
    * most recent content. Uses textContent, never innerHTML: terminal output is
    * untrusted text and must never be parsed as markup.
+   *
+   * v3: dispatches on the active source. The terminal source keeps the exact
+   * behavior it always had; the transcript source re-fetches its newest page,
+   * because Refresh means "get me the current state of whatever I am looking
+   * at" in both cases.
    */
   _refreshCopyView() {
     if (!this._copyOverlayPre) return;
+    if (this._copyViewSource === COPY_VIEW_SOURCE_TRANSCRIPT) {
+      this._loadTranscriptSnapshot();
+      return;
+    }
     const text = (this.term && this.term.buffer) ? this._composeCopyViewText(this.term.buffer) : '';
     this._copyViewText = text;
     this._copyOverlayPre.textContent = text;
     this._scrollCopyViewToBottom();
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     COPY VIEW: FULL TRANSCRIPT SOURCE
+     Reads the session transcript through the existing read-only
+     mirror API. Nothing here touches the running session: the
+     mirror path only ever reads the artifact on disk, which is why
+     it is safe on a session another window or machine is driving.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Resolve this pane's upstream identity for the mirror API.
+   *
+   * Both parts come from state the pane already holds, which is what keeps
+   * this feature out of app.js entirely: the provider is the one resolved
+   * from data-provider at mount, and the upstream session id is the
+   * resumeSessionId the pane was opened with. A pane opened on an EXISTING
+   * project session carries that id (the app passes the same value as both
+   * the pane's session id and resumeSessionId), so the fallback to sessionId
+   * covers the same case from the other direction.
+   *
+   * A brand new session started by Workbook has no upstream id until the CLI
+   * writes its first transcript line, so this returns null there and the
+   * caller shows a notice instead of guessing. Candidates are pre-validated
+   * against the same shapes the server enforces, so a malformed id is caught
+   * here rather than as a 400.
+   *
+   * @returns {{provider: string, providerSessionId: string}|null}
+   */
+  _copyViewIdentity() {
+    const providerRe = /^[a-z][a-z0-9_-]{0,32}$/;
+    const sessionRe = /^[a-zA-Z0-9_-]{1,256}$/;
+    const provider = typeof this._providerId === 'string' ? this._providerId : '';
+    if (!providerRe.test(provider)) return null;
+    const opts = this.spawnOpts || {};
+    const candidates = [opts.resumeSessionId, this.sessionId];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && sessionRe.test(candidate)) {
+        return { provider, providerSessionId: candidate };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Authenticated JSON request against the Workbook API.
+   *
+   * Uses the same bearer token the pane already reads from localStorage for
+   * its WebSocket, so the Copy view needs no reference to the app shell and no
+   * new auth surface. Errors are normalized into an Error carrying the
+   * server's structured message when there is one, because the overlay reports
+   * failures inline as text.
+   *
+   * @param {string} method - HTTP method.
+   * @param {string} path - Absolute API path.
+   * @param {object} [body] - JSON body for non-GET requests.
+   * @returns {Promise<object>} Parsed JSON response.
+   */
+  async _copyViewApi(method, path, body) {
+    const headers = { 'Content-Type': 'application/json' };
+    let token = null;
+    try { token = localStorage.getItem('cwm_token'); } catch (_) { token = null; }
+    if (token) headers.Authorization = 'Bearer ' + token;
+    const opts = { method, headers };
+    if (body && method !== 'GET') opts.body = JSON.stringify(body);
+    const res = await fetch(path, opts);
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const parsed = await res.json();
+        detail = (parsed && (parsed.message || parsed.error)) || '';
+      } catch (_) { detail = ''; }
+      throw new Error(detail || ('Request failed (' + res.status + ')'));
+    }
+    if (res.status === 204) return {};
+    return res.json();
+  }
+
+  /**
+   * Per-pane device id for the mirror API.
+   *
+   * The mirror open call is keyed by (session, device) so two tabs can hold
+   * independent subscriptions. The Copy view opens and immediately closes, so
+   * this only has to be unique and well-shaped, never unguessable; auth still
+   * rides on the bearer token. Derived from the pane's session id so a repeat
+   * open from the same pane reuses one key instead of leaking subscriptions.
+   *
+   * @returns {string} A device id matching the server's shape.
+   */
+  _copyViewDeviceId() {
+    const safe = String(this.sessionId || 'pane').replace(/[^A-Za-z0-9._:-]/g, '-').slice(0, 100);
+    return 'copyview-' + safe;
+  }
+
+  /**
+   * Fetch the newest page of the session transcript and render it.
+   *
+   * Opens the mirror to get a history window plus its offsets, then closes it
+   * immediately: the Copy view is a snapshot, so holding a live subscription
+   * (and its file watcher) would be a resource leak for no benefit. Refresh
+   * repeats exactly this call, which is what makes it mean "show me the
+   * current end of the conversation".
+   *
+   * Never throws into a click handler; every failure ends as an inline notice
+   * with the Terminal source still one tap away.
+   *
+   * @returns {Promise<boolean>} True when messages were rendered.
+   */
+  async _loadTranscriptSnapshot() {
+    if (this._copyViewLoading) return false;
+    const identity = this._copyViewIdentity();
+    if (!identity) {
+      this._copyViewMessages = [];
+      this._copyViewStartOffset = null;
+      this._copyViewTruncatedHead = false;
+      this._renderTranscriptIntoOverlay();
+      this._showCopyViewNotice(
+        'This pane has no session transcript yet. Start or resume a session, or use the Terminal source.'
+      );
+      return false;
+    }
+    this._copyViewLoading = true;
+    this._showCopyViewNotice('Loading conversation...');
+    this._updateCopyViewSourceUI();
+    let opened = null;
+    try {
+      opened = await this._copyViewApi('POST', '/api/mirror/open', {
+        provider: identity.provider,
+        providerSessionId: identity.providerSessionId,
+        deviceId: this._copyViewDeviceId(),
+      });
+    } catch (err) {
+      this._copyViewLoading = false;
+      this._showCopyViewNotice(
+        'Could not read the session transcript: ' + ((err && err.message) || 'unknown error')
+      );
+      this._updateCopyViewSourceUI();
+      return false;
+    }
+    // Release the subscription immediately: this is a snapshot, not a live
+    // view. Fire and forget, because the server's idle sweep is the safety net
+    // and a failed close must never surface as a Copy view error.
+    try {
+      const mirrorKey = opened && opened.mirrorKey;
+      if (mirrorKey) {
+        const p = this._copyViewApi('POST', '/api/mirror/close', {
+          mirrorKey,
+          deviceId: this._copyViewDeviceId(),
+        });
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      }
+    } catch (_) { /* courtesy call only */ }
+
+    const history = Array.isArray(opened && opened.history) ? opened.history : [];
+    this._copyViewMessages = history;
+    this._copyViewStartOffset =
+      typeof opened.startOffset === 'number' ? opened.startOffset : null;
+    this._copyViewTruncatedHead = !!(opened && opened.truncatedHead);
+    this._copyViewLoading = false;
+    this._renderTranscriptIntoOverlay();
+    if (history.length === 0) {
+      this._showCopyViewNotice('This session has no transcript entries yet.');
+    } else {
+      this._hideCopyViewNotice();
+    }
+    this._updateCopyViewSourceUI();
+    return history.length > 0;
+  }
+
+  /**
+   * Page one window further back through the transcript and PREPEND it.
+   *
+   * beforeOffset is the byte offset of the oldest line currently loaded, so
+   * each call walks backward through the file without re-reading what is
+   * already on screen. The control disappears once the server stops reporting
+   * a truncated head, which is how "exhausted" is expressed.
+   *
+   * @returns {Promise<boolean>} True when earlier messages were prepended.
+   */
+  async _loadEarlierTranscript() {
+    if (this._copyViewLoading) return false;
+    if (this._copyViewSource !== COPY_VIEW_SOURCE_TRANSCRIPT) return false;
+    const identity = this._copyViewIdentity();
+    if (!identity || typeof this._copyViewStartOffset !== 'number' ||
+        this._copyViewStartOffset <= 0) {
+      return false;
+    }
+    this._copyViewLoading = true;
+    this._updateCopyViewSourceUI();
+    let page = null;
+    try {
+      page = await this._copyViewApi('GET', '/api/mirror/history'
+        + '?provider=' + encodeURIComponent(identity.provider)
+        + '&providerSessionId=' + encodeURIComponent(identity.providerSessionId)
+        + '&beforeOffset=' + encodeURIComponent(String(this._copyViewStartOffset))
+        + '&maxBytes=' + encodeURIComponent(String(COPY_VIEW_TRANSCRIPT_PAGE_BYTES)));
+    } catch (err) {
+      this._copyViewLoading = false;
+      this._showCopyViewNotice(
+        'Could not load earlier messages: ' + ((err && err.message) || 'unknown error')
+      );
+      this._updateCopyViewSourceUI();
+      return false;
+    }
+    const earlier = Array.isArray(page && page.messages) ? page.messages : [];
+    if (earlier.length > 0) {
+      this._copyViewMessages = earlier.concat(this._copyViewMessages);
+    }
+    if (typeof page.startOffset === 'number') this._copyViewStartOffset = page.startOffset;
+    this._copyViewTruncatedHead = !!(page && page.truncatedHead);
+    this._copyViewLoading = false;
+    // Re-render in place and keep the reader where they were: prepending
+    // content would otherwise yank the viewport to the top.
+    const pre = this._copyOverlayPre;
+    const beforeHeight = pre ? pre.scrollHeight : 0;
+    const beforeTop = pre ? pre.scrollTop : 0;
+    this._renderTranscriptIntoOverlay({ preserveScroll: true });
+    if (pre) {
+      try { pre.scrollTop = beforeTop + (pre.scrollHeight - beforeHeight); } catch (_) {}
+    }
+    if (earlier.length === 0) this._showCopyViewNotice('No earlier messages.');
+    else this._hideCopyViewNotice();
+    this._updateCopyViewSourceUI();
+    return earlier.length > 0;
+  }
+
+  /**
+   * Render the loaded transcript messages as plain text into the overlay and
+   * make that text what Copy all copies.
+   *
+   * @param {object} [opts] - { preserveScroll } to leave the viewport alone.
+   * @returns {string} The rendered text.
+   */
+  _renderTranscriptIntoOverlay(opts) {
+    const text = TerminalPane._renderTranscriptText(this._copyViewMessages);
+    this._copyViewText = text;
+    if (this._copyOverlayPre) this._copyOverlayPre.textContent = text;
+    if (!(opts && opts.preserveScroll)) this._scrollCopyViewToBottom();
+    return text;
+  }
+
+  /**
+   * Turn mirror messages into readable plain text.
+   *
+   * Shape follows the mirror pane's rendering so the two surfaces describe the
+   * same conversation the same way, translated from DOM into text:
+   *   - each turn is labelled with its role, so a pasted conversation still
+   *     reads as a dialogue rather than a wall of text,
+   *   - tool events collapse to ONE line each ("[tool: Read] first line..."),
+   *     because a copied conversation wants the thread of what happened, not
+   *     the payloads,
+   *   - a server-truncated message is marked, so a reader is never silently
+   *     given a partial quote.
+   *
+   * Static and pure: no DOM, no instance state, so it is directly testable
+   * against a stubbed payload.
+   *
+   * @param {Array} messages - Mirror messages, oldest first.
+   * @returns {string} Newline-joined transcript text.
+   */
+  static _renderTranscriptText(messages) {
+    const list = Array.isArray(messages) ? messages : [];
+    const out = [];
+    for (const m of list) {
+      if (!m || typeof m !== 'object') continue;
+      const text = typeof m.text === 'string' ? m.text : '';
+      const truncatedTag = m.truncated ? ' [truncated]' : '';
+      if (m.kind === 'tool_use' || m.kind === 'tool_result') {
+        const label = m.kind === 'tool_use'
+          ? ('tool: ' + (m.toolName ? String(m.toolName) : 'unknown'))
+          : 'tool result';
+        const firstLine = text.split('\n')[0].slice(0, COPY_VIEW_TRANSCRIPT_TOOL_CHARS);
+        out.push('[' + label + ']' + (firstLine ? ' ' + firstLine : '') + truncatedTag);
+        continue;
+      }
+      const role = typeof m.role === 'string' && m.role ? m.role : 'assistant';
+      const label = role.charAt(0).toUpperCase() + role.slice(1);
+      const model = (role === 'assistant' && m.model) ? ' (' + String(m.model) + ')' : '';
+      out.push(label + model + ':');
+      out.push(text + truncatedTag);
+      out.push('');
+    }
+    // Drop a trailing blank separator so the snapshot does not end in padding.
+    while (out.length > 0 && out[out.length - 1] === '') out.pop();
+    return out.join('\n');
+  }
+
+  /**
+   * Switch the Copy view between its sources.
+   *
+   * Terminal renders synchronously from the live buffers. Transcript loads on
+   * first selection and then reuses what it has, so flipping back and forth
+   * does not re-fetch; Refresh is the explicit way to get newer content.
+   *
+   * @param {string} source - COPY_VIEW_SOURCE_TERMINAL or _TRANSCRIPT.
+   * @returns {boolean} True when the source changed.
+   */
+  _setCopyViewSource(source) {
+    const next = source === COPY_VIEW_SOURCE_TRANSCRIPT
+      ? COPY_VIEW_SOURCE_TRANSCRIPT
+      : COPY_VIEW_SOURCE_TERMINAL;
+    const changed = next !== this._copyViewSource;
+    this._copyViewSource = next;
+    this._updateCopyViewSourceUI();
+    if (next === COPY_VIEW_SOURCE_TERMINAL) {
+      this._hideCopyViewNotice();
+      const text = (this.term && this.term.buffer) ? this._composeCopyViewText(this.term.buffer) : '';
+      this._copyViewText = text;
+      if (this._copyOverlayPre) this._copyOverlayPre.textContent = text;
+      this._scrollCopyViewToBottom();
+      return changed;
+    }
+    if (this._copyViewMessages.length > 0) {
+      this._renderTranscriptIntoOverlay();
+      return changed;
+    }
+    const p = this._loadTranscriptSnapshot();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+    return changed;
+  }
+
+  /** Reflect source selection, loading state and paging availability. */
+  _updateCopyViewSourceUI() {
+    const btns = this._copyViewSourceBtns;
+    if (btns) {
+      for (const key of [COPY_VIEW_SOURCE_TERMINAL, COPY_VIEW_SOURCE_TRANSCRIPT]) {
+        const btn = btns[key];
+        if (!btn) continue;
+        const on = this._copyViewSource === key;
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.classList.toggle('active', on);
+        btn.style.background = on ? 'var(--surface1, #45475a)' : 'transparent';
+        btn.style.color = on ? 'var(--text, #cdd6f4)' : 'var(--subtext0, #a6adc8)';
+        btn.style.borderColor = on ? 'var(--mauve, #cba6f7)' : 'var(--surface2, #585b70)';
+      }
+    }
+    const earlier = this._copyViewLoadEarlierBtn;
+    if (earlier) {
+      const canPage = this._copyViewSource === COPY_VIEW_SOURCE_TRANSCRIPT &&
+        this._copyViewTruncatedHead &&
+        typeof this._copyViewStartOffset === 'number' && this._copyViewStartOffset > 0;
+      earlier.hidden = !canPage;
+      earlier.style.display = canPage ? 'block' : 'none';
+      earlier.disabled = !!this._copyViewLoading;
+      earlier.textContent = this._copyViewLoading ? 'Loading...' : 'Load earlier';
+    }
+  }
+
+  /**
+   * Show a short inline notice inside the overlay.
+   * @param {string} text - Plain text, never markup.
+   */
+  _showCopyViewNotice(text) {
+    const el = this._copyViewNoticeEl;
+    if (!el) return;
+    el.textContent = String(text || '');
+    el.hidden = false;
+    el.style.display = 'block';
+  }
+
+  /** Hide the inline notice. */
+  _hideCopyViewNotice() {
+    const el = this._copyViewNoticeEl;
+    if (!el) return;
+    el.hidden = true;
+    el.style.display = 'none';
   }
 
   /**
@@ -4434,6 +5140,17 @@ class TerminalPane {
     this._copyOverlayKeyHandler = null;
     this._copyOverlayOpen = false;
     this._copyViewText = '';
+    // Full transcript state dies with the overlay: a rebuilt overlay in a new
+    // host must not inherit another visit's page cursor or its messages, and
+    // the element references would be dangling.
+    this._copyViewSource = COPY_VIEW_SOURCE_TERMINAL;
+    this._copyViewMessages = [];
+    this._copyViewStartOffset = null;
+    this._copyViewTruncatedHead = false;
+    this._copyViewLoading = false;
+    this._copyViewSourceBtns = null;
+    this._copyViewLoadEarlierBtn = null;
+    this._copyViewNoticeEl = null;
   }
 
   /**
@@ -4459,8 +5176,9 @@ class TerminalPane {
     // though it is the only path that reaches scrollback a full-screen CLI
     // never wrote to the terminal, which is the case users hit first.
     h.innerHTML = 'Claude Code captures the mouse. Hold <b>Shift</b> and drag to select, '
-      + 'then <b>Ctrl+C</b> to copy, or use <b>Select mode</b> (this button). '
-      + '<b>Copy view</b> (next to it) snapshots the whole transcript as plain text.'
+      + 'then <b>Ctrl+C</b> to copy, or turn on <b>Select mode</b> (this button) and '
+      + 'drag normally. Scrolling keeps working; output only pauses while you drag. '
+      + '<b>Copy view</b> (next to it) snapshots the whole conversation as plain text.'
       + '<button class="terminal-copy-hint-x" aria-label="Dismiss" '
       + 'style="position:absolute;top:3px;right:5px;background:none;border:none;'
       + 'color:inherit;cursor:pointer;font-size:15px;line-height:1;padding:2px;opacity:0.7;">&times;</button>';
@@ -4526,7 +5244,15 @@ class TerminalPane {
     // session restores Select mode exactly as the v1 persistence intends.
     this._selectMode = false;
     this._selectFrozenAt = 0;
+    // v3: the hold and the drag flag die with the pane too, so a disposed pane
+    // can never be re-mounted into a paused state.
+    this._selectHold = false;
+    this._selectDragging = false;
     this._fitDeferredWhileFrozen = false;
+    if (this._selSelectionDisposable) {
+      try { this._selSelectionDisposable.dispose(); } catch (_) {}
+      this._selSelectionDisposable = null;
+    }
     if (this._selNoticeTimer) { clearTimeout(this._selNoticeTimer); this._selNoticeTimer = null; }
     this._removeSelectModeWheelGuard();
     // Width claim teardown: disconnect the observer and the focus listener and

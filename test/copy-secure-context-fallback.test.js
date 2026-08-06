@@ -378,7 +378,7 @@ async function main() {
     // keeps its mobile-parity token, which is the whole point of versioning
     // them separately: a terminal-only fix does not force a full SPA refetch.
     assert.ok(
-      /terminal\.js\?v=20260806-hoverfix/.test(indexSrc) &&
+      /terminal\.js\?v=20260806-selectv3/.test(indexSrc) &&
         /app\.js\?v=20260805-mobile-select1/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
