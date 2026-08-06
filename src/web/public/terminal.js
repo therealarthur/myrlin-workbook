@@ -964,11 +964,21 @@ class TerminalPane {
     //   mode is a per-session preference that survives that refresh. Without
     //   this window a user who left the toggle on would come back to a pane
     //   that holds its own replay and looks blank.
+    // ── Select mode v3: the hold is what freezes, not the toggle ──
+    // _selectHold: true only while a selection is being made or is being held.
+    //   v2 froze the write pipeline the instant the toggle went ON, which is
+    //   what the user hit: "when i toggle select, the window freezes and i
+    //   cannot scroll or drag up". Real usage is toggle first, position the
+    //   content, THEN drag. So the pause now starts at drag start and ends
+    //   when the selection goes away. Select mode itself is unchanged: it is
+    //   still the per-session preference that makes a plain drag select.
+    this._selectHold = false;
     this._selectFrozenAt = 0;
     this._freezeBlockedUntil = 0;
     this._selWheelHandler = null;
     this._selWheelTarget = null;
     this._selNoticeTimer = null;
+    this._selSelectionDisposable = null;
     this._fitDeferredWhileFrozen = false;
     // ── Copy view overlay state (per pane, never shared) ─────────
     // The overlay is hosted on paneEl, so it is host-owned state: created
@@ -1473,6 +1483,18 @@ class TerminalPane {
         }
       });
 
+      // Select mode v3: the selection going away is what ends the pause.
+      // Registered here, next to onData, because both are terminal-level
+      // subscriptions rather than host-owned chrome: they belong to this
+      // xterm instance for its whole life and are disposed with it. The
+      // handler itself decides whether the event really means "gesture over"
+      // (see _onSelectionChanged), because xterm also fires this on every
+      // intermediate update during a drag.
+      if (typeof this.term.onSelectionChange === 'function') {
+        this._selSelectionDisposable =
+          this.term.onSelectionChange(() => this._onSelectionChanged());
+      }
+
       this._resizeObserver = new ResizeObserver((entries) => {
         // Guard: skip fit when container is hidden (e.g., tab switch sets display:none).
         // A 0×0 contentRect causes fitAddon to calculate 1×1 cols/rows, which sends a
@@ -1934,6 +1956,12 @@ class TerminalPane {
       this._copyHint = null;
     }
     this.paneEl = null;
+    // Select mode v3: an unhosted pane cannot be holding a selection the user
+    // can see, and a stale hold would re-freeze the moment the pane is rebound
+    // into a new slot. Cleared before the drain so _isWriteFrozen agrees.
+    this._selectHold = false;
+    this._selectFrozenAt = 0;
+    this._selectDragging = false;
     // Select mode v2: the pane is now unhosted, so _isWriteFrozen() is false
     // and anything the freeze was holding must go to the terminal instead of
     // sitting in the queue until the next chunk happens to arrive. A pane the
@@ -3169,9 +3197,31 @@ class TerminalPane {
       if (!this._selectMode) return;
       // Our own re-dispatched clone: let it reach xterm untouched.
       if (e.__cwmSelSynthetic) return;
+      // v3 safety net: a drag that ended OUTSIDE the pane never delivered its
+      // mouseup to this container listener (xterm tracks the rest of the drag
+      // on document), so _selectDragging would stay armed and the hold would
+      // outlive the gesture. The first buttonless move that comes back over
+      // the terminal closes it. Unreachable while a selection exists, because
+      // the selected-hover branch above returns first, which is correct: a
+      // held selection must keep the pause.
+      if (e.type === 'mousemove' && this._selectDragging &&
+          (e.buttons === 0 || e.buttons === undefined)) {
+        this._selectDragging = false;
+        if (!this.getCopySelection().hasSelection) {
+          this._releaseSelectHold('drag-ended-outside-pane');
+        }
+        return;
+      }
       if (e.type === 'mousedown') {
         if (e.button !== 0) return;        // pass right/middle through
         this._selectDragging = true;
+        // v3: the pause starts HERE, synchronously, before the clone below
+        // reaches xterm and anchors the selection. A frame written between the
+        // press and the anchor would slide the text out from under the
+        // pointer, which is the exact failure v2 froze the whole session to
+        // avoid. Freezing at drag start buys the same protection without
+        // pausing a pane the user is only trying to scroll.
+        this._engageSelectHold('drag-start');
       } else if (!this._selectDragging) {
         return;                            // only steer moves/ups of our own drag
       }
@@ -3208,6 +3258,14 @@ class TerminalPane {
       if (e.cancelable) e.preventDefault();
       e.stopImmediatePropagation();
       (e.target || container).dispatchEvent(clone);
+      // v3: xterm finalizes the selection inside the clone dispatch above, so
+      // by this line the answer is settled. A click that selected nothing must
+      // not leave the pane paused; that is the single most likely way a user
+      // would end up stuck, since a stray click is not a gesture they would
+      // think to undo.
+      if (e.type === 'mouseup' && !this.getCopySelection().hasSelection) {
+        this._releaseSelectHold('click-without-selection');
+      }
     };
     this._selMouseHandler = handler;
     this._selInterceptorContainer = container;
@@ -3236,9 +3294,16 @@ class TerminalPane {
     if (this._selectMode) this._dismissCopyHint();
     this._updateSelectModeUI();
     if (!was && this._selectMode) {
-      this._selectFrozenAt = Date.now();
+      // v3: turning the mode ON freezes NOTHING. Output stays live so the user
+      // can scroll to the part they want before they drag. The pause starts at
+      // drag start (see _engageSelectHold).
+      this._selectHold = false;
+      this._selectFrozenAt = 0;
     } else if (was && !this._selectMode) {
       this._selectFrozenAt = 0;
+      // Clear the hold BEFORE draining: _flushWriteBuffer consults
+      // _isWriteFrozen, and a stale hold would make the drain a no-op.
+      this._selectHold = false;
       this._unfreezeAndFlush();
     }
     return this._selectMode;
@@ -3275,12 +3340,105 @@ class TerminalPane {
    * the pane is being handed. Connect, socket open, and a server resync each
    * open the window, so a restored-ON pane still paints its scrollback.
    *
+   * v3 ADDS THE HOLD, and it is the decisive term. v2 answered true for the
+   * whole time the toggle was on, so switching Select mode on froze the pane
+   * immediately: "when i toggle select, the window freezes and i cannot scroll
+   * or drag up". Nothing about that pause was useful before a selection
+   * existed. Now the answer is true only while a selection is actually being
+   * made or held, which is the only window where an incoming repaint can turn
+   * a valid selection into stale text.
+   *
    * @returns {boolean} True while output is held for a selection.
    */
   _isWriteFrozen() {
     if (!this._selectMode || !this.paneEl) return false;
+    // v3: the toggle alone pauses nothing. See _engageSelectHold.
+    if (!this._selectHold) return false;
     if (this._freezeBlockedUntil && Date.now() < this._freezeBlockedUntil) return false;
     return true;
+  }
+
+  /**
+   * Start holding output because a selection gesture just began.
+   *
+   * Called synchronously from the Select-mode mouse interceptor on the
+   * mousedown that starts a drag, BEFORE the shift-forced clone is dispatched
+   * to xterm. The ordering is the whole point: xterm anchors the selection to
+   * absolute buffer coordinates during that clone, so any frame written
+   * between the press and the anchor would move the text out from under the
+   * user's own pointer.
+   *
+   * Refuses to engage when Select mode is off, so a stray call can never pause
+   * an ordinary pane. Idempotent: a second mousedown inside one gesture keeps
+   * the existing hold and its start timestamp.
+   *
+   * @param {string} [reason] - Diagnostic label for the log line.
+   * @returns {boolean} True when this call started the hold.
+   */
+  _engageSelectHold(reason) {
+    if (!this._selectMode || this._selectHold) return false;
+    this._selectHold = true;
+    this._selectFrozenAt = Date.now();
+    this._updateSelectModeUI();
+    if (reason) this._log('Select hold engaged (' + reason + ')');
+    return true;
+  }
+
+  /**
+   * Stop holding output and drain everything that arrived during the hold.
+   *
+   * The release paths are deliberately several, because a selection can end in
+   * several ways and every one of them has to resume the stream:
+   *   - a click that selected nothing (mouseup with no selection),
+   *   - a drag that ended outside the pane and came back buttonless,
+   *   - the selection being cleared by anything at all (onSelectionChange),
+   *   - the mode being switched off, a resync, the overflow valve, dispose.
+   *
+   * Select mode itself is untouched here. Releasing the hold is not the user
+   * changing their mind about the mode; it just means there is nothing left to
+   * protect, so the pane goes back to being live and scrollable.
+   *
+   * @param {string} [reason] - Diagnostic label for the log line.
+   * @returns {boolean} True when a hold was actually released.
+   */
+  _releaseSelectHold(reason) {
+    if (!this._selectHold) return false;
+    this._selectHold = false;
+    this._selectFrozenAt = 0;
+    this._updateSelectModeUI();
+    // Drain AFTER the flag is cleared: the drain consults _isWriteFrozen.
+    this._unfreezeAndFlush();
+    if (reason) this._log('Select hold released (' + reason + ')');
+    return true;
+  }
+
+  /**
+   * React to xterm's selection changing while Select mode is on.
+   *
+   * xterm fires this on every drag update as well as on the final clear, so
+   * two guards decide whether the gesture is really over:
+   *   - a hold has to be active (nothing to release otherwise), and
+   *   - no drag may be in progress, because an intermediate update during a
+   *     drag can legitimately report an empty selection (the pointer is back
+   *     at the anchor cell) and releasing there would resume output in the
+   *     middle of the user's gesture.
+   *
+   * The pane-scoped selection helper is used rather than term.hasSelection so
+   * a DOM-rendered selection inside the same pane also counts as "still
+   * selected", matching what Ctrl+C and the Copy menu act on.
+   *
+   * @returns {boolean} True when this event ended the hold.
+   */
+  _onSelectionChanged() {
+    if (!this._selectHold) return false;
+    if (this._selectDragging) return false;
+    try {
+      if (this.getCopySelection().hasSelection) return false;
+    } catch (_) {
+      // A selection that cannot be read is treated as gone, which resumes
+      // output. Erring toward live is the safe direction here.
+    }
+    return this._releaseSelectHold('selection-cleared');
   }
 
   /**
@@ -3336,6 +3494,13 @@ class TerminalPane {
     // as "output arriving this soon after a (re)connect is replay, not new
     // work", which is exactly the output that must not be held.
     this._freezeBlockedUntil = Date.now() + TerminalPane.REPLAY_SUPPRESS_MS;
+    // v3: drop the hold itself as well, not just suspend it for the window.
+    // term.reset() is about to clear the buffer, which destroys the selection
+    // the hold was protecting, so there is nothing left to protect. Cleared
+    // WITHOUT a flush on purpose: the caller empties the queue immediately
+    // after this returns, because the replay re-sends all of it.
+    this._selectHold = false;
+    this._selectFrozenAt = 0;
     // A geometry claim deferred by the freeze is still wanted (the client that
     // was being looked at has not changed), but it must wait for the replay
     // that follows this resync. Queue it behind the quiet window instead of
@@ -3554,10 +3719,28 @@ class TerminalPane {
       // Never steal wheel events that belong to the Copy view overlay; it is
       // an ordinary scrollable DOM element and scrolls natively.
       if (this._isInsideCopyView(e.target)) return;
+      const holding = !!this._selectHold;
+      const isAlt = !!(this.term && this.term.buffer && this.term.buffer.active &&
+        this.term.buffer.active.type === 'alternate');
+      // v3: with Select mode ON but NOTHING selected yet, the wheel is the user
+      // positioning the content they are about to drag over. Under a
+      // full-screen CLI the only thing that can scroll is the app's own
+      // history, so the wheel is forwarded to it (xterm turns it into the
+      // mouse report the app expects) and the repaint that follows is exactly
+      // what was asked for. v2 swallowed this, which is why the pane felt
+      // stuck: "i cannot scroll or drag up".
+      if (!holding && isAlt) return;
       if (e.cancelable) e.preventDefault();
       if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
       if (!this.term || !this.term.buffer || !this.term.buffer.active) return;
-      if (this.term.buffer.active.type === 'alternate') return; // nothing to scroll
+      // Holding a selection under a full-screen CLI: swallow. The alternate
+      // buffer has no scrollback of its own, and forwarding would make the app
+      // repaint every cell underneath the selection.
+      if (isAlt) return;
+      // Normal buffer, either state: local scrolling. This moves the viewport
+      // without writing a single cell, so a held selection (anchored to
+      // absolute buffer coordinates) survives it intact, and drag-at-edge
+      // extension keeps working. That is why it stays available while holding.
       const lines = TerminalPane._wheelLinesFromEvent(e, this.term.rows);
       if (lines) {
         try { this.term.scrollLines(lines); } catch (_) {}
@@ -3787,11 +3970,13 @@ class TerminalPane {
     this._notifySelectChromeState();
   }
 
-  // Default strip copy while Select mode is on. v2 wording leads with the
-  // output pause because that is the behavior change users notice first, and
-  // it names both exits (Copy view for everything, typing for live output).
+  // Default strip copy while Select mode is on. v3 rewording: the v2 text led
+  // with "output paused", which was true the moment the toggle went on and was
+  // exactly the behavior the user rejected. Now the pause is a property of the
+  // drag, so the text leads with what is available (scrolling), then says when
+  // output pauses, then names both ways back to live.
   // Kept as a static so the strip, the notice path, and tests share one string.
-  static SELECT_STRIP_TEXT = 'Select mode: output paused. Drag to select, Ctrl+C copies. Copy view captures everything. Typing resumes live output.';
+  static SELECT_STRIP_TEXT = 'Select mode: scroll freely. Drag to select and output pauses while you do. Ctrl+C copies. Click away or type to resume. Copy view captures the whole conversation.';
 
   /**
    * Show a compact non-blocking strip at the bottom of the pane while Select
@@ -4459,8 +4644,9 @@ class TerminalPane {
     // though it is the only path that reaches scrollback a full-screen CLI
     // never wrote to the terminal, which is the case users hit first.
     h.innerHTML = 'Claude Code captures the mouse. Hold <b>Shift</b> and drag to select, '
-      + 'then <b>Ctrl+C</b> to copy, or use <b>Select mode</b> (this button). '
-      + '<b>Copy view</b> (next to it) snapshots the whole transcript as plain text.'
+      + 'then <b>Ctrl+C</b> to copy, or turn on <b>Select mode</b> (this button) and '
+      + 'drag normally. Scrolling keeps working; output only pauses while you drag. '
+      + '<b>Copy view</b> (next to it) snapshots the whole conversation as plain text.'
       + '<button class="terminal-copy-hint-x" aria-label="Dismiss" '
       + 'style="position:absolute;top:3px;right:5px;background:none;border:none;'
       + 'color:inherit;cursor:pointer;font-size:15px;line-height:1;padding:2px;opacity:0.7;">&times;</button>';
@@ -4526,7 +4712,15 @@ class TerminalPane {
     // session restores Select mode exactly as the v1 persistence intends.
     this._selectMode = false;
     this._selectFrozenAt = 0;
+    // v3: the hold and the drag flag die with the pane too, so a disposed pane
+    // can never be re-mounted into a paused state.
+    this._selectHold = false;
+    this._selectDragging = false;
     this._fitDeferredWhileFrozen = false;
+    if (this._selSelectionDisposable) {
+      try { this._selSelectionDisposable.dispose(); } catch (_) {}
+      this._selSelectionDisposable = null;
+    }
     if (this._selNoticeTimer) { clearTimeout(this._selNoticeTimer); this._selNoticeTimer = null; }
     this._removeSelectModeWheelGuard();
     // Width claim teardown: disconnect the observer and the focus listener and

@@ -121,9 +121,19 @@ function loadRuntime(container) {
   };
   // WebSocket is only consulted for its OPEN constant in the paths under test.
   const WebSocketStub = Object.assign(function () {}, { OPEN: 1 });
+  // The Select-mode interceptor builds a shift-forced clone with `new
+  // MouseEvent(...)`. Node has no such global, and the production code treats a
+  // construction failure as "let the raw event through", so without this stub
+  // every interceptor path would silently take the fallback branch and the v3
+  // hold checks would prove nothing.
+  function FakeMouseEvent(type, init) {
+    this.type = type;
+    Object.assign(this, init || {});
+  }
   const factory = new Function(
     'window', 'document', 'Terminal', 'FitAddon', 'WebSocket', 'localStorage',
     'navigator', 'requestAnimationFrame', 'cancelAnimationFrame', 'setTimeout', 'clearTimeout',
+    'MouseEvent',
     termSrc +
     '\nreturn {' +
     ' TerminalPane: TerminalPane,' +
@@ -144,7 +154,8 @@ function loadRuntime(container) {
     (fn) => { if (typeof fn === 'function') fn(); return 1; },
     () => {},
     setTimeout,
-    clearTimeout
+    clearTimeout,
+    FakeMouseEvent
   );
 }
 
@@ -159,6 +170,11 @@ const TerminalPane = rt.TerminalPane;
  * `paneEl` is truthy by default because the mainline freeze predicate also
  * requires a bound fixed-slot host (see _isWriteFrozen): a pane detached into
  * a cached tab group has no selection to protect and must keep rendering.
+ *
+ * `_selectHold` defaults to FALSE, which is the v3 change: the toggle alone no
+ * longer pauses anything, so a fake that wants the frozen state has to say
+ * `{ _selectMode: true, _selectHold: true }` the way a real pane only reaches
+ * it through a drag.
  *
  * @param {object} [over] - Fields to override on the fake.
  * @returns {object} The fake pane instance (used as `this`).
@@ -176,8 +192,11 @@ function makeFreezeFake(over) {
     sessionId: 'sess-1',
     paneEl: { classList: { remove() {}, toggle() {} } },
     _selectMode: false,
+    _selectHold: false,
+    _selectDragging: false,
     _selectFrozenAt: 0,
     _freezeBlockedUntil: 0,
+    _log() {},
     _fitDeferredWhileFrozen: false,
     _writeBuf: '',
     _activitySample: '',
@@ -233,11 +252,18 @@ check('constructor seeds v2 state (freeze + overlay) as inert defaults', () => {
   assert.strictEqual(pane._selWheelTarget, null);
 });
 
-check('_isWriteFrozen requires Select mode, a bound host, and no replay in flight', () => {
+check('_isWriteFrozen requires Select mode, a HOLD, a bound host, and no replay', () => {
   const f = makeFreezeFake();
   assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), false);
+  // v3: the toggle alone pauses nothing. This is the user-reported defect
+  // ("when i toggle select, the window freezes and i cannot scroll or drag
+  // up") expressed as an assertion.
   f._selectMode = true;
-  assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), true);
+  assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), false,
+    'turning the mode ON must leave output live so the pane can still scroll');
+  f._selectHold = true;
+  assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), true,
+    'the hold engaged by a drag is what pauses output');
   // A replay window suspends the freeze without disturbing the toggle.
   f._freezeBlockedUntil = Date.now() + 3000;
   assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), false,
@@ -255,7 +281,7 @@ check('_isWriteFrozen requires Select mode, a bound host, and no replay in fligh
 });
 
 check('frozen _enqueueWrite accumulates and schedules NOTHING', () => {
-  const f = makeFreezeFake({ _selectMode: true });
+  const f = makeFreezeFake({ _selectMode: true, _selectHold: true });
   TerminalPane.prototype._enqueueWrite.call(f, 'frame-1');
   TerminalPane.prototype._enqueueWrite.call(f, 'frame-2');
   assert.strictEqual(f._writeBuf, 'frame-1frame-2', 'bytes must be held, not dropped');
@@ -265,7 +291,7 @@ check('frozen _enqueueWrite accumulates and schedules NOTHING', () => {
 });
 
 check('frozen _flushWriteBuffer refuses to consume the queue (stray rAF guard)', () => {
-  const f = makeFreezeFake({ _selectMode: true, _writeBuf: 'held', _writeRaf: 7 });
+  const f = makeFreezeFake({ _selectMode: true, _selectHold: true, _writeBuf: 'held', _writeRaf: 7 });
   TerminalPane.prototype._flushWriteBuffer.call(f);
   assert.strictEqual(f.writes.length, 0, 'a flush scheduled before the freeze must not write');
   assert.strictEqual(f._writeBuf, 'held', 'the queue must survive a suppressed flush');
@@ -273,7 +299,7 @@ check('frozen _flushWriteBuffer refuses to consume the queue (stray rAF guard)',
 });
 
 check('frozen setFocused schedules no catch-up frame', () => {
-  const f = makeFreezeFake({ _selectMode: true, _writeBuf: 'held' });
+  const f = makeFreezeFake({ _selectMode: true, _selectHold: true, _writeBuf: 'held' });
   TerminalPane.prototype.setFocused.call(f, true);
   assert.strictEqual(f._isFocused, true, 'focus bookkeeping still happens');
   assert.strictEqual(f._writeRaf, null, 'no frame may be scheduled for a frozen pane');
@@ -286,19 +312,52 @@ check('unfrozen _enqueueWrite still writes normally (v1 behavior preserved)', ()
   assert.strictEqual(f.writes.join(''), 'live', 'a non-frozen pane writes through the rAF path');
 });
 
-check('setSelectMode(true) freezes, setSelectMode(false) flushes the whole queue at once', () => {
+check('v3: setSelectMode(true) keeps output LIVE, the hold is what pauses it', () => {
   const f = makeFreezeFake();
   TerminalPane.prototype.setSelectMode.call(f, true);
   assert.strictEqual(f._selectMode, true);
-  assert.ok(f._selectFrozenAt > 0, 'freeze start timestamp must be recorded');
+  assert.strictEqual(f._selectHold, false, 'the toggle must not engage a hold');
+  assert.strictEqual(f._selectFrozenAt, 0, 'nothing is frozen yet, so there is no start time');
+  TerminalPane.prototype._enqueueWrite.call(f, 'live-1');
+  assert.strictEqual(f.writes.join(''), 'live-1',
+    'output keeps painting so the user can scroll to what they want to select');
+
+  // Now the drag begins, which is where the pause belongs.
+  assert.strictEqual(TerminalPane.prototype._engageSelectHold.call(f, 'drag-start'), true);
+  assert.ok(f._selectFrozenAt > 0, 'freeze start timestamp must be recorded at drag start');
   TerminalPane.prototype._enqueueWrite.call(f, 'a');
   TerminalPane.prototype._enqueueWrite.call(f, 'b');
-  assert.strictEqual(f.writes.length, 0, 'held while ON');
+  assert.strictEqual(f.writes.length, 1, 'held while the selection is being made');
   TerminalPane.prototype.setSelectMode.call(f, false);
-  assert.strictEqual(f.writes.length, 1, 'the drain must be a SINGLE write, not one per chunk');
-  assert.strictEqual(f.writes[0], 'ab', 'held output must be written in arrival order');
+  assert.strictEqual(f.writes.length, 2, 'the drain must be a SINGLE write, not one per chunk');
+  assert.strictEqual(f.writes[1], 'ab', 'held output must be written in arrival order');
   assert.strictEqual(f._writeBuf, '', 'queue is empty after the drain');
+  assert.strictEqual(f._selectHold, false);
   assert.strictEqual(f._selectFrozenAt, 0);
+});
+
+check('v3: _engageSelectHold refuses to pause a pane whose mode is OFF', () => {
+  const f = makeFreezeFake();
+  assert.strictEqual(TerminalPane.prototype._engageSelectHold.call(f, 'stray'), false,
+    'a stray call must never pause an ordinary pane');
+  assert.strictEqual(f._selectHold, false);
+  // Idempotent inside one gesture: a second mousedown keeps the first hold.
+  f._selectMode = true;
+  assert.strictEqual(TerminalPane.prototype._engageSelectHold.call(f, 'drag-start'), true);
+  const startedAt = f._selectFrozenAt;
+  assert.strictEqual(TerminalPane.prototype._engageSelectHold.call(f, 'again'), false);
+  assert.strictEqual(f._selectFrozenAt, startedAt, 'the original start time must survive');
+});
+
+check('v3: _releaseSelectHold drains what arrived and leaves the MODE alone', () => {
+  const f = makeFreezeFake({ _selectMode: true, _selectHold: true, _writeBuf: 'held-during-drag' });
+  assert.strictEqual(TerminalPane.prototype._releaseSelectHold.call(f, 'selection-cleared'), true);
+  assert.strictEqual(f._selectHold, false);
+  assert.strictEqual(f.writes.join(''), 'held-during-drag', 'the pause ends by flushing, not dropping');
+  assert.strictEqual(f._selectMode, true,
+    'releasing a hold is not the user turning the mode off');
+  assert.strictEqual(TerminalPane.prototype._releaseSelectHold.call(f, 'again'), false,
+    'a second release is a no-op');
 });
 
 check('setSelectMode still persists the per-session preference (v1 contract intact)', () => {
@@ -325,10 +384,13 @@ check('toggle-off with an empty queue writes nothing (no spurious flush)', () =>
 check('a resize deferred during the freeze is re-applied on unfreeze', () => {
   // safeFit is the real method here so the deferral branch is the one tested;
   // fitAddon must be present or it bails before reaching that branch.
-  const f = makeFreezeFake({ _selectMode: true, fitAddon: { fit() { assert.fail('must not fit while frozen'); } } });
+  const f = makeFreezeFake({
+    _selectMode: true, _selectHold: true,
+    fitAddon: { fit() { assert.fail('must not fit while frozen'); } },
+  });
   TerminalPane.prototype.safeFit.call(f);
   assert.strictEqual(f._fitDeferredWhileFrozen, true, 'a fit during the freeze must be deferred, not applied');
-  const g = makeFreezeFake({ _selectMode: true, _fitDeferredWhileFrozen: true });
+  const g = makeFreezeFake({ _selectMode: true, _selectHold: true, _fitDeferredWhileFrozen: true });
   TerminalPane.prototype.setSelectMode.call(g, false);
   assert.strictEqual(g.fits, 1, 'the deferred fit must run once the freeze lifts');
   assert.strictEqual(g._fitDeferredWhileFrozen, false);
@@ -355,12 +417,17 @@ check('_exitSelectModeForInput lifts the freeze and reports whether it did', () 
 });
 
 check('_discardSelectModeHold opens the replay window WITHOUT writing (resync paths)', () => {
-  const f = makeFreezeFake({ _selectMode: true, _writeBuf: 'stale-frames', _fitDeferredWhileFrozen: true });
+  const f = makeFreezeFake({
+    _selectMode: true, _selectHold: true,
+    _writeBuf: 'stale-frames', _fitDeferredWhileFrozen: true,
+  });
   assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), true);
   TerminalPane.prototype._discardSelectModeHold.call(f);
   assert.strictEqual(f.writes.length, 0, 'a replay is about to re-send everything; do not write stale frames');
   assert.strictEqual(f._fitDeferredWhileFrozen, false, 'a fit deferred before the resync is stale');
   assert.ok(f._freezeBlockedUntil > Date.now(), 'the replay must find the gate open');
+  assert.strictEqual(f._selectHold, false,
+    'v3: term.reset() destroys the selection the hold was protecting, so the hold goes too');
   assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), false,
     'output arriving during the replay window must reach the screen');
 });
@@ -384,13 +451,20 @@ check('a resync must NOT undo the per-session Select mode preference', () => {
   assert.deepStrictEqual(saved, [], 'a resync must not write the stored preference at all');
 });
 
-check('the freeze resumes once the replay window closes', () => {
-  const f = makeFreezeFake({ _selectMode: true });
+check('v3: after a resync the pane stays LIVE even once the replay window closes', () => {
+  // v2 resumed holding here because the toggle alone was the freeze condition.
+  // v3 has nothing to resume: the resync cleared the hold along with the
+  // selection it protected, and only a new drag can start another one.
+  const f = makeFreezeFake({ _selectMode: true, _selectHold: true });
   TerminalPane.prototype._discardSelectModeHold.call(f);
   assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), false);
   f._freezeBlockedUntil = Date.now() - 1;
-  assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), true,
-    'Select mode is still on, so holding resumes when the replay is done');
+  assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), false,
+    'a pane with no selection must keep painting after a resync');
+  assert.strictEqual(f._selectMode, true, 'the toggle itself still survives the resync');
+  // A fresh drag pauses again, so the feature is not disabled by the resync.
+  TerminalPane.prototype._engageSelectHold.call(f, 'drag-start');
+  assert.strictEqual(TerminalPane.prototype._isWriteFrozen.call(f), true);
 });
 
 check('connect and socket open both open the replay window', () => {
@@ -404,7 +478,7 @@ check('connect and socket open both open the replay window', () => {
 });
 
 check('overflow cap leaves Select mode, flushes everything, and explains why', () => {
-  const f = makeFreezeFake({ _selectMode: true });
+  const f = makeFreezeFake({ _selectMode: true, _selectHold: true });
   const big = 'x'.repeat(rt.SELECT_FREEZE_MAX_HOLD_CHARS);
   TerminalPane.prototype._enqueueWrite.call(f, big);
   assert.strictEqual(f._selectMode, false, 'the cap must end the freeze');
@@ -637,9 +711,10 @@ check('wheel deltas normalize to signed rows across all three delta modes', () =
  *
  * @param {boolean} selectMode - Initial toggle state.
  * @param {string} bufferType - 'normal' or 'alternate'.
+ * @param {boolean} [hold=false] - Whether a selection is currently held (v3).
  * @returns {{handler: Function, pane: object, scrolled: number[], options: object}}
  */
-function installWheelGuard(selectMode, bufferType) {
+function installWheelGuard(selectMode, bufferType, hold) {
   let handler = null;
   let options = null;
   const container = {
@@ -650,6 +725,7 @@ function installWheelGuard(selectMode, bufferType) {
   const pane = Object.assign(Object.create(TerminalPane.prototype), {
     containerId: 'c',
     _selectMode: selectMode,
+    _selectHold: !!hold,
     _selWheelHandler: null,
     _selWheelTarget: null,
     _copyOverlay: null,
@@ -681,23 +757,246 @@ check('executed: the wheel guard is inert while Select mode is OFF', () => {
   assert.strictEqual(scrolled.length, 0);
 });
 
-check('executed: ON swallows the wheel in the ALTERNATE buffer (no local scroll)', () => {
-  const { handler, scrolled } = installWheelGuard(true, 'alternate');
+check('v3 executed: ON with NOTHING selected FORWARDS the wheel in the ALTERNATE buffer', () => {
+  // This is the reported defect. Under a full-screen CLI the only thing that
+  // can scroll is the app's own history, so the wheel has to reach it. v2
+  // swallowed the event here, which is why the pane felt stuck the moment the
+  // toggle went on: "i cannot scroll or drag up".
+  const { handler, scrolled } = installWheelGuard(true, 'alternate', false);
   let prevented = false;
   let stopped = false;
   handler({ deltaY: 100, deltaMode: 0, cancelable: true, target: null,
     preventDefault: () => { prevented = true; }, stopImmediatePropagation: () => { stopped = true; } });
-  assert.strictEqual(prevented, true, 'the app must never see the wheel while selecting');
+  assert.strictEqual(prevented, false,
+    'the wheel must reach xterm so it becomes the mouse report the app scrolls on');
+  assert.strictEqual(stopped, false, 'nothing may intercept it before xterm');
+  assert.strictEqual(scrolled.length, 0, 'the alternate buffer has no local scrollback to move');
+});
+
+/* ============================================================
+   3b. v3 hold lifecycle: engaged by the drag, released by the
+   selection going away. Driven through the REAL interceptor so
+   the ordering that matters (hold engaged before the clone is
+   dispatched) is proven, not assumed.
+   ============================================================ */
+
+/**
+ * Install the real Select-mode mouse interceptor against a fake container and
+ * return the registered handlers plus the pane fake.
+ *
+ * Mirrors the shape test/terminal-select-mode.test.js uses for the same
+ * interceptor, extended with the v3 hold state and a settable selection so a
+ * whole press/drag/release gesture can be played through it.
+ *
+ * @param {object} [over] - Fields to override on the pane fake.
+ * @returns {{handlers: object, pane: object, order: string[]}}
+ */
+function installInterceptor(over) {
+  const handlers = {};
+  const order = [];
+  const container = {
+    addEventListener: (type, fn) => { handlers[type] = fn; },
+    removeEventListener: () => {},
+    dispatchEvent: (e) => { order.push('dispatch:' + e.type); },
+  };
+  const pane = Object.assign(Object.create(TerminalPane.prototype), {
+    containerId: 'c',
+    sessionId: 's',
+    writes: [],
+    hasSelection: false,
+    order,
+    paneEl: { classList: { remove() {}, toggle() {} } },
+    _selectMode: true,
+    _selectHold: false,
+    _selectDragging: false,
+    _selectFrozenAt: 0,
+    _freezeBlockedUntil: 0,
+    _selInterceptorContainer: null,
+    _selMouseHandler: null,
+    _writeBuf: '',
+    _activitySample: '',
+    _writeRaf: null,
+    _bgFlushTimer: null,
+    _activityDebounceTimer: 1,
+    _isFocused: true,
+    _fitDeferredWhileFrozen: false,
+    _activatePending: false,
+    term: { write(s) { pane.writes.push(s); order.push('write:' + s); } },
+    getCopySelection() { return { hasSelection: pane.hasSelection, text: 'X', source: 'xterm' }; },
+    _getOwnedContainer: () => container,
+    _updateSelectModeUI() {},
+    _trackActivityForCompletion() {},
+    _log(msg) { order.push('log:' + msg); },
+    safeFit() {},
+  });
+  Object.assign(pane, over || {});
+  TerminalPane.prototype._installSelectModeInterceptor.call(pane);
+  return { handlers, pane, order, container };
+}
+
+/**
+ * Build a plain mouse event stub for the interceptor.
+ * @param {string} type - Event type.
+ * @param {object} [extra] - Overrides (button, buttons, ...).
+ * @returns {object} Event stub.
+ */
+function mouseEvent(type, extra) {
+  return Object.assign({
+    type,
+    button: 0,
+    buttons: type === 'mouseup' ? 0 : 1,
+    cancelable: true,
+    __cwmSelSynthetic: false,
+    detail: 1, screenX: 1, screenY: 2, clientX: 3, clientY: 4,
+    ctrlKey: false, altKey: false, metaKey: false, shiftKey: false,
+    relatedTarget: null,
+    // Null on purpose: the interceptor dispatches its clone to
+    // `(e.target || container)`, so a null target routes it to the recording
+    // container above and makes the ordering observable.
+    target: null,
+    preventDefault: () => {},
+    stopImmediatePropagation: () => {},
+  }, extra || {});
+}
+
+check('v3 executed: the drag START engages the hold BEFORE xterm sees the click', () => {
+  const { handlers, pane, order } = installInterceptor();
+  assert.strictEqual(pane._selectHold, false, 'the toggle alone left the pane live');
+  TerminalPane.prototype._enqueueWrite.call(pane, 'live-before-drag');
+  assert.strictEqual(pane.writes.join(''), 'live-before-drag', 'scrolling era: output paints');
+
+  handlers.mousedown(mouseEvent('mousedown'));
+  assert.strictEqual(pane._selectHold, true, 'the press must pause output');
+  const holdAt = order.findIndex((o) => /Select hold engaged/.test(o));
+  const dispatchAt = order.findIndex((o) => o === 'dispatch:mousedown');
+  assert.ok(holdAt !== -1 && dispatchAt !== -1, 'both events must be recorded');
+  assert.ok(holdAt < dispatchAt,
+    'the hold must engage BEFORE the shift-forced clone anchors the selection, or a ' +
+    'frame written in between slides the text out from under the pointer');
+
+  // Output arriving mid-gesture is now held.
+  TerminalPane.prototype._enqueueWrite.call(pane, 'mid-drag');
+  assert.strictEqual(pane.writes.join(''), 'live-before-drag', 'nothing may paint mid-drag');
+  assert.strictEqual(pane._writeBuf, 'mid-drag');
+});
+
+check('v3 executed: a click that selects NOTHING releases the hold immediately', () => {
+  const { handlers, pane } = installInterceptor();
+  handlers.mousedown(mouseEvent('mousedown'));
+  TerminalPane.prototype._enqueueWrite.call(pane, 'arrived-during-click');
+  assert.strictEqual(pane._selectHold, true);
+  pane.hasSelection = false; // xterm selected nothing during the clone dispatch
+  handlers.mouseup(mouseEvent('mouseup'));
+  assert.strictEqual(pane._selectHold, false,
+    'a stray click must never leave the pane paused: the user would not know to undo it');
+  assert.strictEqual(pane.writes.join(''), 'arrived-during-click',
+    'whatever was held during the click must be flushed');
+  assert.strictEqual(pane._selectMode, true, 'the mode itself is untouched');
+});
+
+check('v3 executed: a drag that DID select keeps the hold after mouseup', () => {
+  const { handlers, pane } = installInterceptor();
+  handlers.mousedown(mouseEvent('mousedown'));
+  TerminalPane.prototype._enqueueWrite.call(pane, 'held');
+  pane.hasSelection = true;
+  handlers.mouseup(mouseEvent('mouseup'));
+  assert.strictEqual(pane._selectHold, true,
+    'the selection is on screen and must stay protected until it goes away');
+  assert.strictEqual(pane.writes.length, 0, 'output is still held');
+  assert.strictEqual(pane._selectDragging, false, 'the gesture itself is over');
+});
+
+check('v3 executed: a drag that ended OUTSIDE the pane cannot strand the hold', () => {
+  // xterm tracks the tail of a drag on document, so a mouseup beyond the pane
+  // never reaches this container listener. The first buttonless move back over
+  // the terminal closes the gesture.
+  const { handlers, pane } = installInterceptor();
+  handlers.mousedown(mouseEvent('mousedown'));
+  assert.strictEqual(pane._selectHold, true);
+  pane.hasSelection = false;
+  handlers.mousemove(mouseEvent('mousemove', { buttons: 0 }));
+  assert.strictEqual(pane._selectDragging, false, 'the stale drag flag must be cleared');
+  assert.strictEqual(pane._selectHold, false, 'and the hold must not outlive the gesture');
+});
+
+check('v3 executed: onSelectionChange releases only when the gesture is really over', () => {
+  const { handlers, pane } = installInterceptor();
+  handlers.mousedown(mouseEvent('mousedown'));
+  TerminalPane.prototype._enqueueWrite.call(pane, 'held-frames');
+
+  // Mid-drag xterm reports intermediate states, including an empty one when
+  // the pointer is back at the anchor cell. Releasing there would resume
+  // output in the middle of the user's own gesture.
+  pane.hasSelection = false;
+  assert.strictEqual(TerminalPane.prototype._onSelectionChanged.call(pane), false,
+    'an empty intermediate update during a drag must not release');
+  assert.strictEqual(pane._selectHold, true);
+  assert.strictEqual(pane.writes.length, 0);
+
+  // Gesture ends WITH a selection: still held.
+  pane.hasSelection = true;
+  handlers.mouseup(mouseEvent('mouseup'));
+  assert.strictEqual(pane._selectHold, true);
+  assert.strictEqual(TerminalPane.prototype._onSelectionChanged.call(pane), false,
+    'a selection that still exists keeps the pause');
+
+  // The selection is cleared (a click elsewhere, xterm clearing it): release.
+  pane.hasSelection = false;
+  assert.strictEqual(TerminalPane.prototype._onSelectionChanged.call(pane), true);
+  assert.strictEqual(pane._selectHold, false);
+  assert.strictEqual(pane.writes.join(''), 'held-frames',
+    'everything held during the selection must land in one write');
+  assert.strictEqual(pane._selectMode, true, 'clearing a selection is not turning the mode off');
+  assert.strictEqual(TerminalPane.prototype._onSelectionChanged.call(pane), false,
+    'with no hold there is nothing to release');
+});
+
+check('v3: copying does NOT release the hold', () => {
+  // Ctrl+C with a selection is withheld from xterm (no onData), the native
+  // copy leaves the selection in place, and nothing in the copy path touches
+  // the hold. Proven structurally plus by the absence of a release call.
+  const handler = extractBlock(termSrc, 'this.term.attachCustomKeyEventHandler((e) => {');
+  const copyBranch = extractBlock(handler, "if (mod && shortcutKey === 'c') {");
+  assert.ok(/return false/.test(copyBranch), 'a selected Ctrl+C must not reach xterm');
+  assert.ok(!copyBranch.includes('_releaseSelectHold'),
+    'copying must leave the pause and the selection exactly as they are');
+  assert.ok(!copyBranch.includes('_exitSelectModeForInput'), 'copying is not input');
+  const copyAll = extractBlock(termSrc, '_copyAllFromCopyView() {');
+  assert.ok(!copyAll.includes('_releaseSelectHold'), 'Copy all must not resume output either');
+  // Executed: a pane holding a selection stays held across a copy read.
+  const { handlers, pane } = installInterceptor();
+  handlers.mousedown(mouseEvent('mousedown'));
+  pane.hasSelection = true;
+  handlers.mouseup(mouseEvent('mouseup'));
+  const before = pane._selectHold;
+  const copied = pane.getCopySelection();
+  assert.strictEqual(copied.hasSelection, true);
+  assert.strictEqual(pane._selectHold, before, 'reading the selection must not change the hold');
+});
+
+check('v3 executed: a HELD selection swallows the wheel in the ALTERNATE buffer', () => {
+  const { handler, scrolled } = installWheelGuard(true, 'alternate', true);
+  let prevented = false;
+  let stopped = false;
+  handler({ deltaY: 100, deltaMode: 0, cancelable: true, target: null,
+    preventDefault: () => { prevented = true; }, stopImmediatePropagation: () => { stopped = true; } });
+  assert.strictEqual(prevented, true, 'the app must never repaint under a live selection');
   assert.strictEqual(stopped, true, 'xterm must not forward the wheel to the PTY while selecting');
   assert.strictEqual(scrolled.length, 0, 'the alternate buffer has no scrollback to scroll');
 });
 
 check('executed: ON translates the wheel into local scrolling in the NORMAL buffer', () => {
-  const { handler, scrolled } = installWheelGuard(true, 'normal');
-  handler({ deltaY: -100, deltaMode: 0, cancelable: true, target: null,
-    preventDefault: () => {}, stopImmediatePropagation: () => {} });
-  assert.deepStrictEqual(scrolled, [-rt.SELECT_FREEZE_WHEEL_LINES],
-    'a shell pane keeps scrollback, so Select mode still scrolls it');
+  // Local scrolling moves the viewport without writing a cell, so it is safe
+  // in BOTH states: with nothing selected it is how a shell pane scrolls, and
+  // with a selection held it leaves the absolute buffer coordinates the
+  // selection is anchored to untouched (and keeps drag-at-edge extension).
+  for (const hold of [false, true]) {
+    const { handler, scrolled } = installWheelGuard(true, 'normal', hold);
+    handler({ deltaY: -100, deltaMode: 0, cancelable: true, target: null,
+      preventDefault: () => {}, stopImmediatePropagation: () => {} });
+    assert.deepStrictEqual(scrolled, [-rt.SELECT_FREEZE_WHEEL_LINES],
+      'a shell pane keeps scrollback, so Select mode still scrolls it (hold=' + hold + ')');
+  }
 });
 
 check('executed: the wheel guard never steals a scroll inside the Copy view overlay', () => {
@@ -976,12 +1275,16 @@ check('all Copy view state is per instance (two panes never share an overlay)', 
    6. Strip copy: the user is told what changed
    ============================================================ */
 
-check('the strip explains the pause, the copy paths, and how to resume', () => {
+check('the strip explains scrolling, the pause, the copy paths, and how to resume', () => {
   const text = TerminalPane.SELECT_STRIP_TEXT;
-  assert.ok(/paused/i.test(text), 'must say output is paused');
+  // v3 wording: v2 led with "output paused", which was true from the instant
+  // the toggle went on and described exactly the behavior the user rejected.
+  assert.ok(/scroll/i.test(text), 'must say scrolling still works, which is the v3 change');
+  assert.ok(/pause/i.test(text), 'must still say output pauses');
+  assert.ok(/drag/i.test(text), 'must tie the pause to the drag, not to the toggle');
   assert.ok(/Ctrl\+C/.test(text), 'must name the copy key');
   assert.ok(/Copy view/i.test(text), 'must point at the copy-everything path');
-  assert.ok(/Typing/i.test(text), 'must say how live output resumes');
+  assert.ok(/type|typing/i.test(text), 'must say how live output resumes');
   // The forbidden dash is built from its code point rather than typed: this
   // repo bans the literal character in source, so a gate containing one would
   // be self-defeating.
@@ -1117,7 +1420,7 @@ check('a changed viewport claims immediately once past the debounce', () => {
 });
 
 check('no claim while output is frozen; it is remembered and sent on unfreeze', () => {
-  const f = makeClaimFake({ _selectMode: true, term: { cols: 60, rows: 24, write() {} } });
+  const f = makeClaimFake({ _selectMode: true, _selectHold: true, term: { cols: 60, rows: 24, write() {} } });
   assert.strictEqual(TerminalPane.prototype._requestActivate.call(f, 'visible'), false);
   assert.strictEqual(f.sent.length, 0, 'a claim would repaint the whole frame into the hold queue');
   assert.strictEqual(f._activatePending, true, 'the intent must be remembered');
@@ -1127,7 +1430,7 @@ check('no claim while output is frozen; it is remembered and sent on unfreeze', 
 });
 
 check('the public activate() also defers while frozen and never fits mid-selection', () => {
-  const f = makeClaimFake({ _selectMode: true });
+  const f = makeClaimFake({ _selectMode: true, _selectHold: true });
   TerminalPane.prototype.activate.call(f);
   assert.strictEqual(f.sent.length, 0, 'app-layer activate must respect the freeze too');
   assert.strictEqual(f.fits, 0, 'a fit could change the row count and clear the selection');
@@ -1146,7 +1449,7 @@ check('the public activate() sends, fits and records bookkeeping when not frozen
 });
 
 check('a claim deferred by the freeze survives a resync as a queued retry', () => {
-  const f = makeClaimFake({ _selectMode: true, _activatePending: true, term: { cols: 60, rows: 24, write() {} } });
+  const f = makeClaimFake({ _selectMode: true, _selectHold: true, _activatePending: true, term: { cols: 60, rows: 24, write() {} } });
   TerminalPane.prototype._discardSelectModeHold.call(f);
   assert.strictEqual(f._activatePending, false, 'the pending flag is converted, not dropped');
   assert.ok(f._activateRetryTimer, 'the intent must wait behind the replay as a retry');
@@ -1818,6 +2121,9 @@ check('executed: a fit re-places the strip even on the frozen (early-return) pat
     term: {},
     _selStrip: strip,
     _selectMode: true,
+    // v3: the deferral only happens while a selection is actually held, so the
+    // fake has to be in that state for this check to exercise the same path.
+    _selectHold: true,
     _freezeBlockedUntil: 0,
     _fitDeferredWhileFrozen: false,
     paneEl: {
