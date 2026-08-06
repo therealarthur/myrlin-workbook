@@ -223,6 +223,10 @@ check('empty orphan beforeinput cannot suppress the next real native paste', () 
   const pane = {
     _pasteHandled: false,
     _pasteHandledResetTimer: null,
+    // Select mode v2: both compiled handlers leave Select mode before they
+    // send, because a paste is input and input resumes live output. The fake
+    // models a pane that is not frozen, so the call is a no-op here.
+    _exitSelectModeForInput() { return false; },
     ws: {
       readyState: 1,
       send(payload) {
@@ -255,6 +259,8 @@ check('native paste sends exactly once when xterm also listens on the textarea',
   const sent = [];
   const pane = {
     _pasteHandled: false,
+    // Select mode v2: the compiled paste handler unfreezes before sending.
+    _exitSelectModeForInput() { return false; },
     ws: {
       readyState: 1,
       send(payload) {

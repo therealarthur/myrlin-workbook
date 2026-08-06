@@ -160,13 +160,20 @@ check('dispose() tears the interceptor + injected DOM down', () => {
 });
 
 check('index.html cache-busts the native-copy terminal fix', () => {
-  assert.ok(/terminal\.js\?v=20260727-copy-native8/.test(indexSrc),
-    'expected the final terminal.js native-copy cache token');
+  // Bumped for Select mode v2 (freeze-while-selecting + Copy view overlay),
+  // then again (r2) for the focus-report fix plus the mobile overlay/strip
+  // geometry. The two scripts are versioned independently on purpose, so a
+  // terminal-only change does not force a re-download of the whole SPA bundle.
+  assert.ok(/terminal\.js\?v=20260805-selectv2r2/.test(indexSrc),
+    'expected the current terminal.js cache token');
 });
 
 check('index.html cache-busts the app pane-focus/host fix', () => {
-  assert.ok(/app\.js\?v=20260727-copy-native8/.test(indexSrc),
-    'expected the final app.js native-copy cache token');
+  // Bumped when the mobile toolbar and the pane action sheet gained the
+  // Select mode and Copy view controls: those live in app.js, so clients need
+  // a fresh copy of it to reach either feature on a phone.
+  assert.ok(/app\.js\?v=20260805-mobile-select1/.test(indexSrc),
+    'expected the current app.js cache token');
 });
 
 // ── Executed proof: run the real interceptor ─────────────────
@@ -277,13 +284,24 @@ check('executed: Select mode survives refresh only for the same session', () => 
  * Compile the production app focus helper in isolation. Its body only calls
  * other instance methods/properties, so a small object stub can execute the
  * real event-order logic without booting the Workbook SPA.
+ *
+ * The end anchor spans two lines, and src/web/public/app.js is stored with
+ * CRLF line endings, so a marker written with bare \n could never match it:
+ * indexOf returned -1 and every executed focus check below failed with
+ * "could not extract the production focus helper" while the file was
+ * perfectly healthy. Normalizing a copy first fixes the search without
+ * changing what is compiled, since line endings are insignificant to the
+ * parser. Single-line anchors (the one below and the scoped-body check
+ * further up) match either way because CRLF still ends in \n.
+ *
  * @returns {Function} Production _focusTerminalPaneFromPointer method.
  */
 function loadFocusHelper() {
-  const start = appSrc.indexOf('  _focusTerminalPaneFromPointer(slotIdx, event) {');
-  const end = appSrc.indexOf('\n  /**\n   * Set the active terminal pane', start);
+  const normalizedAppSrc = appSrc.replace(/\r\n/g, '\n');
+  const start = normalizedAppSrc.indexOf('  _focusTerminalPaneFromPointer(slotIdx, event) {');
+  const end = normalizedAppSrc.indexOf('\n  /**\n   * Set the active terminal pane', start);
   assert.ok(start >= 0 && end > start, 'could not extract the production focus helper');
-  const methodSource = appSrc.slice(start, end).trim();
+  const methodSource = normalizedAppSrc.slice(start, end).trim();
   return vm.runInNewContext(
     '({' + methodSource + '})._focusTerminalPaneFromPointer',
     {},

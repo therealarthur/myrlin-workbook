@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.8] - 2026-08-05
+
+This corrective prerelease fixes the defect that made Select mode cancel itself on the click that started a selection, and gives phones the two copy controls they could not reach at all.
+
+### Added
+
+- **Select mode and Copy view are reachable on a phone.** The pane header that carries both controls is hidden at phone widths, and its buttons were the only callers of either feature, so on a phone neither existed. Both now appear in the mobile toolbar next to Read and Copy, and both are also offered in the pane long-press action sheet. They call the same pane methods the desktop header buttons use, so the surfaces cannot drift. The toolbar Select button shows a clear active state and re-reads pane state whenever the mode changes without a tap, including when typing resumes live output, when the hold-queue overflow valve trips, when Escape closes the Copy view, and when a tab switch brings a pane back with the mode still remembered.
+
+### Fixed
+
+- **A focus report no longer cancels Select mode.** Windows ConPTY enables focus reporting on effectively every pane, so xterm emits a focus-in report through the same channel it uses for keystrokes whenever its hidden textarea gains focus. Select mode treats input as a request to resume live output, so clicking the toggle and then pressing the mouse down to drag turned the mode straight back off and selected against a repainting screen. Payloads that consist only of terminal-generated reports (focus in and out, cursor position responses, device attributes responses) no longer count as user input on either the keystroke channel or the socket. What reaches the session is unchanged; a chunk that mixes a report with anything else still resumes live output. The toggle also hands keyboard focus back to the terminal when it turns the mode on, so the first drag selects with no focus transition at all.
+- **The Copy view covers the whole pane on a phone.** The overlay measured its top offset once, at creation, and fell back to a desktop header height when the header could not be measured. A hidden mobile header measures zero, so the snapshot started about 35px down and left a live, still repainting band of terminal above it. The offset is recomputed on every open, and a hidden header now means the overlay starts at the top of the pane.
+- **Copy view buttons are big enough to tap.** Copy all and Refresh were 26px tall. Every control in the overlay bar is at least 40px on a phone-laid-out pane, and the sizing is re-applied on each open so a rotation between opens is honored.
+- **A long press inside the Copy view selects text instead of opening the action sheet.** The overlay renders the transcript as ordinary selectable text, so a long press there is a selection gesture. It was opening the pane action sheet, which cancelled the selection and put Kill Session one tap away.
+- **The Select mode notice no longer covers the mobile toolbar.** The notice strip is click-through, so on a phone it hid the toolbar while leaving it tappable, which read as the toolbar disappearing. It is now placed above the toolbar and the type-and-send row, re-measured on every show. On desktop it also stops painting over the pane's floating action buttons.
+- **The copy hint and the Copy view button read correctly.** The one-time hint now names Copy view alongside Shift+drag and Select mode, and the icon-only Copy view button carries an accessible name rather than only a tooltip.
+
+### Testing
+
+- Added 32 checks to `test/terminal-select-v2.test.js` (78 to 110). The report filter is covered by a full truth table: focus in and out, concatenated bursts, cursor position and both device attributes forms, arrow keys, modified arrows, application-mode keys, printable text, control characters, bracketed paste, mixed chunks, empty, non-string and oversized payloads. The production keystroke handler and the socket hook are compiled from source and executed, proving a report is forwarded without resuming output while a keystroke, a mixed chunk and an unparseable frame all still resume it.
+- Added executed coverage for the mobile work: overlay top offset across measured, hidden and absent headers, touch sizing applied and cleared, strip placement against a measured toolbar and its fallback, the toolbar injector including idempotency and ordering, the toolbar actions delegating to the pane methods, per-pane state mirroring including the self-exit case, and a fit re-placing the strip on the frozen early-return path (the reachable case where a remembered Select mode is shown before the pane becomes mobile-active).
+
+## [1.3.0-alpha.7] - 2026-08-05
+
+This prerelease makes terminal selection trustworthy under a full-screen CLI and adds a way to copy more than the visible screen. Version alpha.6 is claimed by a separate in-flight branch, so the gap here is expected.
+
+### Added
+
+- **Copy view.** A new button beside the Select toggle in each pane header opens an in-pane snapshot of that terminal as ordinary selectable text. While a full-screen CLI is running it composes everything the normal buffer still holds (the pre-app transcript plus shell scrollback), a `[ current screen ]` divider, then the live frame; otherwise it shows the normal buffer including scrollback. Runs of three or more blank lines collapse and trailing padding is trimmed, so a mostly-empty TUI frame reads as text. Native drag selection, Ctrl+A scoped to the snapshot, long-press on touch, Escape, Refresh, and a Copy all button that works on plain HTTP LAN origins are all available. It is a snapshot: the session underneath keeps streaming while it is open.
+
+- **Panes claim terminal width when they become the one you are looking at.** One PTY is shared by every attached client and the backend gives geometry ownership to whichever client last typed or sent an explicit activate. Workbook already claimed on a pane click, a browser visibility change, a window focus, and a tab-group restore; a pane now also claims on two edges the app layer cannot see, its container crossing half-visible and the terminal taking keyboard focus without a click. That is what stops a phone from rendering frames laid out for a desktop. Claims are limited to one per 500ms, an unchanged viewport is not re-sent for 5 seconds, the pane fits before claiming so the stored viewport is the one it is about to apply, and no claim is made while output is paused for a selection or during the replay that follows a connect or a resync; a claim blocked by either is remembered and sent afterwards. The honest cost of a single shared PTY is unchanged: a desktop watching the same session then sees the narrow frames too, until it is interacted with again.
+
+### Fixed
+
+- **Select mode now pauses output while you select.** xterm anchors a selection to absolute buffer coordinates and only clears it on user input, scrollback trim, a row-count resize, or a buffer switch. A plain write leaves the selection in place while repainting the cells underneath, so a repainting CLI turned a valid highlight into stale text within a frame. Select mode now holds incoming output in the existing write queue instead of rendering it, so the screen being dragged over stops changing. Turning the mode off drains everything held in a single write.
+- **Every input path resumes live output before it sends.** Typing, both paste listeners, Ctrl+V, Shift+Enter, the explicit Paste action, and app-driven commands leave Select mode first, so the echo lands on a current screen rather than behind a frozen one. The pane's own socket enforces the same rule for input frames built elsewhere, notably the mobile toolbar keys and the mobile type-and-send row, so tapping Send on a phone can never leave the answer stuck in the queue. Copying with Ctrl+C deliberately does not unfreeze, so a copy never disturbs the selection it is reading.
+- **A wheel notch can no longer repaint the screen under a selection.** With mouse tracking active xterm forwards the wheel to the session and offers no Shift bypass. While Select mode is on the wheel is swallowed in the alternate buffer, where there is no scrollback to reach anyway, and translated into local scrolling in the normal buffer so shell panes still scroll while selecting.
+- **Resync and resize can no longer strand a frozen pane.** A reconnect and a server-initiated reset both drop the freeze before `term.reset()`, because the scrollback replay that follows re-sends everything. A container resize during a freeze is deferred and applied after the drain, since a row-count change would clear the selection outright. A pane detached into a cached tab group stops holding output and drains, and a 2MB cap on held output resumes the stream and says so.
+- **A remembered Select mode no longer hides its own scrollback.** The server sends a reset marker plus a full replay on every attach, the first one after a refresh included, so a pane that restored the toggle from a previous visit would have held the screen it was being handed. The freeze is now suspended for the replay window that idle detection already trusts, then resumes. Turning Select mode off is still the user's decision alone: a reconnect no longer rewrites the stored per-session preference.
+
+### Testing
+
+- Added `test/terminal-select-v2.test.js` (78 checks) with executed proofs of the freeze gate, the single-write drain and its ordering against the deferred re-fit, the real server-reset branch, the host-detach drain, the socket input hook, the overflow valve, all three wheel delta modes and both buffer types, and snapshot composition across the alternate and normal buffers, plus scoped source gates on every input path and both teardown paths.
+- Added width-claim coverage in the same file: the debounce, the identical-geometry suppression and its expiry, the freeze deferral and its replay, the quiet-window retry and its single-timer discipline, closed-socket and send-failure paths, and a stub observer proving only the hidden-to-visible edge past the ratio claims.
+
 ## [1.3.0-alpha.6] - 2026-08-05
 
 This prerelease keeps the server alive when the native terminal engine cannot load, instead of crashing or half-booting (issue #68).
@@ -24,6 +69,7 @@ This prerelease keeps the server alive when the native terminal engine cannot lo
 ### Testing
 
 - Added `test/pty-degrade.test.js`: unit coverage for the availability probe, the sanitized health field (both states, no path leak), the `1011 PTY_UNAVAILABLE` attach close, empty read-only method results, the coded spawn throw, the platform remediation text, and an em-dash absence gate; plus a route-level check that `/api/health` carries the pty field.
+
 
 ## [1.3.0-alpha.5] - 2026-07-27
 

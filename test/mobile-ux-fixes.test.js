@@ -325,8 +325,12 @@ check('P1-1: settings panel becomes a full-screen sheet on mobile', () => {
 // ─── P1-2: long-press collisions ─────────────────────────────────────────────
 
 check('P1-2(a): pane long-press skips the terminal surface on mobile', () => {
+  // The Copy view overlay joined this exemption on 2026-08-05. It renders the
+  // transcript as ordinary selectable DOM text, so a long press inside it is
+  // the user asking the browser to select that text; opening the pane action
+  // sheet there cancelled the selection and put Kill Session one tap away.
   assert.ok(
-    /TERMINAL_SURFACE_SELECTOR = '\.terminal-container, \.xterm'/.test(appJs),
+    /TERMINAL_SURFACE_SELECTOR = '\.terminal-container, \.xterm, \.terminal-copyview'/.test(appJs),
     'terminal surface selector constant must be defined'
   );
   assert.ok(
