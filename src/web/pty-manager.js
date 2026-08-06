@@ -56,8 +56,78 @@ if (process.platform !== 'win32') {
   }
 }
 
-const pty = require('node-pty');
+// ── Native module containment (issue #68) ─────────────────────────────────
+// node-pty is a native addon. Its published package ships prebuilt binaries
+// only for darwin-arm64/x64 and win32-arm64/x64; on Linux the native module
+// exists only if node-pty's install lifecycle script actually compiled it.
+// Modern npm blocks dependency install scripts by default (pending approval),
+// and an npx cache can hold a copy whose binary was never built. When that
+// happens require('node-pty') throws at LOAD time.
+//
+// Historically that throw escaped all the way up to the store's
+// uncaughtException handler (src/state/store.js), which flushes state but does
+// NOT exit. The result was a half-booted server: the HTTP port was bound
+// (app.listen already ran), but everything wired AFTER the PTY attach in
+// startServer (scheduler, credential watcher, schedule routes, shutdown
+// cleanup) never ran. Terminal panes are ONE feature; the whole app must not
+// die or half-die with them.
+//
+// We now CONTAIN the failure at this single choke point: `pty` stays null, we
+// remember the load error, a capability probe (getPtyAvailability) reports it,
+// and every spawn path degrades per-call with a coded error instead of
+// crashing the process or throwing a raw TypeError on the null module.
+let pty = null;
+let ptyLoadError = null;
+// Stable, machine-readable code surfaced to callers, the public health
+// endpoint, and the frontend so they can branch on THIS specific failure
+// without string-matching a human-readable message.
+const PTY_UNAVAILABLE_CODE = 'PTY_NATIVE_LOAD_FAILED';
+try {
+  // Test-only / manual-repro seam: setting CWM_SIMULATE_PTY_LOAD_FAILURE=1
+  // makes us behave exactly as if the native require threw, so the degraded
+  // path can be exercised on a platform (e.g. this Windows box) where node-pty
+  // actually loads fine. Production installs never set this variable.
+  if (process.env.CWM_SIMULATE_PTY_LOAD_FAILURE === '1') {
+    throw new Error(
+      'Failed to load native module: pty.node, checked: build/Release, ' +
+      'build/Debug, prebuilds/linux-x64 ' +
+      '(simulated via CWM_SIMULATE_PTY_LOAD_FAILURE)'
+    );
+  }
+  pty = require('node-pty');
+} catch (err) {
+  ptyLoadError = err instanceof Error ? err : new Error(String(err));
+  // Full detail goes to the SERVER LOG only. The public health endpoint gets a
+  // sanitized shape (no filesystem paths, no usernames, no raw error string).
+  try {
+    console.error(
+      '[PTY] node-pty native module failed to load; in-app terminals are ' +
+      'disabled but the rest of the server continues to run. Detail: ' +
+      ptyLoadError.message
+    );
+  } catch (_) { /* console can EPIPE; never fatal */ }
+}
+
 const { getStore } = require('../state/store');
+
+/**
+ * Capability probe for the native PTY engine. Consumed by the server's health
+ * endpoint, the degraded-boot banner, and the defensive spawn guards below.
+ * Never throws. The structured `code` field is stable and safe to expose
+ * publicly; the `message` carries the raw load error for SERVER-SIDE logging
+ * only (it may contain filesystem paths) and must not be forwarded to
+ * untrusted clients verbatim.
+ *
+ * @returns {{ available: boolean, code: string|null, message: string|null }}
+ */
+function getPtyAvailability() {
+  if (pty) return { available: true, code: null, message: null };
+  return {
+    available: false,
+    code: PTY_UNAVAILABLE_CODE,
+    message: ptyLoadError ? ptyLoadError.message : 'node-pty native module unavailable',
+  };
+}
 
 /**
  * Resolve the real working directory for a Claude session.
@@ -345,6 +415,23 @@ class PtySessionManager {
     const existing = this.sessions.get(sessionId);
     if (existing && existing.alive) {
       return existing;
+    }
+
+    // ── Native-module containment (issue #68) ──
+    // If node-pty never loaded there is no way to spawn a real PTY. Fail this
+    // call with a clean, coded, catchable error instead of hitting a TypeError
+    // on the null module at the pty.spawn site below. attachClient() maps this
+    // code to a 1011 'PTY_UNAVAILABLE' close so the client can render a
+    // degraded banner instead of reconnect-looping. Test injections
+    // (_ptySpawnForTesting) bypass this because they never touch the real
+    // module, so the existing pass-through unit tests are unaffected.
+    if (!pty && !_ptySpawnForTesting) {
+      const err = new Error(
+        'node-pty native module is unavailable: ' +
+        (ptyLoadError ? ptyLoadError.message : 'unknown load failure')
+      );
+      err.code = PTY_UNAVAILABLE_CODE;
+      throw err;
     }
 
     // ── Defense-in-depth: validate all user-controlled inputs ──
@@ -844,6 +931,23 @@ class PtySessionManager {
    * @param {object} [spawnOpts] - Options passed to spawnSession if creating new
    */
   attachClient(sessionId, ws, spawnOpts = {}) {
+    // ── Native-module containment (issue #68) ──
+    // When node-pty failed to load we cannot attach a terminal at all. Close
+    // immediately with a stable reason so the frontend renders a degraded
+    // banner and does NOT enter its reconnect loop. This mirrors the existing
+    // 1011 close convention used for spawn failures further down. Read-only
+    // manager methods (listSessions, getScrollbackLines, getSession) keep
+    // working so the rest of the UI is unaffected by an unavailable engine.
+    if (!pty) {
+      try {
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: 'error', message: 'PTY_UNAVAILABLE' }));
+        }
+      } catch (_) { /* dead socket; close below still runs */ }
+      try { ws.close(1011, 'PTY_UNAVAILABLE'); } catch (_) {}
+      return;
+    }
+
     let session = this.sessions.get(sessionId);
 
     // If no live session, try to spawn from store data
@@ -872,6 +976,23 @@ class PtySessionManager {
           session = this.spawnSession(sessionId, spawnOpts);
         }
       } catch (err) {
+        // Native-module containment (issue #68), belt-and-braces: if the
+        // failure is the coded node-pty load error (e.g. pty went null between
+        // the early guard above and here, or a future code path reaches
+        // spawnSession without the guard), surface the same stable
+        // 'PTY_UNAVAILABLE' close reason the early guard uses so the frontend
+        // takes the degraded-banner path rather than the generic reconnect
+        // path. All other spawn failures keep their descriptive reason.
+        if (err && err.code === PTY_UNAVAILABLE_CODE) {
+          console.error(`[PTY] Cannot spawn session ${sessionId}: ${err.message}`);
+          try {
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({ type: 'error', message: 'PTY_UNAVAILABLE' }));
+            }
+          } catch (_) {}
+          try { ws.close(1011, 'PTY_UNAVAILABLE'); } catch (_) {}
+          return;
+        }
         const reason = 'PTY spawn failed: ' + (err.message || 'unknown error');
         console.error(`[PTY] Failed to spawn session ${sessionId}:`, err.message);
         console.error(`[PTY] Stack:`, err.stack);
@@ -1206,4 +1327,12 @@ class PtySessionManager {
   }
 }
 
-module.exports = { PtySessionManager, __test: { waitForNewJsonl } };
+module.exports = {
+  PtySessionManager,
+  // Native-module containment (issue #68): capability probe + stable code so
+  // the health endpoint, boot banner, and tests can detect a failed node-pty
+  // load without importing node-pty themselves or string-matching a message.
+  getPtyAvailability,
+  PTY_UNAVAILABLE_CODE,
+  __test: { waitForNewJsonl },
+};

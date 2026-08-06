@@ -5136,6 +5136,56 @@ body.cwm-dragging .sidebar-backdrop {
   display: none;
 }
 
+/* Issue #68: in-pane degraded banner shown when the server's native terminal
+   engine (node-pty) failed to load. Positioned as an absolute overlay over the
+   terminal body only (the JS sets `top` to the live header height so header
+   controls stay clickable). Uses Catppuccin tokens so it tracks every theme;
+   the module-name chip uses the app monospace stack. */
+.terminal-pty-unavailable {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--base);
+  border-top: 2px solid var(--red);
+  overflow: auto;
+}
+.terminal-pty-unavailable-inner {
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px;
+  background: var(--mantle);
+  border: 1px solid var(--surface0);
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+}
+.terminal-pty-unavailable-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--red);
+}
+.terminal-pty-unavailable-body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--subtext0);
+}
+.terminal-pty-unavailable-code {
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface0);
+  color: var(--text);
+}
+
 .terminal-pane-activity .activity-dot {
   width: 6px;
   height: 6px;

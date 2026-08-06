@@ -794,6 +794,10 @@ class TerminalPane {
     // pane created before Phase 18-01).
     this.paneEl = null;
     this._providerId = 'claude'; // gsd:provider-literal-allowed (Phase 19 default before mount)
+    // Issue #68: reference to the in-pane "terminal engine unavailable" banner
+    // overlay, if one has been rendered. Tracked so dispose() can remove it and
+    // so repeated attach attempts never stack duplicate overlays.
+    this._ptyUnavailableBannerEl = null;
   }
 
   _log(msg) {
@@ -828,6 +832,81 @@ class TerminalPane {
       this._enqueueWrite(statusMsg);
     } else {
       this.term.write(statusMsg);
+    }
+  }
+
+  /**
+   * Render a persistent in-pane banner explaining that the server's native
+   * terminal engine (node-pty) is unavailable (issue #68). Called from the
+   * WebSocket close handler when the server closes with reason
+   * 'PTY_UNAVAILABLE'. Idempotent: any existing banner in this pane is removed
+   * first so repeated attach attempts (the user re-clicking the session)
+   * cannot stack duplicate overlays. The banner is positioned below the pane
+   * header so the header controls (including Close) stay clickable.
+   */
+  _showPtyUnavailableBanner() {
+    if (typeof document === 'undefined') return;
+    // Resolve the owning pane element. Prefer the cached reference from mount()
+    // and fall back to walking up from the container id.
+    let paneEl = this.paneEl;
+    if (!paneEl) {
+      const container = document.getElementById(this.containerId);
+      paneEl = container ? container.closest('.terminal-pane') : null;
+    }
+    if (!paneEl) return;
+
+    // Defensive de-dup: remove any prior banner in this pane (this instance's
+    // or a leftover from a reused slot) before creating a fresh one.
+    const prior = paneEl.querySelector('.terminal-pty-unavailable');
+    if (prior) { try { prior.remove(); } catch (_) {} }
+
+    const banner = document.createElement('div');
+    banner.className = 'terminal-pty-unavailable';
+    banner.setAttribute('role', 'alert');
+    // Offset below the header so header buttons remain reachable. offsetHeight
+    // is read live so the banner tracks whatever the current header height is.
+    const header = paneEl.querySelector('.terminal-pane-header');
+    const headerH = header ? header.offsetHeight : 0;
+    if (headerH > 0) banner.style.top = headerH + 'px';
+
+    const inner = document.createElement('div');
+    inner.className = 'terminal-pty-unavailable-inner';
+
+    const title = document.createElement('div');
+    title.className = 'terminal-pty-unavailable-title';
+    title.textContent = 'Terminal engine unavailable on the server';
+
+    const body = document.createElement('div');
+    body.className = 'terminal-pty-unavailable-body';
+    // Build the body with a monospace <code> chip for the module name without
+    // using innerHTML (keeps this XSS-proof and matches the additive idiom).
+    body.appendChild(document.createTextNode(
+      'The server could not load its native terminal module ('
+    ));
+    const codeChip = document.createElement('code');
+    codeChip.className = 'terminal-pty-unavailable-code';
+    codeChip.textContent = 'node-pty';
+    body.appendChild(codeChip);
+    body.appendChild(document.createTextNode(
+      '). All other features keep working. See the server console or the ' +
+      'README Troubleshooting section for the fix for your platform.'
+    ));
+
+    inner.appendChild(title);
+    inner.appendChild(body);
+    banner.appendChild(inner);
+    paneEl.appendChild(banner);
+    this._ptyUnavailableBannerEl = banner;
+  }
+
+  /**
+   * Remove the PTY-unavailable banner if present. Called from dispose() so a
+   * torn-down pane never leaves an orphaned overlay behind in a reused slot.
+   */
+  _removePtyUnavailableBanner() {
+    if (this._ptyUnavailableBannerEl) {
+      try { this._ptyUnavailableBannerEl.remove(); } catch (_) {}
+      this._ptyUnavailableBannerEl = null;
     }
   }
 
@@ -1282,6 +1361,16 @@ class TerminalPane {
 
       this.connected = false;
       this._log('WebSocket CLOSED code=' + event.code + ' reason=' + (event.reason || 'none'));
+
+      // Native terminal engine unavailable on the server (issue #68). The
+      // server closes with this exact code+reason when node-pty failed to
+      // load. It will not fix itself, so do NOT reconnect; and unlike a
+      // transient spawn failure we do NOT auto-close the pane, because the
+      // in-pane banner needs to persist so the user can read the remediation.
+      if (event.code === 1011 && event.reason === 'PTY_UNAVAILABLE') {
+        this._showPtyUnavailableBanner();
+        return; // No reconnect, no auto-close
+      }
 
       // Code 1011 = server error (PTY spawn failed). Don't retry - it won't fix itself.
       if (event.code === 1011) {
@@ -2729,6 +2818,9 @@ class TerminalPane {
     // terminal. This is the same ownership boundary used by pane moves and
     // tab-group caching, so teardown cannot drift from rebind behavior.
     this.detachHostBindings();
+    // Issue #68: tear down the PTY-unavailable banner overlay so a reused grid
+    // slot does not inherit a stale overlay from this disposed pane.
+    this._removePtyUnavailableBanner();
     if (this.ws) { this.ws.onmessage = null; this.ws.onclose = null; this.ws.close(); }
     if (this.term && this.term.element &&
         this.term.element.__cwmTerminalPane === this) {

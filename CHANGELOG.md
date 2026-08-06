@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.6] - 2026-08-05
+
+This prerelease keeps the server alive when the native terminal engine cannot load, instead of crashing or half-booting (issue #68).
+
+### Fixed
+
+- **The server no longer crashes or half-boots when node-pty fails to load (issue #68).** node-pty ships prebuilt binaries only for macOS and Windows, so on Linux it must compile during install; modern npm blocks dependency install scripts by default, and stale npx caches can hold an unbuilt binary. Previously the top-level `require('node-pty')` threw, the throw escaped into the store's `uncaughtException` handler (which flushes state but does not exit), and the process was left half-alive: the HTTP port was bound but the scheduler, credential watcher, schedule routes, and shutdown cleanup were never wired. The load failure is now contained at a single choke point in `pty-manager.js`: `pty` stays null, every spawn path fails per-call with a stable coded error (`PTY_NATIVE_LOAD_FAILED`) instead of a raw TypeError, and the WebSocket handshake for a terminal is closed cleanly with `1011 PTY_UNAVAILABLE`. The rest of the app reaches its normal ready state with only the in-app terminal panes disabled.
+
+### Added
+
+- **`GET /api/health` reports terminal-engine capability.** The public health payload now includes `pty: { available: true }` or `pty: { available: false, code: "PTY_NATIVE_LOAD_FAILED" }`. The endpoint exposes only the boolean and the stable code; raw error strings, filesystem paths, and usernames stay in the server logs.
+- **In-pane degraded banner.** When the server closes a terminal WebSocket with `PTY_UNAVAILABLE`, the pane renders a persistent Catppuccin-themed banner ("Terminal engine unavailable on the server") instead of reconnect-looping, and the banner is cleaned up on pane dispose without stacking duplicates.
+- **Remediation diagnostics.** A new `src/web/pty-diagnostics.js` module is the single source of truth for the availability probe and the platform-specific remediation text. On a degraded boot the server prints a prominent console banner with the exact toolchain, install-script-approval, rebuild, and npx-cache-repair steps for the host platform.
+
+### Testing
+
+- Added `test/pty-degrade.test.js`: unit coverage for the availability probe, the sanitized health field (both states, no path leak), the `1011 PTY_UNAVAILABLE` attach close, empty read-only method results, the coded spawn throw, the platform remediation text, and an em-dash absence gate; plus a route-level check that `/api/health` carries the pty field.
+
 ## [1.3.0-alpha.5] - 2026-07-27
 
 This corrective prerelease closes the remaining explicit terminal-copy failure found in the live embedded browser.
