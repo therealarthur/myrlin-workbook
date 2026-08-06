@@ -162,9 +162,11 @@ check('dispose() tears the interceptor + injected DOM down', () => {
 check('index.html cache-busts the native-copy terminal fix', () => {
   // Bumped for Select mode v2 (freeze-while-selecting + Copy view overlay),
   // then again (r2) for the focus-report fix plus the mobile overlay/strip
-  // geometry. The two scripts are versioned independently on purpose, so a
-  // terminal-only change does not force a re-download of the whole SPA bundle.
-  assert.ok(/terminal\.js\?v=20260805-selectv2r2/.test(indexSrc),
+  // geometry, and again (hoverfix) once a field report showed that hovering
+  // over a mouse-tracking CLI also cancelled the mode. The two scripts are
+  // versioned independently on purpose, so a terminal-only change does not
+  // force a re-download of the whole SPA bundle.
+  assert.ok(/terminal\.js\?v=20260806-hoverfix/.test(indexSrc),
     'expected the current terminal.js cache token');
 });
 

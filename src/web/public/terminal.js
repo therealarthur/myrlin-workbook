@@ -103,24 +103,58 @@ const SELECT_STRIP_Z_INDEX = 4;
    click that STARTS a selection was cancelling the mode it was made
    in. These constants back the filter that tells a machine-generated
    report apart from a keystroke.
+
+   MOUSE REPORTS BELONG HERE TOO (field bug, 2026-08-06, user report:
+   "as soon as I go and hover over the terminal the select button
+   stops being toggled on"). An interactive CLI enables mouse tracking
+   1000/1002/1003 with SGR encoding 1006. 1003 is ANY-EVENT tracking,
+   so simply moving the pointer across the terminal, with no button
+   held and nothing clicked, makes xterm emit a stream of
+   \x1b[<35;col;rowM reports on this same channel. Select mode read
+   the first one as typing and switched itself off before the user had
+   selected anything. Measured with a real pointer sweep over a pane in
+   any-event tracking: 81 reports, 881 characters, all from hovering.
+
+   Both funnels consume the one predicate below (term.onData directly,
+   the socket hook through _isReportOnlyInputFrame), so the grammar and
+   the cap are defined once and cannot drift apart.
    ═══════════════════════════════════════════════════════════════════ */
 
-// Longest payload still considered for the report-only test. A concatenated
-// burst of reports is tiny (a focus report is 3 chars, a cursor position report
-// about 8, a device attributes response about 12). Anything larger is treated
-// as user input, which is the fail-safe direction: the cost of being wrong is
-// an unwanted unfreeze, never a swallowed selection-cancel.
-const TERMINAL_REPORT_MAX_CHARS = 64;
+// Longest payload still considered for the report-only test.
+//
+// RAISED FROM 64 (field bug, 2026-08-06). The one-shot reports are tiny (a
+// focus report is 3 chars, a cursor position report about 8, a device
+// attributes response about 12), but MOUSE MOTION reports are not one-shot:
+// with any-event tracking (DECSET 1003) every few pixels of pointer movement
+// produces another 9 to 15 byte report, and xterm can hand several of them to
+// one onData callback. A measured hover sweep produced 81 reports totalling
+// 881 characters. At 64 the filter rejected a coalesced burst and the pane
+// unfroze, which is precisely the bug this cap now has to survive.
+//
+// The fail-safe direction is unchanged: a burst even longer than this is
+// treated as user input and resumes live output. That is rare (it needs one
+// callback carrying more than a kilobyte of pure reports) and harmless.
+const TERMINAL_REPORT_MAX_CHARS = 1024;
 
 // One or more concatenated terminal reports and NOTHING else:
-//   \x1b[I / \x1b[O        DEC 1004 focus in / focus out
-//   \x1b[<row>;<col>R      DSR cursor position report (CPR)
-//   \x1b[?...c / \x1b[>...c  primary / secondary device attributes (DA)
+//   \x1b[I / \x1b[O            DEC 1004 focus in / focus out
+//   \x1b[<row>;<col>R          DSR cursor position report (CPR)
+//   \x1b[?...c / \x1b[>...c    primary / secondary device attributes (DA)
+//   \x1b[<b;col;rowM / ...m    SGR 1006 mouse report, press/motion and release
+//   \x1b[M + 3 bytes           legacy X10 mouse report
 // Anchored at both ends so a mixed chunk (a report plus a real keystroke)
 // fails and the pane unfreezes. Every alternative starts with CSI (ESC [), so
 // printable text, control characters (\r, \t, \x03, \x7f) and SS3 sequences
 // (\x1bO...) are rejected on the first two characters.
-const TERMINAL_REPORT_ONLY_RE = /^(?:\x1b\[[IO]|\x1b\[\d+;\d+R|\x1b\[[?>][0-9;]*c)+$/;
+//
+// The mouse button field is matched as a full \d+ rather than an enumeration
+// of the codes seen in the wild. Any-event tracking varies that number by
+// button, by motion bit, and by modifier (hover 35, hover with Shift 39, with
+// Meta 43, with Ctrl 51, drags 32 to 34, wheel 64 and 65), and an enumeration
+// would silently regress the moment a combination outside the list occurred.
+// Every value in that field is machine-generated, so none of it is ambiguous.
+const TERMINAL_REPORT_ONLY_RE =
+  /^(?:\x1b\[[IO]|\x1b\[\d+;\d+R|\x1b\[[?>][0-9;]*c|\x1b\[<\d+;\d+;\d+[Mm]|\x1b\[M[\s\S]{3})+$/;
 
 /* ═══════════════════════════════════════════════════════════════════
    VISIBLE-PANE WIDTH CLAIM CONSTANTS
@@ -3347,15 +3381,28 @@ class TerminalPane {
    * click that starts the selection. The same bytes also travel the wrapped
    * ws.send as an input frame, so both unfreeze funnels fired.
    *
+   * SECOND REPORTER, SAME DEFECT (field bug, 2026-08-06). An interactive CLI
+   * turns on mouse tracking 1000/1002/1003 with SGR encoding 1006. DECSET 1003
+   * is ANY-EVENT tracking: moving the pointer across the terminal with no
+   * button held emits \x1b[<35;col;rowM on this channel for every few pixels of
+   * travel. The user's words were "as soon as I go and hover over the terminal
+   * the select button stops being toggled on", and a measured sweep produced 81
+   * such reports in one gesture. Mouse reports are therefore terminal-generated
+   * too, and both encodings are accepted (SGR, plus the legacy X10 form for
+   * completeness). They are still FORWARDED unchanged, because the CLI needs
+   * them for its own clickable interface; only the unfreeze decision changes.
+   *
    * WHY IT CANNOT SWALLOW REAL INPUT. Every accepted token begins with CSI
    * (ESC + '['), so a printable character, a control character (\r, \t, \x03,
    * \x7f), and every SS3 sequence (\x1bOA..\x1bOS, which is how xterm encodes
    * application-mode cursor and F1..F4 keys) are rejected immediately. Within
-   * CSI, the accepted final bytes are I, O, R and c only: arrow keys end in
-   * A..D, Home/End in H/F, the editing keys and bracketed paste in '~', and
-   * modified arrows in A..D as well. The pattern is anchored at both ends and
-   * repeats whole tokens, so a chunk that mixes a report with anything else
-   * fails and the caller unfreezes, which is the fail-safe direction.
+   * CSI, the accepted final bytes are I, O, R, c, M and m only: arrow keys end
+   * in A..D, Home/End in H/F, the editing keys and bracketed paste in '~', and
+   * modified arrows in A..D as well. The two mouse forms need a `<` or a bare
+   * `M` immediately after the CSI, neither of which any key encoding produces.
+   * The pattern is anchored at both ends and repeats whole tokens, so a chunk
+   * that mixes a report with anything else fails and the caller unfreezes,
+   * which is the fail-safe direction.
    *
    * KNOWN, DELIBERATE AMBIGUITY. xterm encodes F3 with a modifier as
    * \x1b[1;<mod>R, which is byte-identical to a cursor position report for row
