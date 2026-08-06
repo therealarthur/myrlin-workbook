@@ -72,6 +72,27 @@ function check(name, fn) {
 }
 
 /**
+ * Queue of asynchronous checks, drained after every synchronous check has run.
+ *
+ * `check` above is deliberately synchronous: it tallies as soon as fn()
+ * returns, so handing it an async function would tally a PASS the moment the
+ * promise was created and let a later rejection escape as an unhandled
+ * rejection. Anything that awaits therefore goes through checkAsync, which is
+ * awaited by the runner at the bottom of this file before the summary prints.
+ */
+const asyncChecks = [];
+
+/**
+ * Register an asynchronous assertion block.
+ *
+ * @param {string} name - Human-readable check name.
+ * @param {Function} fn - Async assertion body; rejects on failure.
+ */
+function checkAsync(name, fn) {
+  asyncChecks.push({ name, fn });
+}
+
+/**
  * Extract a balanced-brace source block starting at an anchor string, so every
  * source assertion is scoped to the intended function body instead of matching
  * a lookalike elsewhere in the file.
@@ -2318,8 +2339,298 @@ check('a long press inside the Copy view selects text instead of opening the act
     'the exemption must still be applied through the long-press guard');
 });
 
-console.log('  ' + '='.repeat(58));
-console.log('  [terminal-select-v2] ' + passed + '/' + (passed + failed) + ' tests passed');
+/* ============================================================
+   10. Copy view: Full transcript source
 
-if (failed > 0) process.exit(1);
-process.exit(0);
+   The terminal source can only offer what the TERMINAL saw. An
+   interactive CLI keeps the conversation inside its own app and
+   repaints a width-locked frame, so everything older than the
+   visible screen exists only in the session transcript. The
+   server already publishes that read-only through the mirror API,
+   so the Copy view offers it as a second source.
+   ============================================================ */
+
+/**
+ * Build a pane fake carrying just enough for the transcript source: a stubbed
+ * API, the overlay elements it writes into, and a resolvable identity.
+ *
+ * @param {object} [over] - Fields to override.
+ * @returns {object} The fake pane (used as `this`).
+ */
+function makeTranscriptFake(over) {
+  const pre = fakeEl();
+  const notice = fakeEl();
+  const earlier = fakeEl();
+  const fake = Object.assign(Object.create(TerminalPane.prototype), {
+    calls: [],
+    sessionId: 'abc-123',
+    spawnOpts: { resumeSessionId: 'abc-123' },
+    _providerId: 'testprov',
+    _copyViewSource: 'terminal',
+    _copyViewMessages: [],
+    _copyViewStartOffset: null,
+    _copyViewTruncatedHead: false,
+    _copyViewLoading: false,
+    _copyViewText: '',
+    _copyOverlayPre: pre,
+    _copyViewNoticeEl: notice,
+    _copyViewLoadEarlierBtn: earlier,
+    _copyViewSourceBtns: { terminal: fakeEl(), transcript: fakeEl() },
+    term: { buffer: { active: { type: 'normal', length: 0, getLine: () => null } } },
+    _scrollCopyViewToBottom() {},
+    _composeCopyViewText() { return 'TERMINAL-TEXT'; },
+    _copyViewApi(method, path, body) {
+      fake.calls.push({ method, path, body });
+      return fake.apiImpl(method, path, body);
+    },
+    apiImpl: () => Promise.resolve({}),
+  });
+  fake.pre = pre;
+  fake.notice = notice;
+  fake.earlier = earlier;
+  return Object.assign(fake, over || {});
+}
+
+check('_renderTranscriptText labels turns and collapses tool events to one line', () => {
+  const text = TerminalPane._renderTranscriptText([
+    { role: 'user', kind: 'text', text: 'fix the build' },
+    { role: 'assistant', kind: 'text', text: 'Looking now.', model: 'test-model' },
+    { role: 'tool', kind: 'tool_use', toolName: 'Read', text: 'path/to/file.js\nline two\nline three' },
+    { role: 'tool', kind: 'tool_result', text: 'ok\nmore output' },
+    { role: 'assistant', kind: 'text', text: 'Fixed.', model: null },
+  ]);
+  const lines = text.split('\n');
+  assert.ok(lines.includes('User:'), 'a pasted conversation must read as a dialogue');
+  assert.ok(lines.includes('fix the build'));
+  assert.ok(lines.includes('Assistant (test-model):'), 'the model belongs on the turn that used it');
+  assert.ok(lines.includes('[tool: Read] path/to/file.js'),
+    'a tool call collapses to ONE labelled line carrying its first line');
+  assert.ok(!text.includes('line three'), 'tool payload bodies must not bloat the copy');
+  assert.ok(lines.includes('[tool result] ok'), 'results collapse the same way');
+  assert.ok(lines.includes('Assistant:'), 'a turn with no model still gets its label');
+  assert.strictEqual(lines[lines.length - 1], 'Fixed.', 'no trailing padding');
+});
+
+check('_renderTranscriptText marks truncation and survives junk', () => {
+  const text = TerminalPane._renderTranscriptText([
+    { role: 'assistant', kind: 'text', text: 'partial', truncated: true },
+    null,
+    'not an object',
+    { role: 'system', kind: 'system', text: 'compacted' },
+    { kind: 'tool_use', toolName: 'Bash', text: 'ls', truncated: true },
+  ]);
+  assert.ok(/partial \[truncated\]/.test(text),
+    'a reader must never be handed a partial quote without being told');
+  assert.ok(/System:/.test(text));
+  assert.ok(/\[tool: Bash\] ls \[truncated\]/.test(text));
+  assert.strictEqual(TerminalPane._renderTranscriptText(null), '');
+  assert.strictEqual(TerminalPane._renderTranscriptText([]), '');
+  assert.strictEqual(TerminalPane._renderTranscriptText([{ kind: 'tool_use', toolName: 'X', text: '' }]),
+    '[tool: X]', 'an empty tool payload still names the tool');
+});
+
+check('_copyViewIdentity resolves from pane state alone, and refuses to guess', () => {
+  const I = TerminalPane.prototype._copyViewIdentity;
+  assert.deepStrictEqual(
+    I.call({ _providerId: 'testprov', sessionId: 'S1', spawnOpts: { resumeSessionId: 'upstream-1' } }),
+    { provider: 'testprov', providerSessionId: 'upstream-1' },
+    'the resumed upstream id wins');
+  assert.deepStrictEqual(
+    I.call({ _providerId: 'testprov', sessionId: 'S1', spawnOpts: {} }),
+    { provider: 'testprov', providerSessionId: 'S1' },
+    'a pane opened on an existing project session carries the id as its own');
+  // Shapes the server would reject are caught here instead of as a 400.
+  assert.strictEqual(I.call({ _providerId: 'BAD PROVIDER', sessionId: 'S1', spawnOpts: {} }), null);
+  assert.strictEqual(I.call({ _providerId: 'testprov', sessionId: 'has spaces', spawnOpts: {} }), null);
+  assert.strictEqual(I.call({ _providerId: 'testprov', spawnOpts: {} }), null,
+    'a session with no upstream id yet must return null, not a guess');
+  assert.strictEqual(I.call({}), null);
+});
+
+checkAsync('executed: selecting Full transcript opens, snapshots, and CLOSES the mirror', async () => {
+  const f = makeTranscriptFake({
+    apiImpl: (method, path) => {
+      if (path === '/api/mirror/open') {
+        return Promise.resolve({
+          mirrorKey: 'testprov:abc-123',
+          history: [{ role: 'user', kind: 'text', text: 'hello there' }],
+          startOffset: 4096,
+          endOffset: 8192,
+          truncatedHead: true,
+        });
+      }
+      return Promise.resolve({ ok: true });
+    },
+  });
+  await TerminalPane.prototype._loadTranscriptSnapshot.call(f);
+  const paths = f.calls.map((c) => c.method + ' ' + c.path);
+  assert.deepStrictEqual(paths, ['POST /api/mirror/open', 'POST /api/mirror/close'],
+    'the Copy view is a snapshot, so the live subscription must be released at once');
+  assert.strictEqual(f.calls[0].body.provider, 'testprov');
+  assert.strictEqual(f.calls[0].body.providerSessionId, 'abc-123');
+  assert.ok(/^copyview-/.test(f.calls[0].body.deviceId), 'the device id must be pane-scoped');
+  assert.strictEqual(f.calls[1].body.mirrorKey, 'testprov:abc-123');
+  assert.ok(/User:/.test(f._copyViewText), 'the transcript must be rendered');
+  assert.ok(/hello there/.test(f.pre.textContent), 'and written into the overlay');
+  assert.strictEqual(f._copyViewStartOffset, 4096, 'the paging cursor must be kept');
+  assert.strictEqual(f._copyViewTruncatedHead, true);
+  assert.strictEqual(f._copyViewLoading, false);
+});
+
+checkAsync('executed: Load earlier pages backward and PREPENDS', async () => {
+  const f = makeTranscriptFake({
+    _copyViewSource: 'transcript',
+    _copyViewMessages: [{ role: 'assistant', kind: 'text', text: 'newest turn' }],
+    _copyViewStartOffset: 4096,
+    _copyViewTruncatedHead: true,
+    apiImpl: () => Promise.resolve({
+      messages: [{ role: 'user', kind: 'text', text: 'oldest turn' }],
+      startOffset: 0,
+      truncatedHead: false,
+    }),
+  });
+  const ok = await TerminalPane.prototype._loadEarlierTranscript.call(f);
+  assert.strictEqual(ok, true);
+  const call = f.calls[0];
+  assert.strictEqual(call.method, 'GET');
+  assert.ok(call.path.indexOf('/api/mirror/history') === 0);
+  assert.ok(call.path.indexOf('beforeOffset=4096') !== -1,
+    'paging must walk backward from the OLDEST line already loaded');
+  assert.ok(call.path.indexOf('provider=testprov') !== -1);
+  const text = f._copyViewText;
+  assert.ok(text.indexOf('oldest turn') < text.indexOf('newest turn'),
+    'earlier messages belong above what was already shown');
+  assert.strictEqual(f._copyViewStartOffset, 0, 'the cursor must advance to the new head');
+  assert.strictEqual(f._copyViewTruncatedHead, false, 'exhaustion is what hides the control');
+  // Exhausted: the control is gone and a further call is refused.
+  TerminalPane.prototype._updateCopyViewSourceUI.call(f);
+  assert.strictEqual(f.earlier.hidden, true, 'nothing earlier left to load');
+  const again = await TerminalPane.prototype._loadEarlierTranscript.call(f);
+  assert.strictEqual(again, false, 'a start offset of 0 means the file head is loaded');
+});
+
+checkAsync('executed: a failing history endpoint degrades to an inline notice', async () => {
+  const f = makeTranscriptFake({
+    apiImpl: () => Promise.reject(new Error('MIRROR_UNSUPPORTED')),
+  });
+  const ok = await TerminalPane.prototype._loadTranscriptSnapshot.call(f);
+  assert.strictEqual(ok, false);
+  assert.strictEqual(f.notice.hidden, false, 'the failure must be visible where the user is looking');
+  assert.ok(/MIRROR_UNSUPPORTED/.test(f.notice.textContent), 'and must say what went wrong');
+  assert.strictEqual(f._copyViewLoading, false, 'a failure must not wedge the loading latch');
+  // The Terminal source still works, which is the whole point of gating.
+  TerminalPane.prototype._setCopyViewSource.call(f, 'terminal');
+  assert.strictEqual(f._copyViewText, 'TERMINAL-TEXT');
+  assert.strictEqual(f.pre.textContent, 'TERMINAL-TEXT');
+  assert.strictEqual(f.notice.hidden, true, 'switching back clears the transcript notice');
+});
+
+checkAsync('executed: a pane with no upstream identity says so instead of calling the API', async () => {
+  const f = makeTranscriptFake({ sessionId: 'has spaces', spawnOpts: {} });
+  const ok = await TerminalPane.prototype._loadTranscriptSnapshot.call(f);
+  assert.strictEqual(ok, false);
+  assert.deepStrictEqual(f.calls, [], 'no identity means no request at all');
+  assert.strictEqual(f.notice.hidden, false);
+  assert.ok(/transcript/i.test(f.notice.textContent));
+  assert.ok(/Terminal source/i.test(f.notice.textContent), 'and must point at the working alternative');
+});
+
+checkAsync('executed: an empty transcript is reported, not rendered as a blank pane', async () => {
+  const f = makeTranscriptFake({
+    apiImpl: (method, path) => (path === '/api/mirror/open'
+      ? Promise.resolve({ mirrorKey: 'k', history: [], startOffset: 0, truncatedHead: false })
+      : Promise.resolve({})),
+  });
+  await TerminalPane.prototype._loadTranscriptSnapshot.call(f);
+  assert.strictEqual(f.notice.hidden, false);
+  assert.ok(/no transcript entries/i.test(f.notice.textContent));
+});
+
+checkAsync('executed: the source switch flips state and does not re-fetch what it has', async () => {
+  let opens = 0;
+  const f = makeTranscriptFake({
+    apiImpl: (method, path) => {
+      if (path === '/api/mirror/open') {
+        opens++;
+        return Promise.resolve({
+          mirrorKey: 'k',
+          history: [{ role: 'user', kind: 'text', text: 'first' }],
+          startOffset: 0, endOffset: 10, truncatedHead: false,
+        });
+      }
+      return Promise.resolve({});
+    },
+  });
+  await TerminalPane.prototype._loadTranscriptSnapshot.call(f);
+  assert.strictEqual(opens, 1);
+  f._copyViewSource = 'terminal';
+  TerminalPane.prototype._setCopyViewSource.call(f, 'transcript');
+  assert.strictEqual(f._copyViewSource, 'transcript');
+  assert.strictEqual(opens, 1, 'flipping back to a loaded transcript must not re-fetch');
+  assert.ok(/first/.test(f.pre.textContent));
+  assert.strictEqual(f._copyViewSourceBtns.transcript.attrs['aria-pressed'], 'true');
+  assert.strictEqual(f._copyViewSourceBtns.terminal.attrs['aria-pressed'], 'false');
+  TerminalPane.prototype._setCopyViewSource.call(f, 'terminal');
+  assert.strictEqual(f._copyViewSourceBtns.terminal.attrs['aria-pressed'], 'true');
+  assert.strictEqual(f._copyViewText, 'TERMINAL-TEXT', 'Copy all follows the visible source');
+});
+
+check('Refresh re-fetches the transcript when that is the active source', () => {
+  const refresh = extractBlock(termSrc, '_refreshCopyView() {');
+  assert.ok(refresh.includes('COPY_VIEW_SOURCE_TRANSCRIPT'), 'Refresh must dispatch on the source');
+  assert.ok(refresh.includes('_loadTranscriptSnapshot()'),
+    'Refresh on the transcript means get the current end of the conversation');
+  assert.ok(refresh.includes('_composeCopyViewText'),
+    'the terminal source must keep the exact behavior it always had');
+});
+
+check('the transcript source is wired into the overlay chrome and torn down with it', () => {
+  const ensure = extractBlock(termSrc, '_ensureCopyOverlay() {');
+  assert.ok(/terminal-copyview-source/.test(ensure), 'the switch needs its own class');
+  assert.ok(/Full transcript/.test(ensure), 'both sources must be labelled');
+  assert.ok(/terminal-copyview-earlier/.test(ensure), 'paging control must exist');
+  assert.ok(/aria-label/.test(ensure), 'the new controls need accessible names');
+  const destroy = extractBlock(termSrc, '_destroyCopyView() {');
+  assert.ok(destroy.includes('this._copyViewMessages = [];'),
+    'a rebuilt overlay must not inherit another visit messages');
+  assert.ok(destroy.includes('this._copyViewStartOffset = null;'), 'nor its paging cursor');
+  assert.ok(destroy.includes('this._copyViewSourceBtns = null;'), 'nor dangling element references');
+  const metrics = extractBlock(termSrc, '_applyCopyOverlayMetrics() {');
+  assert.ok(metrics.includes('_copyViewSourceBtns'), 'the new controls meet the same touch floor');
+  assert.ok(metrics.includes('_copyViewLoadEarlierBtn'));
+});
+
+check('the transcript source uses the read-only mirror API and the existing token', () => {
+  const api = extractBlock(termSrc, 'async _copyViewApi(method, path, body) {');
+  assert.ok(/cwm_token/.test(api), 'auth must reuse the token the pane already holds');
+  assert.ok(/Bearer/.test(api), 'as a bearer header, the way the rest of the frontend does');
+  const load = extractBlock(termSrc, 'async _loadTranscriptSnapshot() {');
+  assert.ok(load.includes("'/api/mirror/open'"), 'must use the shipped read-only endpoint');
+  assert.ok(load.includes("'/api/mirror/close'"), 'and release it immediately');
+  assert.ok(!/pty|sendCommand|ws\.send/.test(load),
+    'reading the transcript must never touch the running session');
+});
+
+/**
+ * Drain the asynchronous checks, then print the combined summary.
+ *
+ * Kept as the very last statement so the synchronous checks above have all
+ * run and tallied first, and so a rejection inside an awaited body is reported
+ * as a FAIL here instead of escaping as an unhandled rejection.
+ */
+(async () => {
+  for (const { name, fn } of asyncChecks) {
+    try {
+      await fn();
+      passed++;
+      console.log('  \x1b[32mPASS\x1b[0m ' + name);
+    } catch (err) {
+      failed++;
+      console.log('  \x1b[31mFAIL\x1b[0m ' + name);
+      console.log('       ' + (err && err.stack ? err.stack.split('\n').slice(0, 3).join('\n       ') : String(err)));
+    }
+  }
+  console.log('  ' + '='.repeat(58));
+  console.log('  [terminal-select-v2] ' + passed + '/' + (passed + failed) + ' tests passed');
+  process.exit(failed > 0 ? 1 : 0);
+})();

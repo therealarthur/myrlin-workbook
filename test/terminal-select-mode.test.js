@@ -166,7 +166,7 @@ check('index.html cache-busts the native-copy terminal fix', () => {
   // over a mouse-tracking CLI also cancelled the mode. The two scripts are
   // versioned independently on purpose, so a terminal-only change does not
   // force a re-download of the whole SPA bundle.
-  assert.ok(/terminal\.js\?v=20260806-hoverfix/.test(indexSrc),
+  assert.ok(/terminal\.js\?v=20260806-selectv3/.test(indexSrc),
     'expected the current terminal.js cache token');
 });
 
