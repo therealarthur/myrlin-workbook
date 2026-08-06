@@ -372,13 +372,13 @@ async function main() {
   });
 
   await check('index.html cache-busts the changed native-copy scripts', () => {
-    // The two scripts carry independent tokens and both moved on 2026-08-05:
-    // terminal.js for the focus-report fix plus the mobile Copy view geometry
-    // (r2), app.js because the mobile toolbar and the pane action sheet gained
-    // the Select mode and Copy view controls. They are still versioned
-    // separately so a terminal-only fix does not force a full SPA refetch.
+    // The two scripts carry independent tokens. terminal.js moved again on
+    // 2026-08-06 for the hover fix (mouse motion reports were being read as
+    // typing and cancelling Select mode); app.js is untouched by that work and
+    // keeps its mobile-parity token, which is the whole point of versioning
+    // them separately: a terminal-only fix does not force a full SPA refetch.
     assert.ok(
-      /terminal\.js\?v=20260805-selectv2r2/.test(indexSrc) &&
+      /terminal\.js\?v=20260806-hoverfix/.test(indexSrc) &&
         /app\.js\?v=20260805-mobile-select1/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );

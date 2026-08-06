@@ -128,6 +128,7 @@ function loadRuntime(container) {
     '\nreturn {' +
     ' TerminalPane: TerminalPane,' +
     ' SELECT_FREEZE_MAX_HOLD_CHARS: SELECT_FREEZE_MAX_HOLD_CHARS,' +
+    ' TERMINAL_REPORT_MAX_CHARS: TERMINAL_REPORT_MAX_CHARS,' +
     ' SELECT_FREEZE_WHEEL_LINES: SELECT_FREEZE_WHEEL_LINES,' +
     ' SELECT_NOTICE_MS: SELECT_NOTICE_MS,' +
     ' COPY_VIEW_DIVIDER: COPY_VIEW_DIVIDER,' +
@@ -1371,12 +1372,59 @@ check('_isTerminalReportOnly rejects every real keystroke shape', () => {
   assert.strictEqual(R('\x1b[200~pasted\x1b[201~'), false, 'a bracketed paste is user input');
 });
 
+check('_isTerminalReportOnly accepts SGR mouse reports (the hover field bug)', () => {
+  // Field report, 2026-08-06: "as soon as I go and hover over the terminal the
+  // select button stops being toggled on". An interactive CLI enables DECSET
+  // 1003 any-event tracking plus SGR 1006, so moving the pointer with NO button
+  // held emits one of these every few pixels on the same channel keystrokes
+  // use. A measured sweep produced 81 of them in a single gesture.
+  const R = TerminalPane._isTerminalReportOnly;
+  assert.strictEqual(R('\x1b[<35;2;6M'), true, 'plain hover motion');
+  assert.strictEqual(R('\x1b[<35;120;40M'), true, 'multi-digit coordinates');
+  assert.strictEqual(R('\x1b[<0;10;5M'), true, 'left button press');
+  assert.strictEqual(R('\x1b[<0;10;5m'), true, 'release uses the lowercase final byte');
+  assert.strictEqual(R('\x1b[<32;10;5M'), true, 'left drag (button 0 plus the motion bit)');
+  assert.strictEqual(R('\x1b[<34;10;5M'), true, 'right drag');
+  // The button field is matched as a full number rather than an enumeration,
+  // so modifier-varied motion codes cannot regress the filter.
+  assert.strictEqual(R('\x1b[<39;10;5M'), true, 'hover with Shift');
+  assert.strictEqual(R('\x1b[<43;10;5M'), true, 'hover with Meta');
+  assert.strictEqual(R('\x1b[<51;10;5M'), true, 'hover with Ctrl');
+  // The wheel guard normally swallows these before they are emitted; accepted
+  // anyway because they are unambiguously machine-generated.
+  assert.strictEqual(R('\x1b[<64;10;5M'), true, 'wheel up');
+  assert.strictEqual(R('\x1b[<65;10;5M'), true, 'wheel down');
+  // Legacy X10 encoding: CSI M followed by exactly three bytes.
+  assert.strictEqual(R('\x1b[M !!'), true, 'legacy X10 report');
+  assert.strictEqual(R('\x1b[M'), false, 'an X10 header with no payload is not a report');
+  assert.strictEqual(R('\x1b[M !'), false, 'a truncated X10 payload is not a report');
+});
+
+check('_isTerminalReportOnly survives a coalesced hover BURST past the old cap', () => {
+  const R = TerminalPane._isTerminalReportOnly;
+  const burst = '\x1b[<35;12;7M'.repeat(40);
+  assert.ok(burst.length > 64,
+    'the burst must exceed the ORIGINAL 64 char cap or this proves nothing');
+  assert.strictEqual(R(burst), true,
+    'xterm hands several motion reports to one onData callback; rejecting the ' +
+    'burst is exactly how the hover bug survived the first fix');
+  assert.strictEqual(rt.TERMINAL_REPORT_MAX_CHARS, 1024, 'the cap must cover a real burst');
+  // Mixed encodings inside one burst are still nothing but reports.
+  assert.strictEqual(R('\x1b[I' + burst + '\x1b[<0;12;7m'), true,
+    'a focus report, a motion burst and a release in one chunk are all machine output');
+});
+
 check('_isTerminalReportOnly treats a MIXED chunk as input, so the pane unfreezes', () => {
   const R = TerminalPane._isTerminalReportOnly;
   assert.strictEqual(R('\x1b[Ia'), false, 'report + keystroke must unfreeze');
   assert.strictEqual(R('a\x1b[I'), false, 'keystroke + report must unfreeze');
   assert.strictEqual(R('\x1b[I\r'), false, 'report + Enter must unfreeze');
   assert.strictEqual(R('\x1b[12;34Rx'), false, 'report + trailing byte must unfreeze');
+  assert.strictEqual(R('\x1b[<35;2;6Ma'), false, 'mouse report + printable must unfreeze');
+  assert.strictEqual(R('a\x1b[<35;2;6M'), false, 'printable + mouse report must unfreeze');
+  assert.strictEqual(R('\x1b[<35;2;6M\x1b[A'), false,
+    'a mouse report followed by an arrow key is still a keypress and must unfreeze');
+  assert.strictEqual(R('\x1b[<35;2;6'), false, 'a truncated mouse report is not a report');
 });
 
 check('_isTerminalReportOnly rejects empty, non-string and oversized payloads', () => {
@@ -1387,8 +1435,13 @@ check('_isTerminalReportOnly rejects empty, non-string and oversized payloads', 
   assert.strictEqual(R(42), false);
   assert.strictEqual(R({}), false);
   // Past the length cap the answer is deliberately "input", the fail-safe
-  // direction: an unwanted unfreeze beats a swallowed selection-cancel.
-  assert.strictEqual(R('\x1b[I'.repeat(64)), false, 'an implausibly long burst is not trusted');
+  // direction: an unwanted unfreeze beats a swallowed selection-cancel. The
+  // cap was raised to 1024 on 2026-08-06 because any-event mouse tracking
+  // coalesces genuine motion bursts well past the original 64 (see the mouse
+  // burst check below), so the "too long to trust" threshold moved with it.
+  assert.strictEqual(R('\x1b[I'.repeat(400)), false, 'an implausibly long burst is not trusted');
+  assert.strictEqual(R('\x1b[I'.repeat(64)), true,
+    'a 192 character burst is now well inside the raised cap');
 });
 
 check('executed: the real onData body forwards a focus report WITHOUT unfreezing', () => {
@@ -1426,6 +1479,39 @@ check('executed: the real onData body unfreezes on a mixed report + keystroke ch
   assert.strictEqual(f.writes.join(''), 'held');
   assert.strictEqual(sent.length, 1, 'the whole chunk still goes out unchanged');
   assert.deepStrictEqual(JSON.parse(sent[0]).data, '\x1b[Ix');
+});
+
+check('executed: hovering does not cancel Select mode on EITHER funnel', () => {
+  // Both unfreeze funnels consume the same predicate, and the field bug needed
+  // both to be wrong at once: onData saw the report as a keystroke, and the
+  // relayed input frame hit the socket hook on the same gesture. Drive the
+  // real onData body and the real socket wrapper with the exact bytes captured
+  // from a browser hover sweep over a pane in any-event tracking.
+  const hoverChunk = '\x1b[<35;12;7M';
+  const handler = compileOnDataHandler();
+  const sent = [];
+  const f = makeFreezeFake({ _selectMode: true, _writeBuf: 'held' });
+  f.ws = { readyState: 1, send: (p) => sent.push(p) };
+  for (let i = 0; i < 20; i++) handler.call(f, hoverChunk);
+  assert.strictEqual(f._selectMode, true, 'a hover must never cancel Select mode');
+  assert.strictEqual(f.writes.length, 0, 'the freeze must still hold the screen still');
+  assert.strictEqual(sent.length, 20,
+    'every report must still reach the PTY: the CLI needs them for its own clickable interface');
+  assert.deepStrictEqual(JSON.parse(sent[0]), { type: 'input', data: hoverChunk },
+    'forwarded byte for byte');
+
+  // Same bytes, socket funnel.
+  const g = makeFreezeFake({ _selectMode: true, _writeBuf: 'held' });
+  const relayed = [];
+  const ws = TerminalPane.prototype._installInputUnfreezeHook.call(g, { send: (p) => relayed.push(p) });
+  ws.send(JSON.stringify({ type: 'input', data: hoverChunk.repeat(40) }));
+  assert.strictEqual(g._selectMode, true, 'a relayed hover burst must not resume live output');
+  assert.strictEqual(g.writes.length, 0);
+  assert.strictEqual(relayed.length, 1, 'the frame still goes out');
+
+  // And a click that lands a real keystroke still resumes, on both funnels.
+  handler.call(f, 'q');
+  assert.strictEqual(f._selectMode, false, 'typing still resumes live output after a hover');
 });
 
 check('_isReportOnlyInputFrame parses the frame instead of substring matching', () => {

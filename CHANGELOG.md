@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.9] - 2026-08-06
+
+This corrective prerelease fixes a field report: Select mode switched itself off as soon as the pointer moved over the terminal.
+
+### Fixed
+
+- **Hovering over the terminal no longer cancels Select mode.** An interactive CLI turns on any-event mouse tracking, so moving the pointer across the terminal with no button held makes the terminal emit a stream of mouse position reports on the same channel it uses for keystrokes. Select mode resumes live output on user input, so the first hover report switched the mode off before anything had been selected. Mouse reports are now recognised as terminal-generated, in both the SGR encoding that ships and the legacy encoding, and in both places the decision is made. They are still delivered to the session unchanged, because the CLI needs them for its own clickable interface; only the decision to resume output changed. Typing, clicking a link, pasting, and every other real input still resume live output exactly as before.
+- **A burst of motion reports is no longer mistaken for typing.** Pointer motion produces reports continuously, and the terminal hands several of them over at once. The size limit on a machine-generated payload was tuned for one-shot reports and rejected a real hover burst, which is how the first fix missed this. A measured sweep produced 81 reports totalling 881 characters in a single gesture; the limit now covers that with room to spare, and anything beyond it still resumes output rather than being trusted.
+
+### Testing
+
+- Added mouse coverage to the report-filter truth table: hover motion, press, release, drags, modifier-varied motion codes, wheel, the legacy encoding and its truncated forms, a 40 report burst that exceeds the previous limit, and mixed chunks (a mouse report next to a printable or an arrow key) which must still resume output.
+- Added an executed check that drives the production keystroke handler and the production socket wrapper with the exact bytes captured from a browser hover, proving the mode survives on both paths, that every report still reaches the session, and that a keystroke afterwards still resumes live output.
+
 ## [1.3.0-alpha.8] - 2026-08-05
 
 This corrective prerelease fixes the defect that made Select mode cancel itself on the click that started a selection, and gives phones the two copy controls they could not reach at all.
