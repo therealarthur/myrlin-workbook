@@ -909,3 +909,93 @@ are P3 and P4 targets and all five moved in the right direction this phase.
 7. **A harness that now measures three more things**: the count and identity of every shadowed
    element on screen, the sidebar's computed `border-right-width` and `box-shadow`, and horizontal
    overflow at 320, 768, 1024 and 1440. Later phases get those numbers for free.
+
+---
+
+## 10.7 P2.7, and the app.js halves of P2.1 and P2.5, shipped after the phase
+
+Recorded by the agent that shipped them, in the same section as the phase they belong to, because
+BUILD-CONTRACT 4.4 assigns them to P2 and 5.2 gives P2 one version. `DEVIATIONS.md` DV-9
+Resolutions carries the per-gap state.
+
+### 10.7.1 The projection lives in `instance-colors.js`, not in `app.js`
+
+Contract 1.8 names `TAB_COLOR_TOKENS` in the `instance-colors.js` row and says "same pattern" for
+the four `app.js` rows, which reads as four more local maps. It shipped as one table in
+`instance-colors.js` with thin resolvers in `app.js` instead, for three reasons.
+
+`instance-colors.js` is the only frontend module that is both a browser `<script>` and requireable
+from Node, so the mapping is the only part of this work that can be unit-tested at all; four
+literals inside a 25000-line browser class cannot. Four tables would also have had to agree with
+each other by hand, and `mauve` appears in three of them, so the first divergence would have shown
+up as a tab dot and a workspace dot disagreeing about what purple is, which is precisely the class
+of bug risk R11 describes. And a single table makes the whole projection greppable: one file
+answers "what does a persisted colour name paint".
+
+The contract's own export name is preserved, derived rather than hand-written, so its text stays
+findable in the source it describes.
+
+### 10.7.2 The resolvers in `app.js` exist for the degradation policy, not for indirection
+
+`_hueVar`, `_hueBgVar` and `_hueWash` add one thing the shared module cannot: what happens when
+the shared module is not there. `index.html` loads `instance-colors.js` with **no cachebuster**
+(`index.html:2089`, next to `app.js?v=...`), so a browser can hold a stale copy of it across a
+deploy while running the current `app.js`. The resolvers fall back to `--app-text-gray`, warn once
+on the console, and never emit a palette token, because `DESIGN-SPEC.md` 10.4 has no exception for
+error paths. Adding a cachebuster to that `<script>` is `index.html` work and is listed in 10.7.6.
+
+### 10.7.3 Tags took the block PAIR, not a mix of one ink
+
+The three tag-chip sites were `background: color-mix(in srgb, var(--<palette>) 15%, transparent)`
+with `color: var(--<palette>)`. Contract 2.3 row 3 makes a user-authored tag a **content label**,
+which is `--app-bg-<hue>` behind `--app-text-<hue>`, so both halves moved rather than only the ink.
+The old 15 percent mix of a mid-tone ink was close to invisible on dark chrome and muddy on light;
+the captured pairing is measured to work on both. `blockHueWash` still exists and is tested,
+because contract 2.3's **property** chips are explicitly translucent so they composite on a hovered
+row, and that is the P3 chip work's to consume.
+
+### 10.7.4 The five names with no Notion equivalent
+
+`sky` to teal, `lavender` to purple, `sapphire` to blue, `flamingo` and `rosewater` to brown, per
+contract 1.8 row 3. Eight tag names therefore collapse onto six block hues and thirteen persistable
+workspace colours onto nine. That collapse is intended: the block palette has ten colours and the
+Catppuccin ramp has fourteen, and 1.9 rule C1 says map on role rather than on hue. The visible cost
+is that two tags which used to be distinguishable, one hashing to `sky` and one to `teal`, are now
+the same colour. The hash is unchanged, so no tag changed colour relative to itself.
+
+### 10.7.5 One scroll observer, two consumers
+
+The topbar toggle and the hover gate both need to know that something is scrolling, so there is one
+capture-phase listener rather than two. The gate is stripped **before** the animation-frame throttle
+and the header is updated inside it: a hover wash that appears for one frame is the exact bug the
+gate exists to prevent, while a topbar shadow that appears one frame late is invisible behind a
+700ms transition.
+
+### 10.7.6 What this work package could not reach, and who owns it
+
+1. **The `nt-enable-hover` gate has nothing to gate.** No rule in `styles.css` is written as
+   `.nt-enable-hover .thing:hover`. The mechanism is correct and the class is stripped and restored
+   correctly; until the stylesheet's hover rules are rewritten behind it, DV-3's promise is still
+   unkept. **P3 or P4 stylesheet owner.**
+2. **`styles.css:6319-6336` hardcodes the pane slot ramp a second time**, as
+   `border-left: 3px solid var(--mauve)` through `var(--pink)` per `[data-slot]`. It is the same six
+   colours as `PANE_SLOT_COLORS`, so the sidebar pip and the pane header now disagree, and it is a
+   3px left bar, which 2.12 calls the single most important idiom to remove. Replacing it with
+   2.12's 35 percent mix into the pane-frame hairline closes both. **P4.**
+3. **`.terminal-group-tab` still paints its name and a 2px underline slab from `--tab-color`**
+   (`styles.css:6689-6726`), and its ground is `var(--surface0)`. The hue is now a chrome token, but
+   the recipe is the underlined tab 2.7 rejects. **P4.4.**
+4. **The status dots write their fill inline from `app.js`**: `renderSessionItem` emits
+   `style="background: var(--green|--peach|--blue|--overlay0)"`. An inline style beats every rule,
+   so 2.3's `.status-dot` recipe cannot land until that emitter moves too. Not one of DV-9's five
+   maps, so out of this package's scope, but it is a **blocker for the P3.2 or P4 status work** and
+   whoever owns that recipe must take the `app.js` emitter with it.
+5. **115 palette `var()` references remain in `app.js`**, all outside the five maps: ad hoc inline
+   styles on settings rows, task badges, analytics cards, meters, the resources view and the
+   Costs chart ramp `barColors` (`app.js:21908`, an eight-entry map in the same shape as the five,
+   just not listed in 1.8). These are contract 1.10's census, **P3 and P4**.
+6. **`instance-colors.js` has no cachebuster** in `index.html`. Every other frontend script that
+   this program has touched carries one. **Orchestrator or P4**, as a five-file atomic bump per
+   gate G10.
+7. **The header stats popover**, DV-9's remaining P2.1 item, needs `index.html`. **P4 or the
+   orchestrator.**

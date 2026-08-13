@@ -42,6 +42,25 @@ implements them lands in P1 and P2. Every later row is added by the phase that s
 
 Rows DV-4 to DV-6 were incurred in P1. Rows DV-7 to DV-11 were incurred in P2.
 
+## Resolutions
+
+A row is never rewritten once incurred: what it says was true of the phase that wrote it, and
+editing it in place would destroy the record. Resolutions are recorded here instead, against the
+row they close.
+
+**DV-9, closed on two of three gaps and narrowed on the third.** Shipped after P2 by the P2.7
+agent, whose ownership set was `app.js`, `instance-colors.js` and its own test additions.
+
+| DV-9 gap | State | What shipped |
+| --- | --- | --- |
+| 1. `.app-header.is-scrolled` authored but never toggled | **Closed.** | One delegated capture-phase scroll observer on the document feeds `_updateHeaderScrolled`, which toggles the class past `HEADER_SCROLLED_AT_PX`. Capture phase rather than per container because `.main-content` is itself `overflow: hidden`, the scroller differs per view mode, and most of those containers are rendered long after boot. Only main-column scrollers count; a sidebar, menu, modal body or terminal transcript is ignored rather than treated as zero. `setViewMode` resets the state, because a view switch swaps the scroller without firing a scroll event. |
+| 2. Hover washes can flash under a moving pointer | **Mechanism shipped, effect not yet visible.** | `nt-enable-hover` now goes on `#app` at bind time and is stripped on scroll and on `dragstart`, restored after `HOVER_GATE_RESTORE_MS` idle, with a drag hold and a `HOVER_GATE_DRAG_MAX_MS` safety net. The strip runs before the animation-frame throttle, so no wash survives the first frame of a scroll. **It changes nothing on screen yet**: no rule in `styles.css` is written as `.nt-enable-hover .thing:hover`, and the gated rules that do exist live in the vendored `design/notion/components.css`, whose classes this shell does not use. Writing the shell's hover rules behind the gate is `styles.css` work and belongs to the P3 or P4 stylesheet owner. Recorded rather than claimed. |
+| 3. The five JS colour maps leak the terminal palette into chrome | **Closed.** | `instance-colors.js` gained the name to token projection contract 1.8 specifies, and `app.js` routes every identity inline style through it. All five pinned arrays are byte-identical; only the resolution moved. Machine-checked in the `p2b` screenshot set: exact Catppuccin accent pixels across the eight shots fall from 39562 to 0, and in the sidebar strip alone, which is entirely this work package's, from 50 to 0. |
+
+The header stats cluster moving into a popover, which DV-9 also lists under P2.1, did **not** ship
+and is not narrowed. It needs `index.html`, which was in no agent's ownership set for either pass.
+It stays with P4 or the orchestrator.
+
 ## Expected rows, not yet incurred
 
 These are named here so the phase that hits them writes a row rather than quietly choosing.

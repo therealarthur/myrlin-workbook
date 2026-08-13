@@ -23,6 +23,7 @@ This is the one you can see. The previous release changed what the interface was
 - **Corners are consistent.** 199 hand-written corner radii across the stylesheet became eight named ones, so a chip and a card are no longer accidentally the same shape. Chips are 4px, cards and dialogs are 10px, buttons are 6px.
 - **Scrollbars are the thin, quiet kind**: a 7px hairline thumb over a transparent track, darkening slightly when you point at it.
 - **Selected text outside the terminal is the blue wash from the design system**, in every one of the thirteen palettes. The terminal's own selection is unchanged and still follows the palette you picked.
+- **Project dots, tab dots, folder colours and tag chips stopped following your terminal palette.** Picking a terminal theme used to repaint half the sidebar with it. Those marks identify a project, a tab or a tag, and an identity colour that changes when you change something unrelated is not an identity colour, so they now come from the interface's own ten-colour palette and look the same in every terminal theme, light or dark. The colours you have chosen are untouched: a project saved as purple is still purple, a tag keeps the colour it has always had, and the tab colours still run in the same order down the tab strip. Only the exact shade moved, from the terminal's saturated version to the quieter one the rest of the interface uses. Tag chips also gained a proper background rather than a fifteen percent tint of their own text colour, which was close to invisible in dark mode.
 
 ### Fixed
 
@@ -30,6 +31,8 @@ This is the one you can see. The previous release changed what the interface was
 - **Context menus land where they should.** The menu animated in from 95 percent scale, and the code that keeps a menu from falling off the edge of the screen measured it during that animation, so it was positioning menus from a size that was never real. Menus now fade in with a 4px drop and nothing else, which is measurable from the first frame.
 - **Seventeen controls had no keyboard focus ring at all**, including the settings search, the Quick Find inputs, the project search, the find-in-conversations box, the launcher search and the notes editor. Several of them switched the ring off permanently rather than only while clicking. Every one of them shows a ring on keyboard focus now, and controls that already had their own focus treatment keep it.
 - **Two colour bugs that predate the restyle.** Row hover highlights on the three light themes were painted in white and were therefore invisible, and the grouped-workspace stripe used a colour that did not exist in most themes. Both now come from the theme system.
+- **The colour picker was previewing colours it was not going to give you.** Choosing a project colour showed you the terminal palette's version of each swatch while the dot it fed was about to be painted in the interface palette. Picker and dot now resolve through the same table, so what you point at is what you get.
+- **The top bar's shadow while you scroll now actually appears.** It was written, including its deliberately slow 700ms fade, but nothing ever switched it on.
 
 ### Removed
 
@@ -40,6 +43,7 @@ This is the one you can see. The previous release changed what the interface was
 
 - The full suite is green at 82 files and 1317 assertions, unchanged: this release added, removed and retargeted zero test expectations. Every one of the seventeen mechanical gates passes, and four of the counters moved in the right direction: corner-radius literals 199 to 0, hover lifts 21 to 17, raw colour values outside the token block 128 to 83, and leftover palette references 1229 to 1132.
 - Eight screenshots at two sizes in both light and dark are recorded under `screenshots/notion-restyle/p2/` for comparison against the previous two releases.
+- The three items above that landed after the release commit (the colour maps, the picker, the scrolled top bar) added 51 assertions and retargeted none, and are photographed separately under `screenshots/notion-restyle/p2b/`. Across those eight shots the number of pixels painted in an exact terminal-palette accent colour is zero, down from 39562.
 
 ## [1.3.0-alpha.12] - 2026-08-13
 
