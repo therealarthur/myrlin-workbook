@@ -691,3 +691,221 @@ components.
    markup carries them yet, and the non-bundle-family tokens it consumes (`--space-*`, `--text-*-size`,
    `--mkt-*`) are **not** authored in `styles.css`. P2 authors whichever of those it actually uses.
 7. One open decision handed forward: 9.2.4, the running-state hue.
+## 10. Phase P2, the Notion shell
+
+### 10.1 What shipped, and where
+
+| WP | Commit | Files | What |
+| --- | --- | --- | --- |
+| P2.1 | `e43ee76` | `styles.css`, `focused-shell.css`, `INVENTIONS.md` | The 44px topbar, the focused-shell chrome-token reconciliation (9.3.1), the four geometry tokens onto the chrome layer, the view-tab pill recipe, `--radius-pill` and `--radius-pane-frame`. |
+| P2.2 | `743857c` | `styles.css`, `focused-shell.css` | The 240px warm sidebar, the inset edge, 27px rows, sentence-case section labels, and four accent bars removed. |
+| P2.3 | `a2badb2` | `styles.css`, `focused-shell.css` | The radius sweep. Gate G6 199 to 0. |
+| P2.4 | `3692d34` | `styles.css` | The elevation sweep, plus the 48-rule per-theme literal tail retired in place (contract C7). |
+| P2.5 | `6fb6ef0` | `styles.css`, `focused-shell.css` | The motion sweep, and the two named motion patterns. |
+| P2.6 | `046475a` | `styles.css` | Selection, focus ring, focus coverage, the 7px scrollbar, the application type scale. |
+| P2.6b | `6e33783` | `styles.css`, `focused-shell.css`, `DEVIATIONS.md` | What looking at the eight screenshots found: the muted-ink re-pairing, the sidebar tab strip, the mobile tab inks, and the five P2 deviation rows. |
+
+There is no P2.7 commit. See 10.3.1.
+
+### 10.2 Ambiguities resolved during P2
+
+#### 10.2.1 `--text-muted` was mapped to a token no call site wanted
+
+Contract table B maps `--text-muted` to `--app-text-disabled`. P1 shipped that at `:root`, but
+`focused-shell.css:25` re-derived the token from the palette and `data-ui-shell` is always set, so
+the mapping had **never rendered**. P2.1 removed the mask and the value reached all 29 consumption
+sites at once, at which point it was obviously wrong: every one of the 29 is meta, hint or label copy
+on a live interactive surface and not one is a disabled control, and `#bcbab6` on `#ffffff` measures
+about 1.9:1 against a 4.5:1 floor.
+
+Resolved by re-pairing the token onto `--app-text-tertiary`, which is what contract 1.2's own
+analysis predicts ("Notion collapses this project's four ink steps onto three") and what
+`PROCEDURE.md` 4.2 requires (re-pair, never darken). Recorded as `DEVIATIONS.md` DV-10.
+
+**This is the general shape of the risk P1 left behind.** Any table-B mapping that
+`focused-shell.css` was shadowing had been unverified until now. `--border-subtle` was the only other
+one and it is correct at `--app-border-secondary`.
+
+#### 10.2.2 The universal focus ring cannot be a box-shadow
+
+`DESIGN-SPEC.md` 1.5 gives three box-shadow ring tokens. A universal `:focus-visible` box-shadow
+would replace the box-shadow every card, menu, pane and popover already carries the moment it took
+focus, and the two focus rules the suite PINS are outlines, so it would also ship two competing
+idioms. The universal ring stays an outline, re-pointed and tightened to a 1px offset; the captured
+ring tokens are used per component, starting with `--app-input-focus-ring` on `.input:focus`.
+`DEVIATIONS.md` DV-8.
+
+The more valuable half of P2.6 was coverage, not colour: **seventeen controls carried a bare
+`outline: none`**, several on the resting rule rather than on `:focus`, so they had no keyboard ring
+at all. The new `:is(...)` rule scores (0,1,1), which outranks a single-class `outline: none` and
+still loses to any control with its own focus treatment at (0,2,0).
+
+#### 10.2.3 The mock's scrollbar line would have disabled the mock's scrollbar
+
+`DESIGN-SPEC.md` 1.5 ends the scrollbar recipe with a bare universal `scrollbar-width: thin` next to
+five `::-webkit-scrollbar` rules. Chromium ignores every `::-webkit-scrollbar` declaration as soon as
+`scrollbar-width` is set to anything but `auto`, so shipping both verbatim would have silently
+dropped the 7px thumb on this application's primary engine. It ships inside
+`@supports not selector(::-webkit-scrollbar)`. `DEVIATIONS.md` DV-7.
+
+#### 10.2.4 `ctx-in` was a real positioning bug, not only an off-brand entrance
+
+`app.js:18568` unhides the context menu and reads `getBoundingClientRect()` immediately to clamp it
+against the viewport. `getBoundingClientRect()` returns the **transformed** box, and `ctx-in` started
+the menu at 95 percent scale, so the clamp had always been computing from a rect 5 percent smaller
+than the menu would settle at. Contract 2.4's 4px limit is the fix and it is why the limit is not
+merely aesthetic. Every entrance in the sheet is now opacity plus a translate of at most 4px, with no
+scale anywhere.
+
+#### 10.2.5 Two dynamic tokens needed new homes when their bars were removed
+
+`phantom-tokens.test.js` asserts allow-list hygiene: every `DYNAMIC_TOKENS` entry must still be
+consumed. `--ws-color` had exactly one consumption site, the 3px left bar on the selected workspace
+row, and `--ws-group-color` had one, a 4px inset left bar. Both bars are the idiom 2.12 removes.
+
+`--ws-color` moved to `.workspace-color-dot`, where `renderWorkspaces` already writes the identical
+value inline, so the custom property is now the declared default and the inline style is the instance
+value. `--ws-group-color` moved into a full 1px hairline at a 35 percent mix, which is the pane-frame
+idiom from 2.12 applied to a row: the hue identifies rather than brackets. Neither token lost its
+consumption site and neither bar survived.
+
+### 10.3 Scope decisions, and what was deliberately left alone
+
+#### 10.3.1 P2.7 and the `app.js` half of P2.1 and P2.5 did not ship
+
+This agent's ownership set for the phase was `styles.css`, `focused-shell.css`, the screenshot
+harness and the gate baseline, with a second agent working in the same worktree. `app.js` and
+`instance-colors.js` were not in it. Three contract items therefore did not ship: the header stats
+popover (P2.1), the `nt-enable-hover` scroll and drag strip (P2.5), and **the whole of P2.7**.
+
+P2.7 is the significant one. `TAB_COLORS`, `PANE_SLOT_COLORS`, `_tagColor`, `FOLDER_COLORS` and
+`colorMap` still build palette `var()` strings by concatenation, so tab dots, pane tints, folder
+tints, workspace accents and user tags all render in the **terminal theme's** hues, which
+`DESIGN-SPEC.md` 10.4 forbids. This is risk R11, it is visible in every P2 screenshot as the mauve
+and teal workspace dots and the coloured tag chips, and gate G4 still counts it. It is a
+self-contained change (keep the pinned arrays byte-identical, add a name-to-token map used only at
+string-build time) and it is the largest single item P3 inherits. `DEVIATIONS.md` DV-9.
+
+#### 10.3.2 `styles-mobile.css` was swept and then reverted
+
+The radius sweep initially included it. It was reverted: the file belongs to the mobile track (P10
+and P11), gate G6 does not measure it, and `mobile-ux-fixes.test.js` pins a literal zero radius
+inside it. Sweeping another track's file to satisfy a gate that does not cover it is exactly the
+collision contract 4.1 item 4 exists to prevent.
+
+#### 10.3.3 Two tab families moved early, four did not
+
+`.view-tab` and `.sidebar-tab` took the pill recipe in P2 because both sit inside a region P2 had to
+re-geometry and both carried a rejection-list idiom that would have dominated this phase's
+screenshots. The other four families are untouched and P4.4 still owns them. `DEVIATIONS.md` DV-11.
+
+#### 10.3.4 The page measure was not applied
+
+`--focused-content-max` is re-pointed to the 1100px Sessions and Costs measure and currently has zero
+consumers. Applying it is a region change that belongs to P4, and at the capture width it would make
+no visible difference anyway: 1280 minus the 240px sidebar leaves a 1040px main column, already inside
+the measure. The only visible part would be the page padding, which is region work.
+
+### 10.4 The numbers
+
+| Measure | After P1 | After P2 |
+| --- | --- | --- |
+| `styles.css` lines | 12773 | **13168** |
+| `focused-shell.css` lines | 1391 | **1477** |
+| Gate G6, numeric `border-radius` literals | 199 | **0** |
+| Gate G8, `translateY` occurrences | 21 | **17** (7 centring, 10 entrance, zero hover lifts) |
+| Gate G5b, raw `rgba()` outside `:root` | 128 | **82** |
+| Gate G4, Catppuccin `var()` in chrome | 1229 | **1127** |
+| Gate G7, uppercase labels | 56 | **52** |
+| Literal (non-token) `box-shadow` values in `styles.css` | 43 | **0** |
+| Test files / assertions | 82 / 1317 | 82 / **1317** |
+
+P2's own assertion delta is **zero added, zero removed and zero retargeted**. No sanctioned test edit
+was needed: every change was a rule body, and the anchors the suite reads (selectors, single-line
+rules, cachebusters, the two pinned focus rules, the three frozen templates) were all preserved.
+Both stylesheets grew; neither shrank.
+
+Measured against the P2 gate additions in contract 5.2:
+
+| Gate addition | Result |
+| --- | --- |
+| Topbar measures 44px | **yes**, all four desktop shots. Phone is 50px, which is the focused shell's own mobile override and P10's to revisit. |
+| Sidebar measures 240px | **yes**, all four desktop shots |
+| Its right edge is an inset shadow, **not** a border | **yes**, machine-checked: `border-right-width` computes to `0px` and `box-shadow` carries `--app-sidebar-edge`. The harness now reports both. |
+| The drag still works and still persists | unchanged by construction: `#sidebar` is still an element whose `width` property controls its size, the inline style the drag writes still wins, and the 180 to 600 clamp and `cwm_sidebarWidth` were not touched |
+| `border-radius:` literal count is 0 | **yes**, G6 |
+| Shadow-carrying elements on the default screen are in single digits | **yes**, machine-checked: **1** on the Sessions view and **2** on the Workbench. The sidebar's own edge hairline, plus `.workbench-empty-icon`, which is the rounded-square icon container P4.5 and P12.4 remove. |
+| Fade in 150ms and fade out 200ms, in that asymmetry | **yes**, `--transition-fast` is 150ms with `--ease-out` and `--transition-normal` is 200ms with `--ease-in`, both from P1 and both unchanged |
+| Nothing animates on scroll | **yes**, no scroll-triggered animation exists in the sheet |
+| No block moves, scales or lifts on hover | **yes**, both hover lifts removed; G8's 17 survivors are 7 centring translates and 10 overlay entrance steps |
+| Hover washes do not flash under the cursor while a list scrolls | **NO.** This needs the `nt-enable-hover` strip, which is app.js work. DV-9. |
+| Nothing scrolls horizontally at 320, 768, 1024, 1440 | **yes**, machine-checked: the harness now probes all four widths and asserts zero overflow |
+| The terminal grid, sessions table and kanban board are **not** capped at 720px | **yes**, no measure was applied to any of them (10.3.4) |
+
+### 10.5 The P2 screenshots, and an honest reading of them
+
+`screenshots/notion-restyle/p2/`, eight shots plus `manifest.json`, the same matrix as the baseline
+and P1.
+
+**What reads as Notion now.** The chrome stack is gone: there is one 44px bar with no ground of its
+own, one hairline, and then content. The sidebar is a warm sheet a half-step off the canvas with an
+inset edge, 27px rows, sentence-case section labels and quiet inline counts. Selection and active
+state are a wash plus ink weight, consistently, in both the top bar and the sidebar. There is not a
+single coloured bar, underline or left stripe left in the shell. The canvas is genuinely flat: two
+shadowed elements on the busiest default screen, one of which is the sidebar's own edge. Corners are
+coherent, scrollbars are hairlines, and the type is the OS UI stack on the application scale.
+
+**What still reads as the old design**, top deltas first, each with the phase that owns it:
+
+1. **The primary buttons are still Catppuccin mauve.** "Start session" and "+ New" are the loudest
+   colour on every one of the eight shots and the single biggest remaining tell. **P3.1.**
+2. **Tag chips are palette-coloured 9px mono pills.** Two owners: the chip recipe is **P3.2**, and
+   the hue comes from `_tagColor`, which is the unshipped **P2.7** (DV-9).
+3. **Tab dots, pane tints, folder tints and workspace accents all still read the terminal palette.**
+   The mauve and teal workspace dots in the sidebar are the visible instance. **P2.7**, unshipped,
+   DV-9. This is risk R11.
+4. **The terminal group tab is a bordered pill with a coloured dot and a coloured underline.**
+   **P4.4**, with its dot colour from P2.7.
+5. **The empty-state art slot is a line icon in a rounded square**, which 2.12 names explicitly as
+   the thing never to do. It is also the only non-sidebar shadow on the default screen. **P4.5** and
+   **P12.4.**
+6. **The topbar has no breadcrumb.** `DESIGN-SPEC.md` 4 draws breadcrumb, spacer, account chip, two
+   icon buttons. What ships is logo, account chip, centred view tabs, search icon. The geometry is
+   right and the contents are the old ones; changing them needs `index.html` and `app.js`. **P4**, or
+   the orchestrator.
+7. **The Sessions view is a bespoke list, not the measured database table** (36px header, 32px rows,
+   `--app-table-cell-border` hairlines, the 2.4 percent row wash). **P4.3.**
+8. **Project rows in the tree are italic monospace grey**, which is neither a section label nor a row
+   in this system. **P4.**
+9. **The phone is still the old IA**: a 50px header with a hamburger, four bottom tabs rather than
+   five, and no Home screen. **P10.**
+10. **The scrolled-topbar shadow never appears** and hover washes can still flash during a scroll.
+    Both need app.js listeners. **DV-9.**
+
+Counted rather than eyeballed, the remaining chrome debt is: 1127 Catppuccin consumptions, 82 raw
+`rgba()` literals outside `:root`, 52 uppercase labels, 5 gradients and 6 backdrop filters. All five
+are P3 and P4 targets and all five moved in the right direction this phase.
+
+### 10.6 What P3 inherits
+
+1. **A shell that is done and a set of interiors that are not.** Every region boundary, ground,
+   hairline, radius, shadow and motion value is now a chrome token. What is left inside the regions
+   is components: buttons, chips, inputs, menus, tables, cards.
+2. **P2.7, unshipped and self-contained.** The five JS colour maps still leak the terminal palette
+   into chrome. Keep the pinned arrays byte-identical and add a name-to-token map used only at
+   string-build time (contract 1.8). This is the highest-value single item available and it is not
+   blocked by anything.
+3. **Two named motion patterns ready to consume**, `mwFadein` and `mwPulse`, the second already
+   inside `prefers-reduced-motion: no-preference`.
+4. **Two new radius tokens**, `--radius-pill` and `--radius-pane-frame`, both with INVENTIONS rows.
+   The full set P3 can reach for: 3.5, 4, 6, 8, 10, 12, 999px and 100 percent. There is still no
+   `--radius-popover`, `--radius-card`, `--radius-menu-item` or `--radius-button` (DV-4).
+5. **Four sanctioned test edits still unspent**: SE-2, SE-3, SE-5 and SE-6, all blessed in DV-6 and
+   all still unmade, because P2 changed none of their call sites either. SE-2 (the 4px pane accent)
+   and SE-3 (the provider tint gradient) land with the pane frame; SE-5 with the Codex status ink;
+   SE-6 with the meter thresholds.
+6. **One open decision still handed forward**: 9.2.4, whether the running state is blue or green.
+   P2 did not touch it.
+7. **A harness that now measures three more things**: the count and identity of every shadowed
+   element on screen, the sidebar's computed `border-right-width` and `box-shadow`, and horizontal
+   overflow at 320, 768, 1024 and 1440. Later phases get those numbers for free.

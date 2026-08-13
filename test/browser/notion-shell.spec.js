@@ -477,6 +477,24 @@ function readMetrics(page) {
       return { width: round(box.width), height: round(box.height) };
     };
     const bodyStyle = getComputedStyle(document.body);
+
+    // BUILD-CONTRACT 5.2, phase P2: "the count of elements carrying a shadow on
+    // the default screen is in single digits; the sidebar, tables, panels and
+    // terminal panes carry none". Counted rather than asserted by eye. Only
+    // rendered elements count, so anything hidden or zero-sized is skipped.
+    const shadowed = [];
+    for (const el of document.querySelectorAll('*')) {
+      if (!el.getClientRects().length) continue;
+      const shadow = getComputedStyle(el).boxShadow;
+      if (shadow && shadow !== 'none') {
+        shadowed.push(el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') +
+          (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/)[0] : ''));
+      }
+    }
+
+    const sidebarEl = document.querySelector('#sidebar');
+    const sidebarStyle = sidebarEl ? getComputedStyle(sidebarEl) : null;
+
     return {
       header: rect('.app-header'),
       sidebar: rect('#sidebar'),
@@ -488,8 +506,44 @@ function readMetrics(page) {
       shellMode: document.documentElement.dataset.uiShell || null,
       density: document.documentElement.dataset.density || null,
       viewMode: document.documentElement.dataset.viewMode || null,
+      shadowedElementCount: shadowed.length,
+      shadowedElements: shadowed,
+      // The sidebar's right edge must be an INSET SHADOW, not a border
+      // (BUILD-CONTRACT 1.9 C6). Reported as a number so a border creeping back
+      // in is a visible diff rather than something someone has to notice.
+      sidebarBorderRightWidth: sidebarStyle ? sidebarStyle.borderRightWidth : null,
+      sidebarBoxShadow: sidebarStyle ? sidebarStyle.boxShadow : null,
     };
   });
+}
+
+/**
+ * Probe for horizontal overflow at the four widths the P2 gate names, without
+ * capturing a screenshot at any of them.
+ *
+ * The capture matrix is deliberately frozen at two viewports so any two phases
+ * are directly comparable (P0.5). This walks the extra widths, reads the
+ * document metric, and restores the caller's viewport before returning.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @param {{width: number, height: number}} restore - Viewport to return to.
+ * @returns {Promise<Array<{width: number, overflow: boolean, scrollWidth: number}>>} One row per width.
+ */
+async function probeHorizontalOverflow(page, restore) {
+  const WIDTHS = [320, 768, 1024, 1440];
+  const rows = [];
+  for (const width of WIDTHS) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(250);
+    rows.push(await page.evaluate((w) => ({
+      width: w,
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    }), width));
+  }
+  await page.setViewportSize(restore);
+  await page.waitForTimeout(250);
+  return rows;
 }
 
 /**
@@ -631,6 +685,20 @@ async function run() {
     for (const shot of manifest.shots) {
       manifest.metrics[shot.viewport + '/' + shot.chrome + '/' + shot.route] = shot.metrics;
     }
+
+    // BUILD-CONTRACT 5.2 phase P2: "Nothing scrolls horizontally at 320, 768,
+    // 1024, 1440." The capture matrix stays at two viewports so phases remain
+    // comparable, so the extra widths are probed rather than photographed.
+    manifest.horizontalOverflowProbe = await probeHorizontalOverflow(page, {
+      width: VIEWPORTS[0].width,
+      height: VIEWPORTS[0].height,
+    });
+    const overflowing = manifest.horizontalOverflowProbe.filter((row) => row.overflow);
+    assert.deepStrictEqual(
+      overflowing,
+      [],
+      'the shell scrolls horizontally at: ' + overflowing.map((r) => r.width + 'px').join(', ')
+    );
 
     assert.deepStrictEqual(pageErrors, [], 'the application raised browser errors during capture');
 

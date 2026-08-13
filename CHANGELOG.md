@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.13] - 2026-08-13
+
+This is the one you can see. The previous release changed what the interface was made of; this one changes where things sit. The header is half the height it was, the sidebar is narrower and warmer, rows are tighter, and the coloured bars, glows and lifts are gone. If you know Notion, you should recognise the shape of this.
+
+### Changed
+
+- **The top bar is 44px instead of 80px, and it no longer looks like a title bar.** It has no background of its own, so the page runs all the way to the top edge and a single hairline is the only thing separating the bar from the content. Every control in it came down to one size, the logo mark went from 64px to 20px and lost its purple halo, and the view tabs stopped being a raised segmented control: the active view is now marked with a quiet selection wash and heavier text, the same way the sidebar marks the row you are on. The two navigations finally agree with each other.
+- **The sidebar is 240px, and its background is warmer than the page rather than darker.** That is the single biggest reason the old sidebar read as a tool panel and the new one reads as part of the document. Its right edge is a hairline drawn inside its own width, so dragging it to resize behaves exactly as before.
+- **Sidebar rows are 27px tall instead of 39px**, which is roughly a third more of your projects on screen without scrolling. Hovering a row no longer makes its border blink in and out, and on the light themes the hover highlight is now actually visible: it used to be a white tint on a light background, which is to say invisible.
+- **Every coloured bar down the side of a row is gone.** The selected workspace had one, every session row had one in its provider's colour, the active provider tab had one underneath it, and grouped workspaces had a thick one. In their place: the workspace colour moved to the dot that was already next to it, the provider colour became a tint on the row you are pointing at, the active tab became a pill, and a grouped row is now outlined rather than bracketed. This is the single most important change in the restyle and it is why the sidebar suddenly looks calm.
+- **Section labels are sentence case.** `PROJECTS` and `DISCOVERED` in spaced-out capitals are now `Projects` and `Discovered`, at a readable size. The two hairlines that flanked the Discovered label are gone too; sections are separated by space, not by rules.
+- **"New session" is a row, not a button.** It used to be a dashed outline with grey text on a grey fill, which was hard to read even before the restyle. It is now the same kind of row as everything else in the sidebar.
+- **Nothing lifts, floats, glows or scales any more.** The login mark stopped bobbing up and down and pulsing; buttons stopped growing halos when you hover them; cards stopped rising off the page; status dots stopped glowing. Depth now exists only where something genuinely floats above the page: menus, popovers, dialogs and toasts. The page itself is flat.
+- **Corners are consistent.** 199 hand-written corner radii across the stylesheet became eight named ones, so a chip and a card are no longer accidentally the same shape. Chips are 4px, cards and dialogs are 10px, buttons are 6px.
+- **Scrollbars are the thin, quiet kind**: a 7px hairline thumb over a transparent track, darkening slightly when you point at it.
+- **Selected text outside the terminal is the blue wash from the design system**, in every one of the thirteen palettes. The terminal's own selection is unchanged and still follows the palette you picked.
+
+### Fixed
+
+- **Muted text is readable again.** A token that was meant for disabled controls was being used for 29 different labels, hints and captions across the account panel, the search results, the usage meters, the Codex status strip and the mobile column headings. None of those are disabled; they are live text, and at that colour they measured roughly 1.9:1 against a white page where the readable floor is 4.5:1. They now use the ordinary quiet-text colour.
+- **Context menus land where they should.** The menu animated in from 95 percent scale, and the code that keeps a menu from falling off the edge of the screen measured it during that animation, so it was positioning menus from a size that was never real. Menus now fade in with a 4px drop and nothing else, which is measurable from the first frame.
+- **Seventeen controls had no keyboard focus ring at all**, including the settings search, the Quick Find inputs, the project search, the find-in-conversations box, the launcher search and the notes editor. Several of them switched the ring off permanently rather than only while clicking. Every one of them shows a ring on keyboard focus now, and controls that already had their own focus treatment keep it.
+- **Two colour bugs that predate the restyle.** Row hover highlights on the three light themes were painted in white and were therefore invisible, and the grouped-workspace stripe used a colour that did not exist in most themes. Both now come from the theme system.
+
+### Removed
+
+- **The colour-cycling glow around a loading pane.** It cycled a pane's border through purple, blue and teal with a halo at each step. The loading signal it duplicated, the pulsing dot next to the pane title, is still there, now in one neutral colour.
+- **The purple halo behind the empty workbench**, and the purple drop shadows around the login mark.
+
+### Testing
+
+- The full suite is green at 82 files and 1317 assertions, unchanged: this release added, removed and retargeted zero test expectations. Every one of the seventeen mechanical gates passes, and four of the counters moved in the right direction: corner-radius literals 199 to 0, hover lifts 21 to 17, raw colour values outside the token block 128 to 83, and leftover palette references 1229 to 1132.
+- Eight screenshots at two sizes in both light and dark are recorded under `screenshots/notion-restyle/p2/` for comparison against the previous two releases.
+
 ## [1.3.0-alpha.12] - 2026-08-13
 
 This is the first prerelease of the Notion restyle you can actually see. The application turns warm and light, the type stops being a webfont, and the whole colour system moves onto a new foundation. Nothing has moved on screen yet: the header is still the same height, the sidebar is still the same width, and every panel is still where it was. That is deliberate. This release changes what things are made of; the next one changes where they sit.

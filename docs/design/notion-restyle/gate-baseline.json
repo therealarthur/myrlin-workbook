@@ -24,6 +24,13 @@
       "failures": 0,
       "recordedAt": "2026-08-13",
       "note": "P1 added and removed zero assertions; it retargeted 13 existing ones across five files (SE-1, SE-4, SE-7, SE-11). The +2 against postP0-plus-drift comes from the concurrent P8 track (codex-state-db 64 to 66)."
+    },
+    "postP2": {
+      "files": 82,
+      "assertions": 1317,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "P2 added, removed and retargeted ZERO assertions. No sanctioned test edit was needed: every P2 change was a rule body, and the anchors the suite reads (selectors, single-line rules, cachebusters, the two pinned focus rules, the frozen provider-tab template) were all preserved. The count is identical to postP1 because the concurrent tracks did not add a file between the two runs."
     }
   },
   "gates": {
@@ -35,7 +42,7 @@
     },
     "G4": {
       "name": "Catppuccin var() consumption outside the palette blocks",
-      "baseline": 1229,
+      "baseline": 1127,
       "target": 0,
       "phase": "P4"
     },
@@ -47,25 +54,25 @@
     },
     "G5b": {
       "name": "rgba()/hsla() literals outside a :root block",
-      "baseline": 128,
+      "baseline": 82,
       "target": 0,
       "phase": "P4"
     },
     "G6": {
       "name": "numeric border-radius literals in styles.css",
-      "baseline": 199,
+      "baseline": 0,
       "target": 0,
       "phase": "P2"
     },
     "G7": {
       "name": "text-transform: uppercase rules",
-      "baseline": 56,
+      "baseline": 52,
       "target": 1,
       "phase": "P4"
     },
     "G8": {
       "name": "translateY occurrences in styles.css",
-      "baseline": 21,
+      "baseline": 17,
       "target": null,
       "phase": "P12 review"
     },
