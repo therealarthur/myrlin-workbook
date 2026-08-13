@@ -156,6 +156,18 @@ class CWMApp {
    *  cannot toggle the class; the 700ms transition damps the rest. */
   static HEADER_SCROLLED_AT_PX = 2;
 
+  // ── Hover gate (DESIGN-SPEC 1.7, BUILD-CONTRACT 2.1, DEVIATIONS DV-3) ──
+  /** Idle after the last scroll before hover states are allowed back.
+   *  Long enough to outlast momentum and rubber-band settling, short enough
+   *  that a pointer resting on a row lights it up as soon as the list is
+   *  still. Notion's own gate behaves this way; the exact number is ours. */
+  static HOVER_GATE_RESTORE_MS = 180;
+  /** Safety net for a drag that never reports its end. `dragend` fires even
+   *  on an Escape-cancelled drag, so this should never be reached, but a
+   *  hover gate stuck off for the rest of the session would be a silent,
+   *  unexplainable "hover stopped working" bug. Bounded, not hoped. */
+  static HOVER_GATE_DRAG_MAX_MS = 30000;
+
   constructor() {
     // ─── State ─────────────────────────────────────────────────
     this.state = {
@@ -1864,6 +1876,8 @@ class CWMApp {
 
     // Notion restyle: one delegated scroll observer for the whole shell.
     this._bindShellScrollObserver();
+    // Notion restyle: the hover gate rides on that same observer.
+    this._bindHoverGate();
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -1902,12 +1916,112 @@ class CWMApp {
   _onShellScroll(e) {
     const scroller = (e && e.target && e.target.nodeType === 1) ? e.target : null;
     this._lastScroller = scroller;
+    // Hover first and unthrottled: the whole point of the gate is that a wash
+    // must not light up under the pointer on the FIRST frame of a scroll.
+    // Deferring it to the next animation frame would leak exactly the flash
+    // it exists to prevent.
+    this._suspendHoverGateForScroll();
     if (this._shellScrollTicking) return;
     this._shellScrollTicking = true;
     requestAnimationFrame(() => {
       this._shellScrollTicking = false;
       this._updateHeaderScrolled(this._lastScroller);
     });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     HOVER GATE (DESIGN-SPEC 1.7, DEVIATIONS DV-3 and DV-9 gap 2)
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Put `nt-enable-hover` on the shell container and wire the strip.
+   *
+   * Notion writes every hover rule as `.notion-enable-hover .thing:hover` and
+   * removes the class while the user is scrolling or dragging, so a hover
+   * state never flashes under a pointer that is only passing through.
+   * DESIGN-SPEC 1.7 and BUILD-CONTRACT 2.1 carry that idiom over and put the
+   * class on `#app`; DEVIATIONS DV-3 records that the strip is ours and not
+   * the mock's, because the mock is a prototype that never scrolls a live
+   * terminal grid.
+   *
+   * The class is added from here rather than authored into index.html for
+   * one reason: a class that is present in static markup but never stripped
+   * is worse than no gate at all, because it looks implemented. Owning both
+   * ends in one place keeps the mechanism honest.
+   *
+   * Drag listeners capture so they are not affected by a downstream
+   * `stopPropagation`, and they neither cancel nor mutate the event, so the
+   * existing drag-and-drop paths for sessions, panes and tabs are untouched.
+   */
+  _bindHoverGate() {
+    const shell = this.els.app || document.getElementById('app');
+    if (!shell) return;
+    if (this._hoverGateBound) return;
+    this._hoverGateBound = true;
+
+    this._hoverGateShell = shell;
+    this._hoverGateEnabled = false;
+    this._hoverGateDragging = false;
+    this._setHoverGate(true);
+
+    document.addEventListener('dragstart', () => this._suspendHoverGateForDrag(), { capture: true });
+    document.addEventListener('dragend', () => this._resumeHoverGateAfterDrag(), { capture: true });
+    document.addEventListener('drop', () => this._resumeHoverGateAfterDrag(), { capture: true });
+  }
+
+  /**
+   * Idempotent class toggle. Every other method routes through this one so
+   * the DOM is written only on a genuine state change, which matters when
+   * the caller is a scroll handler.
+   *
+   * @param {boolean} enabled - Whether hover states are allowed.
+   */
+  _setHoverGate(enabled) {
+    const shell = this._hoverGateShell;
+    if (!shell || this._hoverGateEnabled === enabled) return;
+    this._hoverGateEnabled = enabled;
+    shell.classList.toggle('nt-enable-hover', enabled);
+  }
+
+  /** Strip the gate for the duration of a scroll, then restore after idle. */
+  _suspendHoverGateForScroll() {
+    if (!this._hoverGateShell) return;
+    this._setHoverGate(false);
+    if (this._hoverGateDragging) return;  // the drag owns the restore
+    this._scheduleHoverGateRestore(CWMApp.HOVER_GATE_RESTORE_MS);
+  }
+
+  /**
+   * Strip the gate for a whole drag and HOLD it off. A drag can last far
+   * longer than the scroll idle, and restoring hover under a dragged card is
+   * exactly the flash this gate exists to prevent.
+   */
+  _suspendHoverGateForDrag() {
+    if (!this._hoverGateShell) return;
+    this._hoverGateDragging = true;
+    this._setHoverGate(false);
+    this._scheduleHoverGateRestore(CWMApp.HOVER_GATE_DRAG_MAX_MS);
+  }
+
+  /** Release the drag hold and restore after the normal idle. */
+  _resumeHoverGateAfterDrag() {
+    if (!this._hoverGateShell) return;
+    this._hoverGateDragging = false;
+    this._scheduleHoverGateRestore(CWMApp.HOVER_GATE_RESTORE_MS);
+  }
+
+  /**
+   * (Re)arm the single restore timer. One timer, always replaced, so a burst
+   * of scroll events cannot accumulate pending restores.
+   *
+   * @param {number} delayMs - Idle before hover states are allowed back.
+   */
+  _scheduleHoverGateRestore(delayMs) {
+    clearTimeout(this._hoverGateTimer);
+    this._hoverGateTimer = setTimeout(() => {
+      this._hoverGateDragging = false;
+      this._setHoverGate(true);
+    }, delayMs);
   }
 
   /**
