@@ -97,6 +97,8 @@ check('getTabColor unknown tab falls back to first colour',
 const {
   BLOCK_HUE_TOKENS,
   BLOCK_HUE_BG_TOKENS,
+  CHIP_HUE_INK_TOKENS,
+  CHIP_HUE_FILL_TOKENS,
   PALETTE_BLOCK_HUE,
   TAB_COLOR_TOKENS,
   blockHueToken,
@@ -104,8 +106,28 @@ const {
   blockHueBgToken,
   blockHueBgVar,
   blockHueWash,
+  chipHueInkVar,
+  chipHueFillVar,
   getTabColorVar,
 } = InstanceColors;
+
+/* The chip pair, added in P4 for user-authored tags. It is a THIRD colour
+   system alongside the block ink and the block ground, and BUILD-CONTRACT 2.3
+   forbids merging any two of them, so it gets its own coverage rather than
+   riding on the block assertions. */
+check('CHIP_HUE_INK_TOKENS and CHIP_HUE_FILL_TOKENS cover the same ten hues as the block palette',
+  eq(Object.keys(CHIP_HUE_INK_TOKENS).sort(), Object.keys(BLOCK_HUE_TOKENS).sort()) &&
+  eq(Object.keys(CHIP_HUE_FILL_TOKENS).sort(), Object.keys(BLOCK_HUE_TOKENS).sort()));
+check('every chip token name is the captured --app-chip-<hue>-ink / -fill spelling',
+  Object.entries(CHIP_HUE_INK_TOKENS).every(([hue, token]) => token === '--app-chip-' + hue + '-ink') &&
+  Object.entries(CHIP_HUE_FILL_TOKENS).every(([hue, token]) => token === '--app-chip-' + hue + '-fill'));
+check('the chip resolvers map legacy palette names through the same hue table',
+  chipHueInkVar('mauve') === 'var(--app-chip-purple-ink)' &&
+  chipHueFillVar('mauve') === 'var(--app-chip-purple-fill)' &&
+  chipHueInkVar('flamingo') === 'var(--app-chip-brown-ink)');
+check('an unknown colour name degrades to the neutral chip, never to a palette token',
+  chipHueInkVar('not-a-colour') === 'var(--app-chip-gray-ink)' &&
+  chipHueFillVar(undefined) === 'var(--app-chip-gray-fill)');
 
 check('TAB_COLOR_TOKENS covers exactly the six TAB_COLORS names',
   eq(Object.keys(TAB_COLOR_TOKENS).sort(), [...TAB_COLORS].sort()));
@@ -304,14 +326,29 @@ check('colorMap still carries all thirteen persistable keys',
 check('colorMap holds no literal palette var() any more',
   colorMapBlock.length > 0 && !/var\(--(?:mauve|peach|sky|sapphire|lavender|flamingo|rosewater)\)/.test(colorMapBlock));
 
-// Tag chips take the named block PAIR (BUILD-CONTRACT 2.3 row 3), at all
-// three render sites: the tasks list, the kanban card and the sidebar row.
+// Tag chips take the CHIP PAIR, at all three render sites: the tasks list,
+// the kanban card and the sidebar row.
+//
+// RETARGETED IN P4, and this is the reason. P2.7 shipped these three sites on
+// the named block pair (--app-text-<hue> on --app-bg-<hue>) because
+// BUILD-CONTRACT 2.3 row 3 calls a user-authored tag a content label. P3 then
+// measured that pairing at 2.41:1 to 3.85:1 against a 4.5:1 floor and recorded
+// in DECISIONS 11.5 item 2 that the capture itself never draws coloured ink on
+// a coloured ground: a Notion callout carries DEFAULT ink, and the coloured ink
+// is for text on the plain page. The orchestrator ruled the chip pair, which is
+// already in the system and measures 4.95:1 to 7.26:1 across both chromes.
+// The projection module keeps blockHueVar and blockHueBgVar untouched for dots,
+// tints and callouts; only the tag sites moved.
 const tagChipSites = APP_JS.match(
-  /session-badge-tag" style="background:\$\{this\._hueBgVar\(color\)\};color:\$\{this\._hueVar\(color\)\};"/g
+  /session-badge-tag" style="background:\$\{pair\.fill\};color:\$\{pair\.ink\};"/g
 ) || [];
-check('all three tag-chip sites use the block ink and ground pair',
+check('all three tag-chip sites use the accessible chip ink and fill pair',
   tagChipSites.length === 3,
   'found ' + tagChipSites.length);
+const chipPairSites = (APP_JS.match(/this\._chipHuePair\(color\)/g) || []).length;
+check('every tag-chip site resolves its pair through the shared projection',
+  chipPairSites === 3,
+  'found ' + chipPairSites);
 
 /* ─── 8. The two shell listeners DV-9 left unshipped ────────────────────── */
 

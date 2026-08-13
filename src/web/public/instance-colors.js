@@ -89,6 +89,51 @@
   });
 
   /**
+   * The CHIP pair, which is a different colour system from the two above and
+   * must not be merged with them (BUILD-CONTRACT 2.3).
+   *
+   * WHY THIS EXISTS. P3 shipped user tags as the named block pair,
+   * `--app-text-<hue>` on `--app-bg-<hue>`, which is what BUILD-CONTRACT 2.3
+   * row 3 specifies for a content label. Measured, that pairing runs 2.41:1 to
+   * 3.85:1 against a 4.5:1 floor, and DECISIONS 11.5 item 2 records why: a
+   * coloured Notion callout carries DEFAULT ink on a coloured ground, and the
+   * coloured ink is meant for text on the PLAIN page. Putting the two coloured
+   * halves together is the one combination the capture never draws.
+   *
+   * The pair that does clear the floor is already in the system: chip ink on
+   * chip fill, measured 5.98:1 to 7.26:1 in light chrome and 4.95:1 to 6.17:1
+   * in dark. A tag chip is a chip, so it takes the chip pair. The block pair
+   * stays exactly where it belongs, on dots, tints and page callouts, and
+   * blockHueVar and blockHueBgVar are untouched for those callers.
+   */
+  const CHIP_HUE_INK_TOKENS = Object.freeze({
+    gray: '--app-chip-gray-ink',
+    brown: '--app-chip-brown-ink',
+    orange: '--app-chip-orange-ink',
+    yellow: '--app-chip-yellow-ink',
+    green: '--app-chip-green-ink',
+    blue: '--app-chip-blue-ink',
+    purple: '--app-chip-purple-ink',
+    pink: '--app-chip-pink-ink',
+    red: '--app-chip-red-ink',
+    teal: '--app-chip-teal-ink',
+  });
+
+  /** The translucent fill each chip ink is measured against. */
+  const CHIP_HUE_FILL_TOKENS = Object.freeze({
+    gray: '--app-chip-gray-fill',
+    brown: '--app-chip-brown-fill',
+    orange: '--app-chip-orange-fill',
+    yellow: '--app-chip-yellow-fill',
+    green: '--app-chip-green-fill',
+    blue: '--app-chip-blue-fill',
+    purple: '--app-chip-purple-fill',
+    pink: '--app-chip-pink-fill',
+    red: '--app-chip-red-fill',
+    teal: '--app-chip-teal-fill',
+  });
+
+  /**
    * Every legacy palette name this application has ever persisted, mapped to
    * the block hue it now resolves to. Pairings are BUILD-CONTRACT 1.8
    * verbatim: 1.9 rule C1 says map on ROLE, not on hue, and the tag row of
@@ -257,6 +302,47 @@
     return blockHueVar(getTabColor(tabId, tabGroups));
   }
 
+  /**
+   * Resolve a palette name to the CHIP INK token name (no `var()` wrapper).
+   *
+   * @param {string} name - Legacy palette name or canonical block hue.
+   * @returns {string} A `--app-chip-<hue>-ink` custom-property name.
+   */
+  function chipHueInkToken(name) {
+    return CHIP_HUE_INK_TOKENS[blockHue(name)];
+  }
+
+  /**
+   * Resolve a palette name to the CHIP FILL token name.
+   *
+   * @param {string} name - Legacy palette name or canonical block hue.
+   * @returns {string} A `--app-chip-<hue>-fill` custom-property name.
+   */
+  function chipHueFillToken(name) {
+    return CHIP_HUE_FILL_TOKENS[blockHue(name)];
+  }
+
+  /**
+   * The chip ink as a ready-to-inline `var()` string. This and its fill twin
+   * are what tag render code calls; no caller builds the string itself.
+   *
+   * @param {string} name - Legacy palette name or canonical block hue.
+   * @returns {string} `var(--app-chip-<hue>-ink)`.
+   */
+  function chipHueInkVar(name) {
+    return 'var(' + chipHueInkToken(name) + ')';
+  }
+
+  /**
+   * The chip fill as a ready-to-inline `var()` string.
+   *
+   * @param {string} name - Legacy palette name or canonical block hue.
+   * @returns {string} `var(--app-chip-<hue>-fill)`.
+   */
+  function chipHueFillVar(name) {
+    return 'var(' + chipHueFillToken(name) + ')';
+  }
+
   return {
     TAB_COLORS,
     getSessionInstances,
@@ -265,6 +351,8 @@
     // keeps its original identity and shape.
     BLOCK_HUE_TOKENS,
     BLOCK_HUE_BG_TOKENS,
+    CHIP_HUE_INK_TOKENS,
+    CHIP_HUE_FILL_TOKENS,
     PALETTE_BLOCK_HUE,
     FALLBACK_BLOCK_HUE,
     TAB_COLOR_TOKENS,
@@ -274,6 +362,10 @@
     blockHueBgToken,
     blockHueBgVar,
     blockHueWash,
+    chipHueInkToken,
+    chipHueFillToken,
+    chipHueInkVar,
+    chipHueFillVar,
     getTabColorVar,
   };
 });

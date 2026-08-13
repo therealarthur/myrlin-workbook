@@ -149,6 +149,11 @@ class CWMApp {
   static FALLBACK_HUE_VAR = 'var(--app-text-gray)';
   /** The block ground that pairs with FALLBACK_HUE_VAR. */
   static FALLBACK_HUE_BG_VAR = 'var(--app-bg-gray)';
+  /** The chip pair's neutral, for the same degradation path. A tag chip is a
+   *  chip, so its fallback is the neutral CHIP rather than the neutral block
+   *  colour (P4, DECISIONS 11.5 item 2). */
+  static FALLBACK_CHIP_INK_VAR = 'var(--app-chip-gray-ink)';
+  static FALLBACK_CHIP_FILL_VAR = 'var(--app-chip-gray-fill)';
 
   // ── Topbar scroll state (BUILD-CONTRACT 2.12, DESIGN-SPEC 4) ──
   /** Scroll depth at which the topbar earns its shadow. Two pixels rather
@@ -167,6 +172,22 @@ class CWMApp {
    *  hover gate stuck off for the rest of the session would be a silent,
    *  unexplainable "hover stopped working" bug. Bounded, not hoped. */
   static HOVER_GATE_DRAG_MAX_MS = 30000;
+
+  /** localStorage key for the Sessions table sort, BUILD-CONTRACT 2.13.4.
+   *  Value is `{ key, dir }`; absent means last active, descending. */
+  static SESSIONS_SORT_KEY = 'cwm_sessionsSort';
+
+  /** localStorage key for the sidebar Recent section's collapsed state,
+   *  BUILD-CONTRACT 2.13.3. */
+  static RECENT_COLLAPSED_KEY = 'cwm_recentCollapsed';
+
+  /** How many sessions each recency surface shows, BUILD-CONTRACT 2.13.
+   *  Quick Find zero-query takes 8, the sidebar Recent section takes 5, and
+   *  the workbench continue row takes 4. They are named here rather than
+   *  written into three render methods so the three cannot drift apart. */
+  static RECENCY_QUICK_FIND_LIMIT = 8;
+  static RECENCY_SIDEBAR_LIMIT = 5;
+  static RECENCY_WORKBENCH_LIMIT = 4;
 
   constructor() {
     // ─── State ─────────────────────────────────────────────────
@@ -2636,6 +2657,20 @@ class CWMApp {
     let sessLPTimer = null;
 
     sessList.addEventListener('click', (e) => {
+      // Notion restyle P4.3: the Sessions view is a table, so the same
+      // delegated listener now also owns the column headers and the trailing
+      // "New session" row. Both are checked BEFORE the row, because a header
+      // cell is not inside a .session-item and the new-row button is not
+      // either; the order is for readability, not correctness.
+      const sortHeader = e.target.closest('th[data-sort]');
+      if (sortHeader) {
+        this.toggleSessionsSort(sortHeader.dataset.sort);
+        return;
+      }
+      if (e.target.closest('.session-table-new')) {
+        this.createSession();
+        return;
+      }
       const item = e.target.closest('.session-item');
       if (item) this.selectSession(item.dataset.id);
     });
@@ -5869,6 +5904,30 @@ class CWMApp {
   }
 
   /**
+   * The CHIP pair for a user-authored tag: chip ink on chip fill.
+   *
+   * Not the block pair. DECISIONS 11.5 item 2 measured the block pair at
+   * 2.41:1 to 3.85:1 against a 4.5:1 floor, because a coloured Notion callout
+   * carries default ink on a coloured ground and never coloured-on-coloured.
+   * The chip pair measures 4.95:1 to 7.26:1 across both chromes. Same hue,
+   * same identity, legible.
+   *
+   * Degradation matches _hueVar: a missing or stale instance-colors.js warns
+   * once and falls back to the neutral chip, never to a palette token.
+   *
+   * @param {string} name - Persisted palette name or block hue name.
+   * @returns {{ink: string, fill: string}} Two ready-to-inline var() strings.
+   */
+  _chipHuePair(name) {
+    const ic = window.InstanceColors;
+    if (ic && typeof ic.chipHueInkVar === 'function' && typeof ic.chipHueFillVar === 'function') {
+      return { ink: ic.chipHueInkVar(name), fill: ic.chipHueFillVar(name) };
+    }
+    this._hueResolverMissing();
+    return { ink: CWMApp.FALLBACK_CHIP_INK_VAR, fill: CWMApp.FALLBACK_CHIP_FILL_VAR };
+  }
+
+  /**
    * The identity ink mixed down over whatever it sits on, for surfaces that
    * tint rather than mark. Derived from the same ink so a wash can never
    * drift away from the dot it belongs to.
@@ -8014,7 +8073,8 @@ class CWMApp {
 
       const listTagBadges = (t.tags || []).slice(0, 3).map(tag => {
         const color = this._tagColor(tag);
-        return `<span class="session-badge session-badge-tag" style="background:${this._hueBgVar(color)};color:${this._hueVar(color)};">${this.escapeHtml(tag)}</span>`;
+        const pair = this._chipHuePair(color);
+        return `<span class="session-badge session-badge-tag" style="background:${pair.fill};color:${pair.ink};">${this.escapeHtml(tag)}</span>`;
       }).join('');
 
       return `<div class="task-item" data-session-id="${t.sessionId || ''}" data-task-id="${t.id}">
@@ -8209,7 +8269,8 @@ class CWMApp {
     // Tag badges
     const tagBadges = (task.tags || []).map(tag => {
       const color = this._tagColor(tag);
-      return `<span class="session-badge session-badge-tag" style="background:${this._hueBgVar(color)};color:${this._hueVar(color)};">${this.escapeHtml(tag)}</span>`;
+      const pair = this._chipHuePair(color);
+      return `<span class="session-badge session-badge-tag" style="background:${pair.fill};color:${pair.ink};">${this.escapeHtml(tag)}</span>`;
     }).join('');
 
     return `<div class="kanban-card${task.blockedBy && task.blockedBy.length > 0 ? ' kanban-card-blocked-state' : ''}" draggable="true" data-task-id="${task.id}" data-session-id="${task.sessionId || ''}">
@@ -13472,24 +13533,35 @@ class CWMApp {
         const isHidden = this.state.hiddenSessions.has(s.id);
         const name = s.name || s.id.substring(0, 12);
 
-        // Tri-state dot for worktree task sessions, simple dot for regular sessions
-        let statusDot, tristateAttr = '';
+        // Tri-state dot for worktree task sessions, simple dot for regular
+        // sessions.
+        //
+        // Notion restyle P4: the hue used to be written here as an INLINE
+        // style (`style="background: var(--green)"`). An inline style beats
+        // every rule in every stylesheet, so BUILD-CONTRACT 2.3's .status-dot
+        // recipe could not reach this dot at all: it kept the terminal
+        // palette's green while every other dot in the app had moved to the
+        // block palette, and it was the blocker DECISIONS 10.7.6 item 4 and
+        // 11.3.1 item 2 both name. The state now travels as a CLASS or as the
+        // existing data-tristate attribute, and styles.css owns the hue. The
+        // three data-tristate values are byte-identical to before, because
+        // they are a behaviour contract as well as a style hook.
+        let dotClass = '';
+        let tristateAttr = '';
         const wtTask = s.worktreeTask ? (this._worktreeTaskCache || []).find(t => t.sessionId === s.id) : null;
         if (wtTask) {
           // Check if terminal pane is actively producing output
           const tp = this.terminalPanes.find(p => p && p.sessionId === s.id);
           const isOutputActive = tp && (Date.now() - tp._lastOutputTime) < 3000;
           if (s.status === 'running' && isOutputActive) {
-            statusDot = 'var(--green)'; tristateAttr = ' data-tristate="busy"';
+            tristateAttr = ' data-tristate="busy"';
           } else if (s.status === 'running') {
-            statusDot = 'var(--peach)'; tristateAttr = ' data-tristate="waiting"';
+            tristateAttr = ' data-tristate="waiting"';
           } else if (wtTask.branchAhead > 0) {
-            statusDot = 'var(--blue)'; tristateAttr = ' data-tristate="ready"';
-          } else {
-            statusDot = 'var(--overlay0)'; tristateAttr = '';
+            tristateAttr = ' data-tristate="ready"';
           }
-        } else {
-          statusDot = s.status === 'running' ? 'var(--green)' : 'var(--overlay0)';
+        } else if (s.status === 'running') {
+          dotClass = ' is-running';
         }
         const timeStr = s.lastActive ? this.relativeTime(s.lastActive) : '';
         // Look up JSONL file size via resumeSessionId
@@ -13538,7 +13610,8 @@ class CWMApp {
         if (s.tags && s.tags.length > 0) {
           for (const tag of s.tags.slice(0, 3)) {
             const color = this._tagColor(tag);
-            badges += `<span class="session-badge session-badge-tag" style="background:${this._hueBgVar(color)};color:${this._hueVar(color)};">${this.escapeHtml(tag)}</span>`;
+            const pair = this._chipHuePair(color);
+            badges += `<span class="session-badge session-badge-tag" style="background:${pair.fill};color:${pair.ink};">${this.escapeHtml(tag)}</span>`;
           }
         }
 
@@ -13553,7 +13626,7 @@ class CWMApp {
         // Phase 18 data-provider default for sessions from pre-v1.2 servers lacking the field.
         const sessProvider = this.escapeHtml(s.provider || 'claude'); /* gsd:provider-literal-allowed */
         return `<div class="ws-session-item${isHidden ? ' ws-session-hidden' : ''}" data-session-id="${s.id}" data-provider="${sessProvider}" draggable="true" title="${this.escapeHtml(s.workingDir || '')}">
-          <span class="ws-session-dot${tristateAttr}" style="background: ${statusDot}"></span>
+          <span class="ws-session-dot${dotClass}"${tristateAttr}></span>
           <span class="ws-session-name">${this.escapeHtml(name)}</span>${pip}${timeEl}
           ${metaRow}
         </div>`;
@@ -14010,6 +14083,20 @@ class CWMApp {
     }
   }
 
+  /**
+   * The Sessions view, as the measured Notion database table.
+   *
+   * BUILD-CONTRACT 2.6 and 2.13.4, DESIGN-SPEC 6. Seven columns: Name,
+   * Project, Provider, Status, Model, Cost, Last active. The header is 36px,
+   * the rows are 32px, cells are `0 8px`, and every column is sortable
+   * through the same `[data-sort]` idiom the Costs table already uses.
+   *
+   * What did NOT change, deliberately: the row is still `.session-item`, it
+   * still carries `data-id`, it is still `draggable`, and it still takes
+   * `.active` and `.attention-state`. Every delegation path in
+   * DO-NOT-BREAK D.5 resolves through `closest('.session-item')`, so moving
+   * from a div list to a table body costs those handlers nothing.
+   */
   renderSessions() {
     const list = this.els.sessionList;
     const sessions = this.state.sessions.filter(s => this.state.showHidden || !this.state.hiddenSessions.has(s.id));
@@ -14024,35 +14111,80 @@ class CWMApp {
 
     empty.hidden = true;
 
-    list.innerHTML = sessions.map(s => {
+    const sort = this.getSessionsSort();
+    const sorted = this.sortSessionsBy(sessions, sort.key, sort.dir);
+
+    const columns = [
+      { key: 'name', label: 'Name', cls: 'session-col-name' },
+      { key: 'project', label: 'Project', cls: 'session-col-project' },
+      { key: 'provider', label: 'Provider', cls: 'session-col-provider' },
+      { key: 'status', label: 'Status', cls: 'session-col-status' },
+      { key: 'model', label: 'Model', cls: 'session-col-model' },
+      { key: 'cost', label: 'Cost', cls: 'session-col-cost' },
+      { key: 'lastActive', label: 'Last active', cls: 'session-col-time' },
+    ];
+
+    const head = columns.map(c => {
+      const active = c.key === sort.key;
+      const cls = [c.cls, active ? 'sort-active' : '', active && sort.dir === 'asc' ? 'sort-asc' : '']
+        .filter(Boolean).join(' ');
+      const ariaSort = active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none';
+      return `<th class="${cls}" data-sort="${c.key}" scope="col" aria-sort="${ariaSort}">${c.label}</th>`;
+    }).join('');
+
+    const rows = sorted.map(s => {
       const isSelected = this.state.selectedSession && this.state.selectedSession.id === s.id;
+      const isHidden = this.state.hiddenSessions.has(s.id);
       const statusClass = `status-dot-${s.status || 'stopped'}`;
       const attentionState = this._attentionStateForSession(s.id, s.status);
+      const rowCls = ['session-item'];
+      if (isSelected) rowCls.push('active');
+      if (attentionState) rowCls.push('attention-state');
+      if (isHidden) rowCls.push('is-hidden-row');
 
-      // Build flags badges
-      const flagBadges = [];
-      if (s.bypassPermissions) flagBadges.push('<span class="status-badge" style="font-size:10px;padding:1px 6px;background:rgba(249,226,175,0.1);color:var(--yellow);">bypass</span>');
-      if (s.model) {
-        const modelShort = s.model.includes('opus') ? 'opus' : s.model.includes('haiku') ? 'haiku' : s.model.includes('sonnet') ? 'sonnet' : '';
-        if (modelShort) flagBadges.push('<span class="status-badge" style="font-size:10px;padding:1px 6px;background:rgba(203,166,247,0.1);color:var(--mauve);">' + modelShort + '</span>');
-      }
+      // The Project cell shows the folder NAME, not the path. DESIGN-SPEC 6
+      // draws it as "{emoji} {name}", and a truncated absolute path in a 18
+      // percent column shows the drive letter and nothing that identifies the
+      // project. The full path stays on the title attribute.
+      const project = s.workingDir ? this.projectLabelFromPath(s.workingDir) : '';
+      const modelLabel = this.shortModelLabel(s.model);
+      // The bypass flag is a property of the session, not a status, so it
+      // rides in the Model cell as a chip rather than shouting in the title.
+      const bypass = s.bypassPermissions
+        ? '<span class="session-badge session-badge-warn">bypass</span>'
+        : '';
 
       return `
-        <div class="session-item${isSelected ? ' active' : ''}${attentionState ? ' attention-state' : ''}"
+        <tr class="${rowCls.join(' ')}"
              data-id="${s.id}"${attentionState ? ` data-attention-state="${attentionState}"` : ''} draggable="true">
-          <div class="session-status">
-            <span class="status-dot ${statusClass}"></span>
-          </div>
-          <div class="session-info">
-            <div class="session-name">${this.escapeHtml(s.name)} ${flagBadges.join(' ')}</div>
-            <div class="session-meta-row">
-              ${s.workingDir ? `<span class="session-dir" title="${this.escapeHtml(s.workingDir)}">${this.escapeHtml(this.truncatePath(s.workingDir))}</span>` : ''}
+          <td class="session-cell-name">
+            <div class="session-info">
+              <span class="session-status"><span class="status-dot ${statusClass}"></span></span>
+              <span class="session-name">${this.escapeHtml(s.name)}</span>
               ${s.topic ? `<span class="session-topic">${this.escapeHtml(s.topic)}</span>` : ''}
             </div>
-          </div>
-          <span class="session-time">${this.relativeTime(s.lastActive || s.createdAt)}</span>
-        </div>`;
+          </td>
+          <td class="session-cell-project">
+            <span class="session-meta-row">
+              <span class="session-dir" title="${this.escapeHtml(s.workingDir || '')}">${this.escapeHtml(project)}</span>
+            </span>
+          </td>
+          <td class="session-cell-provider">${this.providerChipHtml(s.provider)}</td>
+          <td class="session-cell-status">${this.statusChipHtml(s.status)}</td>
+          <td class="session-cell-model">${modelLabel ? this.escapeHtml(modelLabel) : ''}${bypass}</td>
+          <td class="session-cell-cost">${this.sessionCostLabel(s)}</td>
+          <td class="session-cell-time"><span class="session-time">${this.relativeTime(s.lastActive || s.createdAt)}</span></td>
+        </tr>`;
     }).join('');
+
+    list.innerHTML = `
+      <table class="nt-table session-table">
+        <thead><tr>${head}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <button type="button" class="session-table-new" id="session-table-new">
+        <span aria-hidden="true">+</span> New session
+      </button>`;
 
     this.renderAttentionQueue();
 
@@ -14076,6 +14208,202 @@ class CWMApp {
         nameEl.appendChild(badge);
       });
     });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     SESSIONS TABLE: sort state, cell renderers (P4.3, 2.13.4)
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Read the persisted sessions-table sort, defaulting to last active,
+   * newest first.
+   *
+   * BUILD-CONTRACT 2.13.4: "Absent means { key: 'lastActive', dir: 'desc' }."
+   * The default is the whole point of the surface. A user who has never
+   * touched a column header still lands on the most recent session at the
+   * top, which is one of the four places 2.13.7 criterion 2 requires to agree.
+   *
+   * @returns {{key: string, dir: string}} The active sort.
+   */
+  getSessionsSort() {
+    const fallback = { key: 'lastActive', dir: 'desc' };
+    try {
+      const raw = localStorage.getItem(CWMApp.SESSIONS_SORT_KEY);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.key !== 'string') return fallback;
+      return { key: parsed.key, dir: parsed.dir === 'asc' ? 'asc' : 'desc' };
+    } catch {
+      return fallback;
+    }
+  }
+
+  /**
+   * Persist a sessions-table sort and re-render.
+   *
+   * @param {string} key - A column key from the seven in renderSessions.
+   * @param {string} dir - 'asc' or 'desc'.
+   */
+  setSessionsSort(key, dir) {
+    try {
+      localStorage.setItem(CWMApp.SESSIONS_SORT_KEY, JSON.stringify({ key, dir }));
+    } catch { /* storage full or blocked: the sort still applies this session */ }
+    this.renderSessions();
+  }
+
+  /**
+   * Toggle the sort on a column header click. A new column starts descending
+   * for time and cost (most first, which is what anyone asking the question
+   * wants) and ascending for text.
+   *
+   * @param {string} key - The column key that was clicked.
+   */
+  toggleSessionsSort(key) {
+    const current = this.getSessionsSort();
+    if (current.key === key) {
+      this.setSessionsSort(key, current.dir === 'asc' ? 'desc' : 'asc');
+      return;
+    }
+    const descFirst = key === 'lastActive' || key === 'cost';
+    this.setSessionsSort(key, descFirst ? 'desc' : 'asc');
+  }
+
+  /**
+   * Sort a session array by a table column, without mutating the input.
+   *
+   * Ties break on session id descending, which is the same stable tie-break
+   * the recency contract (2.13.1) uses server side, so two surfaces looking
+   * at the same two equally-recent sessions agree on which is first.
+   *
+   * @param {Array} sessions - Sessions to sort.
+   * @param {string} key - Column key.
+   * @param {string} dir - 'asc' or 'desc'.
+   * @returns {Array} A new sorted array.
+   */
+  sortSessionsBy(sessions, key, dir) {
+    const sign = dir === 'asc' ? 1 : -1;
+    const text = (v) => String(v == null ? '' : v).toLowerCase();
+    const value = (s) => {
+      switch (key) {
+        case 'name': return text(s.name);
+        case 'project': return text(s.workingDir);
+        case 'provider': return text(s.provider || 'claude'); /* gsd:provider-literal-allowed */
+        case 'status': return text(s.status);
+        case 'model': return text(this.shortModelLabel(s.model));
+        case 'cost': {
+          const c = this._getSessionCostCached ? this._getSessionCostCached(s.id) : null;
+          return typeof c === 'number' ? c : -1;
+        }
+        case 'lastActive':
+        default: {
+          const t = s.lastActive || s.createdAt;
+          return t ? new Date(t).getTime() : 0;
+        }
+      }
+    };
+    return sessions.slice().sort((a, b) => {
+      const va = value(a);
+      const vb = value(b);
+      if (va < vb) return -1 * sign;
+      if (va > vb) return 1 * sign;
+      // Stable, deterministic tie-break so a re-render never reshuffles rows.
+      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+    });
+  }
+
+  /**
+   * The display name of a project directory: its last path segment, on either
+   * separator, with any trailing separator ignored.
+   *
+   * @param {string} dir - An absolute working directory.
+   * @returns {string} The folder name, or the input when it has no separator.
+   */
+  projectLabelFromPath(dir) {
+    if (!dir) return '';
+    const parts = String(dir).replace(/[\\/]+$/, '').split(/[\\/]/);
+    return parts[parts.length - 1] || dir;
+  }
+
+  /**
+   * Short model label for a table cell ("opus", "sonnet", "haiku", or the
+   * last dash-separated segment for anything else).
+   *
+   * @param {string} model - The full model id.
+   * @returns {string} A short label, or '' when there is no model.
+   */
+  shortModelLabel(model) {
+    if (!model) return '';
+    if (model.includes('opus')) return 'opus';
+    if (model.includes('sonnet')) return 'sonnet';
+    if (model.includes('haiku')) return 'haiku';
+    return model.split('-').pop();
+  }
+
+  /**
+   * Provider identity as a property chip (BUILD-CONTRACT 2.3: purple for
+   * Claude, green for Codex). Identity, never status.
+   *
+   * @param {string} providerId - The session's provider id.
+   * @returns {string} Chip markup.
+   */
+  providerChipHtml(providerId) {
+    const id = providerId || 'claude'; /* gsd:provider-literal-allowed */
+    const prov = this._getProviderById ? this._getProviderById(id) : null;
+    // The chip carries the SHORT name. A provider's displayName is a product
+    // name ("Claude Code", "ChatGPT Codex") and does not fit an 11 percent
+    // column at chip size; the id is the identity and reads as a one-word
+    // label, which is what a property chip is for. The full display name
+    // stays reachable as the chip's title.
+    const label = id.charAt(0).toUpperCase() + id.slice(1);
+    const full = (prov && prov.displayName) || label;
+    return `<span class="session-provider-chip" data-provider="${this.escapeHtml(id)}" title="${this.escapeHtml(full)}">${this.escapeHtml(label)}</span>`;
+  }
+
+  /**
+   * Session status as a STATUS chip: a property chip at the 10px radius with
+   * a leading 8px currentColor dot.
+   *
+   * This is the first consumer of `.nt-chip-dot`. P3 shipped the class and
+   * recorded in DECISIONS 11.2.4 that nothing carried it yet because the
+   * markup lives in the files P3 did not own. This is that markup.
+   *
+   * @param {string} status - Session status.
+   * @returns {string} Chip markup.
+   */
+  statusChipHtml(status) {
+    const key = status || 'stopped';
+    const labels = {
+      running: 'Running',
+      'needs-input': 'Needs input',
+      idle: 'Idle',
+      error: 'Failed',
+      failed: 'Failed',
+      complete: 'Complete',
+      stale: 'Stale',
+      stopped: 'Stopped',
+    };
+    const label = labels[key] || key;
+    return `<span class="status-badge status-badge-${this.escapeHtml(key)}">` +
+      '<span class="nt-chip-dot"></span>' + this.escapeHtml(label) + '</span>';
+  }
+
+  /**
+   * Cost cell text. Providers that do not track cost render an em-dash rather
+   * than a misleading $0.00, which is the same rule the sidebar badge follows
+   * (Phase 18-04 COST-02).
+   *
+   * @param {Object} s - Session record.
+   * @returns {string} Cell markup.
+   */
+  sessionCostLabel(s) {
+    const provider = this._getProviderById
+      ? this._getProviderById(s.provider || 'claude') /* gsd:provider-literal-allowed */
+      : null;
+    const supportsCost = provider ? (provider.supportsCost !== false) : true;
+    if (!supportsCost) return '<span title="Cost not tracked for this provider">&mdash;</span>';
+    const cached = this._getSessionCostCached ? this._getSessionCostCached(s.id) : null;
+    if (cached === null || cached === undefined) return '';
+    return '$' + Number(cached).toFixed(2);
   }
 
   renderSessionDetail() {
