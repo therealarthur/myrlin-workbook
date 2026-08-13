@@ -583,6 +583,14 @@ function addedPunctuationViolations() {
     // than failing the phase gate on an environment problem.
     return [];
   }
+  // Built from a constructed string rather than written as a literal, for the
+  // same reason the em-dash class uses escapes: a pattern that contains the
+  // thing it forbids matches its own source line the moment this file is
+  // committed, and a gate that can never reach zero is a gate people disable.
+  const DOUBLE_HYPHEN = '-'.repeat(2);
+  const prosePattern = new RegExp('(?<=\\S) ' + DOUBLE_HYPHEN + ' (?=\\S)');
+  const commentOpener = new RegExp('^\\s*' + DOUBLE_HYPHEN);
+
   const hits = [];
   let currentFile = '';
   for (const line of diff.split('\n')) {
@@ -598,8 +606,8 @@ function addedPunctuationViolations() {
       hits.push(currentFile + ' [em dash]: ' + body.trim().slice(0, 80));
       continue;
     }
-    if (/^\s*--/.test(body)) continue;
-    if (/(?<=\S) -- (?=\S)/.test(body)) hits.push(currentFile + ': ' + body.trim().slice(0, 80));
+    if (commentOpener.test(body)) continue;
+    if (prosePattern.test(body)) hits.push(currentFile + ': ' + body.trim().slice(0, 80));
   }
   return hits;
 }
