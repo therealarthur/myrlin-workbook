@@ -1,9 +1,38 @@
 <!DOCTYPE html>
-<html lang="en" data-ui-shell="focused">
+<!--
+  data-surface="app" is permanent. The captured design system is two systems
+  wearing one logo, a marketing surface and an editor surface, and this
+  attribute selects the editor one: OS font stack, warm inks, the #2383e2 blue.
+  Workbook is an application, never a marketing page, so it never flips.
+
+  data-chrome carries the light/dark chrome theme and is stamped pre-paint by
+  the bootstrap below. It exists as a separate attribute because data-theme is
+  already occupied by 13 persisted terminal palette ids, is read pre-paint from
+  localStorage.cwm_theme, drives the 13 palette blocks, is read by terminal.js
+  and is pinned by three test files. Overloading it with light and dark would
+  break persistence, the terminal palette and those tests at once. Keeping the
+  two apart also makes a light terminal palette on dark chrome legal, which
+  DESIGN-SPEC 10.5 requires. See BUILD-CONTRACT 1.1.2 and open question OQ-1.
+
+  The literal "light" here is the failsafe, not the default: if localStorage
+  throws, the bootstrap's catch leaves this value standing rather than an
+  unstyled page.
+-->
+<html lang="en" data-ui-shell="focused" data-surface="app" data-chrome="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#1e1e2e">
+  <!--
+    Notion restyle P1.4. This was a single static <meta name="theme-color"
+    content="#1e1e2e">, the Catppuccin Mocha canvas, which tinted the mobile
+    status bar the wrong colour on every other theme. It becomes the chrome
+    ground pair from MOBILE-EXPERIENCE F.2. The media attributes cover the
+    first paint before any script runs; setChrome() in app.js rewrites BOTH
+    tags afterwards, because the application has an explicit chrome toggle that
+    is allowed to disagree with the operating system preference.
+  -->
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
   <meta name="description" content="Myrlin's Workbook - Manage Claude Code and Codex sessions">
   <title>myrlin's workbook</title>
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
@@ -50,6 +79,24 @@
         var savedTheme = localStorage.getItem('cwm_theme');
         var prefersLight = window.matchMedia &&
           window.matchMedia('(prefers-color-scheme: light)').matches;
+
+        // Chrome theme, stamped before anything paints so there is no flash of
+        // the wrong ground. Deliberately placed ABOVE the palette resolution
+        // below: if the theme registry is missing or throws, the chrome is
+        // already correct and the application is still readable.
+        //
+        // The default reads the SAME prefersLight signal the palette default
+        // reads, rather than querying prefers-color-scheme: dark separately.
+        // That matters while the restyle is mid-flight: chrome and terminal
+        // palette then always agree on a fresh profile, including on a browser
+        // that supports neither query, so no user can land on light chrome
+        // with a dark palette by accident.
+        var savedChrome = localStorage.getItem('cwm_chrome');
+        document.documentElement.dataset.chrome =
+          (savedChrome === 'light' || savedChrome === 'dark')
+            ? savedChrome
+            : (prefersLight ? 'light' : 'dark');
+
         var resolvedTheme = null;
 
         if (registry && savedChoice) {
@@ -91,6 +138,16 @@
         }
       } catch (_) {
         document.documentElement.dataset.uiShell = 'focused';
+        // localStorage can throw outright in a locked-down or third-party
+        // context. The chrome attribute is already "light" from the <html>
+        // tag, so the page is readable either way; this only upgrades it to
+        // the operating system preference when that is still reachable.
+        try {
+          if (window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.dataset.chrome = 'dark';
+          }
+        } catch (__) { /* leave the failsafe light chrome standing */ }
       }
     })();
   </script>

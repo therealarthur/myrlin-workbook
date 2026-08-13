@@ -4754,17 +4754,93 @@ class CWMApp {
       themeMeta && themeMeta.appearance === 'light' ? 'light' : 'dark';
     document.documentElement.style.colorScheme =
       themeMeta && themeMeta.appearance === 'light' ? 'light' : 'dark';
-    const themeColor = document.querySelector('meta[name="theme-color"]');
-    if (themeColor) {
-      const color = getComputedStyle(document.documentElement)
-        .getPropertyValue('--bg-secondary')
-        .trim();
-      if (color) themeColor.content = color;
-    }
+    this.syncThemeColorMeta();
 
     if (this.els.appearanceOverlay && !this.els.appearanceOverlay.hidden) {
       this.renderAppearance();
     }
+  }
+
+  /**
+   * Point the mobile status-bar tint at the active chrome ground.
+   *
+   * Notion restyle P1.4. This was inlined at the end of setTheme() and read
+   * --bg-secondary, the sidebar ground, through a single querySelector. Two
+   * things changed and both matter:
+   *
+   *   1. index.html now carries a PAIR of theme-color tags, one per
+   *      prefers-color-scheme, so the first paint is right before any script
+   *      runs. A querySelector would only ever rewrite the first of them and
+   *      the operating system would keep honouring the other one. Hence
+   *      querySelectorAll.
+   *   2. It reads --app-bg-primary, the chrome canvas, rather than
+   *      --bg-secondary. The status bar sits above the page ground, not above
+   *      the sidebar, and the canvas is the token that actually changes with
+   *      the chrome theme.
+   *
+   * Called from both setTheme() and setChrome(), because either can change
+   * what the ground resolves to.
+   *
+   * @returns {void}
+   */
+  syncThemeColorMeta() {
+    const tags = document.querySelectorAll('meta[name="theme-color"]');
+    if (!tags.length) return;
+    const color = getComputedStyle(document.documentElement)
+      .getPropertyValue('--app-bg-primary')
+      .trim();
+    if (!color) return;
+    tags.forEach(tag => { tag.content = color; });
+  }
+
+  /**
+   * Set the chrome theme: the light or dark ground, ink, border and wash set
+   * that every non-terminal surface paints with.
+   *
+   * Notion restyle P1.4. This is deliberately NOT setTheme(). The two are
+   * independent axes and conflating them was rejected in BUILD-CONTRACT 1.1.2:
+   *
+   *   data-theme   one of 13 persisted terminal palette ids, stored under
+   *                cwm_theme, read by terminal.js and pinned by three test
+   *                files. It drives the terminal surface.
+   *   data-chrome  light or dark, stored under cwm_chrome. It drives the
+   *                application chrome.
+   *
+   * A light terminal palette on dark chrome is a legal, supported combination
+   * (DESIGN-SPEC 10.5), which is only possible because these are two
+   * attributes rather than one.
+   *
+   * An unrecognised value is coerced to the operating system preference rather
+   * than being written through, so a corrupted localStorage entry can never
+   * leave the document with a chrome attribute that no CSS block matches,
+   * which would paint light tokens with no dark override anywhere.
+   *
+   * @param {string} chrome - Either "light" or "dark".
+   * @param {{persist?: boolean}} [options] - Set persist false to preview a
+   *   chrome theme without writing it to localStorage.
+   * @returns {string} The chrome value actually applied.
+   */
+  setChrome(chrome, { persist = true } = {}) {
+    let next = chrome === 'light' || chrome === 'dark' ? chrome : null;
+    if (!next) {
+      const prefersLight = window.matchMedia &&
+        window.matchMedia('(prefers-color-scheme: light)').matches;
+      next = prefersLight ? 'light' : 'dark';
+    }
+
+    document.documentElement.dataset.chrome = next;
+    if (persist) {
+      try {
+        localStorage.setItem('cwm_chrome', next);
+      } catch (_) {
+        // A locked-down storage context is not a reason to refuse the switch.
+        // The attribute is already set; only the preference fails to survive
+        // a reload, and the pre-paint bootstrap falls back to the OS setting.
+      }
+    }
+
+    this.syncThemeColorMeta();
+    return next;
   }
 
   setDensity(value, { persist = true } = {}) {
