@@ -119,6 +119,13 @@
       "baseline": 0,
       "target": 0,
       "phase": "always"
+    },
+    "G14": {
+      "name": "animated status marks (dots, pills, badges, and any animated circle)",
+      "baseline": 0,
+      "target": 0,
+      "phase": "always",
+      "note": "Opened by the P4 remainder at ZERO rather than at its pre-sweep count of 17, because the ban that created it is a standing rule and not a phase target. The sweep that empties it ships in the same commit, so the gate has never had a non-zero baseline to ratchet down from."
     }
   },
   "_ratchetNote": "P4 ratcheted G3 (up, 22 to 25), G4 (1021 to 902), G5b (71 to 46), G7 (49 to 3), G9a (5 to 1) and G9b (6 to 0). Four are short of their P4 target and each is short for a stated reason, recorded in DECISIONS 12: G4 and G5b by the regions P4 did not reach (side peek, docs, costs, settings) plus the terminal surface that belongs to P5 and the mobile sheet that belongs to P10; G7 by the two mobile action-sheet rules in styles-mobile.css, another track\u2019s file; G9a by the loading shimmer, which is the one documented exception the gate allows because a shimmer IS a moving gradient."

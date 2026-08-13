@@ -925,6 +925,31 @@
   box-shadow: none;
 }
 
+/*
+ * THE RING, carried through the attention layer. P4 remainder, work package A;
+ * the mapping table is DECISIONS 13.1.
+ *
+ * Every status mark in this app is now a static shape, and the one shape that
+ * is not a filled disc is the RING, spent on NEEDS INPUT because DV-14
+ * measures its yellow at 2.68:1 and the pulse that used to be its second
+ * channel is gone. The three rules above re-colour a row's dot from the
+ * attention layer at a higher specificity than the styles.css shape rules can
+ * reach, so without these four selectors a needs-input row would be re-filled
+ * into a plain disc and the shape channel would survive everywhere EXCEPT the
+ * rows that need it most.
+ *
+ * The ring is applied by attention STATE rather than by dot class, which also
+ * makes it uniform: whatever a row's own status class says, a row the system
+ * is waiting on draws an outline.
+ */
+.attention-state[data-attention-state="needs-input"]::before,
+.session-item[data-attention-state="needs-input"] .status-dot,
+.terminal-group-tab[data-attention-state="needs-input"] .terminal-group-tab-dot,
+.ws-session-item[data-attention-state="needs-input"] .ws-session-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--attention-color, var(--status-needs-input));
+}
+
 /* ─── Explicit Project Notes context ────────────────────────── */
 
 :root[data-ui-shell="focused"] .docs-header-left {

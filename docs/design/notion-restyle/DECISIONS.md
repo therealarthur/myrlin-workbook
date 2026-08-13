@@ -1589,3 +1589,151 @@ One measurement is worth flagging for that pass specifically: **the Quick Find
 group label measures 3.16:1** in light chrome. It is the single sanctioned
 uppercase label in the design, it is 11px, and it is the only label in the app
 whose whole job is to be read before the rows under it.
+
+---
+
+## 13. Phase P4 remainder, the static status mark and the four unbuilt regions
+
+This section is the P4 remainder's log. It opens with a new standing design
+rule that arrived after P4 shipped and that overrides both the mocks and the
+contract wherever they disagree, and then records the four regions 12.3.1 named
+as specifications rather than leftovers.
+
+### 13.1 The static-status rule, and the mapping that replaces the pulse
+
+**The rule, verbatim from the user, in force from 2026-08-13:** blinking or
+pulsing dot indicators in status pills, badges, or as status marks are BANNED.
+Status marks must be STATIC shapes.
+
+It bans motion this program deliberately shipped. `BUILD-CONTRACT` 2.3 and
+`DESIGN-SPEC` 6.1 both draw the live states with a pulse, P2.5 authored `mwPulse`
+as one of the two named motion patterns for exactly that purpose, P3.2 wired it
+to the status dots, and P4 fixed the quoting bug that made the tri-state pulse
+render for the first time. `DEVIATIONS.md` DV-14 then leaned on it in writing:
+its stated mitigation for the yellow dot at 2.68:1 is "the needs-input dot also
+pulses (`mwPulse`, a motion channel that survives greyscale)". Removing the
+pulse without replacing that channel would have quietly falsified a recorded
+deviation, which is why this work package is a re-ENCODING and not a deletion.
+
+#### The test this sweep applied
+
+A mark is a STATUS MARK, and must be static, when it answers *what is this
+thing doing right now* about a state the system can sit in indefinitely.
+A mark is an ACTIVITY indicator, and may move, when it exists only for the
+duration of one operation the user just started and disappears when that
+operation resolves. An activity indicator may still never be a dot: the survivor
+list below contains no moving circles that are not rotations.
+
+#### The mapping table
+
+Two shapes carry what one animation used to. `DISC` is the captured 7px filled
+circle. `RING` is the same circle with a transparent centre and a 2px inset
+stroke, which is the boundary idiom P3 already shipped on the switch off-track
+(DV-15), not the coloured glow `DESIGN-SPEC` 1.5 rejects.
+
+| State | Shape | Hue | Where it is drawn |
+| --- | --- | --- | --- |
+| running, busy, live | **DISC** | `--app-text-green` | `.status-dot-running`, `.ws-session-dot.is-running`, `.ws-session-dot[data-tristate="busy"]`, `.subagent-dot-running`, `.task-item-dot.busy`, `.kanban-column-dot.running`, `.session-live-dot`, `.mirror-live-dot[data-live="true"]`, `.terminal-group-tab.tab-notify::after` |
+| needs input, idle, waiting | **RING** | `--app-text-yellow`, orange on the tri-state | `.status-dot-idle`, `.ws-session-dot[data-tristate="waiting"]`, `.task-item-dot.waiting`, and by attention state through `focused-shell.css` |
+| booting, waiting on a process | **RING** | `--app-text-tertiary` | `.terminal-pane-loading .terminal-pane-title::after` |
+| failed, error | **DISC** | `--app-text-red` | `.status-dot-error` |
+| complete | **DISC** | `--app-text-teal` | `.subagent-dot-completed` |
+| ready | **rounded square with a tick** | `--app-text-blue` | `.ws-session-dot[data-tristate="ready"]`, `.task-item-dot.ready` |
+| stopped, stale, inert, unknown | **DISC**, low emphasis | `--app-text-gray` | `.status-dot-stopped`, `.ws-session-dot`, `.mirror-live-dot`, `.task-item-dot.completed`, `.activity-dot-idle` |
+| needs input, as a word | **static chip** | yellow chip pair | `.terminal-pane-header[data-needs-input="true"]::after` |
+| conflict count | **static chip** | yellow chip pair | `.pane-conflict-badge` |
+| checking, applying | **static low emphasis** | tertiary ink, 45 percent avatar | `.machine-pill-mac.is-checking`, `.account-chip.is-applying` |
+
+**Why the RING is spent on needs-input rather than on running.** It is a
+measurement. DV-14 records the yellow dot at 2.68:1 on the light canvas, the
+only one of the ten below the 3:1 graphic floor, and nine of the ten clear it.
+The one dot whose HUE cannot be relied on is therefore the one dot given a
+unique SHAPE, so the channel that is weakest and the channel that is strongest
+land on the same mark. A 2px stroke on a 7px circle keeps about 82 percent of
+the disc's ink, so DV-14's measured per-pixel ratio is unchanged; what changes
+is that colour has stopped being the only channel. This is a deliberate
+departure from the shape ordering a naive reading would pick (filled equals on,
+hollow equals off), and it is why `.mirror-live-dot`'s inert state stays a muted
+DISC rather than becoming a second ring.
+
+**The ring has to be re-asserted twice, and both places are load-bearing.**
+`focused-shell.css` re-colours a row's dot from the attention layer at a higher
+specificity than any `styles.css` shape rule can reach, so without the four
+selectors added there a needs-input row would be re-filled into a plain disc and
+the shape channel would survive everywhere except the rows that need it most.
+And `semantic-theme.css`'s forced-colours block fills every dot with
+`CanvasText`, which under Windows High Contrast is the only place where hue is
+gone entirely and the shape is therefore not merely the strongest channel but
+the only one.
+
+#### What was swept, seventeen sites
+
+Thirteen CSS rules across `styles.css`, plus the three inline spinoff loading
+dots in `index.html`, plus the machine pill. Every one is listed in the mapping
+table above or in the survivor list below. Two collateral corrections came with
+the sweep because they were inside the rules being rewritten: twenty-eight
+Catppuccin `var()` consumptions moved to the block palette (gate G4, 902 to
+874), and the needs-input badge's hand-mixed translucent peach became the yellow
+chip pair (gate G5b, 46 to 45).
+
+#### The survivors, and why each one is not a status mark
+
+Eleven distinct animations remain in the four stylesheets. Every one was looked
+at individually.
+
+| Animation | Consumer | Why it survives |
+| --- | --- | --- |
+| `spin` | `.btn-loader`, `.resources-refresh-btn.refreshing svg`, `.update-step-running .update-step-icon::after` | Action loaders for one operation the user started. `BUILD-CONTRACT` 2.2 retains them by name for genuinely indeterminate operations. All three are rotations, which gate G14 exempts structurally. |
+| `ai-spin` | `.ai-loading-spinner`, `#docs-ai-refresh.ai-loading svg` | The same, on the docs AI refresh. Rotations. |
+| `skeleton-shimmer` | `.skeleton` | The sanctioned loading placeholder (DV-20). A skeleton stands in for content that has not arrived; it is not a mark on a thing that exists. |
+| `skeleton-pulse` | `.ai-insight-skeleton` | The same, on the insight card. |
+| `mirror-skeleton-pulse` | `.mirror-skeleton-row` | The same, on the mirror's initial open. |
+| `mic-pulse` | `.terminal-pane-mic.mic-active` | The microphone listening indicator, named as allowed. It reports that the app is capturing audio RIGHT NOW, which is a live physical activity rather than a session state, and a listening indicator that stops moving reads as a microphone that stopped listening. |
+| `dropPulse` | `.drop-indicator` | Drag feedback. It exists only while a pointer is down and mid-drag. `DECISIONS` 12.2.2 already protects drag feedback from the hover gate for the same reason. |
+| `drag-merge-pulse` | `.terminal-group-tab.tab-drag-merge` | The same, on the tab merge target. |
+| `pane-nav-pulse` | `.pane-nav-pulse::after` | A one-shot 700ms wayfinding flash after a jump from a sidebar pip. `forwards`, so it ends. |
+| `rename-flash` | `.rename-flash` | A one-shot confirmation flash after a rename. |
+| `pane-done-flash` | `.terminal-pane-done` | A one-shot 4s completion flash on the pane FRAME, not a dot. It marks the moment a run finished rather than the state of having finished. |
+| `rgb-border-glow` | `.terminal-pane-loading` | The only uncomfortable survivor, and it is left deliberately. It is the pane FRAME rather than a mark, so the ban does not reach it, and its four keyframe stops are byte-identical after P2.7 flattened them, so it animates nothing at all. Removing a dead 3s infinite animation from the pane frame is P5's call, in the phase that owns that region. Its title DOT, which did move, was swept. |
+| `mwFadein`, `overlay-in`, `modal-in`, `sheet-up`, `toast-out`, `fade-in`, `mirror-msg-in` | overlays and cards | Entrances and exits. A thing arriving is not a thing reporting its state. |
+
+`mwPulse`, `subagent-pulse`, `activityPulse`, `tristate-pulse`, `pulse-needs-input`,
+`loading-dot-pulse`, `conflict-pulse`, `session-live-pulse`, `machinePillPulse`,
+`account-chip-pulse`, `pulse-green` and `spinoff-dot` all remain DECLARED and
+have zero consumers. Code preservation keeps the declarations; the ban is on
+consumption, and that is what the gate measures.
+
+### 13.2 Gate G14, and why it is structural rather than a grep
+
+A gate that greps for `mwPulse` protects against the one mistake nobody is going
+to make. The mistake that will actually happen is a new keyframe for a new dot,
+six months from now, by somebody who never read this section. G14 therefore
+measures CONSUMPTION on status-mark surfaces, three ways:
+
+1. **By name.** A rule whose selector has an identifier segment of `dot`,
+   `badge`, `pill`, `chip`, `tristate`, `notify`, `liveness` or `status`, or
+   which keys off `data-tristate`, `data-live`, `data-needs-input` or
+   `data-attention-state`. Segments rather than substrings, so `.drop-indicator`
+   and `.terminal-pane-mic` never trip.
+2. **By shape.** Any rule that draws a circle or a capsule
+   (`--radius-avatar`, `--radius-pill`, or a literal fifty percent) and animates
+   it, whatever it is called. This is the prong that caught the booting-pane
+   dot, whose selector says nothing about dots.
+3. **Inline.** A `style` attribute in the authored markup or in a renderer that
+   does both at once. No stylesheet scan would ever have seen the three spinoff
+   loading dots.
+
+**Rotation is the one exempt motion, and it is exempt by construction rather
+than by favour.** A circle rotating about its own centre is invisible unless it
+is a partial arc, so a rotating mark is a spinner, and a spinner is an activity
+indicator for one operation. The exemption requires that EVERY declaration in
+the keyframes be a bare rotation, so a keyframe that rotates and fades is still
+a blink. `animation: none` is not consumption either, which is what lets the
+reduced-motion guards that outlived their animations stay in the sheet under
+code preservation.
+
+The gate opens with a baseline of **0**, not with its pre-sweep count of 17,
+because the rule that created it is standing rather than a phase target and the
+sweep that empties it ships in the same commit. Both prongs were verified
+non-vacuous before the commit: a probe rule (a circle consuming `mwPulse`) and a
+probe inline style each turned it red, and removing them turned it green.

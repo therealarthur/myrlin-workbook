@@ -639,6 +639,230 @@ setGate('G13', 'data-* attribute contract intact (attribute or dataset form)',
   missingDataKeys, DATA_ATTRIBUTE_FLOOR.length,
   'beyond BUILD-CONTRACT 5.3; enforces rule 4 of section 0.4, which no listed gate covered');
 
+// ── G14: status marks never animate ────────────────────────────────────────
+//
+// The standing design rule, recorded in DECISIONS.md 13.1: a blinking or
+// pulsing dot in a status pill, a status badge, or standing alone as a status
+// mark is banned. A state the system can SIT IN is drawn as a static shape;
+// only a transient operation the user just started may move, and never as a
+// dot.
+//
+// This gate is structural rather than a grep for one keyframe name, because
+// the failure mode is not "someone re-adds mwPulse", it is "someone writes a
+// new keyframe for a new dot". It therefore measures CONSUMPTION on
+// status-mark surfaces, in three ways that catch three different mistakes:
+//
+//   1. by NAME    a rule whose selector names a dot, pill, badge or chip, or
+//                 keys off one of the four status data-* attributes.
+//   2. by SHAPE   a rule that draws a circle (the avatar or pill radius, or a
+//                 literal 50%) and animates it, whatever it is called.
+//   3. INLINE     a style="" attribute in the authored markup or in a
+//                 renderer that does both at once, which no stylesheet scan
+//                 would ever see. The three spinoff loading dots lived here.
+//
+// Declarations are deliberately NOT counted. Under code preservation the
+// keyframes stay in the sheet; what is banned is a status mark reaching for
+// one. `animation: none` is not consumption, so the reduced-motion guards that
+// outlived their animations do not count either.
+
+// Identifier tokens that make a selector a status-mark selector. Matched
+// against the selector's own identifier segments, so `.drop-indicator` and
+// `.terminal-pane-mic` never trip on a substring.
+const STATUS_MARK_TOKENS = new Set([
+  'dot', 'dots', 'badge', 'badges', 'pill', 'pills', 'chip', 'chips',
+  'tristate', 'notify', 'liveness', 'status',
+]);
+
+// Attribute selectors that carry a status regardless of what the class is
+// called. A rule keyed on any of these is describing a state.
+const STATUS_MARK_ATTRS = [
+  'data-tristate', 'data-live', 'data-needs-input', 'data-attention-state',
+];
+
+// Radii that draw a circle or a capsule. A mark with one of these plus an
+// animation is a moving dot however it is named.
+const CIRCLE_RADIUS = /border-radius:\s*(?:50%|var\(\s*--radius-(?:avatar|pill)\s*\))/;
+
+const ANIMATION_DECL = /animation(?:-name)?\s*:\s*([^;}]+)/g;
+
+// ROTATION IS THE ONE EXEMPT MOTION, and it is exempt by construction rather
+// than by favour. A circle rotating about its own centre is INVISIBLE unless
+// it is a partial arc, so a rotating mark is a spinner, and a spinner is an
+// activity indicator for one operation the user just started. BUILD-CONTRACT
+// 2.2 retains exactly that ("the button loader still spins where it was
+// already used, for genuinely indeterminate operations"). A keyframe qualifies
+// only when EVERY declaration in it is a transform and EVERY transform is a
+// bare rotate(), so a keyframe that rotates and fades is still a blink.
+const ROTATE_ONLY_DECL = /^\s*transform\s*:\s*rotate\([^()]*\)\s*$/;
+
+/**
+ * Collect keyframe names whose every step is a bare rotation.
+ *
+ * @param {string} css - Comment-free stylesheet text.
+ * @param {Set<string>} into - Accumulating set of rotation-only names.
+ * @returns {void}
+ */
+function collectRotationOnlyKeyframes(css, into) {
+  const re = /@(?:-\w+-)?keyframes\s+([A-Za-z0-9_-]+)\s*\{/g;
+  let m;
+  while ((m = re.exec(css)) !== null) {
+    let depth = 1;
+    let i = re.lastIndex;
+    const start = i;
+    while (i < css.length && depth > 0) {
+      if (css[i] === '{') depth++;
+      else if (css[i] === '}') depth--;
+      i++;
+    }
+    const body = css.slice(start, i - 1);
+    const decls = body
+      .replace(/[0-9.]+%|from|to/g, '')
+      .split(/[{};]/)
+      .map((d) => d.trim())
+      .filter((d) => d.includes(':'));
+    if (decls.length && decls.every((d) => ROTATE_ONLY_DECL.test(d))) into.add(m[1]);
+  }
+}
+
+const rotationOnlyKeyframes = new Set();
+for (const file of STYLESHEETS) {
+  collectRotationOnlyKeyframes(stripCssComments(readPublic(file)), rotationOnlyKeyframes);
+}
+
+/**
+ * Whether every keyframe name a declaration reaches for is a bare rotation.
+ *
+ * @param {string} block - Declaration text to inspect.
+ * @returns {boolean} True when the block animates only rotations.
+ */
+function animatesOnlyRotation(block) {
+  ANIMATION_DECL.lastIndex = 0;
+  const names = new Set();
+  let m;
+  while ((m = ANIMATION_DECL.exec(block)) !== null) {
+    for (const token of m[1].split(/[\s,]+/)) {
+      if (rotationOnlyKeyframes.has(token)) names.add(token);
+      else if (/^[A-Za-z][A-Za-z0-9_-]*$/.test(token) &&
+        !/^(none|infinite|alternate|reverse|forwards|backwards|both|normal|linear|ease|ease-in|ease-out|ease-in-out|running|paused|initial|inherit|unset|steps|var)$/.test(token) &&
+        !token.startsWith('cubic-bezier')) {
+        return false;
+      }
+    }
+  }
+  return names.size > 0;
+}
+
+/**
+ * Whether a selector names a status mark.
+ *
+ * @param {string} selector - Full selector text, possibly a comma list.
+ * @returns {boolean} True when any identifier segment is a status-mark token.
+ */
+function isStatusMarkSelector(selector) {
+  const lower = selector.toLowerCase();
+  if (STATUS_MARK_ATTRS.some((attr) => lower.includes(attr))) return true;
+  return lower.split(/[^a-z0-9]+/).some((token) => STATUS_MARK_TOKENS.has(token));
+}
+
+/**
+ * Whether a declaration block consumes an animation. `none` does not count:
+ * a reduced-motion guard that outlived its animation is not a moving mark.
+ *
+ * @param {string} block - Declaration text between the braces.
+ * @returns {boolean} True when at least one animation resolves to a real name.
+ */
+function consumesAnimation(block) {
+  ANIMATION_DECL.lastIndex = 0;
+  let m;
+  while ((m = ANIMATION_DECL.exec(block)) !== null) {
+    if (!/^\s*none\s*$/.test(m[1])) return true;
+  }
+  return false;
+}
+
+/**
+ * Walk a stylesheet and yield every leaf rule with its full selector path and
+ * its own declarations. Blocks under an `@keyframes` are skipped: a keyframe
+ * step is a declaration of motion, not a consumption of it.
+ *
+ * @param {string} css - Comment-free stylesheet text.
+ * @returns {Array<{selector: string, block: string, line: number}>} Leaf rules.
+ */
+function leafRules(css) {
+  const out = [];
+  const stack = [];
+  let buf = '';
+  let declStart = 0;
+  for (let i = 0; i < css.length; i++) {
+    const ch = css[i];
+    if (ch === '{') {
+      stack.push({ prelude: buf.trim().replace(/\s+/g, ' '), declStart: i + 1 });
+      buf = '';
+      declStart = i + 1;
+    } else if (ch === '}') {
+      const frame = stack.pop();
+      if (frame) {
+        const inKeyframes = stack.some((f) => /^@(-\w+-)?keyframes\b/.test(f.prelude)) ||
+          /^@(-\w+-)?keyframes\b/.test(frame.prelude);
+        if (!inKeyframes && !/^@/.test(frame.prelude)) {
+          out.push({
+            selector: frame.prelude,
+            block: css.slice(frame.declStart, i),
+            line: css.slice(0, i).split('\n').length,
+          });
+        }
+      }
+      buf = '';
+      declStart = i + 1;
+    } else {
+      buf += ch;
+    }
+  }
+  return out;
+}
+
+let movingMarks = 0;
+const movingMarkDetail = [];
+for (const file of STYLESHEETS) {
+  const css = stripCssComments(readPublic(file));
+  for (const rule of leafRules(css)) {
+    if (!consumesAnimation(rule.block)) continue;
+    if (animatesOnlyRotation(rule.block)) continue;
+    const named = isStatusMarkSelector(rule.selector);
+    const round = CIRCLE_RADIUS.test(rule.block);
+    if (!named && !round) continue;
+    movingMarks++;
+    if (movingMarkDetail.length < 6) {
+      movingMarkDetail.push(file + ':' + rule.line + ' ' + rule.selector.slice(0, 60));
+    }
+  }
+}
+
+// Inline styles that draw a circle and animate it in the same attribute.
+const INLINE_STYLE = /style\s*=\s*"([^"]*)"/g;
+for (const file of FRONTEND_SOURCES) {
+  const source = readPublic(file);
+  INLINE_STYLE.lastIndex = 0;
+  let m;
+  while ((m = INLINE_STYLE.exec(source)) !== null) {
+    const decl = m[1];
+    if (!consumesAnimation(decl)) continue;
+    if (animatesOnlyRotation(decl)) continue;
+    if (!CIRCLE_RADIUS.test(decl) && !isStatusMarkSelector(decl)) continue;
+    movingMarks++;
+    if (movingMarkDetail.length < 6) {
+      movingMarkDetail.push(file + ' inline: ' + decl.slice(0, 60));
+    }
+  }
+}
+
+countGate('G14', 'animated status marks (dots, pills, badges, and any animated circle)', movingMarks, {
+  direction: 'down', target: 0, phase: 'always',
+  note: movingMarks
+    ? movingMarkDetail.join(' | ')
+    : 'DECISIONS 13.1: a status mark is a static shape; only transient operations may move, never as a dot',
+});
+
 // ── Report ─────────────────────────────────────────────────────────────────
 
 const RED = '\x1b[31m';

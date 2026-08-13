@@ -1372,8 +1372,8 @@ textarea.input {
 
 /* Standalone status dot. 7px, block palette, and NO glow: the 0 0 5px halo
    this used to carry is the "hue in the shadow" idiom DESIGN-SPEC 1.5 puts on
-   the rejection list. Live states pulse instead, which is a signal channel
-   that survives greyscale and does not need a shadow. */
+   the rejection list. The live states used to pulse; they no longer do, and
+   the two static shapes below carry what the pulse carried. */
 .status-dot {
   display: inline-block;
   width: 7px;
@@ -1382,22 +1382,40 @@ textarea.input {
   flex-shrink: 0;
 }
 
-/* Running and needs-input are the two LIVE states, and they are the only two
-   that pulse. mwPulse is declared inside prefers-reduced-motion: no-preference
-   (P2.5), so under `reduce` the animation name does not exist and the dot is a
-   static full-opacity circle rather than a switched-off animation.
-   These four name the BLOCK PALETTE directly rather than the --status-* role
-   tokens, for two reasons that point the same way. BUILD-CONTRACT 2.3 spells
-   the recipe as `background: var(--app-text-<hue>)`, and phantom-tokens.test.js
-   only reads definitions out of styles.css and styles-mobile.css, so a role
-   token defined in semantic-theme.css counts as a phantom here and the rule
-   would silently paint nothing. The values agree by construction: the roles in
-   semantic-theme.css resolve to exactly these four names, green included after
-   the running-is-green ruling in this same work package. */
+/*
+ * THE STATIC STATUS MARK, phase P4 remainder, work package A.
+ * DECISIONS.md 13.1 carries the full mapping table and the standing rule:
+ * a status pill, badge or dot NEVER blinks, pulses or otherwise animates.
+ * A state a system can sit in indefinitely is drawn as a STATIC SHAPE.
+ *
+ * TWO SHAPES, ONE HUE SYSTEM.
+ *   DISC  a filled 7px circle. Every state except one.
+ *   RING  the same 7px circle with a transparent centre and a 2px inset
+ *         stroke, which is the boundary idiom P3 already shipped on the
+ *         switch off-track (DV-15), not the rejected coloured glow.
+ *
+ * The RING is spent on NEEDS INPUT (and its `idle` alias), and the choice is
+ * a measurement rather than a preference. DEVIATIONS DV-14 records the yellow
+ * dot at 2.68:1 on the light canvas, the only one of the ten below the 3:1
+ * graphic floor, and its stated mitigation was "the needs-input dot also
+ * pulses, a motion channel that survives greyscale". Deleting the pulse
+ * deletes that channel, so the one dot whose HUE cannot be relied on is the
+ * one dot given a unique SHAPE. The ring keeps about 82 percent of the disc's
+ * ink (a 2px stroke on a 7px circle), so the per-pixel ratio DV-14 measured is
+ * unchanged; what changes is that colour is no longer the only channel.
+ *
+ * These four name the BLOCK PALETTE directly rather than the --status-* role
+ * tokens, for two reasons that point the same way. BUILD-CONTRACT 2.3 spells
+ * the recipe as `background: var(--app-text-<hue>)`, and phantom-tokens.test.js
+ * only reads definitions out of styles.css and styles-mobile.css, so a role
+ * token defined in semantic-theme.css counts as a phantom here and the rule
+ * would silently paint nothing. The values agree by construction: the roles in
+ * semantic-theme.css resolve to exactly these four names, green included after
+ * the running-is-green ruling in P3.2.
+ */
 .status-dot-running {
   background: var(--app-text-green);
   box-shadow: none;
-  animation: mwPulse 2s ease-in-out infinite;
 }
 
 .status-dot-stopped {
@@ -1409,10 +1427,12 @@ textarea.input {
   box-shadow: none;
 }
 
+/* The ring. `background: transparent` rather than a second fill, so the dot
+   reads as an outline on any ground it lands on: the canvas, a hovered
+   sidebar row and a selected row all show through the 3px centre. */
 .status-dot-idle {
-  background: var(--app-text-yellow);
-  box-shadow: none;
-  animation: mwPulse 2s ease-in-out infinite;
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--app-text-yellow);
 }
 
 /* The chip dot. 8px, currentColor, so it takes the CHIP ink of whatever chip
@@ -2734,7 +2754,7 @@ textarea.input {
  * The sidebar tree's session dot. 7px block palette, per BUILD-CONTRACT 2.3,
  * and the hue now lives HERE rather than in an inline style written by
  * renderSessionItem. Gray is the resting state; the live states below add
- * their own hue and their own motion.
+ * their own hue. None of them adds motion: DECISIONS 13.1.
  */
 .ws-session-dot {
   width: 7px;
@@ -2746,7 +2766,6 @@ textarea.input {
 
 .ws-session-dot.is-running {
   background: var(--app-text-green);
-  animation: mwPulse 2s ease-in-out infinite;
 }
 
 .ws-session-name {
@@ -3701,14 +3720,14 @@ textarea.input {
   flex-shrink: 0;
 }
 
-/* subagent-pulse is kept declared below rather than deleted, but this dot now
-   runs the one named pulse, which is authored inside
-   prefers-reduced-motion: no-preference and therefore stops existing rather
-   than being switched off when the user asks for less motion. */
+/* subagent-pulse is kept declared below rather than deleted, and this dot now
+   consumes NEITHER it nor mwPulse: a subagent that is running is a state the
+   system sits in, so it is drawn as a static disc (DECISIONS 13.1). The
+   keyframes stay declared under code preservation; the ban is on consumption,
+   and the G14 gate measures consumption rather than declaration. */
 .subagent-dot-running {
   background: var(--app-text-green);
   box-shadow: none;
-  animation: mwPulse 2s ease-in-out infinite;
 }
 
 /* Teal, not green. Complete and running are different states and P1.3 already
@@ -7412,20 +7431,31 @@ body.cwm-dragging .sidebar-backdrop {
   flex-shrink: 0;
 }
 
-.activity-dot-thinking { background: var(--mauve); animation: activityPulse 1.5s ease-in-out infinite; }
-.activity-dot-reading { background: var(--blue); }
-.activity-dot-writing { background: var(--green); }
-.activity-dot-running { background: var(--peach); animation: activityPulse 1.5s ease-in-out infinite; }
-.activity-dot-searching { background: var(--yellow); }
-.activity-dot-delegating { background: var(--teal); }
-.activity-dot-idle { background: var(--overlay0); }
+/* The seven pane-activity dots. Two of them (thinking, running) used to pulse
+   and five did not, which said "these two are more live than the other five"
+   about a set where every member is equally live. All seven are now static
+   discs in the block palette, so the only difference between them is the one
+   difference that means anything: which activity it is (DECISIONS 13.1).
+   The hues also move off the Catppuccin palette and onto the block palette in
+   the same pass, because a chrome dot painted from the TERMINAL theme changes
+   meaning when the user changes terminal themes (DESIGN-SPEC 10.4, gate G4). */
+.activity-dot-thinking { background: var(--app-text-purple); }
+.activity-dot-reading { background: var(--app-text-blue); }
+.activity-dot-writing { background: var(--app-text-green); }
+.activity-dot-running { background: var(--app-text-orange); }
+.activity-dot-searching { background: var(--app-text-yellow); }
+.activity-dot-delegating { background: var(--app-text-teal); }
+.activity-dot-idle { background: var(--app-text-gray); }
 
 @keyframes activityPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
 
-/* Respect reduced motion for activity pulse */
+/* Retained rather than deleted. Nothing consumes activityPulse any more, so
+   this block is a no-op; it stays because a reduced-motion guard that outlives
+   its animation costs nothing and documents that the dots are deliberately
+   still, not accidentally still. */
 @media (prefers-reduced-motion: reduce) {
   .activity-dot-thinking, .activity-dot-running { animation: none; }
 }
@@ -7745,13 +7775,17 @@ html:not(.pane-colors-enabled) .instance-indicator-row {
  * for the first time. Each now carries its own hue as well, because the hue
  * used to arrive inline from the same emitter.
  */
+/* Busy is a DISC, waiting is a RING, ready is the rounded square with a tick.
+   Three states, three static shapes, no motion at all (DECISIONS 13.1). The
+   waiting ring also drops the `opacity: 0.7` it used to carry: fading the ink
+   of the one dot that is asking for something is the wrong direction, and the
+   ring already distinguishes it from busy without spending contrast. */
 .ws-session-dot[data-tristate="busy"] {
   background: var(--app-text-green);
-  animation: tristate-pulse 1.5s ease-in-out infinite;
 }
 .ws-session-dot[data-tristate="waiting"] {
-  background: var(--app-text-orange);
-  opacity: 0.7;
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--app-text-orange);
 }
 .ws-session-dot[data-tristate="ready"] {
   background: var(--app-text-blue);
@@ -7777,6 +7811,15 @@ html:not(.pane-colors-enabled) .instance-indicator-row {
 }
 
 /* ─── Needs Input Badge ───────────────────────────────── */
+/* A status BADGE, so it is static (DECISIONS 13.1). It never needed the pulse:
+   the badge carries the state as a WORD, which is the strongest channel in the
+   system and the one that survives greyscale, low vision and a screenshot.
+   The hand-mixed peach-on-translucent-peach pair is replaced by the yellow
+   chip pair, which is the system's pairing for exactly this signal and which
+   measures above the text floor on every ground (P3.2). focused-shell.css
+   re-points both properties to the --status-needs-input role tokens, which
+   resolve to the same yellow family; this rule is what the app falls back to
+   when data-ui-shell is absent. */
 .terminal-pane-header[data-needs-input="true"]::after {
   content: 'Needs input';
   position: absolute;
@@ -7787,9 +7830,8 @@ html:not(.pane-colors-enabled) .instance-indicator-row {
   font-weight: 600;
   padding: 1px 6px;
   border-radius: var(--radius-row-icon);
-  background: rgba(249, 226, 175, 0.15);
-  color: var(--peach);
-  animation: pulse-needs-input 2s ease-in-out infinite;
+  background: var(--app-chip-yellow-fill);
+  color: var(--app-chip-yellow-ink);
 }
 @keyframes pulse-needs-input {
   0%, 100% { opacity: 1; }
@@ -8618,29 +8660,32 @@ html.activity-indicators-disabled .terminal-pane-activity {
   flex-shrink: 0;
 }
 
+/* The worktree-task dot, the same five-state vocabulary as the sidebar tristate
+   dot one region up: disc for busy, ring for waiting, rounded square for ready,
+   disc for review, muted disc for completed. Static in every state
+   (DECISIONS 13.1), and on the block palette rather than the terminal's. */
 .task-item-dot.busy {
-  background: var(--green);
-  animation: tristate-pulse 1.5s ease-in-out infinite;
+  background: var(--app-text-green);
 }
 
 .task-item-dot.waiting {
-  background: var(--peach);
-  opacity: 0.7;
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--app-text-orange);
 }
 
 .task-item-dot.ready {
-  background: var(--blue);
+  background: var(--app-text-blue);
   width: 8px;
   height: 8px;
   border-radius: var(--radius-row-icon);
 }
 
 .task-item-dot.review {
-  background: var(--mauve);
+  background: var(--app-text-purple);
 }
 
 .task-item-dot.completed {
-  background: var(--overlay0);
+  background: var(--app-text-gray);
   opacity: 0.5;
 }
 
@@ -8823,11 +8868,14 @@ html.activity-indicators-disabled .terminal-pane-activity {
   flex-shrink: 0;
 }
 
-.kanban-column-dot.backlog { background: var(--overlay0); }
-.kanban-column-dot.planning { background: var(--mauve); }
-.kanban-column-dot.running { background: var(--green); animation: tristate-pulse 1.5s ease-in-out infinite; }
-.kanban-column-dot.review { background: var(--peach); }
-.kanban-column-dot.completed { background: var(--blue); }
+/* A COLUMN dot is a label, not a live signal: it says "this column holds
+   running work", not "something is running right now". Pulsing it made a
+   static heading blink. Static discs, block palette (DECISIONS 13.1). */
+.kanban-column-dot.backlog { background: var(--app-text-gray); }
+.kanban-column-dot.planning { background: var(--app-text-purple); }
+.kanban-column-dot.running { background: var(--app-text-green); }
+.kanban-column-dot.review { background: var(--app-text-orange); }
+.kanban-column-dot.completed { background: var(--app-text-blue); }
 
 .kanban-column-title {
   font-size: 12px;
@@ -10445,6 +10493,12 @@ html.activity-indicators-disabled .terminal-pane-activity {
   animation: rgb-border-glow 3s ease-in-out infinite;
 }
 
+/* The booting-pane dot. It is a dot beside a title that reports what the pane
+   is doing, which makes it a status mark, which makes it static
+   (DECISIONS 13.1). It takes the RING, the same shape the sidebar spends on
+   "waiting on something", because that is exactly what a pane with no process
+   attached yet is doing. The ring disappears the moment the terminal mounts,
+   so its presence is the signal and its absence is the resolution. */
 .terminal-pane-loading .terminal-pane-title::after {
   content: '';
   display: inline-block;
@@ -10453,18 +10507,14 @@ html.activity-indicators-disabled .terminal-pane-activity {
   border-radius: var(--radius-avatar);
   margin-left: 6px;
   vertical-align: middle;
-  animation: rgb-border-glow 3s ease-in-out infinite;
-  background: var(--mauve);
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--app-text-tertiary);
 }
 
 @keyframes loading-dot-pulse {
   0%, 100% { background: var(--app-text-tertiary); opacity: 1; }
   33% { background: var(--app-text-tertiary); opacity: 0.45; }
   66% { background: var(--app-text-tertiary); opacity: 1; }
-}
-
-.terminal-pane-loading .terminal-pane-title::after {
-  animation: loading-dot-pulse 3s ease-in-out infinite;
 }
 
 /* Respect reduced motion */
@@ -10483,7 +10533,10 @@ html.activity-indicators-disabled .terminal-pane-activity {
   animation: pane-done-flash 4s ease-out forwards;
 }
 
-/* Tab group notification badge - pulsing green dot on inactive group tabs */
+/* Tab group notification badge - a static green dot on inactive group tabs.
+   The dot is only rendered when the tab has news, so its PRESENCE is already
+   the whole signal; pulsing it added a second copy of the same bit and put a
+   blinking mark in the tab strip, which DECISIONS 13.1 bans outright. */
 .terminal-group-tab.tab-notify {
   position: relative;
 }
@@ -10495,8 +10548,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   width: 6px;
   height: 6px;
   border-radius: var(--radius-avatar);
-  background: var(--green);
-  animation: loading-dot-pulse 2s ease-in-out infinite;
+  background: var(--app-text-green);
 }
 
 /* Respect reduced motion for completion notifications */
@@ -10797,9 +10849,14 @@ html {
   transform: rotate(180deg);
 }
 
-/* Applying state: chip pulses gently (no spinner, per design system) */
+/* Applying state. The avatar used to pulse; the account chip is a topbar PILL
+   and DECISIONS 13.1 bans motion there, so the pending state is now a static
+   half-emphasis avatar instead. It reads the same way a disabled control does,
+   which is the truth: the identity shown is not the identity in force yet.
+   The state is short-lived (one credential write plus a re-read), and the
+   chip's own label switches with it, so nothing here is the only channel. */
 .account-chip.is-applying .account-chip-avatar {
-  animation: account-chip-pulse 1.2s ease-in-out infinite;
+  opacity: 0.45;
 }
 
 @keyframes account-chip-pulse {
@@ -11023,23 +11080,28 @@ html {
 }
 
 /* Mac pill states: offline / unknown / no-profile dim to secondary; an
-   unmatched remote profile flags amber; checking pulses gently (skeleton
-   rhythm, never a spinner, per the design system). */
+   unmatched remote profile flags amber; checking dims to the same low emphasis
+   as offline and prints its own word.
+
+   The checking state used to pulse. It is a STATUS PILL, which is the surface
+   DECISIONS 13.1 bans motion on by name, and the pulse was also the wrong
+   claim: it read as "this machine is doing something" when what is actually
+   true is "the workbook does not know yet". Low-emphasis static ink says that,
+   and the value text already reads `checking`. */
 .machine-pill-mac.is-offline .machine-pill-val,
 .machine-pill-mac.is-unknown .machine-pill-val,
 .machine-pill-mac.is-none .machine-pill-val {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .machine-pill-mac.is-unmatched .machine-pill-val {
-  color: var(--yellow);
+  color: var(--app-text-yellow);
 }
 
 .machine-pill-mac.is-checking .machine-pill-val {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
   font-weight: 400;
-  animation: machinePillPulse 1.2s ease-in-out infinite;
 }
 
 @keyframes machinePillPulse {
@@ -12738,6 +12800,10 @@ html {
 /* Small amber badge on terminal pane headers showing count  */
 /* of files this session shares with other active sessions.  */
 
+/* A count badge: it renders only when the count is non-zero, so its presence
+   is the signal and the number is the detail. Static, and on the yellow chip
+   pair rather than a solid terminal-palette yellow with a --base label, which
+   inverted to near-black text on a light chrome (DECISIONS 13.1). */
 .pane-conflict-badge {
   display: inline-flex;
   align-items: center;
@@ -12747,14 +12813,13 @@ html {
   padding: 0 5px;
   margin-left: 6px;
   border-radius: var(--radius-pill);
-  background: var(--yellow);
-  color: var(--base);
+  background: var(--app-chip-yellow-fill);
+  color: var(--app-chip-yellow-ink);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
   cursor: help;
   flex-shrink: 0;
-  animation: conflict-pulse 2s ease-in-out infinite;
 }
 
 @keyframes conflict-pulse {
@@ -14446,21 +14511,26 @@ html {
 
 /* ═══════════════════════════════════════════════════════════
    SESSION LIVENESS DOT (issue #10 Tier 1, Phase 0)
-   Green pulse on discovered-session rows whose transcript was
-   written within the server's LIVE_THRESHOLD_MS window (2 min
+   A static green DISC on discovered-session rows whose transcript
+   was written within the server's LIVE_THRESHOLD_MS window (2 min
    default). mtime heuristic: "recently wrote transcript", not
-   "process running". Theme-safe via var(--green); the pulse is
-   disabled under prefers-reduced-motion (opacity only, no ring).
+   "process running".
+
+   The pulse is gone (DECISIONS 13.1). This dot is rendered ONLY
+   for live rows, so its presence already carries the whole state;
+   the pulse was a second encoding of a bit the DOM had already
+   decided. The hue moves from the terminal palette to the block
+   palette in the same pass, so a liveness signal means the same
+   green in all thirteen terminal themes (DESIGN-SPEC 10.4).
    ═══════════════════════════════════════════════════════════ */
 .session-live-dot {
   display: inline-block;
   width: 7px;
   height: 7px;
   border-radius: var(--radius-avatar);
-  background: var(--green);
+  background: var(--app-text-green);
   margin-right: 6px;
   flex-shrink: 0;
-  animation: session-live-pulse 2s ease-in-out infinite;
 }
 @keyframes session-live-pulse {
   0%, 100% {
@@ -14562,20 +14632,22 @@ html {
   background: var(--provider-gemini-accent);
 }
 
-/* Live dot: green pulse while the transcript is being written, muted
-   static dot when stale. Shares the Phase 0 pulse keyframes. */
+/* Live dot: a green DISC while the transcript is being written, a muted gray
+   disc when stale. Both states are static (DECISIONS 13.1); unlike the sidebar
+   liveness dot this one is always rendered, so the two states are told apart
+   by hue and by emphasis, and the transition below animates the CHANGE between
+   them rather than looping while one of them holds. */
 .mirror-live-dot {
   display: inline-block;
   width: 7px;
   height: 7px;
   border-radius: var(--radius-avatar);
-  background: var(--overlay0);
+  background: var(--app-text-gray);
   flex-shrink: 0;
   transition: background var(--transition-fast);
 }
 .mirror-live-dot[data-live="true"] {
-  background: var(--green);
-  animation: session-live-pulse 2s ease-in-out infinite;
+  background: var(--app-text-green);
 }
 
 .mirror-title {

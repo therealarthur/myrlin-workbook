@@ -104,8 +104,11 @@
 
 /* The glow is gone. A coloured halo on a status dot is the "any hue in a
    shadow" idiom DESIGN-SPEC 1.5 and the rejection list both refuse, and it was
-   the last one left in this file. The dot keeps its hue and the live states
-   pulse instead (P3.2), which reads at a glance and survives greyscale. */
+   the last one left in this file. The dot keeps its hue and nothing else: the
+   pulse this comment used to point at was removed in the P4 remainder, and the
+   non-colour channel is now a static SHAPE, the ring on the needs-input family
+   (DECISIONS 13.1). A shape survives greyscale exactly the way motion did, and
+   unlike motion it also survives a screenshot and prefers-reduced-motion. */
 :root[data-ui-shell] .stat-dot-running {
   background: var(--status-running);
   box-shadow: none;
@@ -211,6 +214,21 @@
     forced-color-adjust: none;
     background: CanvasText;
     border: 1px solid CanvasText;
+  }
+
+  /* The RING survives forced colours. The rule above fills every dot with
+     CanvasText, which would collapse the two shapes the P4 remainder
+     introduced back into one and lose the only non-colour channel the status
+     system has left now that nothing pulses (DECISIONS 13.1). Under forced
+     colours hue is gone entirely, so here the shape is not merely the
+     strongest channel, it is the ONLY one. Canvas centre, CanvasText stroke. */
+  .status-dot-idle,
+  .ws-session-dot[data-tristate="waiting"],
+  .task-item-dot.waiting {
+    forced-color-adjust: none;
+    background: Canvas;
+    border: 1px solid CanvasText;
+    box-shadow: inset 0 0 0 2px CanvasText;
   }
 
   /* Fields. The hairline is an author colour and disappears with the rest. */

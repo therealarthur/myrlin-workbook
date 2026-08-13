@@ -1834,10 +1834,19 @@
       <div class="modal-body" id="spinoff-body" style="padding: 16px; overflow-y: auto; flex: 1;">
         <!-- Populated dynamically: extraction loading state, then task cards -->
         <div id="spinoff-loading" style="text-align: center; padding: 32px 0;">
+          <!-- Three static dots on a descending emphasis ramp, not three
+               blinking ones. The blink was banned outright (DECISIONS 13.1)
+               and it was never carrying anything: the line under it already
+               says what is happening, and the panel swaps to task cards the
+               moment the extraction returns. The ramp keeps the mark reading
+               as a progress ellipsis rather than as three identical pips.
+               The hue also moves off the terminal palette and onto the block
+               palette, so the mark means the same thing in all thirteen
+               terminal themes. -->
           <div class="loading-dots" style="margin-bottom: 12px;">
-            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--lavender); animation: spinoff-dot 1.2s infinite; animation-delay: 0s;"></span>
-            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--lavender); animation: spinoff-dot 1.2s infinite; animation-delay: 0.2s;"></span>
-            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--lavender); animation: spinoff-dot 1.2s infinite; animation-delay: 0.4s;"></span>
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--app-text-purple); opacity: 1;"></span>
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--app-text-purple); opacity: 0.6;"></span>
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--app-text-purple); opacity: 0.3;"></span>
           </div>
           <div style="color: var(--subtext0); font-size: 13px;">Analyzing session conversation...</div>
           <div style="color: var(--overlay0); font-size: 11px; margin-top: 4px;">AI is extracting actionable tasks</div>
