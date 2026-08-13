@@ -580,6 +580,14 @@
   --app-on-accent: #ffffff;
   --app-scrim: rgba(15, 15, 15, 0.55);
   --app-terminal-gutter: var(--app-bg-primary);
+
+  /* Two more, added by P2's radius sweep. Both exist because DEVIATIONS.md
+     DV-4 established that the capture's numeric radius ramp cannot be
+     authored at all: its own section themes zero every rung, so a last-wins
+     read of the bundle records --radius-round as 0 and copying it would ship
+     square pills. See INVENTIONS.md for the full rows. */
+  --radius-pill: 999px;
+  --radius-pane-frame: 8px;
 }
 
 /* The capture re-declares these four inside prefers-reduced-motion, and so
@@ -1347,43 +1355,83 @@ textarea.input {
 
 /* ─── Header ────────────────────────────────────────────────── */
 
+/*
+ * TOPBAR, Notion restyle phase P2, work package P2.1.
+ * DESIGN-SPEC.md 4, BUILD-CONTRACT.md 2.12.
+ *
+ * Three changes, in order of how much they matter:
+ *
+ * 1. NO GROUND. The bar had a --bg-secondary fill, which read as a titlebar
+ *    sitting on top of the app. It is now transparent, so the canvas runs to
+ *    the top edge and a single hairline is the only separation. This is the
+ *    change that makes the shell read as Notion rather than as a desktop app.
+ * 2. NO DEPTH AT REST. The canvas carries zero depth in this system
+ *    (DESIGN-SPEC 1.5); only overlays lift. The bar earns a shadow only while
+ *    content is scrolled beneath it, and it earns it slowly: --duration-topbar
+ *    is 700ms precisely so a breadcrumb near the boundary cannot flicker the
+ *    shadow on and off as the user scrolls past it.
+ * 3. 44px, NOT 80px. --header-height is --app-topbar-height after the P1
+ *    re-point; the focused shell reads --focused-header-height, re-pointed at
+ *    the same token in focused-shell.css. Reduce type before padding: the
+ *    horizontal padding drops 16 to 12 to match the mock, and every control in
+ *    the bar comes down to the 28px icon-button scale rather than the bar
+ *    being padded out around oversized controls.
+ *
+ * The .is-scrolled hook is authored here and is not yet toggled: the scroll
+ * listener that adds it belongs to the app.js header region, which this work
+ * package does not own. Until then the bar is correct at rest, which is the
+ * state every screenshot and the overwhelming majority of use is in, because
+ * this shell scrolls its content inside .main-content rather than under the
+ * bar. See DEVIATIONS.md DV-9.
+ */
 .app-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   height: var(--header-height);
-  padding: 0 16px;
-  background: var(--bg-secondary);
+  min-height: var(--header-height);
+  padding: 0 12px;
+  background: transparent;
   border-bottom: 1px solid var(--border-subtle);
+  box-shadow: none;
+  transition: box-shadow var(--duration-topbar) var(--ease-out);
   flex-shrink: 0;
   z-index: 20;
+}
+
+.app-header.is-scrolled {
+  box-shadow: var(--app-shadow-topbar);
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   overflow: hidden;
   flex-shrink: 1;
   min-width: 0;
 }
 
+/* 28px is --app-icon-button-size, the one icon-button scale the topbar, the
+   peek and dialogs share. The coarse-pointer block in focused-shell.css lifts
+   it to the 44px touch floor where a finger is the pointer. */
 .sidebar-toggle {
   display: none;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--app-icon-button-size);
+  height: var(--app-icon-button-size);
   background: none;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-property-chip);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: var(--motion-hover-reveal), color var(--transition-fast);
 }
 
 .sidebar-toggle:hover {
-  background: var(--surface0);
+  background: var(--app-wash-hover);
   color: var(--text-primary);
 }
 
@@ -1401,24 +1449,28 @@ textarea.input {
   height: 28px;
 }
 
+/* The 64px mark and its mauve drop-shadow glow are both gone: a glow is on the
+   rejection list (DESIGN-SPEC.md 16.2) and 64px cannot sit in a 44px bar. The
+   filter declarations survive as `none` rather than being deleted, so the
+   hover rule keeps its shape and the rgba literals leave the sheet. */
 .header-logo-img {
-  width: 64px;
-  height: 64px;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
-  filter: drop-shadow(0 0 10px rgba(203, 166, 247, 0.3));
-  transition: filter 0.3s ease;
+  filter: none;
+  transition: none;
   pointer-events: auto;
 }
 
 .header-logo-img:hover {
-  filter: drop-shadow(0 0 14px rgba(203, 166, 247, 0.45));
+  filter: none;
 }
 
 .header-title {
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: normal;
 }
 
 .header-center {
@@ -1426,94 +1478,119 @@ textarea.input {
   align-items: center;
 }
 
-/* View Mode Tabs */
+/* View Mode Tabs
+ *
+ * The pill recipe, BUILD-CONTRACT.md 2.7. This is the shell's own top-level
+ * navigation and it lives inside the 44px bar, so it moves with the bar in
+ * P2.1 rather than waiting for the tab sweep in P4.4. The other five tab
+ * families (terminal group tabs, tasks tabs, docs tabs, account tabs, filter
+ * and period pills) are region interiors and are deliberately left alone here.
+ *
+ * Two idioms leave with this rule. The container is no longer a filled,
+ * rounded segmented control, and the active tab is no longer a raised card:
+ * active is a selection wash plus primary ink plus weight 600, which is the
+ * same active treatment the sidebar rows use, so the two navigations finally
+ * agree. Per-mode brand hues on the active tab are gone too; an active tab is
+ * not a content label and does not carry a palette colour. */
 .view-tabs {
   display: flex;
   align-items: center;
-  background: var(--surface0);
-  border-radius: var(--radius-md);
-  padding: 3px;
+  background: transparent;
+  border-radius: var(--radius-app-button);
+  padding: 0;
   gap: 2px;
 }
 
 .view-tab {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 14px;
+  gap: 6px;
+  padding: 4px 10px;
   background: transparent;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-block-hover);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  color: var(--text-tertiary);
+  color: var(--app-text-secondary);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: var(--motion-hover-reveal), color var(--transition-fast);
   white-space: nowrap;
 }
 
 .view-tab:hover {
-  color: var(--text-secondary);
-  background: rgba(255, 255, 255, 0.04);
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 
 .view-tab.active {
-  background: var(--bg-primary);
-  box-shadow: var(--shadow-sm);
+  background: var(--app-sidebar-item-selected);
+  color: var(--app-text-primary);
+  font-weight: 600;
+  box-shadow: none;
 }
 
 .view-tab.active[data-mode="workspace"] {
-  color: var(--mauve);
+  color: var(--app-text-primary);
 }
 
 .view-tab.active[data-mode="costs"] {
-  color: var(--green);
+  color: var(--app-text-primary);
 }
 
 .view-tab.active[data-mode="recent"] {
-  color: var(--peach);
+  color: var(--app-text-primary);
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
-/* Stats chips */
+/* Stats chips
+ *
+ * BUILD-CONTRACT 2.12 moves this cluster into a popover, which is markup work
+ * in the app.js header region and is not owned by this work package. Under the
+ * focused shell the cluster is already display:none unless density is
+ * `informative`, so what P2 owes it is a chip that does not look like the old
+ * design when that density is on: a status chip's fill and ink, at the status
+ * chip's own radius, with no glow under the dot. See DEVIATIONS.md DV-9. */
 .header-stats {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-right: 4px;
 }
 
 .stat-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  background: var(--surface0);
-  border-radius: 20px;
+  gap: 6px;
+  padding: 0 7px;
+  height: var(--app-chip-height);
+  background: var(--app-chip-gray-fill);
+  border-radius: var(--radius-status-chip);
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--app-chip-gray-ink);
 }
 
+/* 7px is the standalone status-dot size (DESIGN-SPEC.md 6.1). Chip dots are
+   8px and inherit currentColor; these two systems are never unified. */
 .stat-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-avatar);
 }
 
 .stat-dot-running {
-  background: var(--green);
-  box-shadow: 0 0 4px rgba(166, 227, 161, 0.5);
+  background: var(--app-text-green);
+  box-shadow: none;
 }
 
 .stat-chip svg {
-  color: var(--overlay1);
+  color: var(--app-icon-secondary);
 }
 
 .header-search-btn {
@@ -8875,16 +8952,20 @@ html {
   flex-shrink: 0;
 }
 
+/* The account chip is the ONE pill-shaped bordered control in the desktop
+   chrome (DESIGN-SPEC.md 4). Everything else in the topbar is a bare icon
+   button or a wash. The asymmetric padding is the mock's: 3px on the avatar
+   side so the round avatar sits flush inside the pill, 8px on the label side. */
 .account-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 4px 10px;
-  background: var(--surface0);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  color: var(--text-secondary);
+  gap: 6px;
+  height: var(--app-icon-button-size);
+  padding: 2px 8px 2px 3px;
+  background: transparent;
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-pill);
+  color: var(--app-text-secondary);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
@@ -8900,18 +8981,21 @@ html {
 }
 
 .account-chip:hover {
-  background: var(--mantle);
-  color: var(--text);
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
 }
 
+/* nt-avatar-purple, restyled onto the existing class rather than appended as a
+   new one: the chip fill and ink are the pair the captured avatar uses, so the
+   monogram reads as a person and not as a brand swatch. */
 .account-chip-avatar {
   width: 18px;
   height: 18px;
-  border-radius: 50%;
-  background: var(--mauve);
-  color: var(--base);
+  border-radius: var(--radius-avatar);
+  background: var(--app-chip-purple-fill);
+  color: var(--app-chip-purple-ink);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -8928,8 +9012,8 @@ html {
 
 .account-chip-meta {
   font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--overlay0);
+  font-size: 11px;
+  color: var(--app-text-tertiary);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }

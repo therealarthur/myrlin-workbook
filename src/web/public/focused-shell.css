@@ -15,15 +15,41 @@
   display: none;
 }
 
+/*
+ * Notion restyle phase P2, work package P2.1. BUILD-CONTRACT.md 1.7 table F.
+ *
+ * THE FOUR GEOMETRY TOKENS are re-pointed onto the chrome layer rather than
+ * carrying their own literals, so the shell reads its measurements from the
+ * same place every other Notion rule does: 58px becomes --app-topbar-height
+ * (44px), 264px becomes --app-sidebar-width (240px), 34px becomes
+ * --app-icon-button-size (28px, lifted back to 44px by the coarse-pointer
+ * block at the foot of this file), and the content measure becomes the 1100px
+ * Sessions and Costs measure from DESIGN-SPEC.md 6 and 9.2.
+ *
+ * THE TWO ALIAS RE-DERIVATIONS below them are the shadowing DECISIONS.md 9.3.1
+ * handed to this phase. data-ui-shell is ALWAYS set, so these two declarations
+ * beat the :root alias flip P1 shipped, and --text-muted and --border-subtle
+ * stayed Catppuccin for 95 consumption sites (36 and 59) while every other
+ * alias had already moved. They are re-pointed, not deleted: the names, the
+ * declarations and this block all survive, and their right-hand sides now name
+ * exactly what :root names, so the focused shell agrees with the base layer
+ * instead of overriding it.
+ *
+ * The original intent of the color-mix() re-derivation was legibility of small
+ * supporting copy across the light and dark palette families. That intent now
+ * lives in the chrome layer itself: --app-text-disabled is a real disabled ink
+ * with a dark-chrome variant, which is what BUILD-CONTRACT table B specifies
+ * for --text-muted, and it no longer has to be mixed by hand per family.
+ */
 :root[data-ui-shell="focused"] {
-  --focused-header-height: 58px;
-  --focused-sidebar-width: 264px;
-  --focused-control-height: 34px;
-  --focused-content-max: 1120px;
+  --focused-header-height: var(--app-topbar-height);
+  --focused-sidebar-width: var(--app-sidebar-width);
+  --focused-control-height: var(--app-icon-button-size);
+  --focused-content-max: 1100px;
 
   /* Small text must remain readable in both dark and light families. */
-  --text-muted: color-mix(in srgb, var(--subtext1) 35%, var(--subtext0));
-  --border-subtle: color-mix(in srgb, var(--surface1) 44%, transparent);
+  --text-muted: var(--app-text-disabled);
+  --border-subtle: var(--app-border-secondary);
 }
 
 /* Latte's stock tertiary token lands just below AA for 12px labels. */
@@ -31,12 +57,20 @@
   --text-tertiary: var(--subtext1);
 }
 
+/*
+ * The topbar has no ground of its own (DESIGN-SPEC.md 4). The painted band was
+ * the second half of the shadowing noted in DECISIONS.md 9.3.1: even after the
+ * P1 alias flip this rule kept mixing the Catppuccin mantle, which is why the
+ * P1 screenshots still show a palette-coloured header over a Notion canvas.
+ * Transparent lets the canvas run to the top edge, and the single hairline in
+ * styles.css is the only thing that separates the bar from the content.
+ */
 :root[data-ui-shell="focused"] .app-header {
   height: var(--focused-header-height);
   min-height: var(--focused-header-height);
   padding: 0 12px;
-  gap: 14px;
-  background: color-mix(in srgb, var(--mantle) 94%, var(--base));
+  gap: 8px;
+  background: transparent;
 }
 
 :root[data-ui-shell="focused"] .header-left {
@@ -44,9 +78,11 @@
   flex: 1 1 240px;
 }
 
+/* A 36px mark does not fit inside a 44px bar with any air around it. 20px is
+   the row-icon scale the rest of the chrome uses. */
 :root[data-ui-shell="focused"] .header-logo-img {
-  width: 36px;
-  height: 36px;
+  width: 20px;
+  height: 20px;
   filter: none;
 }
 
@@ -54,10 +90,13 @@
   filter: none;
 }
 
+/* 14px / 600 is the application scale's name row (DESIGN-SPEC.md 1.3). The
+   captured system tracks negative only above 16px, so the letter-spacing goes
+   to normal here rather than staying slightly tightened. */
 :root[data-ui-shell="focused"] .header-title {
   font-size: 14px;
-  font-weight: 650;
-  letter-spacing: -0.012em;
+  font-weight: 600;
+  letter-spacing: normal;
 }
 
 :root[data-ui-shell="focused"] .header-center {
@@ -65,32 +104,39 @@
   min-width: 0;
 }
 
+/*
+ * The nav cluster loses its container chrome. A bordered, filled, raised
+ * segmented control is the iOS-toolbar idiom the restyle replaces; the pill
+ * recipe (BUILD-CONTRACT 2.7) carries the whole affordance on the active pill
+ * itself, so the wrapper is now nothing but a flex row that fits inside the
+ * 44px bar.
+ */
 :root[data-ui-shell="focused"] .view-nav-cluster {
   display: flex;
   align-items: center;
-  min-height: 38px;
-  padding: 3px;
-  gap: 1px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--surface0) 62%, transparent);
+  min-height: 28px;
+  padding: 0;
+  gap: 2px;
+  border: 0;
+  border-radius: var(--radius-app-button);
+  background: transparent;
 }
 
 :root[data-ui-shell="focused"] .view-tabs {
-  min-height: 30px;
+  min-height: 28px;
   padding: 0;
-  gap: 1px;
+  gap: 2px;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
 
 :root[data-ui-shell="focused"] .view-tab {
-  min-height: 30px;
-  padding: 5px 11px;
+  min-height: 26px;
+  padding: 4px 10px;
   gap: 6px;
-  border-radius: 6px;
-  color: var(--text-tertiary);
+  border-radius: var(--radius-block-hover);
+  color: var(--app-text-secondary);
 }
 
 :root[data-ui-shell="focused"] .view-tab[data-shell-tier="secondary"],
@@ -99,14 +145,18 @@
 }
 
 :root[data-ui-shell="focused"] .view-tab:hover {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--surface1) 36%, transparent);
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 
+/* Active is a selection wash plus ink weight, never a raised card. The
+   box-shadow that lifted the active tab off the segmented control is gone with
+   the control itself: on this surface only overlays carry depth. */
 :root[data-ui-shell="focused"] .view-tab.active {
-  color: var(--text-primary);
-  background: var(--base);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--crust) 45%, transparent);
+  color: var(--app-text-primary);
+  background: var(--app-sidebar-item-selected);
+  box-shadow: none;
+  font-weight: 600;
 }
 
 :root[data-ui-shell="focused"] .focused-more-btn {
@@ -114,13 +164,13 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 30px;
-  padding: 5px 9px;
+  min-height: 26px;
+  padding: 4px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-block-hover);
   background: transparent;
-  color: var(--text-tertiary);
-  font: 500 12px var(--font-sans);
+  color: var(--app-text-secondary);
+  font: 500 13px var(--font-sans);
   cursor: pointer;
   transition: color var(--transition-fast), background var(--transition-fast);
 }
@@ -128,10 +178,14 @@
 :root[data-ui-shell="focused"] .focused-more-btn:hover,
 :root[data-ui-shell="focused"] .focused-more-btn:focus-visible,
 :root[data-ui-shell="focused"] .focused-more-btn.active {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--surface1) 36%, transparent);
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 
+/* PINNED, verbatim: focused-shell.test.js line 154 matches this rule's outline
+   and outline-offset declarations as written. --accent already resolves to the
+   Notion --app-ui-blue after the P1 alias flip, so the ring is the right colour
+   without touching the two declarations the test reads. */
 :root[data-ui-shell="focused"] .focused-more-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -266,15 +320,26 @@
   width: 2px;
 }
 
+/* The canvas ground. var(--base) was the Catppuccin canvas, which is what kept
+   the work surface on the terminal palette after the P1 flip; --app-bg-primary
+   is the chrome canvas and is what the topbar now runs into. The two container
+   declarations are PINNED verbatim by experience-ux-contract.test.js and by the
+   @container query further down this file: do not touch them. */
 :root[data-ui-shell="focused"] .main-content {
-  background: var(--base);
+  background: var(--app-bg-primary);
   container-name: workbook-main;
   container-type: inline-size;
 }
 
+/* The tab bar sits directly under the topbar. A second painted band there is
+   the single loudest remaining "chrome stack" cue, so the ground goes and a
+   hairline does the separating, exactly as the topbar's does (DESIGN-SPEC.md
+   5.1). The pills inside it are a tab family and belong to P4.4; only the
+   bar's own ground moves here. */
 :root[data-ui-shell="focused"] .terminal-groups-bar {
   min-height: 38px;
-  background: color-mix(in srgb, var(--mantle) 76%, var(--base));
+  background: transparent;
+  border-bottom: 1px solid var(--app-border-secondary);
 }
 
 :root[data-ui-shell="focused"] .terminal-grid {
