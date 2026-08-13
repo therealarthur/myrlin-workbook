@@ -680,10 +680,13 @@
                 <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
-            <div class="detail-title-row">
-              <span class="detail-status-dot" id="detail-status-dot"></span>
-              <h2 class="detail-title" id="detail-title">Session Name</h2>
-            </div>
+            <!-- The title row moved OUT of this bar and into the body below,
+                 which is where DESIGN-SPEC 7 draws it: a peek header is a 44px
+                 control band mirroring the topbar, and the page title is the
+                 first block of the document under it at 22px. The spacer is
+                 what the title used to be doing structurally. Every id is
+                 unchanged; only the parent moved. -->
+            <div class="detail-header-spacer"></div>
             <div class="detail-actions">
               <button class="btn btn-ghost btn-icon btn-sm" id="detail-rename-btn" title="Rename session">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -699,6 +702,10 @@
           </div>
 
           <div class="detail-body" id="detail-body">
+            <div class="detail-title-row">
+              <span class="detail-status-dot" id="detail-status-dot"></span>
+              <h2 class="detail-title" id="detail-title">Session Name</h2>
+            </div>
             <div class="detail-meta">
               <div class="meta-row">
                 <span class="meta-label">Status</span>
@@ -707,6 +714,20 @@
               <div class="meta-row">
                 <span class="meta-label">Project</span>
                 <span class="meta-value" id="detail-workspace"></span>
+              </div>
+              <!-- Provider and Model are two of the eight properties
+                   DESIGN-SPEC 7 draws in the peek and the only two the panel
+                   had no row for: provider was nowhere, and the model was
+                   buried inside the Command string. Both are additive rows on
+                   the existing .meta-row pattern, so every pinned id above and
+                   below them is untouched. -->
+              <div class="meta-row">
+                <span class="meta-label">Provider</span>
+                <span class="meta-value" id="detail-provider"></span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-label">Model</span>
+                <span class="meta-value" id="detail-model"></span>
               </div>
               <div class="meta-row">
                 <span class="meta-label">Directory</span>
@@ -793,6 +814,18 @@
                 </svg>
                 Restart
               </button>
+            </div>
+
+            <!-- Notes. DESIGN-SPEC 7 item 5: a borderless, groundless editor,
+                 which is the Notion idiom for a note that is page content
+                 rather than a form field. Persisted per session in
+                 localStorage, so it survives a reload without a round trip and
+                 without a schema change on the server. -->
+            <div class="detail-notes">
+              <label class="detail-notes-label" for="detail-notes">Notes</label>
+              <textarea class="detail-notes-editor" id="detail-notes" rows="4"
+                        spellcheck="false"
+                        placeholder="Add a note about this session"></textarea>
             </div>
 
             <div class="detail-logs">

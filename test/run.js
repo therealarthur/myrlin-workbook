@@ -952,6 +952,7 @@ const standaloneTests = [
   'do-not-break-gates.test.js',  // Notion restyle P0.6: G1..G13 from BUILD-CONTRACT 5.3 in ratchet mode (ids, JS-coupled classes, data-* keys, drift counters)
   'vt-sidecar.test.js',          // Notion restyle P6: VT sidecar golden streams + snapshot replay fidelity, mode signal, headless containment, width-thrash ownership control
   'recency-surfaces.test.js',    // Notion restyle P4.8/P4.9: the merged cross-provider recency list executed against fixtures (sort, tie-break, dedup, exclusions) plus the four surfaces reading it and the single formatter
+  'side-peek.test.js',           // Notion restyle P4 remainder B1: the peek as a fixed-measure sibling, display:contents property grid, desktop-scoped width ladder, shared chip helpers, notes editor that never clobbers a focused textarea
 ];
 
 let standaloneFailed = 0;

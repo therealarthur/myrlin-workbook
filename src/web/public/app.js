@@ -181,6 +181,17 @@ class CWMApp {
    *  BUILD-CONTRACT 2.13.3. */
   static RECENT_COLLAPSED_KEY = 'cwm_recentCollapsed';
 
+  /** localStorage key for the side peek's per-session notes, DESIGN-SPEC 7
+   *  item 5. Value is `{ [sessionId]: string }`.
+   *
+   *  The mock stores ONE note under `mw-notion-notes`, because a prototype has
+   *  one session. This app has hundreds, so the note is keyed by session id and
+   *  the key follows this app's own `cwm_` convention rather than the mock's.
+   *  Client-side because a note is a scratchpad rather than session state: it
+   *  needs no round trip, no schema change and no conflict story, and a session
+   *  that disappears takes its note with it on the next write. */
+  static SESSION_NOTES_KEY = 'cwm_sessionNotes';
+
   /** How many sessions each recency surface shows, BUILD-CONTRACT 2.13.
    *  Quick Find zero-query takes 8, the sidebar Recent section takes 5, and
    *  the workbench continue row takes 4. They are named here rather than
@@ -508,6 +519,9 @@ class CWMApp {
       detailDeleteBtn: document.getElementById('detail-delete-btn'),
       detailStatusBadge: document.getElementById('detail-status-badge'),
       detailWorkspace: document.getElementById('detail-workspace'),
+      detailProvider: document.getElementById('detail-provider'),
+      detailModel: document.getElementById('detail-model'),
+      detailNotes: document.getElementById('detail-notes'),
       detailDir: document.getElementById('detail-dir'),
       detailTopic: document.getElementById('detail-topic'),
       detailCommand: document.getElementById('detail-command'),
@@ -15031,6 +15045,21 @@ class CWMApp {
     // Meta
     const ws = this.state.workspaces.find(w => w.id === session.workspaceId);
     this.els.detailWorkspace.textContent = ws ? ws.name : 'None';
+
+    // Provider and Model, the two properties DESIGN-SPEC 7 lists that the
+    // panel had no row for. Both reuse the helpers the sessions table already
+    // calls, so a provider chip means the same thing in both places and there
+    // is exactly one short-model rule in the app.
+    if (this.els.detailProvider) {
+      this.els.detailProvider.innerHTML = this.providerChipHtml(session.provider);
+    }
+    if (this.els.detailModel) {
+      // An unset property renders BLANK, which is the Notion idiom and which
+      // this row can afford because the label beside it never disappears.
+      this.els.detailModel.textContent = this.shortModelLabel(session.model) || '';
+    }
+    this.renderSessionNotes(session.id);
+
     this.els.detailDir.textContent = session.workingDir || '--';
     this.els.detailTopic.textContent = session.topic || '--';
     // Build full command display with flags
@@ -15094,6 +15123,75 @@ class CWMApp {
     } else if (this.els.detailAnalytics) {
       this.els.detailAnalytics.hidden = true;
     }
+  }
+
+  /**
+   * Read the per-session notes map out of localStorage.
+   *
+   * Every failure mode returns an empty map rather than throwing: a private
+   * window with storage disabled, a quota error, and a value some other tool
+   * wrote over the top all look the same to the caller, and a peek that cannot
+   * remember a note is a much smaller problem than a peek that cannot render.
+   *
+   * @returns {Object<string, string>} Session id to note text.
+   */
+  _readSessionNotes() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CWMApp.SESSION_NOTES_KEY) || '{}');
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /**
+   * Persist one session's note. An empty note DELETES its entry rather than
+   * storing an empty string, so clearing a note reclaims the space and the map
+   * never accumulates a row per session the user merely looked at.
+   *
+   * @param {string} sessionId - Session the note belongs to.
+   * @param {string} text - Note text; empty or whitespace removes the entry.
+   * @returns {void}
+   */
+  _writeSessionNote(sessionId, text) {
+    if (!sessionId) return;
+    try {
+      const map = this._readSessionNotes();
+      if (text && text.trim()) map[sessionId] = text;
+      else delete map[sessionId];
+      localStorage.setItem(CWMApp.SESSION_NOTES_KEY, JSON.stringify(map));
+    } catch (_) {
+      // Storage is full, disabled or unavailable. The note stays in the
+      // textarea for this session; nothing else in the panel depends on it.
+    }
+  }
+
+  /**
+   * Load a session's note into the peek's borderless editor and make sure the
+   * one persistence listener is bound.
+   *
+   * The listener is bound ONCE and reads the currently selected session at
+   * event time rather than closing over the id, because renderSessionDetail
+   * runs on every SSE session event and a per-render listener would stack up
+   * one handler per event on the same element.
+   *
+   * @param {string} sessionId - Session whose note should be shown.
+   * @returns {void}
+   */
+  renderSessionNotes(sessionId) {
+    const editor = this.els.detailNotes;
+    if (!editor) return;
+    // Never clobber what the user is typing. A background render must not
+    // reach into a focused editor and replace the caret's text.
+    if (document.activeElement !== editor) {
+      editor.value = this._readSessionNotes()[sessionId] || '';
+    }
+    if (this._detailNotesBound) return;
+    this._detailNotesBound = true;
+    editor.addEventListener('input', () => {
+      const current = this.state.selectedSession;
+      if (current && current.id) this._writeSessionNote(current.id, editor.value);
+    });
   }
 
   async loadSessionCost(sessionId) {

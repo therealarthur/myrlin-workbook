@@ -3348,21 +3348,66 @@ textarea.input {
 
 
 /* ─── Session Detail Panel ──────────────────────────────────── */
-
+/*
+ * THE SIDE PEEK, Notion restyle P4 remainder (DESIGN-SPEC 7, BUILD-CONTRACT
+ * 2.12). DECISIONS 12.6 item 1 named this the largest region the restyle had
+ * not touched, and 12.3.1 item 2 specified it.
+ *
+ * WHAT A PEEK IS. Notion's side peek is a LAYOUT SIBLING, not an overlay: it
+ * narrows the page rather than covering it, so the row you opened it from stays
+ * visible and clickable. This panel was already a flex sibling of the session
+ * list, which is the half the old design got right; what it got wrong was
+ * `flex: 1`, which made it take exactly half the main column whatever was in
+ * it. A peek is a FIXED measure. The list keeps the elastic half.
+ *
+ * 420px is the mock's initial peek width, and it is written as a literal for
+ * the same reason the 240px menu is (DECISIONS 12.2 and the P4.1 comment): it
+ * is an instance value in a prototype, not a system token. The capture's own
+ * --app-peek-width is 872px, the peek's CONTENT measure (720 plus two 76px
+ * side-peek gutters), which is a different number for a different job and is
+ * why it is not used here.
+ *
+ * The width ladder is scoped to desktop. styles-mobile.css re-anchors this
+ * panel as a full-bleed fixed slide-over at 768px with `left: 0; right: 0`,
+ * and an unscoped `width` would over-constrain that box and win against its
+ * `right`, collapsing the phone panel to 420px against the left edge. Scoping
+ * here rather than patching there follows DECISIONS 12.3.2: this is the desktop
+ * track's file, the phone is P10's.
+ */
 .session-detail-panel {
   display: flex;
   flex-direction: column;
   flex: 1;
   overflow: hidden;
-  animation: fade-in 0.15s ease;
+  background: var(--app-bg-primary);
+  /* One entrance for every surface that arrives (BUILD-CONTRACT 2.4). The
+     local fade-in is retained below rather than deleted; it is simply no
+     longer what this panel reaches for. */
+  animation: mwFadein var(--duration-150) var(--ease-out);
 }
 
+@media (min-width: 769px) {
+  .session-detail-panel {
+    flex: 0 0 auto;
+    width: 420px;
+    min-width: 300px;
+    max-width: 46vw;
+    border-left: 1px solid var(--app-border-primary);
+  }
+}
+
+/* The peek header mirrors the topbar height exactly, so the two read as one
+   44px band across the window (DESIGN-SPEC 7). It was 16px/24px/12px padding
+   around a 16px title, which measured 57px and made the peek look like a
+   second, taller application. */
 .detail-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 16px 24px 12px;
-  border-bottom: 1px solid var(--border-subtle);
+  gap: 4px;
+  height: var(--app-topbar-height);
+  min-height: var(--app-topbar-height);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--app-border-secondary);
   flex-shrink: 0;
 }
 
@@ -3370,11 +3415,17 @@ textarea.input {
   display: none;
 }
 
+/* The spacer the title used to be. `flex: 1` on an empty div is what pushes
+   the action cluster to the right edge of the 44px band. */
+.detail-header-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
 .detail-title-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex: 1;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -3388,62 +3439,89 @@ textarea.input {
   flex-shrink: 0;
 }
 
+/* The page title of the peek, DESIGN-SPEC 7 item 1. 22px/700 with the display
+   tracking, and `overflow-wrap: anywhere` rather than an ellipsis: a session
+   name is often a path fragment or a branch name with no spaces in it, and a
+   peek is a place to READ the whole name, not a 14px table cell that has to
+   truncate it. Two lines of title is better than half a name. */
 .detail-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--app-text-primary);
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .detail-actions {
   display: flex;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .detail-body {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: 20px 24px 32px;
 }
 
-/* Meta */
+/*
+ * THE PROPERTY GRID, DESIGN-SPEC 7 item 2.
+ *
+ * This was a card: ten rows striped over a hairline ground with a rounded
+ * clip, which is the "boxed form" idiom the rejection list refuses and which
+ * made the session's own properties read as a settings dialog. Notion draws
+ * properties as bare label and value pairs on the page ground, aligned on one
+ * column, with no fill and no rule between them.
+ *
+ * `display: contents` on the row is what makes that a two-line change instead
+ * of a markup rewrite: the label and the value become grid items of the grid
+ * their grandparent declares, and every id, every JS write and every one of
+ * the twelve rows is untouched. DECISIONS 12.2.3 warns that `display: contents`
+ * destroys a row's own box, which is exactly why the table rejected it and
+ * exactly why this region can take it: no handler resolves through .meta-row,
+ * it carries no hover wash, and its box existed only to paint the stripe this
+ * work package is removing.
+ *
+ * The label column is minmax(80px, 110px) rather than the design system's
+ * fixed 148px, because a peek is narrower than a document and the spec says so
+ * in as many words: "the peek narrows it ... Follow the mock."
+ */
 .detail-meta {
   display: grid;
-  gap: 1px;
-  background: var(--border-subtle);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  margin-bottom: 20px;
+  grid-template-columns: minmax(80px, 110px) 1fr;
+  gap: 2px 10px;
+  margin: 16px 0 20px;
+  font-size: 13px;
 }
 
 .meta-row {
-  display: flex;
-  align-items: center;
-  padding: 10px 16px;
-  background: var(--bg-primary);
-}
-
-.meta-row:first-child {
-  border-radius: var(--radius-md) var(--radius-md) var(--radius-cover) var(--radius-cover);
-}
-
-.meta-row:last-child {
-  border-radius: var(--radius-cover) var(--radius-cover) var(--radius-md) var(--radius-md);
+  display: contents;
 }
 
 .meta-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  width: 100px;
-  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--app-text-tertiary);
+  white-space: nowrap;
 }
 
+/* `min-width: 0` is load-bearing: a grid item's automatic minimum is its
+   content, so a 200-character directory would widen the 1fr track and push the
+   whole peek into a horizontal scroll rather than ellipsising inside it. */
 .meta-value {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  min-width: 0;
   font-size: 13px;
-  color: var(--text-primary);
+  color: var(--app-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3454,14 +3532,66 @@ textarea.input {
   font-size: 12px;
 }
 
-/* Detail Control Bar */
+/*
+ * THE NOTES EDITOR, DESIGN-SPEC 7 item 5: borderless and groundless, so the
+ * note looks like page content rather than like a form field. This is the
+ * Notion idiom that DECISIONS 11.2.6 already ruled on for the docs editor:
+ * `outline: none` on a borderless editor is not an accessibility exception,
+ * because the caret IS the focus indicator in a text field. The field keeps a
+ * visible focus ring anyway, drawn as the block hover box rather than as a
+ * form outline, so a keyboard user tabbing through the peek can see where
+ * they are without the peek growing a second visual language.
+ */
+.detail-notes {
+  margin: 16px 0 20px;
+}
+
+.detail-notes-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-secondary);
+  margin-bottom: 4px;
+}
+
+.detail-notes-editor {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 84px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: var(--app-text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 6px 2px;
+  border-radius: var(--radius-block-hover);
+  transition: background var(--transition-fast);
+}
+
+.detail-notes-editor::placeholder {
+  color: var(--app-text-tertiary);
+}
+
+.detail-notes-editor:focus-visible {
+  background: var(--app-wash-hover);
+}
+
+/* THE ACTION ROW, DESIGN-SPEC 7 items 3 and 4. A bare row of buttons under a
+   1px divider, not a filled tray. The tray was a panel inside a panel: it drew
+   a second ground, a second radius and a second boundary around three controls
+   that already have their own. The divider replaces all three, and it is the
+   spec's own separator (`height: 1px; background: --app-border-secondary;
+   margin: 16px 0 12px`) written as a border so it cannot collapse. */
 .detail-control-bar {
   display: flex;
   gap: 8px;
-  padding: 14px 16px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  margin-bottom: 20px;
+  flex-wrap: wrap;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--app-border-secondary);
+  margin: 16px 0 20px;
 }
 
 /* Logs */
@@ -3470,24 +3600,28 @@ textarea.input {
 }
 
 .detail-logs-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
-  color: var(--text-muted);
-  margin-bottom: 10px;
+  color: var(--app-text-secondary);
+  margin-bottom: 6px;
 }
 
+/* The transcript block keeps its own ground, and that is deliberate: it is
+   monospace machine output, which DESIGN-SPEC 7 item 6 also draws on a
+   distinct fill. It moves off --crust (a terminal-palette near-black that
+   rendered as a dark slab on the light canvas) and onto the app's tertiary
+   ground, which is one step off the page in either chrome. */
 .logs-container {
   display: flex;
   flex-direction: column;
   gap: 2px;
   max-height: 300px;
   overflow-y: auto;
-  padding: 12px;
-  background: var(--crust);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
+  padding: 10px 12px;
+  background: var(--app-bg-tertiary);
+  border-radius: var(--radius-app-button);
 }
 
 .log-entry {
@@ -3499,13 +3633,13 @@ textarea.input {
 }
 
 .log-time {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
   flex-shrink: 0;
   font-size: 11px;
 }
 
 .log-message {
-  color: var(--text-secondary);
+  color: var(--app-text-secondary);
   word-break: break-word;
 }
 
@@ -3513,22 +3647,27 @@ textarea.input {
   text-align: center;
   padding: 20px;
   font-size: 12px;
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 
 /* ─── Workspace Analytics ─────────────────────────────────── */
+/* The peek's own sections all take one section idiom: a hairline separator
+   above, a 12px/600 secondary label, and no card around the group. The three
+   sections used to disagree (one had a top border, one had padding, one had
+   neither), which made a scroll down the peek read as three stacked panels. */
 
 .detail-analytics {
-  padding: 12px 16px;
-  border-top: 1px solid var(--surface0);
+  padding: 16px 0 0;
+  border-top: 1px solid var(--app-border-secondary);
+  margin-top: 16px;
 }
 
 .detail-section-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
-  color: var(--text-muted);
+  color: var(--app-text-secondary);
   margin-bottom: 4px;
 }
 
@@ -3539,30 +3678,37 @@ textarea.input {
   margin-top: 8px;
 }
 
+/* The Costs stat-card recipe (DESIGN-SPEC 9.2), reused rather than re-cut: a
+   1px hairline and an 8px radius on the page ground, never a filled tile. */
 .analytics-card {
-  background: var(--surface0);
+  background: transparent;
+  border: 1px solid var(--app-border-primary);
   border-radius: var(--radius-pane-frame);
   padding: 10px 12px;
 }
 
 .analytics-card-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  color: var(--overlay1);
+  color: var(--app-text-secondary);
   text-transform: none;
   letter-spacing: normal;
 }
 
+/* Tabular figures, not monospace. A number in a card is a VALUE; setting it in
+   the code face says it is a code token, which is the distinction DECISIONS
+   made for the session badges and this is the same call one region over. */
 .analytics-card-value {
   font-size: 18px;
   font-weight: 700;
-  color: var(--text);
-  font-family: var(--font-mono);
+  color: var(--app-text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
   margin-top: 2px;
 }
 
 .analytics-card-value.cost-value {
-  color: var(--green);
+  color: var(--app-text-primary);
 }
 
 .analytics-top-sessions {
@@ -3570,9 +3716,9 @@ textarea.input {
 }
 
 .analytics-top-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  color: var(--overlay1);
+  color: var(--app-text-secondary);
   text-transform: none;
   letter-spacing: normal;
   margin-bottom: 6px;
@@ -3587,43 +3733,53 @@ textarea.input {
 }
 
 .analytics-top-name {
-  color: var(--text);
+  color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 160px;
 }
 
+/* A cost is a NUMBER, not a signal. Green here meant nothing except "this is
+   money", which is what the currency symbol already says; the hue was spent
+   for no signal and clashed with the one place green does mean something in
+   this app, which is a running session. Tabular figures instead. */
 .analytics-top-cost {
-  color: var(--green);
-  font-family: var(--font-mono);
+  color: var(--app-text-secondary);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   flex-shrink: 0;
   margin-left: 8px;
 }
 
 /* ─── Cost Tracking Display ─────────────────────────────────── */
+/* The peek's cost card, on the same recipe as the Costs view's stat cards
+   (DESIGN-SPEC 9.2): a 1px hairline and an 8px radius on the page ground. It
+   used to be a --mantle fill, a terminal-palette near-black that painted a
+   dark slab into the middle of a light peek. */
 
 .cost-summary {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
-  background: var(--mantle);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--surface0);
+  padding: 14px 16px;
+  background: transparent;
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-pane-frame);
 }
 
 .cost-total {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
-  color: var(--text);
-  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -0.01em;
+  color: var(--app-text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .cost-total-label {
-  font-size: 11px;
-  color: var(--subtext0);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-text-secondary);
   text-transform: none;
   letter-spacing: normal;
 }
@@ -3631,22 +3787,25 @@ textarea.input {
 .cost-breakdown {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: 2px 10px;
 }
 
+/* A breakdown line is a PROPERTY ROW, the same idiom as the grid above it, so
+   the four lines stop being four filled pills inside a card. */
 .cost-item {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
-  color: var(--subtext1);
-  padding: 4px 8px;
-  background: var(--surface0);
-  border-radius: var(--radius-sm);
+  align-items: center;
+  min-height: 24px;
+  font-size: 13px;
+  color: var(--app-text-tertiary);
+  padding: 0;
+  background: transparent;
 }
 
 .cost-item-value {
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--text);
+  color: var(--app-text-primary);
+  font-variant-numeric: tabular-nums;
   font-weight: 500;
 }
 
@@ -3673,9 +3832,13 @@ textarea.input {
 
 /* ─── Subagent Tracking ───────────────────────────────── */
 
+/* Same section idiom as the analytics block: hairline above, 12px/600 label,
+   no card. The 16px horizontal padding is gone with it; a section inside the
+   peek body does not inset itself from the body's own 24px. */
 .subagent-section {
-  padding: 8px 16px;
-  border-top: 1px solid var(--surface0);
+  padding: 16px 0 0;
+  border-top: 1px solid var(--app-border-secondary);
+  margin-top: 16px;
 }
 
 .subagent-header {
@@ -3686,20 +3849,25 @@ textarea.input {
 }
 
 .subagent-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--subtext0);
+  color: var(--app-text-secondary);
   text-transform: none;
   letter-spacing: normal;
 }
 
+/* A count is a property chip. The hand-mixed 10 percent mauve was the last
+   translucent literal in this region, and the gray chip pair says the same
+   thing at a measured contrast. Purple is reserved for provider identity. */
 .subagent-count {
-  font-size: 10px;
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--mauve);
-  background: rgba(203, 166, 247, 0.1);
-  padding: 1px 6px;
-  border-radius: var(--radius-pane-frame);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  font-weight: 500;
+  color: var(--app-chip-gray-ink);
+  background: var(--app-chip-gray-fill);
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+  border-radius: var(--radius-property-chip);
 }
 
 .subagent-item {
@@ -3738,25 +3906,30 @@ textarea.input {
 }
 
 .subagent-name {
-  color: var(--text);
+  color: var(--app-text-primary);
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* The agent TYPE is a property chip, not a code token: it is a name the user
+   picked from a list, which is exactly what a property chip is for. */
 .subagent-type {
-  font-size: 10px;
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--subtext0);
-  background: var(--surface0);
-  padding: 1px 4px;
-  border-radius: var(--radius-row-icon);
+  font-size: 12px;
+  line-height: var(--app-chip-line);
+  font-weight: 500;
+  color: var(--app-chip-gray-ink);
+  background: var(--app-chip-gray-fill);
+  padding: 0 6px;
+  border-radius: var(--radius-property-chip);
+  flex-shrink: 0;
 }
 
 .subagent-status {
-  font-size: 10px;
-  color: var(--subtext0);
+  font-size: 11px;
+  color: var(--app-text-tertiary);
 }
 
 @keyframes subagent-pulse {
@@ -5460,19 +5633,32 @@ textarea.input {
     padding: 16px;
   }
 
+  /* The property grid collapses to ONE column on a phone: at 320px a
+     110px label column leaves 190px for a directory. `display: contents` on
+     the row means the grid template is the only thing that has to change, so
+     the stacked label-over-value order falls out of source order for free.
+     The peek's own phone geometry (a full-bleed slide-over) is
+     styles-mobile.css's and untouched here; this is only the grid inside it. */
   .detail-meta {
-    display: flex;
-    flex-direction: column;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .meta-label {
+    min-height: 0;
+    padding-top: 8px;
+  }
+
+  .meta-value {
+    min-height: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .meta-row {
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
-  }
-
-  .meta-label {
-    width: auto;
   }
 }
 
