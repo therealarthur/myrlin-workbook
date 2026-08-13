@@ -2703,6 +2703,128 @@ textarea.input {
   font-size: 12px;
   color: var(--app-text-tertiary);
 }
+
+/* The discovered tree's own empty line, which used to be an inline style
+   painting from the terminal palette. Same recipe as .ws-session-empty at the
+   discovered tree's indent. */
+.project-session-empty {
+  padding: 6px 12px 6px 28px;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RECENCY SURFACE 2: the sidebar Recent section
+   BUILD-CONTRACT 2.13.3. Sits above Projects and uses the sidebar's own
+   27px row geometry, section label and hover wash, so it reads as part of
+   the tree rather than as a widget bolted above it.
+   ═══════════════════════════════════════════════════════════ */
+.sidebar-recent-section {
+  flex-shrink: 0;
+  padding-bottom: 2px;
+}
+
+.sidebar-recent-section[hidden] {
+  display: none;
+}
+
+.sidebar-section-label {
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-sidebar-section-label);
+}
+
+.sidebar-recent-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--radius-block-hover);
+}
+
+.nt-enable-hover .sidebar-recent-toggle:hover {
+  background: var(--app-wash-hover);
+}
+
+.sidebar-recent-caret {
+  font-size: 10px;
+  color: var(--app-icon-tertiary);
+  transition: transform var(--transition-fast);
+}
+
+.sidebar-recent-section.is-collapsed .sidebar-recent-caret {
+  transform: rotate(-90deg);
+}
+
+.sidebar-recent-list[hidden] {
+  display: none;
+}
+
+/* 27px, 4px 8px, 8px gap, 6px radius: BUILD-CONTRACT 2.12's sidebar row,
+   with zero left borders, zero bars and zero underlines. */
+.sidebar-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 27px;
+  padding: 4px 8px;
+  border-radius: var(--radius-block-hover);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+
+.nt-enable-hover .sidebar-recent-row:hover {
+  background: var(--app-wash-hover);
+}
+
+.sidebar-recent-row:focus-visible {
+  outline: 2px solid var(--app-ui-blue);
+  outline-offset: -2px;
+}
+
+/* In a 240px sidebar the title is 13px, so its own row chip rule applies and
+   the trailing time drops to 11px: a timestamp is the least important thing
+   on the row and must never compete with the name. */
+.sidebar-recent-row .recent-row-title {
+  font-size: 13px;
+}
+
+.sidebar-recent-row .recent-row-time {
+  font-size: 11px;
+}
+
+.sidebar-recent-row .recent-row-project {
+  display: none;
+}
+
+.sidebar-recent-all {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  color: var(--app-text-tertiary);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  border-radius: var(--radius-block-hover);
+  cursor: pointer;
+}
+
+.nt-enable-hover .sidebar-recent-all:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-text-secondary);
+}
 .ws-session-hidden {
   opacity: 0.4;
 }
@@ -4231,6 +4353,52 @@ textarea.input {
   color: var(--app-text-tertiary);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * THE SHARED RECENCY ROW (BUILD-CONTRACT 2.13.2 anatomy).
+ * One set of parts, three consumers: Quick Find's zero-query list, the
+ * sidebar Recent section and the workbench continue row. Each consumer owns
+ * its own container metrics; the parts below own what a recency row SAYS, so
+ * the three cannot drift into three different vocabularies for one fact.
+ */
+.recent-row-title {
+  font-size: var(--app-body-size);
+  font-weight: 500;
+  color: var(--app-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.recent-row-project {
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 2;
+}
+
+/* A real element rather than margin-left:auto on the next sibling, because
+   the next sibling is conditional: a row with no timestamp must still push
+   nothing to the right rather than collapsing its layout. */
+.recent-row-spacer {
+  flex: 1 1 auto;
+  min-width: 4px;
+}
+
+.recent-row-time {
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.qs-result-recent .session-provider-chip {
+  flex-shrink: 0;
 }
 
 .qs-footer {

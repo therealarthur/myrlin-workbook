@@ -535,6 +535,26 @@
           <button class="sidebar-view-btn" data-sidebar-view="tasks">Agent Tasks</button>
         </div>
         <div class="sidebar-tabs" id="sidebar-provider-tabs" role="tablist"></div>
+        <!--
+          RECENT SECTION (BUILD-CONTRACT 2.13.3, recency surface 2).
+          Placed above Projects, below the provider tabs, so it does not sit
+          between any two of the siblings focused-shell.test.js pins
+          (#sidebar-provider-tabs, #projects-header, #projects-search-bar,
+          #projects-list, #sidebar-section-resize, .sidebar-footer) and their
+          relative order is unchanged. Rows are rendered by renderRecentSection.
+        -->
+        <section class="sidebar-recent-section" id="sidebar-recent-section" hidden>
+          <h2 class="sidebar-section-label">
+            <button type="button" class="sidebar-recent-toggle" id="sidebar-recent-toggle"
+                    aria-expanded="true" aria-controls="sidebar-recent-list">
+              <span class="sidebar-recent-caret" aria-hidden="true">&#9662;</span>
+              <span>Recent</span>
+            </button>
+          </h2>
+          <div class="sidebar-recent-list" id="sidebar-recent-list">
+            <!-- Recent session rows rendered by app.js -->
+          </div>
+        </section>
         <div class="sidebar-header" id="sidebar-projects-header">
           <h2 class="sidebar-title">Projects</h2>
           <button class="btn btn-ghost btn-icon btn-sm" id="workspaces-refresh" title="Refresh projects">
@@ -825,6 +845,18 @@
               </div>
               <h1 id="workbench-empty-title">Start where the work happens</h1>
               <p>Open a coding session here, or browse sessions already on this machine.</p>
+              <!--
+                RECENCY SURFACE 4 (BUILD-CONTRACT 2.13.5), inserted ABOVE the
+                actions and never replacing the drop slot: the slot must stay
+                a drop target, which is a recorded lesson in project memory.
+                Rendered by renderWorkbenchRecent; hidden when there is
+                nothing recent, so a first run still shows the pinned copy
+                and nothing else.
+              -->
+              <div class="workbench-recent" id="workbench-recent" hidden>
+                <span class="workbench-recent-label">Continue where you left off</span>
+                <div class="workbench-recent-row" id="workbench-recent-row"></div>
+              </div>
               <div class="workbench-empty-actions">
                 <button class="btn btn-primary" id="workbench-start-btn" type="button">Start session</button>
                 <button class="btn btn-ghost" id="workbench-projects-btn" type="button">Browse sessions</button>

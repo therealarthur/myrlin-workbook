@@ -517,17 +517,29 @@
   display: none;
 }
 
+/*
+ * THE ROUNDED SQUARE IS GONE, Notion restyle P4.5.
+ * BUILD-CONTRACT 2.12's empty-state row names it directly: "Art slot takes a
+ * hand-inked line drawing or NOTHING. Never a line icon in a rounded square."
+ * This was also the only shadowed element on the default screen once P2.4's
+ * elevation sweep had finished, which DECISIONS 11.5 item 4 recorded as a
+ * standing delta.
+ *
+ * The glyph itself is retained, at the same size, in tertiary ink. The frame,
+ * the ground and the shadow are what carried the idiom, and all three go. The
+ * figurative illustration OQ-3 contemplates would land in exactly this slot.
+ */
 :root[data-ui-shell="focused"] .workbench-empty-icon {
   display: grid;
   place-items: center;
   width: 54px;
   height: 54px;
   margin-bottom: 18px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--surface0) 58%, transparent);
-  box-shadow: var(--shadow-sm);
+  border: none;
+  border-radius: 0;
+  color: var(--app-icon-tertiary);
+  background: none;
+  box-shadow: none;
 }
 
 :root[data-ui-shell="focused"] .workbench-empty-state h1 {
@@ -575,6 +587,132 @@
   margin-top: 15px;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/*
+ * RECENCY SURFACE 4: "Continue where you left off" (BUILD-CONTRACT 2.13.5).
+ *
+ * It lives here rather than in styles.css because the whole empty state is
+ * authored in this file, including the `pointer-events: none` that makes the
+ * pane behind it a drop target. The cards therefore have to opt back in, the
+ * same way .workbench-empty-actions does; without that the pane would swallow
+ * every click on a card.
+ *
+ * BORDERED cards, deliberately. 2.13.6 states the semantic: bordered cards
+ * for live things, borderless rows for history. This row is the resume
+ * affordance, not a history list, and the sidebar's Recent rows stay
+ * borderless for the same reason.
+ */
+:root[data-ui-shell="focused"] .workbench-recent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  pointer-events: auto;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent[hidden] {
+  display: none;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-sidebar-section-label);
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 214px;
+  max-width: 214px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-callout);
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+/* The gate class rides on <body> and on #app, both of which are inside
+   :root, so the descendant order here is html then the gate then the card. */
+:root[data-ui-shell="focused"] .nt-enable-hover .workbench-recent-card:hover {
+  background: var(--app-bg-secondary);
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
+  /* One line. The project name is the only part allowed to shrink; the chip
+     and the timestamp are already at their minimum and wrapping either one
+     turns a 3-line card into a 4-line card and breaks the row's rhythm. */
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-project {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-card .session-provider-chip,
+:root[data-ui-shell="focused"] .workbench-recent-time {
+  flex-shrink: 0;
+}
+
+/*
+ * The card's chip is 12px, not the system 14px, by the same principle the
+ * orchestrator ruled on for row chips (DECISIONS 11.2.3): a property is never
+ * louder than its subject. This card's title is 13px, so a 14px chip in the
+ * meta line under it would be the largest type on the card. The 14px chip
+ * stays the default everywhere the surrounding type is 14px or larger.
+ */
+:root[data-ui-shell="focused"] .workbench-recent-card .session-provider-chip {
+  font-size: 12px;
+  height: 18px;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
 
 :root[data-ui-shell="focused"] .terminal-pane-empty.drag-over .terminal-container {

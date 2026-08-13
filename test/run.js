@@ -950,6 +950,7 @@ const standaloneTests = [
   'codex-state-db.test.js',     // P8.2 (Codex parity P0): read-only discipline, graceful degradation, PRAGMA table_info probing, title cascade, WAL overlay + node:sqlite oracle
   'notion-token-parity.test.js', // Notion restyle P0.4: vendored-bundle integrity, components.css var() resolution, styles.css/bundle token parity (the anti-drift gate risk R9 forces)
   'do-not-break-gates.test.js',  // Notion restyle P0.6: G1..G13 from BUILD-CONTRACT 5.3 in ratchet mode (ids, JS-coupled classes, data-* keys, drift counters)
+  'recency-surfaces.test.js',    // Notion restyle P4.8/P4.9: the merged cross-provider recency list executed against fixtures (sort, tie-break, dedup, exclusions) plus the four surfaces reading it and the single formatter
 ];
 
 let standaloneFailed = 0;

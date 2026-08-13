@@ -189,6 +189,12 @@ class CWMApp {
   static RECENCY_SIDEBAR_LIMIT = 5;
   static RECENCY_WORKBENCH_LIMIT = 4;
 
+  /** Reserve used by the sidebar section splitter when the live measurement
+   *  is unusable (sidebar hidden, mid-animation, or pre-layout). It is the
+   *  old hard-coded constant, kept only as the degenerate-case floor rather
+   *  than as the everyday number. */
+  static SIDEBAR_CHROME_FALLBACK_PX = 200;
+
   constructor() {
     // ─── State ─────────────────────────────────────────────────
     this.state = {
@@ -435,6 +441,11 @@ class CWMApp {
       // Phase 18-02: sidebar provider tab strip (rendered by renderProviderTabs)
       sidebarProviderTabs: document.getElementById('sidebar-provider-tabs'),
       workspaceList: document.getElementById('workspace-list'),
+      // Recency surface 2 (BUILD-CONTRACT 2.13.3). Three ids, all new, all
+      // resolved here alongside every other sidebar element.
+      sidebarRecentSection: document.getElementById('sidebar-recent-section'),
+      sidebarRecentList: document.getElementById('sidebar-recent-list'),
+      sidebarRecentToggle: document.getElementById('sidebar-recent-toggle'),
       workspaceCount: document.getElementById('workspace-count'),
       createWorkspaceBtn: document.getElementById('create-workspace-btn'),
       workspacesRefresh: document.getElementById('workspaces-refresh'),
@@ -552,6 +563,9 @@ class CWMApp {
       terminalTabStrip: document.getElementById('terminal-tab-strip'),
       workbenchStartBtn: document.getElementById('workbench-start-btn'),
       workbenchProjectsBtn: document.getElementById('workbench-projects-btn'),
+      // Recency surface 4 (BUILD-CONTRACT 2.13.5).
+      workbenchRecent: document.getElementById('workbench-recent'),
+      workbenchRecentRow: document.getElementById('workbench-recent-row'),
 
       // Mobile
       mobileTabBar: document.getElementById('mobile-tab-bar'),
@@ -1899,6 +1913,10 @@ class CWMApp {
     this._bindShellScrollObserver();
     // Notion restyle: the hover gate rides on that same observer.
     this._bindHoverGate();
+    // Notion restyle P4.9: the sidebar Recent section (recency surface 2)
+    // and the workbench continue row (recency surface 4).
+    this.bindRecentSection();
+    this.bindWorkbenchRecent();
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -2311,28 +2329,11 @@ class CWMApp {
       const wsSessionItem = e.target.closest('.ws-session-item');
       if (wsSessionItem) {
         e.stopPropagation();
-        const sessionId = wsSessionItem.dataset.sessionId;
-        const session = (this.state.allSessions || this.state.sessions).find(s => s.id === sessionId);
-        if (!session) return;
-        if (this.state.viewMode === 'terminal') {
-          const emptySlot = this._findEmptyPaneSlot();
-          if (emptySlot !== -1) {
-            if (!session.resumeSessionId) this.showToast('Starting new Claude session (no previous conversation to resume)', 'info');
-            const spawnOpts = {};
-            if (session.resumeSessionId) spawnOpts.resumeSessionId = session.resumeSessionId;
-            if (session.workingDir) spawnOpts.cwd = session.workingDir;
-            if (session.command) spawnOpts.command = session.command;
-            if (session.bypassPermissions) spawnOpts.bypassPermissions = true;
-            if (session.verbose) spawnOpts.verbose = true;
-            if (session.model) spawnOpts.model = session.model;
-            if (session.agentTeams) spawnOpts.agentTeams = true;
-            this.openTerminalInPane(emptySlot, sessionId, session.name, spawnOpts);
-          } else {
-            this.showToast('All terminal panes are full. Close one first.', 'warning');
-          }
-        } else {
-          this.selectSession(sessionId);
-        }
+        // The body of this branch moved to openSessionRow so the recency
+        // surfaces can reuse it verbatim (BUILD-CONTRACT 2.13.3: "matching
+        // the session-row idiom already in the sidebar"). Behaviour here is
+        // unchanged; it is the same code, called by name.
+        this.openSessionRow(wsSessionItem.dataset.sessionId);
         return;
       }
 
@@ -12052,6 +12053,43 @@ class CWMApp {
     handle.addEventListener('touchstart', (e) => { e.preventDefault(); startResize(e.touches[0].clientX); }, { passive: false });
   }
 
+  /**
+   * Measure everything in the sidebar that is NOT one of the two resizable
+   * lists, so the section splitter knows how much height it may not spend.
+   *
+   * This replaces a hard-coded `- 200`. That constant was a measurement of a
+   * sidebar that no longer exists: P2 cut the launch button, the tabs and the
+   * two section headers to Notion metrics, and the recency work adds a whole
+   * new section above Projects. A guessed reserve that is too large makes the
+   * splitter refuse the bottom of its range; too small and it lets the user
+   * drag the discovered list to zero height with no way back. Neither failure
+   * announces itself, which is why BUILD-CONTRACT 2.13.3 says this number is
+   * "measured, not guessed" and risk R12 names it.
+   *
+   * Measuring the complement (sidebar minus the two lists) rather than
+   * summing a list of chrome elements means a section added later is counted
+   * automatically and nobody has to remember to extend an array.
+   *
+   * @returns {number} Pixels of sidebar height the two lists cannot use.
+   */
+  measureSidebarChromeHeight() {
+    const sidebar = this.els.sidebar;
+    if (!sidebar) return CWMApp.SIDEBAR_CHROME_FALLBACK_PX;
+    const total = sidebar.getBoundingClientRect().height;
+    const wsList = this.els.workspaceList;
+    const projList = this.els.projectsList;
+    const lists = (wsList ? wsList.getBoundingClientRect().height : 0)
+      + (projList ? projList.getBoundingClientRect().height : 0);
+    const chrome = total - lists;
+    // A sidebar mid-animation, display:none, or a first paint before layout
+    // can all report nonsense. Fall back rather than hand the splitter a
+    // negative range.
+    if (!Number.isFinite(chrome) || chrome <= 0 || chrome >= total) {
+      return CWMApp.SIDEBAR_CHROME_FALLBACK_PX;
+    }
+    return chrome;
+  }
+
   initSidebarSectionResize() {
     const handle = document.getElementById('sidebar-section-resize');
     if (!handle) return;
@@ -12069,7 +12107,7 @@ class CWMApp {
       const dy = clientY - startY;
       const sidebar = this.els.sidebar;
       const sidebarRect = sidebar.getBoundingClientRect();
-      const totalAvailable = sidebarRect.height - 200; // Reserve space for headers/footer
+      const totalAvailable = sidebarRect.height - this.measureSidebarChromeHeight();
       const newWsHeight = Math.max(80, Math.min(totalAvailable, startWsHeight + dy));
       wsList.style.flex = 'none';
       wsList.style.height = newWsHeight + 'px';
@@ -12208,18 +12246,44 @@ class CWMApp {
         ...shortcuts.map(e => ({ type: 'shortcut', item: e, score: 30 })),
       ];
     }
-    // Default mode, empty query: recent sessions + workspaces (original behavior)
+    // Default mode, empty query: THE RECENTS PATTERN (BUILD-CONTRACT 2.13.2).
+    //
+    // This is the highest-leverage change in the recency work: from a cold
+    // load, the most recently active session anywhere on the machine is two
+    // keystrokes away (Ctrl+K, Enter), which is acceptance criterion 1.
+    //
+    // It replaces a list that sorted `state.sessions`, the view-filtered
+    // slice, and therefore showed nothing at all in terminal view and never
+    // showed a Codex session the workbook had not adopted. The merged list
+    // spans providers and includes discovered sessions, so criterion 4
+    // (Claude and Codex interleave correctly by time) holds here too.
+    //
+    // Implemented as a new BRANCH inside this method, not a new method, and
+    // the results still flow through this.qsResults, the same highlight index
+    // and the same click binding, exactly as 2.13.2's DO-NOT-BREAK note
+    // requires.
     else if (!query) {
-      const recentWorkspaces = [...this.state.workspaces].sort((a, b) =>
-        new Date(b.lastActive || b.createdAt) - new Date(a.lastActive || a.createdAt)
-      ).slice(0, 3);
-      const recentSessions = [...this.state.sessions].sort((a, b) =>
-        new Date(b.lastActive || b.createdAt) - new Date(a.lastActive || a.createdAt)
-      ).slice(0, 5);
-      this.qsResults = [
-        ...recentWorkspaces.map(w => ({ type: 'workspace', item: w, score: 50 })),
-        ...recentSessions.map(s => ({ type: 'session', item: s, score: 40 })),
-      ];
+      const recents = this.getRecentSessions(CWMApp.RECENCY_QUICK_FIND_LIMIT);
+      this.qsResults = recents.map(r => ({ type: 'recent', item: r, score: 60 }));
+      // The first row is highlighted on open so Enter opens it. Without this
+      // the palette opened with nothing selected and Enter did nothing, which
+      // is the two-keystroke path failing on its second keystroke.
+      if (this.qsResults.length > 0 && this.qsHighlightIndex < 0) this.qsHighlightIndex = 0;
+      // Nothing recent yet (a fresh install, or everything hidden): fall back
+      // to the previous workspace-plus-session list rather than an empty
+      // palette.
+      if (this.qsResults.length === 0) {
+        const recentWorkspaces = [...this.state.workspaces].sort((a, b) =>
+          new Date(b.lastActive || b.createdAt) - new Date(a.lastActive || a.createdAt)
+        ).slice(0, 3);
+        const recentSessions = [...this.state.sessions].sort((a, b) =>
+          new Date(b.lastActive || b.createdAt) - new Date(a.lastActive || a.createdAt)
+        ).slice(0, 5);
+        this.qsResults = [
+          ...recentWorkspaces.map(w => ({ type: 'workspace', item: w, score: 50 })),
+          ...recentSessions.map(s => ({ type: 'session', item: s, score: 40 })),
+        ];
+      }
     }
     // Search mode: search everything
     else {
@@ -12291,6 +12355,7 @@ class CWMApp {
 
     // Group labels for display
     const groupLabels = {
+      recent: 'Recent',
       workspace: 'Projects', session: 'Sessions', action: 'Actions',
       feature: 'Features', shortcut: 'Shortcuts', setting: 'Settings',
     };
@@ -12304,7 +12369,17 @@ class CWMApp {
       }
       const highlighted = i === this.qsHighlightIndex ? ' highlighted' : '';
 
-      if (r.type === 'workspace') {
+      if (r.type === 'recent') {
+        // The recency row anatomy from 2.13.2: 7px status dot, title, project,
+        // provider chip, spacer, relative time. It reuses the shared
+        // recentRowInnerHtml so this row and the sidebar Recent row and the
+        // workbench continue card cannot say different things about the same
+        // session.
+        html += `
+          <div class="qs-result qs-result-recent${highlighted}" data-index="${i}">
+            ${this.recentRowInnerHtml(r.item, { showProvider: true, timeClass: 'qs-result-time' })}
+          </div>`;
+      } else if (r.type === 'workspace') {
         html += `
           <div class="qs-result${highlighted}" data-index="${i}">
             <div class="qs-result-icon">
@@ -12390,7 +12465,11 @@ class CWMApp {
   onQuickSwitcherSelect(result) {
     this.closeQuickSwitcher();
 
-    if (result.type === 'workspace') {
+    if (result.type === 'recent') {
+      // A recency row opens the same way a sidebar session row does, whether
+      // it is a workbook session or a discovered upstream transcript.
+      this.openRecentRow(result.item);
+    } else if (result.type === 'workspace') {
       this.setViewMode('workspace');
       this.selectWorkspace(result.item.id);
     } else if (result.type === 'session') {
@@ -13756,6 +13835,15 @@ class CWMApp {
     if (this._scheduleCounts) this.applyScheduleIndicators();
 
     this.els.workspaceCount.textContent = `${workspaces.length} project${workspaces.length !== 1 ? 's' : ''}`;
+
+    // The Recent section and the workbench continue row read the same session
+    // roster this tree does, so they refresh on the same beat. Every path that
+    // changes a session already calls renderWorkspaces, including the SSE
+    // handlers, which is what makes acceptance criterion 3 (a relative time
+    // updates within 5 seconds over SSE, with no polling) hold without a
+    // second subscription.
+    this.renderRecentSection();
+    this.renderWorkbenchRecent();
   }
 
   showWorkspaceContextMenu(workspaceId, x, y) {
@@ -14208,6 +14296,418 @@ class CWMApp {
         nameEl.appendChild(badge);
       });
     });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE RECENCY SYSTEM (BUILD-CONTRACT 2.13)
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * The one merged, cross-provider recency list every recency surface reads.
+   *
+   * BUILD-CONTRACT 2.13.1 asks for exactly one recency field and exactly one
+   * formatter, and forbids a surface computing its own. This is that one
+   * source on the client: Quick Find's zero-query state, the sidebar Recent
+   * section, the workbench continue row and the Sessions table default sort
+   * all order by the same number, so 2.13.7 criterion 2 ("all four surfaces
+   * show the same session first") holds by construction rather than by
+   * coincidence.
+   *
+   * WHERE THE NUMBER COMES FROM. Two sources, merged:
+   *
+   *   1. Workbook-owned session records (`state.allSessions`), whose
+   *      `lastActive` is the field 2.13.1 names and which already appears
+   *      thirty times in this file. No second name is introduced.
+   *   2. Discovered upstream sessions (`state.projectsByProvider`), which
+   *      carry `lastActiveMs` per session straight from the discover route.
+   *      For Codex that number is `threads.recency_at_ms`, the desktop app's
+   *      own sort key, which is what makes Codex recency reliable and is the
+   *      direct payoff of the P8 SQLite work. For the filesystem-walk
+   *      fallback it is the rollout file mtime.
+   *
+   * There is deliberately no fetch here. `GET /api/sessions/recent` is the
+   * server half of the contract (work package P4.7) and it is not in this
+   * agent's ownership set; every field that endpoint would return is already
+   * on the client, so the merge happens where the data already is. When the
+   * endpoint lands, this method is the single place that has to change.
+   *
+   * DEDUPLICATION. A workbook session that resumes an upstream conversation
+   * carries its id in `resumeSessionId`. The upstream copy is dropped, so a
+   * session the user has adopted appears once, under its own name, and not
+   * twice under two different titles.
+   *
+   * EXCLUSIONS. Hidden sessions, hidden project sessions, hidden projects and
+   * archived threads never appear on any recency surface (2.13.1 and
+   * criterion 6).
+   *
+   * @param {number} limit - Maximum rows to return. 0 or absent means all.
+   * @returns {Array<Object>} Rows, most recently active first.
+   */
+  getRecentSessions(limit) {
+    const rows = [];
+    const adopted = new Set();
+
+    const hiddenSessions = this.state.hiddenSessions || new Set();
+    const hiddenProjectSessions = this.state.hiddenProjectSessions || new Set();
+    const hiddenProjects = this.state.hiddenProjects || new Set();
+
+    for (const s of (this.state.allSessions || [])) {
+      if (!s || !s.id) continue;
+      if (hiddenSessions.has(s.id)) continue;
+      if (s.resumeSessionId) adopted.add(s.resumeSessionId);
+      const stamp = s.lastActive || s.createdAt;
+      rows.push({
+        key: 'session:' + s.id,
+        kind: 'session',
+        id: s.id,
+        sessionId: s.id,
+        upstreamId: s.resumeSessionId || null,
+        providerId: s.provider || 'claude', /* gsd:provider-literal-allowed */
+        title: s.name || s.id,
+        projectPath: s.workingDir || '',
+        projectLabel: this.projectLabelFromPath(s.workingDir),
+        status: s.status || 'stopped',
+        model: s.model || '',
+        lastActiveAt: stamp ? new Date(stamp).getTime() : 0,
+      });
+    }
+
+    const byProvider = this.state.projectsByProvider || {};
+    for (const [providerId, projects] of Object.entries(byProvider)) {
+      if (!Array.isArray(projects)) continue;
+      for (const p of projects) {
+        if (!p) continue;
+        if (hiddenProjects.has(p.encodedName || '')) continue;
+        for (const s of (p.sessions || [])) {
+          if (!s || !s.claudeSessionId) continue;
+          if (s.archived) continue;
+          if (hiddenProjectSessions.has(s.claudeSessionId)) continue;
+          if (adopted.has(s.claudeSessionId)) continue;
+          const stamp = typeof s.lastActiveMs === 'number'
+            ? s.lastActiveMs
+            : (s.modified ? new Date(s.modified).getTime() : 0);
+          rows.push({
+            key: 'upstream:' + s.claudeSessionId,
+            kind: 'upstream',
+            id: s.claudeSessionId,
+            sessionId: null,
+            upstreamId: s.claudeSessionId,
+            providerId: s.provider || providerId || 'claude', /* gsd:provider-literal-allowed */
+            title: this.getProjectSessionTitle(s.claudeSessionId) || s.title || s.claudeSessionId,
+            projectPath: p.realPath || '',
+            projectEncoded: p.encodedName || '',
+            projectLabel: p.displayName || this.projectLabelFromPath(p.realPath),
+            status: s.live ? 'running' : 'stopped',
+            model: '',
+            lastActiveAt: Number.isFinite(stamp) ? stamp : 0,
+          });
+        }
+      }
+    }
+
+    // One flat list across providers, newest first, ties broken on id
+    // DESCENDING so the order is stable across renders (2.13.1 merge rule).
+    rows.sort((a, b) => {
+      if (a.lastActiveAt !== b.lastActiveAt) return b.lastActiveAt - a.lastActiveAt;
+      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+    });
+
+    return limit && limit > 0 ? rows.slice(0, limit) : rows;
+  }
+
+  /**
+   * THE SESSION-ROW IDIOM. Open a workbook-owned session the way the sidebar
+   * tree has always opened one: into the first empty pane when the workbench
+   * is showing, otherwise by selecting it in the list.
+   *
+   * Extracted from the `.ws-session-item` click handler in P4 so that the
+   * sidebar Recent section, Quick Find and the workbench continue row all
+   * behave identically to the tree, rather than each reimplementing the
+   * spawn-option assembly and drifting the first time a flag is added.
+   *
+   * @param {string} sessionId - A workbook session id.
+   */
+  openSessionRow(sessionId) {
+    if (!sessionId) return;
+    const session = (this.state.allSessions || this.state.sessions).find(s => s.id === sessionId);
+    if (!session) return;
+    if (this.state.viewMode === 'terminal') {
+      const emptySlot = this._findEmptyPaneSlot();
+      if (emptySlot !== -1) {
+        if (!session.resumeSessionId) this.showToast('Starting new Claude session (no previous conversation to resume)', 'info');
+        const spawnOpts = {};
+        if (session.resumeSessionId) spawnOpts.resumeSessionId = session.resumeSessionId;
+        if (session.workingDir) spawnOpts.cwd = session.workingDir;
+        if (session.command) spawnOpts.command = session.command;
+        if (session.bypassPermissions) spawnOpts.bypassPermissions = true;
+        if (session.verbose) spawnOpts.verbose = true;
+        if (session.model) spawnOpts.model = session.model;
+        if (session.agentTeams) spawnOpts.agentTeams = true;
+        this.openTerminalInPane(emptySlot, sessionId, session.name, spawnOpts);
+      } else {
+        this.showToast('All terminal panes are full. Close one first.', 'warning');
+      }
+    } else {
+      this.selectSession(sessionId);
+    }
+  }
+
+  /**
+   * Resume a DISCOVERED (upstream) session in the first empty pane.
+   *
+   * An upstream session has no workbook record, so there is nothing to
+   * select; the only sensible open is to resume its transcript. The command
+   * is resolved from the provider so a Codex thread resumes through
+   * `codex resume` and not `claude resume`, which is the same rule the drag
+   * and context-menu paths already follow.
+   *
+   * @param {string} upstreamId - The provider's own session id.
+   * @param {string} projectPath - Working directory for the resumed session.
+   * @param {string} providerId - Provider that owns the transcript.
+   */
+  resumeProjectSessionInPane(upstreamId, projectPath, providerId) {
+    if (!upstreamId) return;
+    if (this.state.viewMode !== 'terminal') this.setViewMode('terminal');
+    const slot = this._findEmptyPaneSlot();
+    if (slot === -1) {
+      this.showToast('All terminal panes are full. Close one first.', 'warning');
+      return;
+    }
+    const provider = providerId || 'claude'; /* gsd:provider-literal-allowed */
+    const label = this.getProjectSessionTitle(upstreamId) || upstreamId;
+    const spawnOpts = {
+      resumeSessionId: upstreamId,
+      command: this.getProviderCliBinary(provider),
+      provider,
+    };
+    if (projectPath) spawnOpts.cwd = projectPath;
+    // The upstream id is passed as the pane's session id, which is what the
+    // existing "Open in Terminal" context-menu action does for the same kind
+    // of row. Passing null here would make the pane anonymous and break the
+    // instance indicator's identity matching.
+    this.openTerminalInPane(slot, upstreamId, label, spawnOpts);
+  }
+
+  /**
+   * RECENCY SURFACE 2: the sidebar Recent section (BUILD-CONTRACT 2.13.3).
+   *
+   * Five rows at the sidebar's own 27px geometry, above Projects, with a
+   * trailing "See all" that routes to the existing `recent` view mode. The
+   * section hides itself entirely when there is nothing to show rather than
+   * rendering a label over an empty box, which 2.13.3 requires and which also
+   * keeps the sidebar honest on a first run.
+   *
+   * Density: under `quiet` the section is present but shorter, because the
+   * density model's job is to reduce noise per row, not to remove the one
+   * affordance the user asked for. Under a density that shows zero sessions
+   * it disappears with them.
+   */
+  renderRecentSection() {
+    const section = this.els.sidebarRecentSection;
+    const list = this.els.sidebarRecentList;
+    if (!section || !list) return;
+
+    const rows = this.getRecentSessions(CWMApp.RECENCY_SIDEBAR_LIMIT);
+    if (rows.length === 0) {
+      section.hidden = true;
+      list.innerHTML = '';
+      return;
+    }
+    section.hidden = false;
+
+    const collapsed = this.isRecentCollapsed();
+    section.classList.toggle('is-collapsed', collapsed);
+    if (this.els.sidebarRecentToggle) {
+      this.els.sidebarRecentToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    }
+    list.hidden = collapsed;
+    if (collapsed) {
+      list.innerHTML = '';
+      return;
+    }
+
+    const rowsHtml = rows.map(r => `
+      <div class="sidebar-recent-row" role="button" tabindex="0"
+           data-recent-key="${this.escapeHtml(r.key)}"
+           title="${this.escapeHtml(r.title)}${r.projectLabel ? '\n' + this.escapeHtml(r.projectLabel) : ''}">
+        ${this.recentRowInnerHtml(r, { showProvider: false })}
+      </div>`).join('');
+
+    list.innerHTML = rowsHtml +
+      '<button type="button" class="sidebar-recent-all" id="sidebar-recent-all">See all</button>';
+  }
+
+  /**
+   * RECENCY SURFACE 4: "Continue where you left off" (BUILD-CONTRACT 2.13.5).
+   *
+   * Up to four bordered cards inside the workbench empty state, above the
+   * actions and never in place of the drop slot. The empty workbench used to
+   * be a dead end for the single most common intent, which is resuming.
+   *
+   * Bordered cards here and borderless rows in the sidebar is not decoration:
+   * 2.13.6 states the semantic explicitly, "bordered cards for live things,
+   * borderless rows for history", and this row is the resume affordance
+   * rather than a list of history.
+   */
+  renderWorkbenchRecent() {
+    const wrap = this.els.workbenchRecent;
+    const row = this.els.workbenchRecentRow;
+    if (!wrap || !row) return;
+
+    const rows = this.getRecentSessions(CWMApp.RECENCY_WORKBENCH_LIMIT);
+    if (rows.length === 0) {
+      wrap.hidden = true;
+      row.innerHTML = '';
+      return;
+    }
+    wrap.hidden = false;
+    row.innerHTML = rows.map(r => {
+      const dotClass = r.status === 'running' ? 'status-dot-running' : 'status-dot-stopped';
+      const time = r.lastActiveAt
+        ? `<span class="workbench-recent-time">${this.relativeTime(new Date(r.lastActiveAt).toISOString())}</span>`
+        : '';
+      const project = r.projectLabel
+        ? `<span class="workbench-recent-project">${this.escapeHtml(r.projectLabel)}</span>`
+        : '';
+      return `
+        <button type="button" class="workbench-recent-card" data-recent-key="${this.escapeHtml(r.key)}">
+          <span class="workbench-recent-card-head">
+            <span class="status-dot ${dotClass}"></span>
+            <span class="workbench-recent-title">${this.escapeHtml(r.title)}</span>
+          </span>
+          <span class="workbench-recent-meta">${project}${this.providerChipHtml(r.providerId)}${time}</span>
+        </button>`;
+    }).join('');
+  }
+
+  /**
+   * Bind the workbench continue row. Delegated on the container so a
+   * re-render never leaks a listener.
+   */
+  bindWorkbenchRecent() {
+    const row = this.els.workbenchRecentRow;
+    if (!row) return;
+    row.addEventListener('click', (e) => {
+      const card = e.target.closest('.workbench-recent-card');
+      if (!card) return;
+      const found = this.getRecentSessions(0).find(r => r.key === card.dataset.recentKey);
+      if (found) this.openRecentRow(found);
+    });
+  }
+
+  /**
+   * Whether the sidebar Recent section is collapsed. Persisted under
+   * cwm_recentCollapsed (BUILD-CONTRACT 2.13.3), defaulting to expanded:
+   * a recency affordance that starts hidden is not an affordance.
+   *
+   * @returns {boolean} True when collapsed.
+   */
+  isRecentCollapsed() {
+    try {
+      return localStorage.getItem(CWMApp.RECENT_COLLAPSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  /** Flip the Recent section's collapsed state and persist it. */
+  toggleRecentCollapsed() {
+    const next = !this.isRecentCollapsed();
+    try {
+      localStorage.setItem(CWMApp.RECENT_COLLAPSED_KEY, next ? 'true' : 'false');
+    } catch { /* storage blocked: the toggle still applies for this session */ }
+    this.renderRecentSection();
+  }
+
+  /**
+   * Bind the sidebar Recent section. One delegated listener on the list plus
+   * one on the header toggle, matching how every other sidebar section is
+   * wired, so re-rendering the rows never leaks a listener.
+   */
+  bindRecentSection() {
+    const list = this.els.sidebarRecentList;
+    const toggle = this.els.sidebarRecentToggle;
+    if (toggle) toggle.addEventListener('click', () => this.toggleRecentCollapsed());
+    if (!list) return;
+
+    const activate = (target) => {
+      if (target.closest('.sidebar-recent-all')) {
+        this.setViewMode('recent');
+        return;
+      }
+      const row = target.closest('.sidebar-recent-row');
+      if (!row) return;
+      const found = this.getRecentSessions(0).find(r => r.key === row.dataset.recentKey);
+      if (found) this.openRecentRow(found);
+    };
+
+    list.addEventListener('click', (e) => activate(e.target));
+    // Rows are div role="button" with tabindex, so they need the keyboard
+    // activation the browser gives a real button for free.
+    list.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const row = e.target.closest('.sidebar-recent-row, .sidebar-recent-all');
+      if (!row) return;
+      e.preventDefault();
+      activate(e.target);
+    });
+    // Right click opens the existing session context menu, which is what the
+    // sidebar tree already does for a session row (2.13.3).
+    list.addEventListener('contextmenu', (e) => {
+      const row = e.target.closest('.sidebar-recent-row');
+      if (!row) return;
+      const found = this.getRecentSessions(0).find(r => r.key === row.dataset.recentKey);
+      if (!found || found.kind !== 'session') return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.showContextMenu(found.sessionId, e.clientX, e.clientY);
+    });
+  }
+
+  /**
+   * Open a recency row, whichever kind it is.
+   *
+   * A workbook-owned row goes through the sidebar's own session-row idiom
+   * (2.13.3: "matching the session-row idiom already in the sidebar"), so a
+   * click in Quick Find, the sidebar Recent section and the workbench
+   * continue row all do the same thing as a click in the tree. An upstream
+   * row has no workbook record yet, so it routes to the existing
+   * resume-in-pane path rather than inventing a second one.
+   *
+   * @param {Object} row - A row from getRecentSessions.
+   */
+  openRecentRow(row) {
+    if (!row) return;
+    if (row.kind === 'session') {
+      this.openSessionRow(row.sessionId);
+      return;
+    }
+    this.resumeProjectSessionInPane(row.upstreamId, row.projectPath, row.providerId);
+  }
+
+  /**
+   * Render one recency row's inner markup, shared by Quick Find, the sidebar
+   * Recent section and the workbench continue row so the three cannot drift
+   * apart in what they show.
+   *
+   * @param {Object} row - A row from getRecentSessions.
+   * @param {Object} opts - { showProvider, showProject, timeClass }.
+   * @returns {string} Inner HTML for the row.
+   */
+  recentRowInnerHtml(row, opts = {}) {
+    const dotClass = row.status === 'running' ? 'status-dot-running' : 'status-dot-stopped';
+    const project = opts.showProject === false || !row.projectLabel
+      ? ''
+      : `<span class="recent-row-project">${this.escapeHtml(row.projectLabel)}</span>`;
+    const provider = opts.showProvider
+      ? this.providerChipHtml(row.providerId)
+      : '';
+    const time = row.lastActiveAt
+      ? `<span class="${opts.timeClass || 'recent-row-time'}">${this.relativeTime(new Date(row.lastActiveAt).toISOString())}</span>`
+      : '';
+    return `<span class="status-dot ${dotClass}"></span>` +
+      `<span class="recent-row-title">${this.escapeHtml(row.title)}</span>` +
+      project + provider + '<span class="recent-row-spacer"></span>' + time;
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -15313,11 +15813,17 @@ class CWMApp {
           ${sizeStr ? `<span class="project-size">${sizeStr}</span>` : ''}
         </div>
         <div class="project-accordion-body" hidden>
-          ${sessionItems || '<div style="padding: 6px 12px 6px 28px; font-size: 11px; color: var(--overlay0);">No sessions</div>'}
+          ${sessionItems || '<div class="project-session-empty">No sessions</div>'}
         </div>
       </div>`;
     }).join('');
 
+    // Discovery is the second half of the merged recency list (2.13.1), so a
+    // fresh discover result has to reach the Recent section as well as the
+    // tree. Cheap: the merge is a sort over a few hundred rows and it only
+    // runs when discovery itself changed.
+    this.renderRecentSection();
+    this.renderWorkbenchRecent();
   }
 
   setProjectsCollapsed(collapsed, persist = true) {
@@ -19633,8 +20139,15 @@ class CWMApp {
     if (diff < 0) return 'just now';
 
     const seconds = Math.floor(diff / 1000);
-    if (seconds < 30) return 'just now';
-    if (seconds < 60) return `${seconds}s ago`;
+    // BUILD-CONTRACT 2.13.1, the reduced-precision rule: "never render a
+    // timestamp more precise than the update cadence. Under one minute is
+    // `just now`." The old 30-to-59 second `{n}s ago` branch claimed a
+    // precision nothing in the system has: recency arrives on SSE events and
+    // render passes, not on a per-second tick, so a row reading "47s ago"
+    // was already stale when it painted and stayed wrong until something
+    // else re-rendered it. This is an extension of the ONE formatter, which
+    // is what 2.13.1 asks for; no second helper exists.
+    if (seconds < 60) return 'just now';
 
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}m ago`;
