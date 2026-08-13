@@ -9359,6 +9359,22 @@ function startServer(port = 3456, host = '127.0.0.1') {
     console.warn('[Credentials] startup seed skipped:', (err && err.message) || err);
   }
 
+  // Task #37: one-time repair of a stored Mac host that names a retired
+  // tailnet address. Purely local and offline-safe (it contacts nothing), so
+  // it is correct to run at boot with the Mac powered off. Runs BEFORE the
+  // watcher only so the corrected host is in place for the first sweep;
+  // nothing depends on the ordering. A failure only logs, exactly like the
+  // seed above: a settings repair must never be able to block boot.
+  try {
+    const macHostMigration = credentialManager.migrateLegacyMacHost();
+    if (macHostMigration && macHostMigration.migrated) {
+      console.log('[Credentials] Mac host migrated from "' + macHostMigration.from
+        + '" to "' + macHostMigration.to + '" (the old address is retired).');
+    }
+  } catch (err) {
+    console.warn('[Credentials] Mac host migration skipped:', (err && err.message) || err);
+  }
+
   // Credential rotation write-back watcher (design Decision 3): keeps the
   // account snapshots in sync with the live token file as the CLI rotates
   // tokens. Crash-proof by construction; a start failure only logs.

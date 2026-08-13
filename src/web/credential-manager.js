@@ -52,6 +52,10 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { getDataDir } = require('../utils/data-dir');
+// Leaf module with no requires of its own, so this cannot create a cycle
+// with mac-bridge.js (which requires THIS module for serializeCredentialsFile
+// and the same leaf for its probe). One definition of the Mac host, shared.
+const { DEFAULT_MAC_HOST, isLegacyMacHost, isValidMacTargetPart } = require('./mac-host');
 
 // ─── Endpoint and protocol constants (named, never inlined) ────────────────
 // Ported from claude-swap.ps1 L554 to 558. The client id is Claude Code's own
@@ -148,7 +152,13 @@ const DEFAULT_CRED_SETTINGS = Object.freeze({
   externalBridgeOwner: false,
   mac: Object.freeze({
     enabled: false,
-    host: 'arthurs-mac-mini',
+    // Task #37: the shipped default used to name a tailnet node that no
+    // longer exists, so any install that never typed a host into Settings
+    // failed every Mac operation with MAC_UNREACHABLE. The value now comes
+    // from mac-host.js, which is the single definition shared with the
+    // bridge, and migrateLegacyMacHost below repairs a STORED copy of the
+    // old name exactly once.
+    host: DEFAULT_MAC_HOST,
     user: 'arthur',
     profileTool: '$HOME/.local/bin/claude-profile',
     postSwapCommand: '',
@@ -169,6 +179,11 @@ const DEFAULT_CRED_SETTINGS = Object.freeze({
   // Persisted so the usage poller's lineage gate survives restarts; see
   // setMacActiveHint and the gate in _updateSnapshotUsageUnlocked.
   macActiveProfileId: null,
+  // Task #37: ISO timestamp of the one-time legacy-Mac-host migration, or
+  // null when it has not run. Its PRESENCE is what makes the migration
+  // exactly-once: without it, an operator who deliberately typed the old
+  // name back would have it rewritten under them on every boot.
+  macHostMigratedAt: null,
 });
 
 // ─── Module-level pure helpers (exported for tests and reuse) ───────────────
@@ -1623,6 +1638,13 @@ function createCredentialManager(opts = {}) {
             profileId: (typeof p.profileId === 'string' && validateAccountUuid(p.profileId)) ? p.profileId : null,
           }))
         : [],
+      // Task #37: a host from the known candidate list that answered when
+      // the configured one did not. Advisory only, and charset-gated on the
+      // way into the cache exactly like every other field here, so the
+      // suggestion can never carry remote text into a broadcast payload.
+      ...(typeof state.suggestedHost === 'string' && isValidMacTargetPart(state.suggestedHost)
+        ? { suggestedHost: state.suggestedHost }
+        : {}),
       ...(state.error ? { error: String(state.error) } : {}),
     };
     return _macState;
@@ -1669,6 +1691,89 @@ function createCredentialManager(opts = {}) {
       }
     }
     return v;
+  }
+
+  /**
+   * One-time repair of a STORED Mac host that names a machine we know is
+   * gone (task #37).
+   *
+   * The shipped default named a tailnet node that was later renamed and
+   * readdressed. Fixing the default alone only helps installs that never
+   * saved a host; anyone whose store already holds a copy of the old value,
+   * including every install that opened the Mac settings once and pressed
+   * Save, keeps pointing at a dead name forever. This rewrites that copy.
+   *
+   * WHY IT IS SAFE TO REWRITE SOMEONE'S SETTING
+   *   - It only ever rewrites a value that EXACTLY matches a known-dead host
+   *     from LEGACY_MAC_HOSTS. Any other value the operator typed is left
+   *     untouched, including one this code has never heard of.
+   *   - It runs at most once, gated on a persisted timestamp, so an operator
+   *     who deliberately restores the old name afterwards keeps it.
+   *   - It is a purely LOCAL rename. It contacts nothing, so it works with
+   *     the Mac powered off, and it cannot be influenced by anything on the
+   *     network.
+   *   - It is skipped entirely while the credential pool is externally
+   *     owned, because in passive mode CWM does not write credential-switcher
+   *     configuration at all. It will run on a later boot once ownership
+   *     returns, which is why the marker is only written when it actually ran.
+   *
+   * Idempotent by two independent mechanisms (the marker, and the exact
+   * legacy match), so losing the marker cannot cause a second rewrite of a
+   * value the first pass already corrected.
+   *
+   * Never throws: a store that refuses the write degrades to "not migrated",
+   * and the operator can still fix the host from Settings.
+   *
+   * @returns {{migrated: boolean, from: string|null, to: string|null, reason: string}}
+   *   reason is one of: migrated, already-migrated, no-patcher, pool-read-only,
+   *   nothing-stored, not-legacy, write-failed.
+   */
+  function migrateLegacyMacHost() {
+    const idle = (reason) => ({ migrated: false, from: null, to: null, reason });
+    if (!settingsPatcher) return idle('no-patcher');
+    let stored = {};
+    try { stored = settingsProvider() || {}; } catch (_) { stored = {}; }
+    if (stored.macHostMigratedAt) return idle('already-migrated');
+    // Passive mode: CWM is a reader of the credential pool and does not
+    // rewrite switcher configuration. No marker is written, so this runs
+    // normally on a later boot once ownership comes back.
+    try {
+      if (isCredentialPoolReadOnly()) return idle('pool-read-only');
+    } catch (_) { /* an unreadable ownership state must not block the repair */ }
+
+    const storedMac = (stored.mac && typeof stored.mac === 'object') ? stored.mac : null;
+    const storedHost = storedMac && typeof storedMac.host === 'string' ? storedMac.host : null;
+    const nowIso = new Date(clock()).toISOString();
+
+    // Nothing stored, or a host we do not recognise: mark the migration done
+    // and change nothing. Marking it done is what makes this exactly-once;
+    // the merged default already resolves to the current host.
+    if (!storedHost || !isLegacyMacHost(storedHost)) {
+      try {
+        settingsPatcher({ macHostMigratedAt: nowIso });
+      } catch (err) {
+        log.warn('[Credentials] recording the Mac-host migration marker failed: ' + ((err && err.message) || err));
+        return idle('write-failed');
+      }
+      return idle(storedHost ? 'not-legacy' : 'nothing-stored');
+    }
+
+    // The patcher shallow-merges into settings.credentialSwitcher, so `mac`
+    // is REPLACED wholesale rather than merged. Spread the stored object so
+    // every other field the operator set (user, profileTool, postSwapCommand,
+    // enabled) survives the host rewrite.
+    try {
+      settingsPatcher({
+        mac: { ...storedMac, host: DEFAULT_MAC_HOST },
+        macHostMigratedAt: nowIso,
+      });
+    } catch (err) {
+      log.warn('[Credentials] migrating the stored Mac host failed: ' + ((err && err.message) || err));
+      return idle('write-failed');
+    }
+    log.info('[Credentials] Mac host "' + storedHost + '" is a retired address; updated the stored setting to "'
+      + DEFAULT_MAC_HOST + '". Change it in Settings if your Mac answers to something else.');
+    return { migrated: true, from: storedHost, to: DEFAULT_MAC_HOST, reason: 'migrated' };
   }
 
   /**
@@ -2360,6 +2465,10 @@ function createCredentialManager(opts = {}) {
     getMacActiveHint,
     setMacActiveHint,
     setMacStateRefresher,
+    // Task #37: one-time, local, offline-safe repair of a stored Mac host
+    // that names a retired address. Called from startServer, never on a
+    // request path; see the function body for why rewriting it is safe.
+    migrateLegacyMacHost,
     // Capture / seed / labels
     captureCurrent: (o) => serialize(() => _captureCurrentUnlocked(o), 'capture'),
     seedFromClaudeSwap: (dir) => serialize(() => _seedFromClaudeSwapUnlocked(dir), 'seed'),

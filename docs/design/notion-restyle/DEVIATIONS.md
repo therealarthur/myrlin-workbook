@@ -472,3 +472,25 @@ rows are.
 | **What it costs** | The phase-to-version map is now P4r=21, P5=22, P6=17, P7=24, P8=19, P9=20, P10=23, **P11=25**, with 16 and 18 permanent gaps. P12 will need alpha.26. `package-lock.json` is left at its own stale `alpha.12`, as every phase since has left it, rather than being touched by a track that does not own dependency changes. |
 | **Approved by** | P11 implementation agent, per its brief, extending DV-22, DV-23, DV-P9-2, DV-P10-6 and DV-32. |
 | **Date** | 2026-08-13 |
+
+### DV-BE-1. The backend endgame track ships under `[Unreleased]`, not under a version of its own
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | 4.4 assigns a version per phase, and DV-22, DV-23, DV-P9-2, DV-P10-6, DV-32 and DV-P11-6 record the running collision that comes of several tracks sharing one branch and one mutable version line. |
+| **What shipped** | The three backend work packages (task #36 the discovery walk, task #37 the Mac host, task #33 the credential audit) put their entries under `[Unreleased]` and do not bump `package.json` at all. |
+| **Why** | This track ran CONCURRENTLY with P11, which held `alpha.25` as an uncommitted edit to `package.json` and `CHANGELOG.md` in the same working tree for the whole of this track's work. Taking `alpha.26` would have meant either committing P11's in-flight version bump inside a backend commit, or racing it. `[Unreleased]` is the one section that is nobody's phase, so it is the only place these entries can land without touching another track's uncommitted work. Every backend commit staged its shared-file hunks through `git hash-object` + `git update-index` against `HEAD`, so P11's working tree was never disturbed and never swept into a backend commit. |
+| **What it costs** | The next release cut has to fold three `[Unreleased]` entries into whatever number it takes, which is the normal job of a release commit. The phase-to-version map is unchanged: P12 still needs `alpha.26`. |
+| **Approved by** | Backend endgame implementation agent, per its brief ("fold under the current alpha ... else record the collision per the DEVIATIONS idiom"). |
+| **Date** | 2026-08-13 |
+
+### DV-BE-2. One test assertion retargeted: the Mac host default
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | 5.4 requires every test edit to be sanctioned and to ship in the commit that needs it. The sanctioned list SE-1 to SE-15 is scoped to the restyle phases and has no entry for the credential switcher. |
+| **What shipped** | One assertion in `test/credential-routes.test.js` changed from `assertEqual(g1.body.host, 'arthurs-mac-mini')` to reading `DEFAULT_MAC_HOST` from `src/web/mac-host.js`. |
+| **Why** | The assertion pinned the shipped DEFAULT Mac host. That default named a tailnet node that no longer exists, which is the whole of task #37, so the assertion was green precisely because the value was wrong and there is no way to fix the default and leave the assertion untouched. Retargeting it at the exported constant rather than a new literal means a future host change cannot be blocked again by a stale copy living in a test file. |
+| **What it costs** | One assertion no longer states its expected value inline, so a reader has to open `mac-host.js` to see what it is. In exchange the test can never again certify a dead address. No assertion was added or removed; the count is unchanged. |
+| **Approved by** | Backend endgame implementation agent, under BUILD-CONTRACT 4.1 item 4 (a fix the phase exists to make cannot be blocked by the assertion that pins the defect). |
+| **Date** | 2026-08-13 |

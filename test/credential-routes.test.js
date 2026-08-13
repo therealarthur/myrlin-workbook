@@ -453,7 +453,13 @@ function openSSE(server) {
     const g1 = await req(listener, 'GET', '/api/credentials/mac-config');
     assertEqual(g1.status, 200);
     assertEqual(g1.body.enabled, false, 'mac disabled by default');
-    assertEqual(g1.body.host, 'arthurs-mac-mini');
+    // Task #37: assert against the SHARED constant, not a literal. This
+    // assertion previously pinned 'arthurs-mac-mini', a tailnet node that had
+    // been renamed and readdressed, so the test was green precisely because
+    // the default was wrong. Reading the constant means the route still has
+    // to serve the shipped default, while a future host change cannot be
+    // blocked by a stale copy of it living in a test file.
+    assertEqual(g1.body.host, require('../src/web/mac-host').DEFAULT_MAC_HOST);
     assertEqual(g1.body.user, 'arthur');
     const badHost = await req(listener, 'PUT', '/api/credentials/mac-config', { body: { host: 'bad host!' } });
     assertEqual(badHost.status, 400);
