@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Your Codex plan usage can be read without asking ChatGPT for it.** The app already knew how to fetch your usage from the account switcher, which needs a valid sign-in and a working connection. Codex also writes the same figures into every conversation it records, so the app now reads them from your own disk: the plan you are on, how much of the current window you have used, when it resets, and your credit balance. It works offline and it cannot break because a sign-in expired. The display that uses it is still to come.
+
 ## [1.3.0-alpha.21] - 2026-08-13
 
 Nothing in the app blinks at you any more. The four screens the restyle had not reached yet, the session panel, project notes, costs and settings, now look like the rest of it.
