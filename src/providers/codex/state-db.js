@@ -130,6 +130,39 @@ const CACHE_TTL_MS = 2000;
 /** Truncation length for a preview used as a title. CODEX-PARITY C.3 step 6. */
 const PREVIEW_TITLE_MAX_CHARS = 60;
 
+/**
+ * Server-side bound on the `title` column.
+ *
+ * `threads.title` is documented as "the raw first user message", and on the
+ * measured machine the 125 visible rows carry 1.9 MB of it between them, with a
+ * single row at 80 KB. Selecting it whole cost 57ms of the read; bounding it in
+ * SQL cut the same SELECT to 18ms. Nothing downstream can use more than
+ * PREVIEW_TITLE_MAX_CHARS of it, because it is only ever a truncated fallback,
+ * so this bound is generous headroom rather than a limitation.
+ */
+const TITLE_SELECT_MAX_CHARS = 240;
+
+/**
+ * Server-side bound on the `preview` column.
+ *
+ * Documented as "first ~60 chars", measured at 19 KB average across the visible
+ * set, 2.4 MB in total. The side peek shows the preview as a property, so this
+ * bound is set far above anything a property row can display while still
+ * capping the read at a fraction of a megabyte.
+ */
+const PREVIEW_SELECT_MAX_CHARS = 2000;
+
+/**
+ * Columns bounded in SQL rather than in JavaScript, mapped to their limit.
+ * Bounding in the query is what keeps the bytes off the wire in the first
+ * place; truncating after the fact would already have paid for them.
+ */
+const BOUNDED_TEXT_COLUMNS = Object.freeze({
+  title: TITLE_SELECT_MAX_CHARS,
+  preview: PREVIEW_SELECT_MAX_CHARS,
+  first_user_message: PREVIEW_SELECT_MAX_CHARS,
+});
+
 /** Last-resort label when every cascade step is empty. Never reached in practice. */
 const UNTITLED_LABEL = 'Untitled session';
 
@@ -275,12 +308,40 @@ function assertPermittedDatabase(filePath) {
 }
 
 /**
+ * Environment kill switch. Setting it to `0` or `false` makes this module
+ * report itself unavailable, which sends every caller down the filesystem walk.
+ *
+ * Two reasons it exists rather than being a code change:
+ *   - operations: if the Codex app ever ships a schema this module misreads,
+ *     the user can turn the whole path off without waiting for a release;
+ *   - measurement: the before-and-after discovery numbers for this phase were
+ *     produced from ONE build by toggling this, rather than by comparing two
+ *     builds and hoping nothing else moved.
+ */
+const STATE_DB_ENABLED_ENV = 'CWM_CODEX_STATE_DB';
+
+/**
+ * Whether the SQLite path is enabled at all. Read at call time so a test or an
+ * operator can flip it between calls.
+ *
+ * @returns {boolean}
+ */
+function isEnabled() {
+  const raw = process.env[STATE_DB_ENABLED_ENV];
+  if (raw === undefined || raw === null || raw === '') return true;
+  const normalized = String(raw).trim().toLowerCase();
+  return normalized !== '0' && normalized !== 'false' && normalized !== 'off' && normalized !== 'no';
+}
+
+/**
  * Cheap synchronous probe used by callers to decide whether the SQLite path is
  * worth attempting at all. Touches metadata only; opens nothing.
  *
- * @returns {boolean} True when a readable, permitted thread store exists.
+ * @returns {boolean} True when the path is enabled AND a readable, permitted
+ *   thread store exists.
  */
 function isAvailable() {
+  if (!isEnabled()) return false;
   return assertPermittedDatabase(getStateDbPath());
 }
 
@@ -467,34 +528,82 @@ function applyWalOverlay(dbImage, walImage) {
  * @returns {{image: Buffer, walFrames: number, walReason: string}|null} Null on
  *   any failure.
  */
-function snapshotDatabase(dbPath) {
+async function snapshotDatabase(dbPath) {
   if (!assertPermittedDatabase(dbPath)) return null;
 
-  /** Read a file into memory, returning null rather than throwing. */
-  const readOrNull = (p) => {
+  /**
+   * Read a file into memory, returning null rather than throwing.
+   *
+   * ASYNCHRONOUS on purpose, and single-shot on purpose. Both halves were
+   * measured on this machine against the real 23 MB store:
+   *
+   *   fs.readFileSync          median  18ms, but it BLOCKS the event loop, and
+   *                            it was observed taking 6.2 seconds under real
+   *                            disk contention while the Codex app wrote its
+   *                            2.1 GB log database. Six seconds of a blocked
+   *                            loop stalls every terminal, every SSE stream and
+   *                            every route in the server.
+   *   fs.promises.readFile     median 188ms. It reads a large file in many
+   *                            small chunks, so it pays roughly fifty
+   *                            threadpool round trips for one 23 MB file.
+   *   open + one handle.read   median  18ms, one single read syscall for the
+   *                            whole file, and it never blocks the loop.
+   *
+   * The third is the only option that is both fast and non-blocking, so it is
+   * the primary path. The loop around the read is there because a short read is
+   * legal, not because it is expected: it needed exactly one syscall in
+   * practice. fs.promises.readFile remains the fallback so an exotic
+   * filesystem that refuses positional reads still works, slowly.
+   */
+  const readOrNull = async (p) => {
+    let handle = null;
     try {
-      return fs.readFileSync(p);
+      handle = await fs.promises.open(p, 'r');
+      const stat = await handle.stat();
+      if (!stat.size) return null;
+      const buffer = Buffer.allocUnsafe(stat.size);
+      let offset = 0;
+      while (offset < stat.size) {
+        const { bytesRead } = await handle.read(buffer, offset, stat.size - offset, offset);
+        if (bytesRead <= 0) break; // short read: the file shrank under us
+        offset += bytesRead;
+      }
+      return offset === stat.size ? buffer : buffer.subarray(0, offset);
     } catch (_) {
-      return null;
+      try {
+        return await fs.promises.readFile(p);
+      } catch (_ignored) {
+        return null;
+      }
+    } finally {
+      if (handle) {
+        try {
+          await handle.close();
+        } catch (_) {
+          /* a leaked handle on a failing read is not worth failing discovery */
+        }
+      }
     }
   };
 
-  let dbImage = readOrNull(dbPath);
+  let dbImage = await readOrNull(dbPath);
   let tempDir = null;
   try {
     if (!dbImage) {
-      // Fallback: copy to a private temp directory, then read the copy.
-      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cwm-codex-statedb-'));
+      // Fallback: copy to a private temp directory, then read the copy. Reached
+      // when a direct read is refused, for instance by a Windows sharing
+      // violation. Copying first is what "copy before read" is literally about.
+      tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'cwm-codex-statedb-'));
       const copyPath = path.join(tempDir, path.basename(dbPath));
-      fs.copyFileSync(dbPath, copyPath);
-      dbImage = readOrNull(copyPath);
+      await fs.promises.copyFile(dbPath, copyPath);
+      dbImage = await readOrNull(copyPath);
       if (!dbImage) return null;
-      const walCopy = readOrNull(copyPath + '-wal');
+      const walCopy = await readOrNull(copyPath + '-wal');
       const overlaid = applyWalOverlay(dbImage, walCopy || Buffer.alloc(0));
       return { image: overlaid.image, walFrames: overlaid.applied, walReason: overlaid.reason };
     }
 
-    const walImage = readOrNull(dbPath + '-wal');
+    const walImage = await readOrNull(dbPath + '-wal');
     const overlaid = applyWalOverlay(dbImage, walImage || Buffer.alloc(0));
     return { image: overlaid.image, walFrames: overlaid.applied, walReason: overlaid.reason };
   } catch (_) {
@@ -502,7 +611,7 @@ function snapshotDatabase(dbPath) {
   } finally {
     if (tempDir) {
       try {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        await fs.promises.rm(tempDir, { recursive: true, force: true });
       } catch (_) {
         /* a leftover temp dir is not worth failing discovery over */
       }
@@ -744,7 +853,7 @@ function resolveTitle(parts) {
 async function withDatabase(dbPath, fn) {
   const engine = await loadEngine();
   if (!engine) return null;
-  const snapshot = snapshotDatabase(dbPath);
+  const snapshot = await snapshotDatabase(dbPath);
   if (!snapshot) return null;
 
   let db = null;
@@ -898,7 +1007,13 @@ function mapThreadRow(row, catalogTitles, hostId) {
 function buildThreadQuery(columns, tables, spawnColumns, opts) {
   if (!columns.has(REQUIRED_THREAD_COLUMN)) return null;
 
-  const selected = WANTED_THREAD_COLUMNS.filter((c) => columns.has(c));
+  // Bounded columns are wrapped in substr() and aliased back to their own name,
+  // so every consumer downstream still reads `row.title` and `row.preview` and
+  // has no idea the bound exists.
+  const selected = WANTED_THREAD_COLUMNS.filter((c) => columns.has(c)).map((c) => {
+    const limit = BOUNDED_TEXT_COLUMNS[c];
+    return limit ? 'substr(' + c + ', 1, ' + limit + ') AS ' + c : c;
+  });
   const where = [];
   const capabilities = {
     archivedFilter: false,
@@ -951,8 +1066,16 @@ let _cache = {
   key: null,
   at: 0,
   threads: null,
+  /**
+   * Projection key -> { at, rows }. Keyed rather than single-slot so a
+   * discovery that asks for archived threads does not permanently miss a cache
+   * that only ever held the default projection.
+   * @type {Map<string, {at:number, rows:Array<object>}>}
+   */
+  projections: new Map(),
   rolloutById: null,
   cwdById: null,
+  knownIds: null,
   capabilities: null,
   walFrames: 0,
   walReason: 'not-read',
@@ -993,8 +1116,10 @@ function invalidate() {
     key: null,
     at: 0,
     threads: null,
+    projections: new Map(),
     rolloutById: null,
     cwdById: null,
+    knownIds: null,
     capabilities: null,
     walFrames: 0,
     walReason: 'not-read',
@@ -1028,13 +1153,26 @@ async function listThreads(opts) {
   const hostId = typeof options.hostId === 'string' && options.hostId ? options.hostId : undefined;
   const force = options.force === true;
 
-  // The cache only ever serves the default projection; a caller asking for a
-  // widened set always does a fresh read rather than being handed a filtered
-  // superset that was never computed.
+  // The cache is keyed by projection, not restricted to one.
+  //
+  // It used to serve only the default projection, which looked harmless until
+  // discovery started asking for archived threads by default: every discovery
+  // then missed the cache and paid a full 78ms read. A caller must never be
+  // handed rows computed for a different projection, so the projection is part
+  // of the key rather than something the cache hopes about.
   const isDefaultProjection = !includeArchived && !includeSpawnChildren && !includeHidden;
-  if (!force && isDefaultProjection && _cache.threads) {
-    const fresh = Date.now() - _cache.at < CACHE_TTL_MS;
-    if (fresh || _cache.key === currentCacheKey()) return _cache.threads;
+  const projectionKey =
+    'a' + (includeArchived ? 1 : 0) +
+    's' + (includeSpawnChildren ? 1 : 0) +
+    'h' + (includeHidden ? 1 : 0) +
+    '|' + (hostId || '');
+
+  if (!force) {
+    const entry = _cache.projections.get(projectionKey);
+    if (entry) {
+      const fresh = Date.now() - entry.at < CACHE_TTL_MS;
+      if (fresh || _cache.key === currentCacheKey()) return entry.rows;
+    }
   }
 
   if (!isAvailable()) return null;
@@ -1062,29 +1200,67 @@ async function listThreads(opts) {
       const mapped = mapThreadRow(row, catalogTitles, hostId);
       if (mapped) threads.push(mapped);
     }
-    return { threads: threads, capabilities: query.capabilities, meta: meta };
+
+    // Census of EVERY thread the store knows about, visible or not, taken in
+    // the SAME snapshot so it costs one extra cheap query rather than a second
+    // 24 MB read.
+    //
+    // Two consumers, both of which need the full set rather than the visible
+    // projection:
+    //
+    //   - Discovery needs the id set to tell two very different situations
+    //     apart: "the store knows this thread and deliberately excluded it",
+    //     which is an authoritative verdict, versus "the store has never heard
+    //     of this thread", which is the case the walk exists to cover.
+    //   - findArtifactPath needs the rollout map to be O(1) for ANY thread id,
+    //     including archived threads and spawn children. Restricting it to the
+    //     visible projection would silently push those back onto the O(n) walk,
+    //     which measured 330ms per lookup.
+    const knownIds = new Set();
+    const censusRollouts = new Map();
+    const censusCwds = new Map();
+    const censusColumns = ['id'];
+    if (columns.has('rollout_path')) censusColumns.push('rollout_path');
+    if (columns.has('cwd')) censusColumns.push('cwd');
+    for (const row of selectRows(db, 'SELECT ' + censusColumns.join(', ') + ' FROM threads')) {
+      const id = toStringOrNull(row.id);
+      if (!id) continue;
+      const idLower = id.toLowerCase();
+      knownIds.add(idLower);
+      const rollout = toStringOrNull(row.rollout_path);
+      if (rollout) censusRollouts.set(idLower, normalizeCodexPath(rollout));
+      const cwd = toStringOrNull(row.cwd);
+      if (cwd) censusCwds.set(idLower, normalizeCodexPath(cwd));
+    }
+
+    return {
+      threads: threads,
+      knownIds: knownIds,
+      rolloutById: censusRollouts,
+      cwdById: censusCwds,
+      capabilities: query.capabilities,
+      meta: meta,
+    };
   });
 
   if (!result || !Array.isArray(result.threads)) return null;
 
-  if (isDefaultProjection) {
-    const rolloutById = new Map();
-    const cwdById = new Map();
-    for (const t of result.threads) {
-      if (t.rolloutPath) rolloutById.set(t.id, t.rolloutPath);
-      if (t.cwd) cwdById.set(t.id, t.cwd);
-    }
-    _cache = {
-      key: currentCacheKey(),
-      at: Date.now(),
-      threads: result.threads,
-      rolloutById: rolloutById,
-      cwdById: cwdById,
-      capabilities: result.capabilities,
-      walFrames: result.meta ? result.meta.walFrames : 0,
-      walReason: result.meta ? result.meta.walReason : 'unknown',
-    };
-  }
+  // The census is projection-independent, so it is refreshed on EVERY
+  // successful read. The row list is projection-specific and is stored under
+  // its own key. A content-key change invalidates every projection at once,
+  // because they were all computed from the same snapshot.
+  const key = currentCacheKey();
+  if (_cache.key !== key) _cache.projections = new Map();
+  _cache.key = key;
+  _cache.at = Date.now();
+  _cache.rolloutById = result.rolloutById instanceof Map ? result.rolloutById : _cache.rolloutById;
+  _cache.cwdById = result.cwdById instanceof Map ? result.cwdById : _cache.cwdById;
+  _cache.knownIds = result.knownIds instanceof Set ? result.knownIds : _cache.knownIds;
+  _cache.capabilities = result.capabilities;
+  _cache.walFrames = result.meta ? result.meta.walFrames : 0;
+  _cache.walReason = result.meta ? result.meta.walReason : 'unknown';
+  _cache.projections.set(projectionKey, { at: Date.now(), rows: result.threads });
+  if (isDefaultProjection) _cache.threads = result.threads;
 
   return result.threads;
 }
@@ -1229,6 +1405,43 @@ async function getDisplayTitle(threadId, extras) {
 }
 
 /**
+ * Every thread id the store knows about, visible or not.
+ *
+ * Discovery unions the SQLite view with the filesystem walk, and this set is
+ * what makes that union principled rather than additive-by-accident. A walk
+ * result whose id appears here was seen by the store and deliberately left out
+ * of the visible set, which is an authoritative verdict from the app's own
+ * model. A walk result whose id does NOT appear here is a thread the store has
+ * never recorded, and the walk is the only source that can surface it.
+ *
+ * Populated as a by-product of listThreads, so it costs one cheap query inside
+ * an existing snapshot rather than a second read of the whole database.
+ *
+ * @returns {Promise<Set<string>|null>} Lowercased ids, or null when the store
+ *   is unavailable.
+ */
+async function getKnownThreadIds() {
+  if (_cache.knownIds) return _cache.knownIds;
+  const listed = await listThreads();
+  if (!listed) return null;
+  return _cache.knownIds || null;
+}
+
+/**
+ * Synchronous form of getKnownThreadIds, answered from the warm cache only.
+ *
+ * @param {string} threadId
+ * @returns {boolean} True only when the cache is warm AND it contains the id.
+ *   A cold cache answers false, which correctly means "no authoritative verdict
+ *   available, treat the walk as truth".
+ */
+function isKnownThreadSync(threadId) {
+  const id = toStringOrNull(threadId);
+  if (!id || !_cache.knownIds) return false;
+  return _cache.knownIds.has(id.toLowerCase());
+}
+
+/**
  * Working directory for one thread, answered from the warm cache only.
  * Used by the spawn path to give a Codex pane the right cwd without an await.
  *
@@ -1254,6 +1467,7 @@ function getDiagnostics() {
     engineLoaded: _enginePromise !== null,
     engineError: _engineError,
     cachedThreadCount: _cache.threads ? _cache.threads.length : 0,
+    knownThreadCount: _cache.knownIds ? _cache.knownIds.size : 0,
     cacheAgeMs: _cache.at ? Date.now() - _cache.at : null,
     capabilities: _cache.capabilities,
     walFrames: _cache.walFrames,
@@ -1264,11 +1478,14 @@ function getDiagnostics() {
 module.exports = {
   // Availability and lifecycle
   isAvailable,
+  isEnabled,
   invalidate,
   getDiagnostics,
 
   // Reads
   listThreads,
+  getKnownThreadIds,
+  isKnownThreadSync,
   resolveRolloutPath,
   resolveRolloutPathSync,
   resolveCwdSync,
@@ -1292,8 +1509,11 @@ module.exports = {
   MAX_DATABASE_BYTES,
   CACHE_TTL_MS,
   PREVIEW_TITLE_MAX_CHARS,
+  TITLE_SELECT_MAX_CHARS,
+  PREVIEW_SELECT_MAX_CHARS,
   UNTITLED_LABEL,
   WANTED_THREAD_COLUMNS,
+  STATE_DB_ENABLED_ENV,
 
   /**
    * Test introspection surface. Mirrors the `_internal` pattern parse.js and

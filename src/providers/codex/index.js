@@ -40,6 +40,10 @@ const { parseTranscript, parseLine } = require('./parse');
 const { spawnCommand } = require('./spawn');
 const { accountsCapability } = require('./accounts');
 const { search } = require('./search');
+// BUILD-CONTRACT P8.8: the read-only state store, used here purely as an O(1)
+// index in front of the existing O(n) walk. Never throws; returns null when
+// unavailable, at which point every call site below behaves exactly as before.
+const stateDb = require('./state-db');
 
 // ---------------------------------------------------------------------------
 // Idle signal detection
@@ -287,6 +291,27 @@ function _allRolloutFiles(codexHome) {
  */
 function findArtifactPath(providerSessionId) {
   if (!providerSessionId || typeof providerSessionId !== 'string') return null;
+
+  // BUILD-CONTRACT P8.8: ask the state store first. `threads.rollout_path` is a
+  // direct absolute path, so this is an O(1) map lookup where the walk below is
+  // O(n) over 2863 files, repeated once per session by /api/cost/batch.
+  //
+  // It also reaches transcripts the walk structurally cannot: two threads on
+  // the measured machine have rollouts under `D:\CodexArchive`, and the walk
+  // only ever looks under $CODEX_HOME.
+  //
+  // Synchronous by necessity: server route handlers call this without awaiting.
+  // The synchronous form answers from the warm cache that discovery populates,
+  // and returns null when the cache is cold, at which point the original walk
+  // runs exactly as it always has. Never a new failure mode, only a fast path.
+  try {
+    const fromStore = stateDb.resolveRolloutPathSync(providerSessionId);
+    if (fromStore) return fromStore;
+  } catch (_) {
+    // state-db is contractually non-throwing; the guard is here so that even a
+    // broken contract costs the fast path rather than artifact resolution.
+  }
+
   const codexHome = _discGetCodexHome();
   if (!fs.existsSync(codexHome)) return null;
   const target = providerSessionId.toLowerCase();
@@ -383,6 +408,11 @@ module.exports = {
   // through provider.findArtifactPath / findArtifactByWorkingDir uniformly.
   findArtifactPath: findArtifactPath,
   findArtifactByWorkingDir: findArtifactByWorkingDir,
+  // BUILD-CONTRACT P8.2/P8.8: OPTIONAL capability exposing the read-only state
+  // store. NOT added to REQUIRED_METHODS, so providers without one still
+  // validate. Consumers must treat every member as returning null when the
+  // desktop app has never run on this machine.
+  stateDb: stateDb,
   // Test-only: lets the watcher test set its own onChange without
   // going through the registry. Production code must use init().
   _startWatcherForTesting: _startWatcher,
