@@ -67,25 +67,44 @@ check('Sidebar .ws-session-item carries provider stripe', () => {
 // provider stripes were removed per user feedback (Discovered Projects
 // already filters by provider tab so the stripe was redundant noise).
 // Only the workspace sidebar's .ws-session-item carries the stripe now.
-check('Pane top accent bumped to 4px', () => {
-  // Both claude and codex should be `border-top: 4px solid var(--provider-*-accent)`.
+// SANCTIONED EDIT SE-2 (BUILD-CONTRACT 5.4, blessed in DEVIATIONS DV-6,
+// spent in Notion restyle P4.5 alongside its source change).
+//
+// Notion restyle: a 4px one-side accent bar is on the rejection list; the pane
+// frame carries a 35 percent tint of the hairline instead. The whole-pane 8
+// percent wash goes with it: it sat BEHIND the xterm canvas, which paints
+// opaque over its own area, so the only place it was ever visible was the
+// chrome the hairline now identifies.
+//
+// The assertion keeps its shape and its subject. It still proves that each
+// provider's pane frame references that provider's accent token and nothing
+// else's, which is the drift this test exists to catch.
+check('Pane frame carries a 35 percent mix of the provider accent, not a 4px bar', () => {
   assert.ok(
-    /\.terminal-pane\[data-provider="claude"\][\s\S]*?border-top:\s*4px solid var\(--provider-claude-accent\)/.test(css),
-    'claude pane top accent must be 4px'
+    /\.terminal-pane\[data-provider="claude"\][\s\S]*?border:\s*1px solid color-mix\(in srgb, var\(--provider-claude-accent\) 35%, var\(--app-border-primary\)\)/.test(css),
+    'claude pane frame must be a 35% mix of --provider-claude-accent into the hairline'
   );
   assert.ok(
-    /\.terminal-pane\[data-provider="codex"\][\s\S]*?border-top:\s*4px solid var\(--provider-codex-accent\)/.test(css),
-    'codex pane top accent must be 4px'
+    /\.terminal-pane\[data-provider="codex"\][\s\S]*?border:\s*1px solid color-mix\(in srgb, var\(--provider-codex-accent\) 35%, var\(--app-border-primary\)\)/.test(css),
+    'codex pane frame must be a 35% mix of --provider-codex-accent into the hairline'
+  );
+  assert.ok(
+    !/border-top:\s*4px solid var\(--provider-(claude|codex)-accent\)/.test(css),
+    'the 4px one-side accent bar must not come back'
   );
 });
-check('Whole-pane tint bumped to 8%', () => {
+check('Pane header carries the flat provider tint, and no whole-pane wash', () => {
   assert.ok(
-    /color-mix\(in srgb, var\(--mauve\) 8%, var\(--bg-primary\)\)/.test(css),
-    'claude whole-pane tint must be 8%'
+    /\.terminal-pane\[data-provider="claude"\][^{]*>\s*\.terminal-pane-header\s*\{[^}]*background:\s*var\(--provider-claude-tint\)/.test(css),
+    'claude pane header must take the flat --provider-claude-tint'
   );
   assert.ok(
-    /color-mix\(in srgb, var\(--green\) 8%, var\(--bg-primary\)\)/.test(css),
-    'codex whole-pane tint must be 8%'
+    /\.terminal-pane\[data-provider="codex"\][^{]*>\s*\.terminal-pane-header\s*\{[^}]*background:\s*var\(--provider-codex-tint\)/.test(css),
+    'codex pane header must take the flat --provider-codex-tint'
+  );
+  assert.ok(
+    !/color-mix\(in srgb, var\(--(mauve|green)\) 8%, var\(--bg-primary\)\)/.test(css),
+    'the whole-pane 8% palette wash must not come back'
   );
 });
 

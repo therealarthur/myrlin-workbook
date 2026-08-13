@@ -139,17 +139,32 @@ check('terminal-pane[data-provider="codex"]:not(.terminal-pane-empty) selector e
 // noise). The remaining provider-stripe surface is .ws-session-item in
 // the workspace sidebar, which is covered by test/provider-label-pill.test.js.
 
-// (5) Sanity: the terminal-pane background gradient fades to transparent within
-// the pane chrome (Pitfall F: gradient must not bleed onto the xterm canvas and
-// reduce text contrast). The exact pixel cutoff is a designer call; v1.2.0-alpha.3
-// bumped from 24px to 64px (still well within the pane header band). Test allows
-// any cutoff between 16px and 128px so future tuning does not break CI.
-check('terminal-pane gradient fades to transparent within pane chrome (Pitfall F guard)', () => {
-  const re = /linear-gradient\(180deg,\s*var\(--provider-claude-tint\)\s*0,\s*transparent\s*(\d+)px\)/;
-  const m = css.match(re);
-  assert.ok(m, 'Pitfall F: pane tint must fade to transparent at some pixel value');
-  const px = parseInt(m[1], 10);
-  assert.ok(px >= 16 && px <= 128, 'Pitfall F: tint fade cutoff must be between 16px and 128px; got ' + px + 'px');
+// (5) SANCTIONED EDIT SE-3 (BUILD-CONTRACT 5.4, blessed in DEVIATIONS DV-6,
+// spent in Notion restyle P4.5 alongside its source change).
+//
+// Notion restyle: gradients are on the rejection list (effects.css lines 20 to
+// 21). The 64px vertical fade becomes a FLAT --provider-claude-tint fill on the
+// pane header.
+//
+// Pitfall F, which this assertion exists for, is satisfied more strongly by the
+// flat fill than it was by the gradient. The rule the tint is on is scoped to
+// `> .terminal-pane-header`, a sibling of the terminal container, so the tint
+// cannot reach the xterm canvas at all: there is no pixel value to get wrong.
+// The assertion therefore checks the containment directly rather than checking
+// a fade distance.
+check('pane provider tint is a flat fill on the header, never over the xterm canvas (Pitfall F guard)', () => {
+  assert.ok(
+    />\s*\.terminal-pane-header\s*\{[^}]*background:\s*var\(--provider-claude-tint\)/.test(css),
+    'Pitfall F: the tint must be a flat fill scoped to the pane header'
+  );
+  assert.ok(
+    !/linear-gradient\([^)]*--provider-(claude|codex)-tint/.test(css),
+    'Pitfall F: no gradient may carry the provider tint'
+  );
+  assert.ok(
+    !/\.terminal-container[^{]*\{[^}]*--provider-(claude|codex)-tint/.test(css),
+    'Pitfall F: the tint must never be painted on the terminal container itself'
+  );
 });
 
 console.log('  ' + '─'.repeat(42));

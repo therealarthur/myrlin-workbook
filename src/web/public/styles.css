@@ -1778,20 +1778,27 @@ textarea.input {
   justify-content: center;
   min-height: 100vh;
   min-height: 100dvh;
-  background: var(--crust);
+  background: var(--app-bg-secondary);
   position: relative;
   overflow: hidden;
 }
 
+/*
+ * The graph-paper backdrop is retired, Notion restyle P4.5. Two stacked
+ * linear-gradients drawing 1px mauve rules on a 40px pitch, masked to a
+ * radial vignette: three rejection-list idioms (gradient, decorative pattern,
+ * vignette) in one element, in the retired brand hue, on the first screen the
+ * product ever shows.
+ *
+ * The element is KEPT and emptied rather than removed from the markup, so
+ * .login-bg-grid still exists for anything that queries it and the record of
+ * what it was stays in this file. What the login screen shows now is what
+ * DESIGN-SPEC asks every empty surface to show: the plain ground.
+ */
 .login-bg-grid {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(203, 166, 247, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(203, 166, 247, 0.03) 1px, transparent 1px);
-  background-size: 40px 40px;
-  mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 30%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 30%, transparent 100%);
+  background-image: none;
 }
 
 .login-card {
@@ -1799,11 +1806,11 @@ textarea.input {
   width: 100%;
   max-width: 400px;
   padding: 40px 36px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-xl);
-  animation: login-enter 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-callout);
+  box-shadow: var(--app-shadow-scrim);
+  animation: mwFadein var(--duration-150) var(--ease-out);
 }
 
 .login-brand {
@@ -4555,11 +4562,21 @@ textarea.input {
    TOASTS
    ═══════════════════════════════════════════════════════════════ */
 
+/*
+ * THE TOAST, Notion restyle P4.5 (BUILD-CONTRACT 2.8).
+ * Bottom LEFT, not bottom right: the right edge is where this app puts the
+ * side peek and the account panel, and a toast landing on top of either is a
+ * toast the user has to dismiss before they can carry on. 300px wide, 8px
+ * 12px, the 6px button radius, and the inverted ground: near-black in light
+ * chrome and near-white in dark, which is how the capture separates a
+ * transient system message from the page it floats over.
+ */
 .toast-container {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
-  z-index: 200;
+  bottom: 24px;
+  left: 24px;
+  right: auto;
+  z-index: 400;
   display: flex;
   flex-direction: column-reverse;
   gap: 8px;
@@ -4570,20 +4587,35 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 16px 12px 18px;
-  background: var(--surface0);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  font-size: 13px;
-  color: var(--text-primary);
+  width: var(--app-toast-width);
+  max-width: var(--app-toast-width);
+  padding: 8px 12px;
+  background: var(--app-bg-accent-primary);
+  border: none;
+  border-radius: var(--radius-app-button);
+  box-shadow: var(--app-shadow-lg);
+  font-size: var(--app-body-size);
+  line-height: var(--app-property-line);
+  color: var(--app-text-inverse-primary);
   pointer-events: auto;
-  animation: toast-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  max-width: 380px;
+  animation: mwFadein var(--duration-200) var(--ease-out);
   cursor: grab;
   user-select: none;
   transition: transform 0.15s ease, opacity 0.15s ease;
 }
+
+/*
+ * BUILD-CONTRACT 2.8 names the entrance `nt-snackbar-slide-in-bottom`, an 8px
+ * rise. It is not authored, and the toast takes mwFadein at the snackbar's
+ * 200ms instead, for two reasons that point the same way.
+ *
+ * 2.4 says one entrance for every overlay in the app, and a toast is an
+ * overlay; authoring a second entrance to differ by 4px of travel on a 200ms
+ * animation buys nothing a person can see. And gate G8 ratchets translateY
+ * occurrences DOWN, because the counter exists to keep hover lifts out of the
+ * sheet; adding a seventeenth so a fade could travel the other way would
+ * spend a real budget on an invisible difference.
+ */
 
 .toast.toast-dragging {
   cursor: grabbing;
@@ -4600,6 +4632,11 @@ textarea.input {
   opacity: 0;
 }
 
+/* The icon and the close control sit on the INVERTED ground, so they take the
+   inverted inks. A block-palette hue here would be a coloured mark on a
+   near-black chip in light chrome and on a near-white one in dark, which is
+   the one place a single hue cannot work for both. */
+
 .toast-icon {
   flex-shrink: 0;
   width: 18px;
@@ -4609,10 +4646,10 @@ textarea.input {
   justify-content: center;
 }
 
-.toast-info .toast-icon { color: var(--blue); }
-.toast-success .toast-icon { color: var(--green); }
-.toast-warning .toast-icon { color: var(--yellow); }
-.toast-error .toast-icon { color: var(--red); }
+.toast-info .toast-icon { color: var(--app-text-inverse-secondary); }
+.toast-success .toast-icon { color: var(--app-text-inverse-secondary); }
+.toast-warning .toast-icon { color: var(--app-text-inverse-secondary); }
+.toast-error .toast-icon { color: var(--app-text-inverse-secondary); }
 
 .toast-message {
   flex: 1;
@@ -4626,7 +4663,7 @@ textarea.input {
 .toast-close {
   background: none;
   border: none;
-  color: var(--overlay0);
+  color: var(--app-text-inverse-secondary);
   cursor: pointer;
   padding: 4px;
   border-radius: var(--radius-property-chip);
@@ -4640,8 +4677,7 @@ textarea.input {
 }
 
 .toast-close:hover {
-  color: var(--text-primary);
-  background: var(--surface1);
+  color: var(--app-text-inverse-primary);
 }
 
 
@@ -4785,11 +4821,44 @@ textarea.input {
   }
 }
 
-/* Skeleton loader */
+/*
+ * THE SKELETON, Notion restyle P4.5 (BUILD-CONTRACT 2.12).
+ * A 1s linear shimmer between --app-bg-tertiary and --app-bg-interactive,
+ * switched off under prefers-reduced-motion. It replaces an opacity pulse on
+ * PRIMARY INK, which rendered as a flashing near-black block on the light
+ * canvas: the loading state was heavier than the content it stood in for.
+ *
+ * THE ONE SANCTIONED GRADIENT. Gradients are on the rejection list and gate
+ * G9a counts them, with "one documented exception allowed". This is that
+ * exception, and it is a functional one rather than a decorative one: a
+ * shimmer IS a moving gradient, there is no other way to express it in CSS,
+ * and the contract asks for a shimmer by name. It carries no hue: both stops
+ * are neutral grounds one step apart, so it reads as a moving highlight
+ * rather than as colour.
+ */
 .skeleton {
-  background: var(--text-primary);
-  border-radius: var(--radius-sm);
-  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  background: var(--app-bg-tertiary);
+  background-image: linear-gradient(
+    90deg,
+    var(--app-bg-tertiary) 25%,
+    var(--app-bg-interactive) 50%,
+    var(--app-bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  border-radius: var(--radius-property-chip);
+  animation: skeleton-shimmer 1s linear infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background-image: none;
+  }
 }
 
 .skeleton-line {
@@ -6067,21 +6136,25 @@ body.cwm-dragging .sidebar-backdrop {
   display: none;
 }
 
-/* Skeleton loading animation for AI find cards */
+/*
+ * THE DOUBLE DECLARATION, fixed. BUILD-CONTRACT 2.12 names it: `.skeleton-line`
+ * was declared twice, once as the shared primitive and once here for the AI
+ * find card, and because this one is later it won everywhere. Every other
+ * consumer in the app silently inherited `display: inline-block` and a fixed
+ * 12px height meant for one card.
+ *
+ * This declaration is now SCOPED to the card that owns it. The shared
+ * primitive lives with the animations and is the one every other surface gets.
+ * Neither rule was deleted; the second one simply stopped speaking for
+ * surfaces it knows nothing about.
+ */
 .ai-find-card-skeleton {
   pointer-events: none;
 }
-.skeleton-line {
+.ai-find-card-skeleton .skeleton-line {
   display: inline-block;
   height: 12px;
-  background: linear-gradient(90deg, var(--surface1) 25%, var(--surface2) 50%, var(--surface1) 75%);
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s ease-in-out infinite;
   border-radius: var(--radius-row-icon);
-}
-@keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
 }
 
 /* Project accordion. The 27px sidebar row geometry (DESIGN-SPEC.md 3.4), with
@@ -6917,70 +6990,106 @@ body.cwm-dragging .sidebar-backdrop {
   border-bottom: 1px solid var(--surface0);
 }
 
+/*
+ * THE BOARD, Notion restyle P4.5 (BUILD-CONTRACT 2.10, DESIGN-SPEC 9.1).
+ *
+ * A Notion board column has NO ground of its own. It is transparent at rest
+ * and takes --app-bg-blue only while a card is dragged over it, which is what
+ * makes "this column is a drop target" a state rather than a permanent
+ * decoration. `align-items: stretch` matters for the same reason: columns are
+ * equal height, so the drop target is the whole column and not just the part
+ * of it that happens to have cards in it.
+ */
 .board-columns {
   display: flex;
-  gap: 8px;
+  align-items: stretch;
+  gap: var(--app-board-gap);
   padding: 12px;
+  padding-bottom: 12px;
   overflow-x: auto;
   flex: 1;
 }
 
 .board-column {
-  flex: 1;
-  min-width: 180px;
-  max-width: 280px;
+  flex: none;
+  width: var(--app-board-column-width);
   display: flex;
   flex-direction: column;
-  background: var(--mantle);
+  gap: var(--app-board-card-gap);
+  min-height: 220px;
+  padding: 4px;
+  background: transparent;
   border-radius: var(--radius-pane-frame);
-  overflow: hidden;
+  transition: background var(--transition-fast);
 }
 
 .board-column-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--surface0);
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 4px;
+  border-bottom: none;
 }
 
+/* The column title is a STATUS CHIP, not an uppercase label. Five columns,
+   five states, and the chip is the app's own vocabulary for a state. */
 .board-column-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--subtext0);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  height: var(--app-chip-height);
+  padding: var(--app-chip-pad);
+  border-radius: var(--radius-property-chip);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  font-weight: var(--app-chip-weight);
+  color: var(--app-chip-gray-ink);
+  background: var(--app-chip-gray-fill);
 }
 
+/* The five column hues from DESIGN-SPEC 9.1, applied by position so a board
+   with renamed columns still reads left to right as backlog through done. */
+.board-column:nth-child(2) .board-column-title { color: var(--app-chip-blue-ink); background: var(--app-chip-blue-fill); }
+.board-column:nth-child(3) .board-column-title { color: var(--app-chip-green-ink); background: var(--app-chip-green-fill); }
+.board-column:nth-child(4) .board-column-title { color: var(--app-chip-yellow-ink); background: var(--app-chip-yellow-fill); }
+.board-column:nth-child(5) .board-column-title { color: var(--app-chip-purple-ink); background: var(--app-chip-purple-fill); }
+
+/* The count is plain tertiary meta. It was a mono bubble, which made every
+   column header carry two chips for one fact. */
 .board-column-count {
-  font-size: 10px;
-  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
-  color: var(--overlay0);
-  background: var(--surface0);
-  padding: 1px 6px;
-  border-radius: var(--radius-pane-frame);
+  font-size: var(--app-body-size);
+  font-family: inherit;
+  color: var(--app-text-tertiary);
+  background: none;
+  padding: 0;
 }
 
 .board-column-body {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-board-card-gap);
   overflow-y: auto;
-  padding: 6px;
+  padding: 0;
   min-height: 80px;
 }
 
 .board-card {
-  background: var(--base);
-  border: 1px solid var(--surface0);
-  border-radius: var(--radius-app-button);
-  padding: 8px 10px;
-  margin-bottom: 6px;
+  background: var(--app-bg-elevated);
+  border: none;
+  border-radius: var(--radius-collection-card);
+  box-shadow: var(--app-shadow-outlined-sm);
+  padding: 8px 12px;
+  margin-bottom: 0;
   cursor: grab;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: var(--motion-hover-reveal);
 }
 
-.board-card:hover {
-  border-color: var(--surface2);
-  box-shadow: var(--shadow-sm);
+/* No translateY lift (BUILD-CONTRACT 2.10). The card answers the pointer by
+   changing ground, which is the same answer every other row in the app gives. */
+.nt-enable-hover .board-card:hover {
+  background: var(--app-bg-secondary);
 }
 
 .board-card.dragging {
@@ -6988,15 +7097,16 @@ body.cwm-dragging .sidebar-backdrop {
 }
 
 .board-card-name {
-  font-size: 13px;
+  font-size: var(--app-body-size);
+  line-height: var(--app-property-line);
   font-weight: 500;
-  color: var(--text);
+  color: var(--app-text-primary);
   margin-bottom: 4px;
 }
 
 .board-card-desc {
-  font-size: 11px;
-  color: var(--subtext0);
+  font-size: 12px;
+  color: var(--app-text-tertiary);
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7012,28 +7122,36 @@ body.cwm-dragging .sidebar-backdrop {
   margin-top: 6px;
 }
 
+/* Priority is a property chip like every other property in the system. The
+   four rgba literals it carried were raw Catppuccin Latte values, which did
+   not even match the dark palette the rest of the card was drawn from. */
 .board-card-priority {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: var(--radius-row-icon);
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: var(--app-chip-pad);
+  border-radius: var(--radius-property-chip);
+  font-size: 12px;
+  font-weight: var(--app-chip-weight);
 }
 
-.board-card-priority-urgent { background: rgba(210, 15, 57, 0.15); color: var(--red); }
-.board-card-priority-high { background: rgba(254, 100, 11, 0.15); color: var(--peach); }
-.board-card-priority-normal { background: rgba(30, 102, 245, 0.15); color: var(--blue); }
-.board-card-priority-low { background: rgba(172, 176, 190, 0.15); color: var(--overlay0); }
+.board-card-priority-urgent { background: var(--app-chip-red-fill); color: var(--app-chip-red-ink); }
+.board-card-priority-high { background: var(--app-chip-orange-fill); color: var(--app-chip-orange-ink); }
+.board-card-priority-normal { background: var(--app-chip-blue-fill); color: var(--app-chip-blue-ink); }
+.board-card-priority-low { background: var(--app-chip-gray-fill); color: var(--app-chip-gray-ink); }
 
 .board-card-sessions {
-  font-size: 10px;
-  color: var(--subtext0);
-  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 11px;
+  color: var(--app-text-tertiary);
+  font-family: var(--font-mono);
 }
 
-/* Drop target highlight */
-.board-column-body.drag-over {
-  background: rgba(203, 166, 247, 0.05);
-  border-radius: var(--radius-property-chip);
+/* Drop target: the whole COLUMN takes the blue wash, not just its body, so a
+   half-empty column is as big a target as a full one (BUILD-CONTRACT 2.10). */
+.board-column-body.drag-over,
+.board-column.drag-over {
+  background: var(--app-bg-blue);
+  border-radius: var(--radius-pane-frame);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -7290,28 +7408,34 @@ body.cwm-dragging .sidebar-backdrop {
 /* Image file drag indicator - blue dashed (vs mauve for sessions) */
 .terminal-pane.image-drag-over { position: relative; }
 .terminal-pane.image-drag-over .terminal-container {
-  outline: 2px dashed var(--blue); outline-offset: -2px;
+  outline: 2px dashed var(--app-text-blue); outline-offset: -2px;
   filter: blur(4px) brightness(0.7);
   transition: filter 150ms ease;
 }
 .terminal-pane.image-drag-over::after {
   content: 'Drop image to send to this session'; position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%); color: var(--blue);
+  transform: translate(-50%, -50%); color: var(--app-text-blue);
   font-size: 14px; font-weight: 600; pointer-events: none; z-index: 10;
-  background: var(--base); padding: 8px 16px; border-radius: var(--radius-pane-frame);
-  border: 1px solid var(--blue); box-shadow: var(--shadow-sm);
+  background: var(--app-bg-primary); padding: 8px 16px; border-radius: var(--radius-pane-frame);
+  border: 1px solid var(--app-text-blue); box-shadow: var(--app-shadow-outlined-sm);
 }
 .terminal-container { flex: 1; overflow: hidden; transition: filter 150ms ease; }
+/* THE DROP SLOT (BUILD-CONTRACT 2.12): 1.5px dashed --app-border-strong at
+   the 8px pane radius, 13px copy, and a drag-over state that flips the border
+   to --app-text-blue and the fill to --app-bg-blue. Blue is the interaction
+   hue in this system, so "you may drop here" reads the same on a pane, a
+   board column and a tab strip. */
 .terminal-pane-empty .terminal-container {
   display: flex; align-items: center; justify-content: center;
-  border: 2px dashed var(--surface1); margin: 8px;
-  border-radius: var(--radius-md); color: var(--overlay0);
+  border: 1.5px dashed var(--app-border-strong); margin: 8px;
+  border-radius: var(--radius-pane-frame); color: var(--app-text-tertiary);
+  min-height: 120px;
   font-size: 13px;
 }
 .terminal-pane-empty .terminal-container::after { content: 'Drop a session here'; }
 .terminal-pane-empty.drag-over .terminal-container {
-  border-color: var(--mauve); color: var(--mauve);
-  background: rgba(203, 166, 247, 0.05);
+  border-color: var(--app-text-blue); color: var(--app-text-blue);
+  background: var(--app-bg-blue);
 }
 
 /* ─── Pane View Container, Badge, Back Button ──────────── */
@@ -7370,24 +7494,42 @@ body.cwm-dragging .sidebar-backdrop {
 }
 
 /* ─── Pane Color Highlights ────────────────────────────── */
-/* Subtle left-border accent per slot when enabled */
-html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="0"] > .terminal-pane-header {
-  border-left: 3px solid var(--mauve);
+/*
+ * THE SLOT RAMP, second copy, retired. DECISIONS 10.7.6 item 2 found it:
+ * these six rules hard-coded the same six colours as PANE_SLOT_COLORS a
+ * SECOND time, in the terminal palette, as a 3px left bar. Two consequences,
+ * both bad. The sidebar pip (which P2.7 moved to the chrome projection) and
+ * the pane header disagreed about what slot 3 looks like. And a 3px left bar
+ * is the single idiom BUILD-CONTRACT 2.12 calls the most important one to
+ * remove.
+ *
+ * Replaced by 2.12's pane-frame recipe: the slot hue as a 35 percent mix into
+ * the frame hairline, so the whole pane is identified rather than one edge of
+ * it. The hue names are the chrome block palette, which is what
+ * instance-colors.js resolves PANE_SLOT_COLORS to, so the two agree by
+ * construction now instead of by luck.
+ *
+ * These sit AFTER the provider rules above at equal specificity on the frame,
+ * so when a pane has both a provider and a slot colour the slot wins, which
+ * is the one the user chose to turn on.
+ */
+html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="0"] {
+  border-color: color-mix(in srgb, var(--app-text-purple) 35%, var(--app-border-primary));
 }
-html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="1"] > .terminal-pane-header {
-  border-left: 3px solid var(--blue);
+html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="1"] {
+  border-color: color-mix(in srgb, var(--app-text-blue) 35%, var(--app-border-primary));
 }
-html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="2"] > .terminal-pane-header {
-  border-left: 3px solid var(--green);
+html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="2"] {
+  border-color: color-mix(in srgb, var(--app-text-green) 35%, var(--app-border-primary));
 }
-html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="3"] > .terminal-pane-header {
-  border-left: 3px solid var(--peach);
+html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="3"] {
+  border-color: color-mix(in srgb, var(--app-text-orange) 35%, var(--app-border-primary));
 }
-html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="4"] > .terminal-pane-header {
-  border-left: 3px solid var(--red);
+html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="4"] {
+  border-color: color-mix(in srgb, var(--app-text-red) 35%, var(--app-border-primary));
 }
-html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="5"] > .terminal-pane-header {
-  border-left: 3px solid var(--pink);
+html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="5"] {
+  border-color: color-mix(in srgb, var(--app-text-pink) 35%, var(--app-border-primary));
 }
 
 /* ─── Sidebar Session Instance Indicator ───────────────── */
@@ -13650,19 +13792,47 @@ html {
    a 2px bottom accent. Whole-pane subtle background tint via color-mix
    (12% saturation) sits BEHIND the xterm canvas; xterm paints opaque
    over its own area so text contrast is never reduced (Pitfall F). */
+/*
+ * THE PANE FRAME, Notion restyle P4.5, and the two sanctioned test edits that
+ * ride with it (SE-2 and SE-3, blessed in DEVIATIONS DV-6, unspent since P1).
+ *
+ * WHAT WENT. A 4px top accent bar plus a 2px bottom accent bar plus a 64px
+ * linear-gradient tint. The one-side accent bar is on the rejection list
+ * (BUILD-CONTRACT 2.12) and the gradient is on it too (DESIGN-SPEC 16.2), and
+ * between them they made a grid of mixed-provider panes read as a set of
+ * coloured cards rather than as one workbench.
+ *
+ * WHAT REPLACED IT, per 2.12's pane-frame row and DESIGN-SPEC 5.3: a full
+ * 1px hairline that is a 35 percent mix of the provider hue into
+ * --app-border-primary, so the hue identifies the whole frame instead of
+ * bracketing one edge of it, and a FLAT --provider-*-tint fill on the header
+ * band instead of a gradient. The mix is the same idiom P2 used for the
+ * workspace group hairline, so a group and a pane say "this is mine" the same
+ * way.
+ *
+ * WHY THE WHOLE-PANE 8 PERCENT WASH GOES. It sat behind the xterm canvas,
+ * which paints opaque over its own area, so the only place it was ever
+ * visible was the pane chrome, where the hairline now says the same thing
+ * without tinting the ground the terminal sits on. Pitfall F (the tint must
+ * never reduce terminal text contrast) is satisfied more strongly than
+ * before: there is no tint on the terminal's own ground at all.
+ *
+ * The two test anchors move with it in the same commit, which is what
+ * BUILD-CONTRACT 5.4 requires of a sanctioned edit.
+ */
 .terminal-pane[data-provider="claude"]:not(.terminal-pane-empty) {
-  border-top: 4px solid var(--provider-claude-accent);
-  border-bottom: 2px solid var(--provider-claude-accent);
-  background:
-    linear-gradient(180deg, var(--provider-claude-tint) 0, transparent 64px),
-    color-mix(in srgb, var(--mauve) 8%, var(--bg-primary));
+  border: 1px solid color-mix(in srgb, var(--provider-claude-accent) 35%, var(--app-border-primary));
+  background: var(--app-bg-primary);
+}
+.terminal-pane[data-provider="claude"]:not(.terminal-pane-empty) > .terminal-pane-header {
+  background: var(--provider-claude-tint);
 }
 .terminal-pane[data-provider="codex"]:not(.terminal-pane-empty) {
-  border-top: 4px solid var(--provider-codex-accent);
-  border-bottom: 2px solid var(--provider-codex-accent);
-  background:
-    linear-gradient(180deg, var(--provider-codex-tint) 0, transparent 64px),
-    color-mix(in srgb, var(--green) 8%, var(--bg-primary));
+  border: 1px solid color-mix(in srgb, var(--provider-codex-accent) 35%, var(--app-border-primary));
+  background: var(--app-bg-primary);
+}
+.terminal-pane[data-provider="codex"]:not(.terminal-pane-empty) > .terminal-pane-header {
+  background: var(--provider-codex-tint);
 }
 
 /* alpha.7 follow-up: per-provider stripes on the workspace sidebar
