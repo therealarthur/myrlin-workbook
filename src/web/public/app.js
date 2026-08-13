@@ -15054,7 +15054,19 @@ class CWMApp {
             badges += `<span class="session-badge session-badge-cost">$${Number(cachedCost).toFixed(2)}</span>`;
           }
         } else {
-          badges += `<span class="session-badge session-badge-cost-na" title="Cost not tracked for this provider">&mdash;</span>`;
+          // P9 CONSUMPTION (DEVIATIONS DV-P9-1): the same three-way branch the
+          // sessions table uses. The element and its class stay identical
+          // whichever text it carries, so _patchCostBadges keeps finding it
+          // and keeps refusing to overwrite it with a dollar amount.
+          const cachedTokens = this._getSessionTokensCached
+            ? this._getSessionTokensCached(s.id)
+            : null;
+          const supportsTokens = costProvider ? costProvider.supportsTokenUsage === true : false;
+          if (supportsTokens && typeof cachedTokens === 'number' && cachedTokens > 0) {
+            badges += `<span class="session-badge session-badge-cost-na" title="Token usage. This provider has no price model, so no cost is shown.">${this.escapeHtml(this.formatTokenTotal(cachedTokens))}</span>`;
+          } else {
+            badges += `<span class="session-badge session-badge-cost-na" title="Cost not tracked for this provider">&mdash;</span>`;
+          }
         }
         // Subagent badge (from cached data)
         const cachedSubagents = this._getSubagentsCached(s.id);
@@ -15369,7 +15381,21 @@ class CWMApp {
   async summarizeSessionToDocs(sessionId) {
     try {
       this.showToast('Summarizing session...', 'info');
-      const data = await this.api('POST', `/api/sessions/${sessionId}/summarize`);
+      // P9 CONSUMPTION (DEVIATIONS DV-P9-4). Two handlers were registered on
+      // this one path and they return DIFFERENT shapes to DIFFERENT callers:
+      // the modal summariser reads `overallTheme` and `recentTasking`, and
+      // this method reads `summary`. The second registration was shadowed and
+      // could never run, so this method has been reading a field the live
+      // handler does not return.
+      //
+      // P9 resolved it by delegation rather than by deleting a registration:
+      // the docs summariser is now a named function reachable on its own
+      // unshadowed route AND from the live handler on `{toDocs: true}`. The
+      // flag is OPT-IN on purpose, because the server cannot tell the two
+      // callers apart and a modal that silently wrote into a user's project
+      // notes every time it opened would be a worse bug than the one being
+      // fixed. This is the frontend half: one flag.
+      const data = await this.api('POST', `/api/sessions/${sessionId}/summarize`, { toDocs: true });
       if (data && data.summary) {
         this.showToast('Summary added to project docs', 'success');
         // Refresh docs if currently in docs view
@@ -16362,7 +16388,22 @@ class CWMApp {
       ? this._getProviderById(s.provider || 'claude') /* gsd:provider-literal-allowed */
       : null;
     const supportsCost = provider ? (provider.supportsCost !== false) : true;
-    if (!supportsCost) return '<span title="Cost not tracked for this provider">&mdash;</span>';
+    if (!supportsCost) {
+      // P9 CONSUMPTION (DEVIATIONS DV-P9-1). A provider can have real token
+      // counts and no price model, and P9 added `supportsTokenUsage` precisely
+      // so the two claims stop being one flag. Money where money exists,
+      // TOKENS where tokens exist and money does not, and the em-dash only
+      // where neither does. The em-dash branch is retained verbatim as the
+      // last of the three, because "not tracked" is still the honest answer
+      // for a provider that reports nothing.
+      const tokens = this._getSessionTokensCached ? this._getSessionTokensCached(s.id) : null;
+      const supportsTokens = provider ? provider.supportsTokenUsage === true : false;
+      if (supportsTokens && typeof tokens === 'number' && tokens > 0) {
+        return '<span title="Token usage. This provider has no price model, so no cost is shown.">' +
+          this.escapeHtml(this.formatTokenTotal(tokens)) + '</span>';
+      }
+      return '<span title="Cost not tracked for this provider">&mdash;</span>';
+    }
     const cached = this._getSessionCostCached ? this._getSessionCostCached(s.id) : null;
     if (cached === null || cached === undefined) return '';
     return '$' + Number(cached).toFixed(2);
@@ -26843,6 +26884,27 @@ class CWMApp {
   }
 
   /**
+   * The token half of the same cache, for a provider with real counts and no
+   * price model (P9, DEVIATIONS DV-P9-1).
+   *
+   * A separate reader rather than a widened return from the method above,
+   * because every existing caller of that method expects a number-or-null it
+   * can format as money, and widening it would have made each of them decide
+   * what kind of number it received.
+   *
+   * @param {string} sessionId - Session id.
+   * @returns {number|null} Total tokens, or null when unknown or stale.
+   */
+  _getSessionTokensCached(sessionId) {
+    if (!this._costCache) this._costCache = {};
+    const entry = this._costCache[sessionId];
+    if (entry && (Date.now() - entry.ts < 300000) && typeof entry.tokens === 'number') {
+      return entry.tokens;
+    }
+    return null;
+  }
+
+  /**
    * Fetch costs for all sessions in a single batch request instead of N+1
    * individual requests. Results are cached for 5 minutes. Only re-renders
    * the sidebar once after all costs are received.
@@ -26859,7 +26921,15 @@ class CWMApp {
       this._costBatchTs = Date.now();
       if (data && data.costs) {
         for (const [sid, entry] of Object.entries(data.costs)) {
-          this._costCache[sid] = { cost: entry.cost, ts: Date.now() };
+          // P9 CONSUMPTION: the token total rides alongside the cost, so a
+          // synchronous render (the sessions table cell) can disclose it
+          // without a second fetch.
+          this._costCache[sid] = {
+            cost: entry.cost,
+            costSupported: entry.costSupported,
+            tokens: typeof entry.tokens === 'number' ? entry.tokens : null,
+            ts: Date.now(),
+          };
         }
         // Patch cost badges in-place instead of full renderWorkspaces() rebuild.
         // Full re-renders freeze the UI for hundreds of ms with many sessions.
@@ -26883,6 +26953,8 @@ class CWMApp {
     if (!list) return;
 
     for (const [sid, entry] of Object.entries(costs)) {
+      // P9: tokens before the null-cost guard. See _patchTokenBadge.
+      if (entry.costSupported === false) this._patchTokenBadge(list, sid, entry.tokens);
       if (!entry.cost && entry.cost !== 0) continue;
       const costText = '$' + Number(entry.cost).toFixed(2);
 
@@ -26913,6 +26985,51 @@ class CWMApp {
         }
       }
     }
+  }
+
+  /**
+   * Replace a row's "not tracked" em-dash with a real token total.
+   *
+   * P9 CONSUMPTION, per DEVIATIONS DV-P9-1. `supportsCost` was deliberately
+   * NOT flipped to true for Codex, because flipping it with no price model
+   * would have replaced a false `$0.00` with a differently-false `$0.00`,
+   * which is the outcome P9.3's own done criterion forbids. A new optional
+   * capability, `supportsTokenUsage`, was added instead, and `parseUsage`
+   * backs it with real counts read from `token_count.info.total_token_usage`.
+   *
+   * So the honest render is: money where money exists, TOKENS where tokens
+   * exist and money does not, and the em-dash only where neither does. The
+   * em-dash element is REUSED rather than replaced, so the render-side
+   * decision in renderSessionItem stays the owner of which badge exists.
+   *
+   * @param {Element} list - The sidebar list to search.
+   * @param {string} sessionId - Session id.
+   * @param {number} tokens - Total tokens for the session.
+   * @returns {boolean} True when a badge was updated.
+   */
+  _patchTokenBadge(list, sessionId, tokens) {
+    if (!list || !Number.isFinite(tokens) || tokens <= 0) return false;
+    const sessionEl = list.querySelector(`[data-session-id="${sessionId}"]`);
+    if (!sessionEl) return false;
+    const badge = sessionEl.querySelector('.session-badge-cost-na');
+    if (!badge) return false;
+    const text = this.formatTokenTotal(tokens);
+    if (badge.textContent !== text) badge.textContent = text;
+    badge.title = 'Token usage. This provider has no price model, so no cost is shown.';
+    return true;
+  }
+
+  /**
+   * Format a token total for a badge: compact, never scientific.
+   *
+   * @param {number} tokens - Total tokens.
+   * @returns {string} For example "1.5M tok", "218k tok", "940 tok".
+   */
+  formatTokenTotal(tokens) {
+    const n = Number(tokens) || 0;
+    if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M tok';
+    if (n >= 1000) return Math.round(n / 1000) + 'k tok';
+    return n + ' tok';
   }
 
   async checkForConflicts() {
