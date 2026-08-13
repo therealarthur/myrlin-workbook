@@ -3592,6 +3592,9 @@ class CWMApp {
     } else {
       this.els.detailPanel.hidden = true;
     }
+    // The main column gets its two collapsed table columns back the moment the
+    // peek closes, so the class comes off here as well as in renderSessionDetail.
+    this._setPeekOpen(false);
     this.els.sessionListPanel.classList.remove('detail-active');
     this.renderSessions();
   }
@@ -11927,6 +11930,11 @@ class CWMApp {
     const isTasks = mode === 'tasks';
     this.els.sessionListPanel.hidden = isTerminal || isDocs || isResources || isCosts || isTasks;
     this.els.detailPanel.hidden = isTerminal || isDocs || isResources || isCosts || isTasks || !this.state.selectedSession;
+    // A view switch can open or close the peek without going through
+    // renderSessionDetail (switching to Costs hides it; switching back to
+    // Sessions with a selection still made shows it), so the body class is
+    // resolved from the same expression that decides the panel.
+    this._setPeekOpen(!this.els.detailPanel.hidden);
     if (this.els.terminalGrid) {
       this.els.terminalGrid.hidden = !isTerminal;
     }
@@ -15050,10 +15058,12 @@ class CWMApp {
     // Never show detail panel in terminal, docs, or resources view
     if (!session || this.state.viewMode === 'terminal' || this.state.viewMode === 'docs' || this.state.viewMode === 'resources') {
       this.els.detailPanel.hidden = true;
+      this._setPeekOpen(false);
       return;
     }
 
     this.els.detailPanel.hidden = false;
+    this._setPeekOpen(true);
 
     // Status dot
     this.els.detailStatusDot.className = `detail-status-dot status-dot-${session.status || 'stopped'}`;
@@ -15152,6 +15162,31 @@ class CWMApp {
     } else if (this.els.detailAnalytics) {
       this.els.detailAnalytics.hidden = true;
     }
+  }
+
+  /**
+   * Mirror the side peek's open state onto <body> as a class.
+   *
+   * The peek is a fixed 420px sibling of the main column (DESIGN-SPEC 7), so
+   * opening it takes 420px away from whatever the main column is showing. The
+   * Sessions table is `table-layout: fixed` with seven percentage columns, and
+   * in the remainder at a 1280 viewport those percentages resolve small enough
+   * to CLIP the property chips rather than truncate them. The stylesheet
+   * collapses the two lowest-value columns while the peek is open, and it needs
+   * a hook to do that.
+   *
+   * A class on <body> rather than a `:has(#session-detail-panel:not([hidden]))`
+   * selector, for two reasons. The peek is a sibling of `.main-content` and
+   * comes AFTER it, so no combinator reaches backwards from the peek to the
+   * table. And four `[hidden]` occurrences in a selector would inflate gate G3,
+   * which counts guards paired with display rules and would then be describing
+   * a rule that is not one.
+   *
+   * @param {boolean} open - Whether the peek is currently visible.
+   * @returns {void}
+   */
+  _setPeekOpen(open) {
+    if (document.body) document.body.classList.toggle('cwm-peek-open', !!open);
   }
 
   /**
@@ -15381,7 +15416,14 @@ class CWMApp {
       </div>
       <div class="analytics-card">
         <div class="analytics-card-label">Running</div>
-        <div class="analytics-card-value" style="color:var(--green)">${data.runningSessions}</div>
+        <!-- The hue is KEPT and re-pointed, unlike the four Costs stat cards
+             that lost theirs in the same phase. The difference is meaning:
+             those four were assigned by position and said nothing, while green
+             is what "running" is in this design (P3.2's running-is-green
+             ruling), so a green running count agrees with every status dot and
+             status chip in the app. What changes is only the resolution: the
+             block palette instead of the terminal's, per DESIGN-SPEC 10.4. -->
+        <div class="analytics-card-value" style="color:var(--app-text-green)">${data.runningSessions}</div>
       </div>`;
 
     if (data.costAvailable) {

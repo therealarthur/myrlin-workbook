@@ -122,6 +122,14 @@ function methodBody(src, name) {
 console.log('\n  \x1b[1mSide peek (DESIGN-SPEC 7, P4 remainder B1)\x1b[0m');
 console.log('  ' + '─'.repeat(42));
 
+/* ─── 0. The peek is a sibling of the main column, not a child of it ────── */
+
+check('the peek lives OUTSIDE <main>, as a flex sibling of the main column',
+  HTML.indexOf('</main>') < HTML.indexOf('id="session-detail-panel"'),
+  '.main-content is flex-direction: column, so a peek inside it stacks below the list and a fixed width squeezes the list to zero height');
+check('the peek is still inside .app-body, which is the shell\'s only flex row',
+  HTML.indexOf('id="session-detail-panel"') < HTML.indexOf('MOBILE BOTTOM TAB BAR'));
+
 /* ─── 1. The peek is a fixed-measure sibling, not an elastic half ───────── */
 
 const peekDesktop = CSS.slice(CSS.indexOf('@media (min-width: 769px) {\n  .session-detail-panel'));
@@ -176,6 +184,21 @@ check('value cells lift the grid item automatic minimum, so a long path ellipsis
   'without min-width:0 a 200-character directory widens the track and scrolls the peek');
 check('the grid collapses to one column on a phone',
   /\.detail-meta \{\n    grid-template-columns: 1fr;/.test(CSS));
+
+/* ─── 3b. The table gives up two columns while the peek is open ─────────── */
+
+check('opening the peek collapses the two lowest-value table columns',
+  /\.cwm-peek-open \.session-table th\.session-col-project/.test(CSS) &&
+  /\.cwm-peek-open \.session-table th\.session-col-model/.test(CSS),
+  'seven fixed percentage columns in the remainder clip their chips rather than truncating');
+check('the collapsed widths are re-cut rather than left to redistribute',
+  /\.cwm-peek-open \.session-table th\.session-col-name \{ width: 44%; \}/.test(CSS));
+check('the peek-open class is set from JS, not derived from :has([hidden])',
+  /_setPeekOpen\(/.test(APP_JS) && /classList\.toggle\('cwm-peek-open'/.test(APP_JS),
+  'a :has() selector cannot reach backwards from the peek to the table, and four [hidden] hits would inflate gate G3');
+check('every path that hides the peek also clears the class',
+  (APP_JS.match(/this\._setPeekOpen\(/g) || []).length >= 4,
+  'renderSessionDetail both ways, deselectSession, and setViewMode');
 
 /* ─── 4. The two properties the peek gained ─────────────────────────────── */
 

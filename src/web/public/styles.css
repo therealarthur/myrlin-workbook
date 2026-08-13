@@ -3081,6 +3081,42 @@ textarea.input {
 .session-table th.session-col-cost { width: 9%; }
 .session-table th.session-col-time { width: 10%; }
 
+/*
+ * THE TABLE UNDER A PEEK. P4 remainder B1.
+ *
+ * Opening the side peek takes 420px off the main column, and seven fixed
+ * percentage columns in the remainder resolve small enough at a 1280 viewport
+ * to CLIP the property chips rather than truncate them: the p4r capture showed
+ * "Claud" and "Stop" cut mid-chip. Notion's answer to a narrowed page is to
+ * drop columns, not to squeeze them, so the two lowest-value ones collapse.
+ *
+ * PROJECT and MODEL are the two, in that order of expendability. Project is the
+ * one column the sidebar tree already answers, and it is where the peek's own
+ * second row puts it too; Model is empty on most rows and the peek shows it.
+ * Name, Provider, Status, Cost and Last active survive, which is the set the
+ * recency work (2.13) treats as the minimum a row must carry.
+ *
+ * The percentages are re-cut rather than left to redistribute, because a fixed
+ * table hands reclaimed width to nothing in particular. Name takes most of it,
+ * which is the column a person actually reads.
+ *
+ * `.cwm-peek-open` is set by _setPeekOpen in app.js rather than being derived
+ * from `:has()`, because the peek is a LATER sibling of the main column and no
+ * combinator reaches backwards from it to the table.
+ */
+.cwm-peek-open .session-table th.session-col-project,
+.cwm-peek-open .session-table td.session-cell-project,
+.cwm-peek-open .session-table th.session-col-model,
+.cwm-peek-open .session-table td.session-cell-model {
+  display: none;
+}
+
+.cwm-peek-open .session-table th.session-col-name { width: 44%; }
+.cwm-peek-open .session-table th.session-col-provider { width: 14%; }
+.cwm-peek-open .session-table th.session-col-status { width: 16%; }
+.cwm-peek-open .session-table th.session-col-cost { width: 12%; }
+.cwm-peek-open .session-table th.session-col-time { width: 14%; }
+
 .session-table thead th {
   height: var(--app-table-header-height);
   color: var(--app-text-secondary);
@@ -3355,10 +3391,16 @@ textarea.input {
  *
  * WHAT A PEEK IS. Notion's side peek is a LAYOUT SIBLING, not an overlay: it
  * narrows the page rather than covering it, so the row you opened it from stays
- * visible and clickable. This panel was already a flex sibling of the session
- * list, which is the half the old design got right; what it got wrong was
- * `flex: 1`, which made it take exactly half the main column whatever was in
- * it. A peek is a FIXED measure. The list keeps the elastic half.
+ * visible and clickable. This panel was a sibling of the session list INSIDE
+ * `.main-content`, which is `flex-direction: column`, so it was never beside
+ * anything: it stacked BELOW the list and the two split the column's height at
+ * `flex: 1` each. DESIGN-SPEC 7 opens with "a flex sibling of the main column",
+ * and `.app-body` is the only flex ROW in this shell, so the panel moved there
+ * in `index.html` (every id and handler unchanged, only the parent moved).
+ * Without that move a fixed width in a column container squeezes the list to
+ * zero height instead of narrowing it, which is what the first p4r capture
+ * showed and what the move fixes. A peek is a FIXED measure; the main column
+ * keeps the elastic remainder.
  *
  * 420px is the mock's initial peek width, and it is written as a literal for
  * the same reason the 240px menu is (DECISIONS 12.2 and the P4.1 comment): it
@@ -6948,11 +6990,23 @@ body.cwm-dragging .sidebar-backdrop {
   user-select: none;
 }
 
+/*
+ * The MONO face, on purpose, and it is the same trap the sidebar's project
+ * caret fell into in P4 (see .ws-project-group-chevron). The glyph is U+25B6,
+ * which has EMOJI presentation by default, so in the UI stack it falls through
+ * to Segoe UI Emoji and paints a blue rounded square rather than a caret. The
+ * p4r screenshot run caught it here five times in one shot, once per section,
+ * because the heading around it moved from a 12px label to the captured H3 and
+ * took its face with it. Pinning the face on the MARKER rather than on the row
+ * keeps the section title reading as UI text.
+ */
 .docs-section-chevron {
-  font-size: 10px;
-  color: var(--app-text-tertiary);
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--app-icon-tertiary);
   transition: transform 150ms ease;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .docs-section-chevron.open {
@@ -10201,14 +10255,23 @@ html.activity-indicators-disabled .terminal-pane-activity {
  * boundary is what separates them); the chart, the breakdowns and the table lose
  * theirs and become sections under labels.
  */
+/* The header row is part of the PAGE, not a chrome band above it, so it takes
+   the same 1100px measure and the same 48px side padding as the body. Left at
+   the panel's own full width it started 32px to the left of the first stat
+   card, which the p4r capture showed as a title that did not line up with
+   anything under it. DESIGN-SPEC 9.2 draws the title, the lede and the period
+   pills inside the page frame for exactly this reason. */
 .costs-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
   height: var(--app-topbar-height);
   min-height: var(--app-topbar-height);
-  padding: 0 16px;
+  padding: 0 48px;
   border-bottom: 1px solid var(--app-border-secondary);
   flex-shrink: 0;
 }
@@ -10551,11 +10614,14 @@ html.activity-indicators-disabled .terminal-pane-activity {
   overflow: visible;
 }
 
+/* No inset. The section is no longer a card, so its label has to sit on the
+   page's own left edge with the two labels above it; the p4r capture caught it
+   16px in from `By Model` and `By Project`. */
 .costs-sessions-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px 10px;
+  padding: 0 0 4px;
 }
 
 .costs-sessions-title {

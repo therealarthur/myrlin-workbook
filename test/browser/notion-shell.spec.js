@@ -99,6 +99,60 @@ const ROUTES = [
 ];
 
 /**
+ * OPT-IN REGION SHOTS, added by the P4 remainder.
+ *
+ * The two standard routes are deliberately frozen: P0's before pictures and any
+ * later phase's after pictures must be the same shots or they cannot be
+ * compared, so nothing is ever added to ROUTES. But four of the regions the
+ * restyle changes are not reachable from either of them (the side peek needs a
+ * selected session, and Docs, Costs and Settings are their own views), which
+ * means those regions were being shipped without anybody looking at them.
+ *
+ * `--regions` captures them into a `regions/` subdirectory, desktop only, both
+ * chromes, and records them under a SEPARATE manifest key. The default run is
+ * byte-for-byte what it was, so comparability is untouched and this costs
+ * nothing unless it is asked for.
+ *
+ * Each entry is a plain in-page recipe rather than a selector click, because
+ * `window.cwm` is the same API the standard route loop already drives and a
+ * click would depend on markup this harness is supposed to outlive.
+ */
+const REGION_ROUTES = [
+  {
+    id: 'peek',
+    // Deliberately NOT window.cwm.selectSession(). That method awaits a
+    // showConfirmModal("Start Session?") whenever the session it opens is
+    // stopped, and every seeded fixture session is stopped, so awaiting it
+    // inside page.evaluate hangs until the harness tears the browser down and
+    // reports "Target page has been closed" from four frames away. Setting the
+    // selection and calling the two renderers directly reaches the same DOM
+    // state with no dialog in the way.
+    apply: async (page) => {
+      await page.evaluate(() => {
+        window.cwm.setViewMode('workspace');
+        const roster = window.cwm.state.sessions || [];
+        const first = Array.isArray(roster) ? roster[0] : Object.values(roster)[0];
+        if (!first) return;
+        window.cwm.state.selectedSession = first;
+        window.cwm.renderSessionDetail();
+        window.cwm.renderSessions();
+      });
+    },
+  },
+  { id: 'docs', apply: async (page) => page.evaluate(() => window.cwm.setViewMode('docs')) },
+  { id: 'costs', apply: async (page) => page.evaluate(() => window.cwm.setViewMode('costs')) },
+  {
+    id: 'settings',
+    apply: async (page) => {
+      await page.evaluate(() => {
+        window.cwm.setViewMode('workspace');
+        window.cwm.openSettings();
+      });
+    },
+  },
+];
+
+/**
  * Remove startup-token values before an error reaches logs.
  *
  * @param {string} value - Potentially sensitive diagnostic text.
@@ -677,6 +731,45 @@ async function run() {
             '  ' + Math.round(dims.bytes / 1024) + 'KB  theme=' + applied.themeAttr +
             (applied.chromeAttr ? ' chrome=' + applied.chromeAttr : ''));
         }
+      }
+    }
+
+    // Opt-in region shots. Desktop only, both chromes, into regions/, recorded
+    // under their own manifest key so the standard shot list is unchanged.
+    if (process.argv.includes('--regions')) {
+      const regionDir = path.join(outputDir, 'regions');
+      fs.mkdirSync(regionDir, { recursive: true });
+      manifest.regionShots = [];
+      await page.setViewportSize({ width: VIEWPORTS[0].width, height: VIEWPORTS[0].height });
+      for (const chrome of CHROMES) {
+        const applied = await applyChrome(page, chrome);
+        for (const region of REGION_ROUTES) {
+          await region.apply(page);
+          await page.waitForTimeout(400);
+          const name = ['desktop', chrome.id, region.id].join('-') + '.png';
+          const file = path.join(regionDir, name);
+          await page.screenshot({ path: file, fullPage: false });
+          const dims = pngDimensions(file);
+          assert.ok(
+            dims.width <= ABSOLUTE_MAX_DIM && dims.height <= ABSOLUTE_MAX_DIM,
+            'captured PNG exceeds ' + ABSOLUTE_MAX_DIM + 'px: ' + file
+          );
+          assert.ok(dims.bytes > MIN_PNG_BYTES, 'captured region PNG is suspiciously small: ' + file);
+          manifest.regionShots.push({
+            name, chrome: chrome.id, region: region.id,
+            width: dims.width, height: dims.height, bytes: dims.bytes,
+            themeAttr: applied.themeAttr, chromeAttr: applied.chromeAttr,
+          });
+          console.log('  captured regions/' + name + '  ' + dims.width + 'x' + dims.height +
+            '  ' + Math.round(dims.bytes / 1024) + 'KB');
+        }
+        // Leave the shell in a neutral state before the next chrome pass, so an
+        // open settings overlay never leaks into the following capture.
+        await page.evaluate(() => {
+          if (window.cwm.closeSettings) window.cwm.closeSettings();
+          if (window.cwm.deselectSession) window.cwm.deselectSession();
+          window.cwm.setViewMode('workspace');
+        });
       }
     }
 
