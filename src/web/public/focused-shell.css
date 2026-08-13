@@ -224,28 +224,35 @@
   max-width: 210px;
 }
 
+/* The warm sunken ground, straight from the chrome layer. The color-mix() over
+   the Catppuccin mantle was the third shadowing site: it kept the sidebar on
+   the terminal palette after the P1 alias flip. */
 :root[data-ui-shell="focused"] .sidebar {
   width: var(--focused-sidebar-width);
-  background: color-mix(in srgb, var(--mantle) 96%, var(--base));
+  background: var(--app-bg-secondary);
 }
 
+/* The focused shell kept its own filled, bordered treatment on top of the base
+   rule, which is the pair that produced the grey-on-grey control DECISIONS.md
+   9.5 called out. Both are now the sidebar row recipe (DESIGN-SPEC.md 3.6):
+   27px, no fill, no border, hover wash. */
 :root[data-ui-shell="focused"] .sidebar-launch-btn {
   justify-content: flex-start;
-  min-height: 36px;
-  margin: 10px 10px 6px;
-  width: calc(100% - 20px);
-  padding: 8px 10px;
-  border: 1px solid var(--border-default);
+  min-height: var(--app-sidebar-item-height);
+  margin: 8px 8px 2px;
+  width: calc(100% - 16px);
+  padding: 4px 8px;
+  border: 1px solid transparent;
   border-style: solid;
-  border-radius: 8px;
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--surface0) 72%, transparent);
+  border-radius: var(--radius-block-hover);
+  color: var(--app-text-secondary);
+  background: transparent;
 }
 
 :root[data-ui-shell="focused"] .sidebar-launch-btn:hover {
-  color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--accent) 52%, var(--border-default));
-  background: color-mix(in srgb, var(--surface1) 54%, transparent);
+  color: var(--app-text-primary);
+  border-color: transparent;
+  background: var(--app-wash-hover);
 }
 
 :root[data-ui-shell="focused"] #sidebar-view-toggle,
@@ -255,17 +262,21 @@
 }
 
 :root[data-ui-shell="focused"] .sidebar-header {
-  min-height: 38px;
-  padding-top: 8px;
-  padding-bottom: 8px;
+  min-height: var(--app-sidebar-item-height);
+  padding-top: 4px;
+  padding-bottom: 2px;
 }
 
+/* The section label, DESIGN-SPEC.md 3.3: 12px, weight 500, sentence case, in
+   --app-sidebar-section-label. The uppercase tracked-out treatment is gone.
+   Exactly one uppercase tracked label survives anywhere in the finished
+   design, the Quick Find group header, and this is not it (gate G7). */
 :root[data-ui-shell="focused"] .sidebar-title {
-  color: var(--text-tertiary);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--app-sidebar-section-label);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 /* Legacy sidebar rules use the palette's raw overlay token for several small

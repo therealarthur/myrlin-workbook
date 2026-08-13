@@ -1608,16 +1608,44 @@ textarea.input {
 
 /* ─── Sidebar ───────────────────────────────────────────────── */
 
+/*
+ * SIDEBAR, Notion restyle phase P2, work package P2.2.
+ * DESIGN-SPEC.md 3, BUILD-CONTRACT.md 1.9 C6 and 2.12.
+ *
+ * THE GROUND IS WARMER THAN THE CANVAS, NOT DARKER. --app-bg-secondary is
+ * #f9f8f7 against a #ffffff canvas: the sidebar reads as a slightly sunken
+ * warm sheet, not as a grey or dark rail. A grey or dark sidebar is on the
+ * rejection list (DESIGN-SPEC.md 3, colors.css line 420).
+ *
+ * THE RIGHT EDGE IS AN INSET HAIRLINE, NOT A BORDER. This is contract 1.9 C6
+ * and it is a behavioural decision as much as a visual one: app.js writes
+ * #sidebar style.width during the drag and READS IT BACK with parseInt to
+ * persist it (DO-NOT-BREAK D.4). box-sizing is border-box here so a border
+ * would not change the outer width, but the inset shadow costs zero layout
+ * width under any box model and cannot desynchronise the drag if that ever
+ * changes. --app-sidebar-edge carries its own dark-chrome variant.
+ *
+ * The width itself is untouched machinery: var(--sidebar-width) is
+ * --app-sidebar-width (240px) after the P1 re-point, the inline style the drag
+ * writes still wins over it, and the 180..600 clamp and cwm_sidebarWidth
+ * persistence are unchanged.
+ *
+ * z-index 111 puts the sidebar above the canvas so its edge shadow and any
+ * row menu paint over the content, while staying far below the overlay rungs
+ * (200, 900, 1000 and up) that the ladder in risk R6 reserves.
+ */
 .sidebar {
   width: var(--sidebar-width);
   min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
-  border-right: 1px solid var(--border-subtle);
+  box-shadow: var(--app-sidebar-edge);
   overflow: hidden;
-  transition: width var(--transition-normal);
+  transition: var(--motion-sidebar);
   flex-shrink: 0;
+  position: relative;
+  z-index: 111;
 }
 
 /* Sidebar Collapse Button Bar */
@@ -1625,8 +1653,8 @@ textarea.input {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px;
-  border-top: 1px solid var(--border-subtle);
+  padding: 8px;
+  border-top: 1px solid var(--app-border-secondary);
   flex-shrink: 0;
 }
 
@@ -1634,20 +1662,20 @@ textarea.input {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--app-icon-button-size);
+  height: var(--app-icon-button-size);
   background: none;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
+  border: none;
+  border-radius: var(--radius-property-chip);
+  color: var(--app-icon-secondary);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: var(--motion-hover-reveal), color var(--transition-fast);
 }
 
 .sidebar-collapse-btn:hover {
-  background: var(--surface0);
-  color: var(--text-primary);
-  border-color: var(--surface2);
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
+  border-color: transparent;
 }
 
 /* Collapsed sidebar */
@@ -1672,9 +1700,12 @@ textarea.input {
   transform: rotate(180deg);
 }
 
-/* Sidebar Resize Handle */
+/* Sidebar Resize Handle. 5px and transparent at rest, a 28 percent wash of the
+   UI blue while it is grabbed (DESIGN-SPEC.md 3.7 and BUILD-CONTRACT 2.12): a
+   saturated bar down the full height of the shell is a solid accent stripe,
+   which is the idiom this region is losing everywhere else. */
 .sidebar-resize-handle {
-  width: 4px;
+  width: 5px;
   cursor: col-resize;
   background: transparent;
   flex-shrink: 0;
@@ -1685,7 +1716,7 @@ textarea.input {
 
 .sidebar-resize-handle:hover,
 .sidebar-resize-handle.active {
-  background: var(--mauve);
+  background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent);
 }
 
 /* Hide resize handle when sidebar is collapsed */
@@ -1693,37 +1724,47 @@ textarea.input {
   display: none;
 }
 
-/* ─── Sidebar Launch Button ──────────────────────────── */
+/* ─── Sidebar Launch Button ────────────────────────────
+ *
+ * DESIGN-SPEC.md 3.6 draws `New session` as a plain sidebar row, not as a
+ * button: 5px 8px, 6px radius, secondary ink, weight 500, hover wash. That is
+ * what ships here. The dashed outline is gone (a dashed border is a drop-slot
+ * affordance in this system, not a control), and so is the grey-on-grey fill
+ * that DECISIONS.md 9.5 flagged as unreadable in the P1 and P0 light shots:
+ * the fix is not a darker grey, it is no fill at all.
+ *
+ * The scale(0.98) press is gone with it. Nothing in this design moves, scales
+ * or lifts under the pointer; press is a wash. */
 .sidebar-launch-btn {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: calc(100% - 24px);
-  margin: 8px 12px 4px;
-  padding: 6px 10px;
-  border: 1px dashed var(--surface2);
-  border-radius: var(--radius-sm);
+  justify-content: flex-start;
+  gap: 8px;
+  width: calc(100% - 16px);
+  margin: 8px 8px 2px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-block-hover);
   background: transparent;
-  color: var(--overlay0);
-  font-size: 12px;
+  color: var(--app-text-secondary);
+  font-size: 14px;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: var(--motion-hover-reveal), color var(--transition-fast);
   white-space: nowrap;
   overflow: hidden;
 }
 
 .sidebar-launch-btn:hover {
-  background: var(--surface0);
-  color: var(--lavender);
-  border-color: var(--lavender);
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
+  border-color: transparent;
   border-style: solid;
 }
 
 .sidebar-launch-btn:active {
-  transform: scale(0.98);
+  background: var(--app-wash-press);
 }
 
 .sidebar-launch-btn svg {
@@ -1756,81 +1797,106 @@ textarea.input {
 
 .sidebar-view-btn {
   flex: 1;
-  padding: 4px 8px;
+  padding: 4px 10px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-block-hover);
   background: transparent;
-  color: var(--overlay0);
-  font-size: 11px;
-  font-weight: 600;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  transition: var(--motion-hover-reveal), color var(--transition-fast);
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .sidebar-view-btn:hover {
-  color: var(--text-primary);
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 
 .sidebar-view-btn.active {
-  background: var(--surface0);
-  color: var(--text-primary);
+  background: var(--app-sidebar-item-selected);
+  color: var(--app-text-primary);
+  font-weight: 600;
 }
 
 .sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 16px 8px;
+  padding: 4px 8px;
 }
 
+/* Section label, DESIGN-SPEC.md 3.3. Sentence case at 12px/500 in the
+   captured section-label ink. The old 11px/600 uppercase with 0.08em tracking
+   was the loudest surviving instance of the treatment this design reserves for
+   exactly one label in the whole app. */
 .sidebar-title {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--app-sidebar-section-label);
 }
 
 .sidebar-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 8px;
+  padding: 8px 8px 4px;
 }
 
 .sidebar-footer {
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-subtle);
+  padding: 8px;
+  border-top: 1px solid var(--app-border-secondary);
 }
 
 .sidebar-meta {
-  font-size: 11px;
-  color: var(--overlay0);
+  font-size: 12px;
+  color: var(--app-text-tertiary);
 }
 
-/* Workspace Item */
+/* Workspace Item
+ *
+ * THE SIDEBAR ROW RECIPE, BUILD-CONTRACT.md 2.12. 27px minimum height, 4px 8px
+ * padding, 8px gap, --radius-block-hover, hover --app-wash-hover, selected
+ * --app-sidebar-item-selected plus primary ink plus weight 600. Zero left
+ * borders, zero bars, zero underlines: 2.12 calls this "the single most
+ * important idiom in the restyle".
+ *
+ * Three things leave with the old rule. The 10px 12px padding and 10px gap
+ * made a 39px row, which is half again the density Notion's sidebar carries.
+ * The hover border made every row twitch its own boundary on and off under the
+ * pointer. And the white-alpha hover wash was invisible on every light palette,
+ * which is a bug the token fixes rather than merely restyles. */
 .workspace-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
+  gap: 8px;
+  min-height: var(--app-sidebar-item-height);
+  padding: 4px 8px;
+  border-radius: var(--radius-block-hover);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: var(--motion-hover-reveal), color var(--transition-fast);
   position: relative;
   border: 1px solid transparent;
-  margin-bottom: 2px;
+  margin-bottom: 1px;
+  color: var(--app-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .workspace-item:hover {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: var(--border-subtle);
+  background: var(--app-wash-hover);
+  border-color: transparent;
+  color: var(--app-text-primary);
 }
 
 .workspace-item.active {
-  background: var(--surface0);
-  border-color: var(--border-subtle);
+  background: var(--app-sidebar-item-selected);
+  border-color: transparent;
+  color: var(--app-text-primary);
+  font-weight: 600;
 }
 
 .workspace-item.workspace-drop-target {
@@ -1857,8 +1923,17 @@ textarea.input {
   opacity: 0.4;
 }
 
+/* RETIRED-with-content-none. This drew a 3px by 20px bar down the left edge of
+   the selected workspace row, which is precisely the one-side accent bar
+   BUILD-CONTRACT 2.12 removes from this region: "Zero left borders, zero bars,
+   zero underlines. This is the single most important idiom in the restyle."
+   Selection is now carried by the wash, the primary ink and weight 600 alone.
+   The rule and every declaration in it survive under the code-preservation
+   rule; only `content` changed, so nothing paints. The workspace's own colour
+   did not disappear with the bar, it moved to the dot below, which is where
+   the renderer already writes it. */
 .workspace-item.active::before {
-  content: '';
+  content: none;
   position: absolute;
   left: 0;
   top: 50%;
@@ -1869,10 +1944,16 @@ textarea.input {
   background: var(--ws-color, var(--accent));
 }
 
+/* The live --ws-color consumption site. renderWorkspaces writes the same value
+   inline on this element, so the custom property is the declared default and
+   the inline style is the instance value: identical result, and the token
+   keeps a real home now that the bar is gone. 7px is the standalone dot size
+   the whole sidebar uses (DESIGN-SPEC.md 6.1). */
 .workspace-color-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-avatar);
+  background: var(--ws-color, var(--app-text-gray));
   flex-shrink: 0;
 }
 
@@ -1898,25 +1979,27 @@ textarea.input {
 }
 
 .workspace-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: inherit;
+  color: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* A count is meta, not a badge. DESIGN-SPEC.md 3.3 draws it as a plain
+   right-aligned 12px number in tertiary ink; the filled bubble is gone. */
 .ws-count-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 400;
   line-height: 1;
-  color: var(--overlay1);
-  background: var(--surface1);
-  border-radius: 10px;
-  padding: 1px 5px;
+  color: var(--app-text-tertiary);
+  background: transparent;
+  border-radius: var(--radius-property-chip);
+  padding: 1px 2px;
   margin-left: 6px;
   vertical-align: middle;
   flex-shrink: 0;
@@ -1987,13 +2070,14 @@ textarea.input {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 6px;
-  padding: 5px 10px 5px 24px;
-  border-radius: var(--radius-sm);
+  gap: 4px 8px;
+  min-height: 26px;
+  padding: 3px 8px 3px 22px;
+  border-radius: var(--radius-block-hover);
   cursor: pointer;
-  transition: background var(--transition-fast);
-  font-size: 12px;
-  color: var(--text-tertiary);
+  transition: var(--motion-hover-reveal), color var(--transition-fast);
+  font-size: 13px;
+  color: var(--app-text-secondary);
 }
 
 .ws-session-meta-row {
@@ -2005,18 +2089,20 @@ textarea.input {
 }
 
 .ws-session-item:hover {
-  background: var(--surface0);
-  color: var(--text-primary);
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
 }
 
 .ws-session-item.dragging {
   opacity: 0.4;
 }
 
+/* 7px, the standalone status-dot size (DESIGN-SPEC.md 3.4 and 6.1). Chip dots
+   are 8px and inherit currentColor; the two systems are never unified. */
 .ws-session-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-avatar);
   flex-shrink: 0;
 }
 
@@ -2026,29 +2112,29 @@ textarea.input {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .ws-session-size {
-  font-size: 10px;
-  color: var(--subtext0);
+  font-size: 11px;
+  color: var(--app-text-tertiary);
   white-space: nowrap;
   margin-left: auto;
   padding: 0 4px;
 }
 
 .ws-session-time {
-  font-size: 10px;
-  color: var(--overlay0);
+  font-size: 11px;
+  color: var(--app-text-tertiary);
   white-space: nowrap;
   flex-shrink: 0;
   margin-left: auto;
 }
 
 .ws-session-empty {
-  padding: 6px 12px 6px 34px;
-  font-size: 11px;
-  color: var(--overlay0);
+  padding: 4px 8px 4px 30px;
+  font-size: 12px;
+  color: var(--app-text-tertiary);
 }
 .ws-session-hidden {
   opacity: 0.4;
@@ -4799,41 +4885,45 @@ body.cwm-dragging .sidebar-backdrop {
   100% { background-position: -200% 0; }
 }
 
-/* Project accordion */
+/* Project accordion. The 27px sidebar row geometry (DESIGN-SPEC.md 3.4), with
+   the count as plain tertiary meta rather than a filled bubble. */
 .project-accordion { margin: 0 4px; }
 .project-accordion.missing { opacity: 0.4; }
 .project-accordion.project-hidden { opacity: 0.45; }
 .project-accordion-header {
-  display: flex; align-items: center; gap: 6px;
-  padding: 5px 10px; border-radius: var(--radius-sm);
-  cursor: pointer; transition: background var(--transition-fast);
-  font-size: 13px; color: var(--text-secondary);
+  display: flex; align-items: center; gap: 8px;
+  min-height: var(--app-sidebar-item-height);
+  padding: 4px 8px; border-radius: var(--radius-block-hover);
+  cursor: pointer; transition: var(--motion-hover-reveal), color var(--transition-fast);
+  font-size: 13px; color: var(--app-text-secondary); font-weight: 500;
 }
-.project-accordion-header:hover { background: var(--surface0); color: var(--text-primary); }
+.project-accordion-header:hover { background: var(--app-wash-hover); color: var(--app-text-primary); }
 .project-accordion-header .project-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
-.project-accordion-header .project-size { font-size: 11px; color: var(--overlay0); font-family: var(--font-mono); }
+.project-accordion-header .project-size { font-size: 11px; color: var(--app-text-tertiary); font-family: var(--font-mono); }
 .project-accordion-header .project-session-count {
-  font-size: 10px; color: var(--overlay0); background: var(--surface0);
-  padding: 1px 5px; border-radius: 8px; font-family: var(--font-mono);
+  font-size: 12px; color: var(--app-text-tertiary); background: transparent;
+  padding: 1px 2px; border-radius: var(--radius-property-chip); font-family: inherit;
 }
 .project-accordion-chevron {
-  font-size: 8px; color: var(--overlay0); transition: transform var(--transition-fast);
+  font-size: 8px; color: var(--app-icon-secondary); transition: transform var(--transition-fast);
   display: inline-block; width: 12px; text-align: center;
 }
 .project-accordion-chevron.open { transform: rotate(90deg); }
 .project-accordion-body { padding: 0 0 4px 0; }
 
-/* Session sub-items inside projects */
+/* Session sub-items inside projects. 26px, one step tighter than the parent
+   row, and indented rather than bracketed. */
 .project-session-item {
-  display: flex; align-items: center; gap: 6px;
-  padding: 3px 10px 3px 28px; border-radius: var(--radius-sm);
-  cursor: grab; transition: background var(--transition-fast);
-  font-size: 12px; color: var(--text-tertiary);
+  display: flex; align-items: center; gap: 8px;
+  min-height: 26px;
+  padding: 3px 8px 3px 22px; border-radius: var(--radius-block-hover);
+  cursor: grab; transition: var(--motion-hover-reveal), color var(--transition-fast);
+  font-size: 13px; color: var(--app-text-secondary);
 }
-.project-session-item:hover { background: var(--surface0); color: var(--text-primary); }
+.project-session-item:hover { background: var(--app-wash-hover); color: var(--app-text-primary); }
 .project-session-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.project-session-size { font-size: 10px; color: var(--overlay0); font-family: var(--font-mono); }
-.project-session-time { font-size: 10px; color: var(--overlay0); }
+.project-session-size { font-size: 11px; color: var(--app-text-tertiary); font-family: var(--font-mono); }
+.project-session-time { font-size: 11px; color: var(--app-text-tertiary); }
 /* Archived thread badge (e.g. Codex archived_sessions/): muted pill so ended threads stay visible but distinct */
 .project-session-archived { font-size: 9px; color: var(--overlay0); border: 1px solid var(--surface1); border-radius: 4px; padding: 0 4px; text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0; }
 .project-session-item.dragging { opacity: 0.4; }
@@ -6293,27 +6383,33 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 /* Sidebar section divider between categories and uncategorized projects */
+/* Section separation in this sidebar is VERTICAL SPACE, not a rule.
+   DESIGN-SPEC.md 3.5: the Discovered label carries `padding: 14px 8px 4px`,
+   "the only vertical section separation in the sidebar". The two flanking
+   1px rules are retired with content:none rather than deleted, so the label
+   sits on its own like every other section label. */
 .sidebar-section-divider {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px 4px;
-  margin-top: 4px;
+  padding: 14px 8px 4px;
+  margin-top: 0;
 }
 
 .sidebar-section-divider::before,
 .sidebar-section-divider::after {
-  content: '';
+  content: none;
   flex: 1;
   height: 1px;
-  background: var(--surface1);
+  background: var(--app-border-secondary);
 }
 
 .sidebar-section-divider-label {
-  font-size: 10px;
-  color: var(--overlay0);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-sidebar-section-label);
+  text-transform: none;
+  letter-spacing: normal;
   white-space: nowrap;
 }
 
@@ -12188,13 +12284,30 @@ html {
    the Discovered Projects section (project accordions and their session
    items) — that section already conveys provider via tab filtering, so
    the stripes there were noise. Theme-safe via --provider-*-accent. */
+/* The provider stripe was a 3px inset bar down the left edge of every session
+   row: the same one-side accent idiom BUILD-CONTRACT 2.12 removes from this
+   region, repeated once per row, which is what made the P1 sidebar read as
+   colour-coded rather than as a list. The bar is gone and the padding
+   asymmetry it needed goes with it.
+
+   Provider identity survives as a 10 percent wash of the provider hue laid
+   into the row's own hover wash, so the hue identifies the row the pointer is
+   on and an idle list stays flat. DESIGN-SPEC.md 3.4 draws no provider mark on
+   this row at all; the design's home for provider identity is a chip, which
+   P3.2 builds. Until then this keeps the signal without the bar, and keeps
+   --provider-*-accent consumed under the selector provider-label-pill.test.js
+   anchors on. */
 .ws-session-item[data-provider="claude"] {
-  box-shadow: inset 3px 0 0 var(--provider-claude-accent);
-  padding-left: 11px;
+  box-shadow: none;
+}
+.ws-session-item[data-provider="claude"]:hover {
+  background: color-mix(in srgb, var(--provider-claude-accent) 10%, var(--app-wash-hover));
 }
 .ws-session-item[data-provider="codex"] {
-  box-shadow: inset 3px 0 0 var(--provider-codex-accent);
-  padding-left: 11px;
+  box-shadow: none;
+}
+.ws-session-item[data-provider="codex"]:hover {
+  background: color-mix(in srgb, var(--provider-codex-accent) 10%, var(--app-wash-hover));
 }
 
 /* Codex pane bottom status strip (Plan 22-01). Absolute-positioned along
@@ -12412,8 +12525,8 @@ html {
 .sidebar-tabs {
   display: flex;
   gap: 2px;
-  padding: 6px 8px 4px 8px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 2px 8px 6px 8px;
+  border-bottom: 1px solid var(--app-border-secondary);
 }
 .sidebar-tabs:empty {
   /* When the tab strip is empty (initial paint, before loadProviders
@@ -12421,32 +12534,52 @@ html {
      between the view-toggle and the projects header. */
   display: none;
 }
+/* The pill recipe (BUILD-CONTRACT 2.7). This tab strip lives inside the sidebar
+   and its 2px underline slab is the region's other one-side accent bar, so it
+   moves with the sidebar in P2.2 rather than waiting for the tab sweep in
+   P4.4. The markup is a FROZEN TEMPLATE (contract 2.1: provider-tabs.test.js
+   pins the class value, the role and the data-provider attribute order), so
+   the whole recipe is delivered by restyling the existing class and nothing is
+   appended to the element.
+
+   The per-provider underline colours are retained as rules and re-pointed onto
+   the ink, so an active provider tab still carries its identity hue, now in
+   the label rather than as a slab beneath it. */
 .sidebar-tab {
   flex: 0 1 auto;
-  padding: 6px 10px;
-  font-size: 12px;
+  padding: 4px 10px;
+  min-height: 26px;
+  border-radius: var(--radius-block-hover);
+  font-size: 13px;
+  font-weight: 500;
   font-family: var(--font-sans);
-  color: var(--text-tertiary);
+  color: var(--app-text-secondary);
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
   cursor: pointer;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition: var(--motion-hover-reveal), color var(--transition-fast);
 }
 .sidebar-tab:hover {
-  color: var(--text-secondary);
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 .sidebar-tab.active {
-  color: var(--text-primary);
+  color: var(--app-text-primary);
+  background: var(--app-sidebar-item-selected);
+  font-weight: 600;
 }
 .sidebar-tab.active[data-provider="claude"] {
-  border-bottom-color: var(--provider-claude-accent);
+  border-bottom-color: transparent;
+  color: var(--provider-claude-accent);
 }
 .sidebar-tab.active[data-provider="codex"] {
-  border-bottom-color: var(--provider-codex-accent);
+  border-bottom-color: transparent;
+  color: var(--provider-codex-accent);
 }
 .sidebar-tab.active[data-provider="gemini"] {
-  border-bottom-color: var(--provider-gemini-accent);
+  border-bottom-color: transparent;
+  color: var(--provider-gemini-accent);
 }
 .sidebar-tab.active[data-provider="all"] {
   border-bottom-color: var(--accent, var(--mauve));
