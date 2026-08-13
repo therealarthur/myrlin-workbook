@@ -6865,33 +6865,41 @@ body.cwm-dragging .sidebar-backdrop {
 
 /* ─── Feature Board (Kanban) ────────────────────────────── */
 
+/*
+ * TAB FAMILY 3 OF 6: docs tabs. The pill recipe, verbatim (BUILD-CONTRACT
+ * 2.7). The 2px bottom border and the mauve active label are the underline
+ * idiom and the retired brand hue in one rule.
+ */
 .docs-tabs {
   display: flex;
   gap: 2px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--surface0);
+  padding: 4px 16px;
+  border-bottom: 1px solid var(--app-border-secondary);
   flex-shrink: 0;
 }
 
 .docs-tab {
-  background: none;
+  background: transparent;
   border: none;
-  color: var(--subtext0);
-  font-size: 12px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
   font-weight: 500;
-  padding: 8px 12px;
+  padding: 4px 10px;
+  border-radius: var(--radius-app-button);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.15s;
+  white-space: nowrap;
+  transition: var(--motion-hover-reveal);
 }
 
-.docs-tab:hover {
-  color: var(--text);
+.nt-enable-hover .docs-tab:hover {
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 
 .docs-tab.active {
-  color: var(--mauve);
-  border-bottom-color: var(--mauve);
+  color: var(--app-text-primary);
+  background: var(--app-sidebar-item-selected);
+  font-weight: 600;
 }
 
 .feature-board {
@@ -7710,10 +7718,10 @@ html.activity-indicators-disabled .terminal-pane-activity {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
-  font-size: 12px;
+  padding: 4px 10px;
+  font-size: 13px;
   font-weight: 500;
-  color: var(--subtext0);
+  color: var(--app-text-secondary);
   background: transparent;
   border: none;
   border-radius: var(--radius-app-button);
@@ -7739,9 +7747,12 @@ html.activity-indicators-disabled .terminal-pane-activity {
   transition: background var(--transition-fast);
 }
 
-.terminal-group-tab-item:hover,
+.nt-enable-hover .terminal-group-tab-item:hover {
+  background: var(--app-wash-hover);
+}
+
 .terminal-group-tab-item.active {
-  background: var(--surface0);
+  background: var(--app-sidebar-item-selected);
 }
 
 .terminal-group-tab-item > .terminal-group-tab {
@@ -7749,32 +7760,52 @@ html.activity-indicators-disabled .terminal-pane-activity {
   background: transparent;
 }
 
+/*
+ * THE UNDERLINE SLAB IS GONE, Notion restyle P4.4.
+ * BUILD-CONTRACT 2.7 is explicit: the bundle's own .nt-tab paints an
+ * underlined text tab, "that is exactly the one-side accent idiom this
+ * redesign removes", and every tab family takes the pill recipe instead.
+ * This ::before was an 85 percent wide, 2px, tab-coloured bar under the
+ * label: the single clearest surviving example of the idiom, and DECISIONS
+ * 11.5 item 3 recorded it as a standing delta after P3.
+ *
+ * The rule is kept rather than deleted, and re-purposed: the tab's identity
+ * colour now arrives as the 7px POSITIONAL DOT that 2.7 specifies, and this
+ * pseudo-element draws nothing. Deleting it would take the selector out of
+ * the sheet entirely, and a future reader would have no record that the tab
+ * ever had an accent or why it stopped.
+ */
 .terminal-group-tab::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 2px;
-  transform: translateX(-50%);
-  width: 85%;
-  height: 2px;
-  border-radius: var(--radius-row-icon);
-  background: var(--tab-color);
-  pointer-events: none;
+  content: none;
 }
 
-.terminal-group-tab:hover {
-  color: var(--text);
-  background: var(--surface0);
+.nt-enable-hover .terminal-group-tab:hover {
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 
+/*
+ * The active pill: selected ground, primary ink, weight 600. Identical to the
+ * five other tab families, which is the point of 2.7's "the pill recipe, used
+ * verbatim by all six". The old rule painted the label GREEN, which in this
+ * system means running, so an active tab and a live session said the same
+ * thing in the same colour.
+ */
 .terminal-group-tab.active {
-  color: var(--green);
-  background: var(--surface0);
+  color: var(--app-text-primary);
+  background: var(--app-sidebar-item-selected);
+  font-weight: 600;
 }
 
+/*
+ * The positional dot. 7px per 2.7, and its hue comes from the tab's position
+ * in the strip rather than from anything about its content, which is why it
+ * is written from --tab-color: instance-colors.js resolves that name to a
+ * chrome block hue at render time (P2.7).
+ */
 .terminal-group-tab-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: var(--radius-avatar);
   background: var(--tab-color);
   flex-shrink: 0;
@@ -7784,16 +7815,21 @@ html.activity-indicators-disabled .terminal-pane-activity {
   opacity: 0.4;
 }
 
+/* The label is ink, never hue. The dot carries identity; a coloured label
+   would make the tab strip a rainbow of six different text colours. */
 .terminal-group-tab-name {
-  color: var(--tab-color);
+  color: inherit;
 }
 
+/* Trailing count: 12px tertiary at weight 400, no pill of its own
+   (BUILD-CONTRACT 2.7). A count inside a tab is metadata about the tab, so
+   giving it its own filled shape made two chips out of one control. */
 .terminal-group-tab-count {
-  font-size: 10px;
-  color: var(--overlay0);
-  background: var(--surface1);
-  padding: 0 4px;
-  border-radius: var(--radius-app-button);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-tertiary);
+  background: none;
+  padding: 0;
 }
 
 .terminal-group-tab-close {
@@ -8670,37 +8706,43 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 /* ── Tasks sub-navigation ────────────────────────────── */
+/*
+ * TAB FAMILY 4 OF 6: tasks tabs. Same pill. The strip keeps its hairline,
+ * because that is a region boundary rather than a tab indicator, and the
+ * -1px margin that used to make the active tab's slab overlap that hairline
+ * goes with the slab.
+ */
 .tasks-tab-strip {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0;
-  border-bottom: 1px solid var(--surface1);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--app-border-secondary);
   flex-shrink: 0;
 }
 
 .tasks-tab {
-  padding: 6px 14px;
-  font-size: 12px;
+  padding: 4px 10px;
+  font-size: 13px;
   font-weight: 500;
-  color: var(--subtext0);
-  background: none;
+  color: var(--app-text-secondary);
+  background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-app-button);
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.15s, border-color 0.15s;
-  margin-bottom: -1px;
+  transition: var(--motion-hover-reveal);
 }
 
-.tasks-tab:hover {
-  color: var(--text);
-  background: var(--surface0);
+.nt-enable-hover .tasks-tab:hover {
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 
 .tasks-tab.active {
-  color: var(--text);
-  border-bottom-color: var(--blue);
+  color: var(--app-text-primary);
+  background: var(--app-sidebar-item-selected);
+  font-weight: 600;
 }
 
 /* ── Tasks tab panels ────────────────────────────────── */
@@ -9316,25 +9358,33 @@ html.activity-indicators-disabled .terminal-pane-activity {
   padding: 2px;
 }
 
+/*
+ * TAB FAMILY 6 OF 6: the filter and period pills. Already pill-shaped, now on
+ * the shared recipe so a period selector and a view tab are visibly the same
+ * control at two sizes rather than two components that happen to be rounded.
+ */
 .costs-period-btn {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
-  color: var(--subtext0);
+  color: var(--app-text-secondary);
   background: transparent;
   border: none;
   padding: 4px 10px;
-  border-radius: var(--radius-property-chip);
+  border-radius: var(--radius-app-button);
   cursor: pointer;
-  transition: all 0.15s ease;
+  white-space: nowrap;
+  transition: var(--motion-hover-reveal);
 }
 
-.costs-period-btn:hover {
-  color: var(--text);
+.nt-enable-hover .costs-period-btn:hover {
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 
 .costs-period-btn.active {
-  background: var(--surface2);
-  color: var(--text);
+  background: var(--app-sidebar-item-selected);
+  color: var(--app-text-primary);
+  font-weight: 600;
 }
 
 .costs-refresh-btn {
@@ -10539,35 +10589,51 @@ html {
    border in the active provider's accent token, 150-200ms transitions
    via the shared --transition-fast. Only existing theme tokens are
    consumed (css-tokens + phantom-tokens gates). */
+/*
+ * TAB FAMILY 5 OF 6: the account panel's provider tabs (BUILD-CONTRACT 2.7).
+ * The pill recipe, plus one thing no other family has: the ACTIVE tab keeps
+ * its provider accent, as ink rather than as a 2px underline slab.
+ *
+ * That is not an exception to "the label is ink, never hue". These two tabs
+ * ARE the provider identity, which is the one thing contract 2.3 says purple
+ * and green are for, and the panel below them changes provider with them. The
+ * two accent tokens stay referenced here, which is also what
+ * provider-account-tabs.test.js pins, so the selectors and the tokens both
+ * survive the recipe change unedited.
+ */
 .account-tabs {
   display: flex;
   gap: 2px;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--app-border-secondary);
 }
 .account-tab {
   flex: 1 1 0;
-  padding: 7px 10px;
-  font-size: 12px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 500;
   font-family: var(--font-sans);
-  color: var(--text-tertiary);
+  color: var(--app-text-secondary);
   background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-app-button);
   cursor: pointer;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition: color var(--transition-fast), background var(--transition-fast);
 }
-.account-tab:hover {
-  color: var(--text-secondary);
+.nt-enable-hover .account-tab:hover {
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 .account-tab.is-active {
-  color: var(--text-primary);
+  color: var(--app-text-primary);
+  background: var(--app-sidebar-item-selected);
+  font-weight: 600;
 }
 .account-tab.is-active[data-provider-tab="claude"] {
-  border-bottom-color: var(--provider-claude-accent);
+  color: var(--provider-claude-accent);
 }
 .account-tab.is-active[data-provider-tab="codex"] {
-  border-bottom-color: var(--provider-codex-accent);
+  color: var(--provider-codex-accent);
 }
 /* Old server without the provider-account routes: the tab stays visible
    but reads as unavailable (loadProviderAccounts sets the class + title
@@ -11965,26 +12031,32 @@ html {
   flex-shrink: 0;
 }
 
+/* The session-manager filter pills, on the same recipe as every other pill
+   (BUILD-CONTRACT 2.7). Hover and active were the same declaration, so a
+   hovered filter looked selected; the wash and the selected ground now say
+   two different things. */
 .sm-filter {
-  padding: 4px 12px;
+  padding: 4px 10px;
   border-radius: var(--radius-app-button);
   border: none;
   background: transparent;
-  color: var(--subtext0);
-  font-size: 12px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: var(--motion-hover-reveal);
 }
 
-.sm-filter:hover {
-  background: var(--surface0);
-  color: var(--text);
+.nt-enable-hover .sm-filter:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
 }
 
 .sm-filter.active {
-  background: var(--surface0);
-  color: var(--text);
+  background: var(--app-sidebar-item-selected);
+  color: var(--app-text-primary);
+  font-weight: 600;
 }
 
 .session-manager-list {
