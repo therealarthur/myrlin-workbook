@@ -377,9 +377,13 @@ async function main() {
     // typing and cancelling Select mode); app.js is untouched by that work and
     // keeps its mobile-parity token, which is the whole point of versioning
     // them separately: a terminal-only fix does not force a full SPA refetch.
+    // SANCTIONED EDIT SE-7 (BUILD-CONTRACT.md 5.4, phase P1.6): Notion restyle
+    // phase P1: assets changed, cachebuster bumped atomically across
+    // index.html and three tests. P1 changed both scripts, so for once they
+    // share a token; the independent-versioning mechanism above is unchanged.
     assert.ok(
-      /terminal\.js\?v=20260806-selectv3/.test(indexSrc) &&
-        /app\.js\?v=20260805-mobile-select1/.test(indexSrc),
+      /terminal\.js\?v=20260813-notion-p1/.test(indexSrc) &&
+        /app\.js\?v=20260813-notion-p1/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
   });

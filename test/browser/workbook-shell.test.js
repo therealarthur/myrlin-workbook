@@ -363,8 +363,17 @@ async function run() {
     assert.strictEqual(shell.title, "myrlin's workbook");
     assert.strictEqual(shell.loginHidden, true, 'startup token must reveal the application shell');
     assert.strictEqual(shell.appHidden, false, 'application shell must be visible after startup auth');
-    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260727-copy-native8');
-    assert.strictEqual(shell.appScript, 'app.js?v=20260727-copy-native8');
+    // SANCTIONED EDIT SE-11, orchestrator authorisation for Notion restyle
+    // phase P1.6. BUILD-CONTRACT 5.4 names three test files in the cachebuster
+    // set and gate G10 checks four; this is the fifth, and DECISIONS.md finding
+    // F1 recorded that these two assertions were ALREADY STALE on this branch
+    // before the restyle touched anything. They still pinned
+    // ?v=20260727-copy-native8, from before the Select v3 and mobile-select
+    // cachebusters landed, so npm run test:workbook-shell could not pass. They
+    // are brought to the current values as part of the same atomic bump rather
+    // than left broken, which is why a bump is a FIVE-file change, not four.
+    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260813-notion-p1');
+    assert.strictEqual(shell.appScript, 'app.js?v=20260813-notion-p1');
     assert.strictEqual(shell.terminalClass, 'function', 'production TerminalPane must load');
     assert.strictEqual(shell.selectInterceptor, 'function', 'Select-mode interceptor must be present');
     assert.strictEqual(shell.themeRegistry, 'object', 'canonical theme registry must load before the app');

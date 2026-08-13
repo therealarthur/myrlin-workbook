@@ -130,9 +130,12 @@ check('experience and semantic assets load before pre-paint and focused CSS', ()
     'theme-registry.js',
     'experience-model.js',
   ]) {
+    // SANCTIONED EDIT SE-7 (BUILD-CONTRACT.md 5.4, phase P1.6): Notion restyle
+    // phase P1: assets changed, cachebuster bumped atomically across index.html
+    // and three tests.
     assert.match(
       html,
-      new RegExp(`${escapeRegExp(asset)}\\?v=20260725-5`),
+      new RegExp(`${escapeRegExp(asset)}\\?v=20260813-notion-p1`),
       `${asset} cachebuster is stale`
     );
   }
