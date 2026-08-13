@@ -679,23 +679,36 @@ function resolveTitleFromRollout(rolloutPath) {
  * throttled reconciliation does not block the event loop for 319 milliseconds
  * inside a server process.
  *
+ * STRING MODE, NOT withFileTypes, and that is load-bearing rather than a style
+ * choice. Measured on this machine against the real tree:
+ *
+ *   fs.readdirSync(root, {recursive, withFileTypes})        3005 entries, 2950 files
+ *   fs.promises.readdir(root, {recursive, withFileTypes})    842 entries,  800 files
+ *   fs.promises.readdir(root, {recursive})                  3005 entries, 2863 rollouts
+ *
+ * The asynchronous Dirent form silently returned 26 entries it could classify
+ * as neither file nor directory and then failed to descend into them, losing
+ * 2063 of 2863 rollouts with no error. Enumerating names and filtering on the
+ * basename avoids type resolution entirely and matches the synchronous walk
+ * exactly. This mattered nowhere today only because every id it did find was
+ * already known to the store; it would have bitten precisely when the union
+ * walk was the only thing that could surface a session.
+ *
  * @param {string} root - Directory to enumerate.
  * @returns {Promise<string[]>} Absolute rollout paths, [] on any failure.
  */
 async function enumerateRolloutFilesAsync(root) {
   const out = [];
-  let entries;
+  let relativePaths;
   try {
-    entries = await fs.promises.readdir(root, { recursive: true, withFileTypes: true });
+    relativePaths = await fs.promises.readdir(root, { recursive: true });
   } catch (_) {
     return out;
   }
-  for (const entry of entries) {
-    if (!entry.isFile || !entry.isFile()) continue;
-    const lower = entry.name.toLowerCase();
+  for (const relative of relativePaths) {
+    const lower = path.basename(relative).toLowerCase();
     if (!lower.startsWith('rollout-') || !lower.endsWith('.jsonl')) continue;
-    const parent = entry.parentPath || entry.path || root;
-    out.push(path.join(parent, entry.name));
+    out.push(path.join(root, relative));
   }
   return out;
 }

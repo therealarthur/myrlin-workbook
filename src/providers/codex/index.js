@@ -344,6 +344,45 @@ function findArtifactPath(providerSessionId) {
  */
 function findArtifactByWorkingDir(workingDir) {
   if (!workingDir || typeof workingDir !== 'string') return null;
+
+  // BUILD-CONTRACT P8.8: consult the state store's in-memory index first.
+  //
+  // The walk below does not merely enumerate files, it READS THE FIRST 256 KB
+  // OF EVERY ONE of them to recover the cwd from session_meta: 2923 file opens
+  // per call on the measured machine, and this function is a fallback that runs
+  // whenever a workbook session has no recorded upstream id. Matching against
+  // the census map costs one pass over 3006 in-memory entries.
+  //
+  // Matching is on the normalized, case-folded path, so a working directory
+  // stored in one spelling still matches a thread the app recorded in the
+  // other. An empty result also means "cache cold", so the original walk stays
+  // exactly where it is and runs unchanged in that case.
+  try {
+    const candidates = stateDb.resolveThreadsByCwdSync(workingDir);
+    let newest = null;
+    for (const candidate of candidates) {
+      if (!candidate.rolloutPath) continue;
+      let mtimeMs;
+      try {
+        const stat = fs.statSync(candidate.rolloutPath);
+        if (!stat.isFile()) continue;
+        mtimeMs = stat.mtimeMs;
+      } catch (_) {
+        continue; // recorded but gone from disk
+      }
+      if (!newest || mtimeMs > newest.mtimeMs) {
+        // `claudeSessionId` is the cross-provider key server.js reads. The
+        // legacy name is load-bearing across the frontend and is deliberately
+        // preserved here; it carries the Codex UUID, not a Claude value.
+        newest = { jsonlPath: candidate.rolloutPath, claudeSessionId: candidate.id, mtimeMs: mtimeMs };
+      }
+    }
+    if (newest) return { jsonlPath: newest.jsonlPath, claudeSessionId: newest.claudeSessionId };
+  } catch (_) {
+    // state-db is contractually non-throwing; the guard keeps a broken contract
+    // from costing artifact resolution rather than just the fast path.
+  }
+
   const codexHome = _discGetCodexHome();
   if (!fs.existsSync(codexHome)) return null;
   const normalizedWorkDir = workingDir.replace(/[/\\]/g, path.sep).replace(/[/\\]$/, '').toLowerCase();

@@ -807,6 +807,60 @@ test('the synchronous lookup answers from cache only, and never before a read', 
   });
 });
 
+test('the cwd index finds every thread in a directory, in either spelling', async () => {
+  // This is the index behind findArtifactByWorkingDir, whose original
+  // implementation opened and read 256 KB of every rollout on disk to recover
+  // the cwd: 2923 file opens per call on the measured machine.
+  const staged = stageCodexHome();
+  await withCodexHome(staged.home, async () => {
+    assertEqual(
+      stateDb.resolveThreadsByCwdSync('C:\\work\\alpha').length,
+      0,
+      'a cold cache must answer empty so the caller keeps its own fallback'
+    );
+    await listThreads({ includeArchived: true });
+
+    const plain = stateDb.resolveThreadsByCwdSync('C:\\work\\alpha');
+    const ids = plain.map((m) => m.id).sort();
+    assert(ids.indexOf('00000000-0000-4000-8000-000000000001') !== -1, 'plain-spelling thread');
+    assert(ids.indexOf('00000000-0000-4000-8000-000000000002') !== -1, 'prefixed-spelling thread');
+    assert(
+      ids.indexOf('00000000-0000-4000-8000-000000000005') !== -1,
+      'the census covers spawn children too, because "where is this transcript" ' +
+        'is independent of whether the thread belongs in the sidebar'
+    );
+    for (const match of plain) assert(match.rolloutPath, 'each match carries its rollout path');
+
+    // Every spelling of the same directory must find the same threads.
+    for (const spelling of ['\\\\?\\C:\\work\\alpha', 'C:\\work\\alpha\\', 'c:/work/ALPHA']) {
+      assertEqual(
+        stateDb.resolveThreadsByCwdSync(spelling).length,
+        plain.length,
+        'spelling ' + JSON.stringify(spelling) + ' must match the same threads'
+      );
+    }
+    assertEqual(stateDb.resolveThreadsByCwdSync('C:\\work\\nowhere').length, 0);
+    assertEqual(stateDb.resolveThreadsByCwdSync(null).length, 0);
+    assertEqual(stateDb.resolveThreadsByCwdSync('').length, 0);
+  });
+});
+
+test('the census indexes ALL threads, not just the visible projection', async () => {
+  // Restricting the rollout index to the visible set silently pushed archived
+  // threads and spawn children back onto the 330ms-per-lookup walk.
+  const staged = stageCodexHome();
+  await withCodexHome(staged.home, async () => {
+    await listThreads(); // default projection only
+    for (const row of FIXTURE_THREADS) {
+      assert(
+        resolveRolloutPathSync(row.id),
+        'the rollout index must answer for ' + row.label + ', which the default projection excludes'
+      );
+    }
+    assertEqual(getDiagnostics().knownThreadCount, FIXTURE_THREADS.length);
+  });
+});
+
 test('spawn edges are listed, and filtered by parent', async () => {
   const staged = stageCodexHome();
   await withCodexHome(staged.home, async () => {

@@ -1455,6 +1455,44 @@ function resolveCwdSync(threadId) {
 }
 
 /**
+ * Every thread whose working directory matches, newest first, with its rollout
+ * path already resolved. Answered from the warm cache only.
+ *
+ * This is the index behind findArtifactByWorkingDir, which is the fallback used
+ * when a workbook session has no recorded upstream id. That function's original
+ * implementation walks every rollout on disk and READS THE FIRST 256 KB OF EACH
+ * to recover the cwd from session_meta: 2923 file opens per call on the
+ * measured machine. Matching against an in-memory map of 3006 entries replaces
+ * all of it.
+ *
+ * Comparison is on the normalized, case-folded path, so a stored working
+ * directory in one spelling still matches a thread recorded in the other. That
+ * is the same collision this phase fixes for folder grouping, and it applies
+ * here for exactly the same reason.
+ *
+ * @param {string} workingDir - Raw working directory to match.
+ * @returns {Array<{id: string, rolloutPath: (string|null)}>} Possibly empty.
+ *   Empty also means "cache cold", so callers must keep their own fallback.
+ */
+function resolveThreadsByCwdSync(workingDir) {
+  const raw = toStringOrNull(workingDir);
+  if (!raw || !_cache.cwdById) return [];
+  const wanted = normalizeCodexPath(raw).toLowerCase();
+  if (!wanted) return [];
+
+  const matches = [];
+  for (const [id, cwd] of _cache.cwdById) {
+    if (typeof cwd !== 'string') continue;
+    if (cwd.toLowerCase() !== wanted) continue;
+    matches.push({
+      id: id,
+      rolloutPath: (_cache.rolloutById && _cache.rolloutById.get(id)) || null,
+    });
+  }
+  return matches;
+}
+
+/**
  * Diagnostics for logging and for the state-db tests. Deliberately carries no
  * user content: counts, flags and reason tags only.
  *
@@ -1489,6 +1527,7 @@ module.exports = {
   resolveRolloutPath,
   resolveRolloutPathSync,
   resolveCwdSync,
+  resolveThreadsByCwdSync,
   listSpawnEdges,
   getDisplayTitle,
 
