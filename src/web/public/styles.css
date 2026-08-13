@@ -219,6 +219,21 @@
      that is --font-code verbatim, so OQ-2's default is still the floor. */
   --font-terminal: "iA Writer Mono", "JetBrains Mono", var(--font-code);
 
+  /* THE TERMINAL SURFACE PADDING, Notion restyle P5.5, DESIGN-SPEC 5.5.
+     Tokens rather than literals for two reasons: the phone floor overrides
+     them in one place instead of re-declaring the rule, and xterm's FitAddon
+     subtracts the container's padding from the area it fits into, so these two
+     numbers are the only thing in the sheet that changes a PTY's column count.
+     A number with that much reach should be named. */
+  --terminal-surface-pad-x: 14px;
+  --terminal-surface-pad-y: 12px;
+
+  /* The pane frame's radius, as a token so the phone floor can flatten it in
+     one place. Gate G6 requires every radius in this sheet to be a token
+     rather than a number, and "no radius at all on a full-bleed phone pane" is
+     a radius decision like any other. */
+  --terminal-pane-radius: var(--radius-pane-frame);
+
   /* ─── Provider accent tokens ──────────────────────────────────
      Per-provider visual identity, layered on top of the Catppuccin
      palette tokens above. Every theme overrides --mauve, --green,
@@ -5584,6 +5599,33 @@ textarea.input {
   border-color: var(--green);
 }
 
+/* ─── THE PHONE FLOOR FOR THE TERMINAL REGION (P5.5) ────────────
+ *
+ * A floor, not a design: P10 owns the phone's terminal screen
+ * (DESIGN-SPEC 14.3) and may replace either of these. They ship here, in this
+ * phase's own file, for the reason DECISIONS.md 12.3.2 records: the region is
+ * this phase's, so its phone floor is this phase's too, and sweeping
+ * styles-mobile.css to fix a rule authored here would be the collision
+ * BUILD-CONTRACT 4.1 item 4 forbids.
+ *
+ * Two things have to give way at 390px. The surface padding costs four
+ * columns of a fifty-column line, which is eight percent of the screen rather
+ * than two, so it halves. And the pane frame is drawn around a pane that fills
+ * the viewport edge to edge, where a rounded 1px box reads as a mistake rather
+ * than as a card; the phone's pane is the whole screen and needs no card
+ * around it. */
+@media (max-width: 768px) {
+  :root {
+    --terminal-surface-pad-x: 8px;
+    --terminal-surface-pad-y: 6px;
+    --terminal-pane-radius: 0;
+  }
+
+  .terminal-pane {
+    border: none;
+  }
+}
+
 /* ─── Mobile Terminal Toolbar ──────────────────────────────── */
 
 .terminal-mobile-toolbar {
@@ -7906,14 +7948,29 @@ body.cwm-dragging .sidebar-backdrop {
    TERMINAL GRID
    ═══════════════════════════════════════════════════════════════ */
 
+/* THE PANE GRID, Notion restyle P5.5, DESIGN-SPEC 5.2.
+   The gutter is the canvas rather than the palette's darkest step, through the
+   --app-terminal-gutter invention P1 authored for exactly this (INVENTIONS.md:
+   "a later decision to tint it is a one-line change rather than an edit to
+   every grid rule"). The 2px hairline gap becomes 12px, which is what lets the
+   pane frame below read as a card on a page instead of a cell in a table.
+
+   THE GRID PADDING 5.2 ALSO SPECIFIES IS NOT APPLIED, and the reason is a
+   coupling this work package does not own: app.js positions the drag splitter
+   with `left: calc(${pct}% - 3px)`, and a percentage on an absolutely
+   positioned child resolves against the PADDING box. A 16px pad would move the
+   handle 16px away from the seam it drags. The gap alone is safe: at a 50/50
+   split the seam centre and the percentage point coincide exactly, and the
+   worst case at the 25/75 clamp is 6px against a 22px hit area. Applying the
+   padding needs the two lines in app.js to subtract it. DECISIONS.md 14.6. */
 .terminal-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
-  gap: 2px;
+  gap: 12px;
   flex: 1;
   min-height: 0;
-  background: var(--crust);
+  background: var(--app-terminal-gutter);
 }
 .terminal-grid[data-panes="1"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
 .terminal-grid[data-panes="2"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
@@ -7921,24 +7978,40 @@ body.cwm-dragging .sidebar-backdrop {
 .terminal-grid[data-panes="4"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
 .terminal-grid[data-panes="5"] { grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
 .terminal-grid[data-panes="6"] { grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+/* THE PANE FRAME, terminal side, Notion restyle P5.5, DESIGN-SPEC 5.3.
+   P4.5 built the outside of this recipe and could only reach the two panes
+   that carry a data-provider attribute, so the base rule still had no border
+   at all and the six [data-slot] rules P4.5 wrote set a border-COLOR on an
+   element with no border-STYLE, which paints nothing. This is the half that
+   makes all three work: a 1px hairline, the 8px pane radius, and the canvas
+   ground rather than the terminal's, because the terminal's own ground now
+   belongs to .terminal-container below (5.5) and stops at its edge. */
 .terminal-pane {
   position: relative;
   display: flex; flex-direction: column;
-  background: var(--base); overflow: hidden;
+  background: var(--app-bg-primary); overflow: hidden;
   min-height: 0;
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--terminal-pane-radius);
 }
 /* Ensure hidden attribute works - author display:flex overrides UA [hidden] rule */
 .terminal-pane[hidden] { display: none !important; }
 /* Mobile-only input row - hidden on desktop, shown via styles-mobile.css */
 .terminal-mobile-input-row { display: none; }
+/* THE PANE HEADER, Notion restyle P5.5, DESIGN-SPEC 5.4: a 38px band on a
+   hairline, asymmetric padding because the leading edge carries a dot and the
+   trailing edge carries 26px icon buttons that bring their own inset. The
+   three Catppuccin consumptions here were the last ones in the pane frame; the
+   provider tint rule P4.5 wrote still overrides the ground per provider. */
 .terminal-pane-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 12px; background: var(--mantle);
-  border-bottom: 1px solid var(--surface0);
-  font-size: 13px; color: var(--subtext0);
+  height: 38px; min-height: 38px;
+  padding: 0 8px 0 12px; background: var(--app-bg-secondary);
+  border-bottom: 1px solid var(--app-border-secondary);
+  font-size: 13px; color: var(--app-text-secondary);
   flex-shrink: 0;
 }
-.terminal-pane-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text); }
+.terminal-pane-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--app-text-primary); }
 .terminal-pane:not(.terminal-pane-empty) .terminal-pane-title {
   cursor: text;
 }
@@ -8178,7 +8251,114 @@ body.cwm-dragging .sidebar-backdrop {
   background: var(--app-bg-primary); padding: 8px 16px; border-radius: var(--radius-pane-frame);
   border: 1px solid var(--app-text-blue); box-shadow: var(--app-shadow-outlined-sm);
 }
-.terminal-container { flex: 1; overflow: hidden; transition: filter 150ms ease; }
+/* ─── THE TERMINAL SURFACE (Notion restyle P5.5) ────────────────
+ *
+ * DESIGN-SPEC 5.5 draws the pane body as a code surface with its own ground
+ * and its own padding, and 10.4 says where that ground comes from: the
+ * TERMINAL palette, never the Notion tokens. --term-bg is published onto the
+ * document root by terminal-surface.js, so this rule and the xterm canvas
+ * inside it resolve to the same value by construction rather than by two
+ * systems agreeing. Every consumption carries a --base fallback so a
+ * stylesheet that resolves before the script has run is never unstyled.
+ *
+ * THE PADDING IS SAFE FOR THE PTY, and that is not obvious. xterm's FitAddon
+ * reads getComputedStyle(parentElement).height and .width, which are USED
+ * values and therefore the CONTENT box, so padding on this element is already
+ * excluded from the area it fits into. The cost is real but bounded and
+ * intended: 28px of width is about four columns at this cell size, and the
+ * alternative is text hard against a 1px border, which is the single thing
+ * that makes a terminal look embedded rather than designed.
+ *
+ * The two values are tokens rather than literals so the phone floor below is
+ * one override, and so a future density setting is a one-line change.
+ */
+.terminal-container {
+  flex: 1;
+  overflow: hidden;
+  transition: filter 150ms ease;
+  background: var(--term-bg, var(--base));
+  padding: var(--terminal-surface-pad-y) var(--terminal-surface-pad-x);
+}
+
+/* THE TERMINAL SCROLLBAR. xterm owns this element, so it never received the
+   7px chrome scrollbar P2.6 authored and it has been showing the browser
+   default inside a designed surface. It takes the same GEOMETRY as the chrome
+   scrollbar and the terminal's own COLOURS, because a scrollbar inside the
+   terminal belongs to the terminal: --term-rule is the palette's own divider
+   step, which is exactly the weight a quiet overlay scrollbar wants.
+
+   Wrapped the same way DV-7 records for the chrome scrollbar: Chromium
+   ignores every ::-webkit-scrollbar declaration the moment scrollbar-width is
+   set to anything but auto, so the Firefox line has to sit behind @supports or
+   it would silently delete the styled thumb on this application's primary
+   engine. */
+.terminal-pane .xterm-viewport::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+.terminal-pane .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.terminal-pane .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--term-rule, var(--surface1));
+  border-radius: var(--radius-pill);
+}
+.terminal-pane .xterm-viewport::-webkit-scrollbar-corner {
+  background: transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .terminal-pane .xterm-viewport {
+    scrollbar-width: thin;
+    scrollbar-color: var(--term-rule, var(--surface1)) transparent;
+  }
+}
+
+/* ─── THE PANE INPUT ROW (Notion restyle P5.5) ──────────────────
+ *
+ * DESIGN-SPEC 5.6, and its last paragraph is the whole point: "The input row
+ * sits INSIDE the terminal palette, not on the Notion ground. Its top rule is
+ * the palette's rule colour, not --app-border-secondary. This is what makes a
+ * pane read as one continuous terminal object."
+ *
+ * WHAT THIS RULE DELIBERATELY DOES NOT TOUCH. The row's geometry, its field
+ * and its send button are authored in styles-mobile.css, which belongs to the
+ * mobile track (P10). Restyling another track's control to satisfy this
+ * phase's region is the collision BUILD-CONTRACT 4.1 item 4 exists to prevent,
+ * and DECISIONS.md 10.3.2 and 12.3.2 record the precedent twice. So this
+ * phase takes exactly the three properties DESIGN-SPEC 5.6 makes a PALETTE
+ * contract (the ground, the top rule and the prompt) and leaves the box alone.
+ * The row is display:none above the phone breakpoint today, so on the desktop
+ * this is a recipe waiting for a surface rather than a visible change;
+ * DECISIONS.md 14.7 records why building the desktop composer is not P5's. */
+.terminal-pane .terminal-mobile-input-row {
+  background: var(--term-bg, var(--base));
+  border-top: 1px solid var(--term-rule, var(--surface0));
+}
+/* The prompt is a pseudo-element rather than markup, because every one of the
+   six pane templates is authored in index.html and three suites read them.
+   A ::before on a flex container IS a flex item, so it lands ahead of the
+   field with no template change at all. */
+.terminal-pane .terminal-mobile-input-row::before {
+  content: '\276F';
+  color: var(--term-accent, var(--mauve));
+  font-family: var(--font-terminal, var(--font-code));
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+/* The typed text is the fourth palette contract, and taking it is not
+   optional. The mobile sheet paints this field with `color: var(--text-primary)`,
+   which was correct while the row sat on the palette's --mantle and is a bug
+   the moment the row moves onto --term-bg: --text-primary is the CHROME ink,
+   so a light chrome over a dark terminal palette would put near-black text on
+   a near-black ground. The field's BOX (its height, radius, border and
+   padding) stays exactly where it is authored, in the mobile track's file. */
+.terminal-pane .terminal-mobile-input-row input {
+  color: var(--term-ink, var(--text));
+  caret-color: var(--term-accent, var(--mauve));
+  font-family: var(--font-terminal, var(--font-code));
+}
 /* THE DROP SLOT (BUILD-CONTRACT 2.12): 1.5px dashed --app-border-strong at
    the 8px pane radius, 13px copy, and a drag-over state that flips the border
    to --app-text-blue and the fill to --app-bg-blue. Blue is the interaction
@@ -8190,6 +8370,12 @@ body.cwm-dragging .sidebar-backdrop {
   border-radius: var(--radius-pane-frame); color: var(--app-text-tertiary);
   min-height: 120px;
   font-size: 13px;
+  /* P5.5: the base .terminal-container rule now carries the TERMINAL ground,
+     because that is what a terminal sits on. A drop slot has no terminal in
+     it, so it stays transparent over the pane's own canvas, which is what
+     DESIGN-SPEC 5.2 draws ("background: transparent") and what keeps the
+     dashed edge reading as an invitation rather than as an empty screen. */
+  background: transparent;
 }
 .terminal-pane-empty .terminal-container::after { content: 'Drop a session here'; }
 .terminal-pane-empty.drag-over .terminal-container {
@@ -8313,10 +8499,17 @@ body.cwm-dragging .sidebar-backdrop {
 .terminal-pane-active {
   box-shadow: inset 0 0 0 2px var(--app-ui-blue);
 }
+/* The ACTIVE pane is already marked by the 2px inset ring above, which is the
+   system's focus idiom. The header's job here is to agree with it quietly: a
+   half-step ground and full-strength ink. The coloured bottom border this rule
+   used to carry was a 1px underline slab in the retired brand mauve, which is
+   both the rejection-list idiom P4.4 removed from every tab family and a
+   Catppuccin token painting chrome (DESIGN-SPEC 10.4 forbids it, gate G4
+   counts it). */
 .terminal-pane-active > .terminal-pane-header {
-  background: var(--surface0);
-  border-bottom-color: var(--mauve);
-  color: var(--text);
+  background: var(--app-bg-interactive);
+  border-bottom-color: var(--app-border-primary);
+  color: var(--app-text-primary);
 }
 
 /* ─── Pane Color Highlights ────────────────────────────── */
@@ -11244,8 +11437,28 @@ html.activity-indicators-disabled .terminal-pane-activity {
   100% { border-color: var(--app-border-primary); box-shadow: none; }
 }
 
+/* THE BOOTING PANE, Notion restyle P5.5.
+ *
+ * This rule used to consume `rgb-border-glow 3s ease-in-out infinite`.
+ * DECISIONS.md 13.1's survivor table called it "the only uncomfortable
+ * survivor" of the static-status sweep and left it deliberately, with the
+ * reason: the four keyframe stops are BYTE-IDENTICAL after P2.7 flattened them
+ * onto one token, so it animated nothing at all, and removing a dead animation
+ * from the pane frame belongs to the phase that owns the region. That is this
+ * phase, and the orchestrator granted the removal.
+ *
+ * What goes is the CONSUMPTION. The keyframes stay declared, under the same
+ * code-preservation rule that keeps mwPulse and eleven other unconsumed
+ * keyframes in this sheet: the ban is on a mark reaching for one, and gate G14
+ * measures consumption rather than declaration.
+ *
+ * Nothing replaces it, because the state is already told twice. The P4
+ * remainder put a static RING on the pane title (below), which is the same
+ * shape the sidebar spends on "waiting on something", and the pane says
+ * "Connecting to session..." in words. A frame that pulsed for three seconds
+ * while saying so was the third channel and the only one that moved. */
 .terminal-pane-loading {
-  animation: rgb-border-glow 3s ease-in-out infinite;
+  border-color: var(--app-border-primary);
 }
 
 /* The booting-pane dot. It is a dot beside a title that reports what the pane
@@ -11272,9 +11485,15 @@ html.activity-indicators-disabled .terminal-pane-activity {
   66% { background: var(--app-text-tertiary); opacity: 1; }
 }
 
-/* Respect reduced motion */
+/* Respect reduced motion. Both `animation: none` guards outlived the
+   animations they guarded (the title dot's in the P4 remainder, the frame's
+   above), and both stay under code preservation: DECISIONS.md 13.2 records
+   that `animation: none` is not consumption, which is exactly what lets a
+   guard survive its animation. The border colour is re-pointed off the retired
+   brand mauve onto the frame's own hairline, so a reduced-motion user sees the
+   same pane frame as everybody else instead of a purple one. */
 @media (prefers-reduced-motion: reduce) {
-  .terminal-pane-loading { animation: none; border-color: var(--mauve); }
+  .terminal-pane-loading { animation: none; border-color: var(--app-border-primary); }
   .terminal-pane-loading .terminal-pane-title::after { animation: none; }
 }
 

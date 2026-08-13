@@ -139,6 +139,65 @@ const REGION_ROUTES = [
       });
     },
   },
+  {
+    // THE TERMINAL REGION, added by P5. The other three regions are reachable
+    // by switching a view; this one needs a LIVE PTY, because a terminal pane
+    // with nothing attached is a drop slot and shows none of what P5 changed:
+    // the terminal ground, its padding, the ANSI palette, the cell metrics of
+    // the new face, or the scrollbar.
+    //
+    // It spawns a real cmd.exe inside the harness sandbox, which is safe by
+    // construction: the child server already runs with USERPROFILE, APPDATA,
+    // TEMP and every CWM_* path inside the disposable temp directory, and the
+    // shell name is validated against pty-server.js's ALLOWED_SHELL_NAMES
+    // before it reaches a spawn. The pane is closed again after the capture so
+    // the following region never inherits a live PTY.
+    id: 'terminal',
+    apply: async (page) => {
+      await page.evaluate(() => {
+        window.cwm.setViewMode('terminal');
+        window.cwm.openTerminalInPane(0, 'p5-agent-probe', 'Shell', {});
+      });
+      // The default spawn is the provider CLI, which is the pane P5's
+      // acceptance criterion actually cares about ("a full agent session, a
+      // coloured git diff and an npm test run are all legible in both chrome
+      // themes"): it exercises the whole ANSI palette rather than a prompt.
+      // The first launch in a cold sandbox profile is slow, so the wait is
+      // generous and the failure mode is an empty surface rather than a
+      // missing picture.
+      await waitForPaintedTerminal(page, 45000);
+    },
+    cleanup: killProbePane,
+  },
+  {
+    // THE TWO AXES, proved in one picture (DESIGN-SPEC 10.1). The chrome is
+    // Notion LIGHT and the terminal palette is Mocha, which is a dark palette.
+    // If the projection worked, the pane is a dark terminal on a light page
+    // with no chrome token bleeding into it and no palette token bleeding out.
+    // If the two axes were still coupled, this shot is impossible to take.
+    id: 'terminal-mocha-on-light',
+    chromeOnly: 'light',
+    apply: async (page) => {
+      await page.evaluate(() => {
+        window.cwm.setChrome('light');
+        window.cwm.setTheme('mocha');
+        window.cwm.setViewMode('terminal');
+        // A BARE SHELL here rather than the agent CLI, deliberately. This shot
+        // has one job, proving the two axes are independent, and it should not
+        // depend on a CLI's cold-start time to do it. `cmd` paints its banner
+        // and prompt in a few hundred milliseconds, and a prompt is enough to
+        // show the terminal ground, the ink and the new face.
+        window.cwm.openTerminalInPane(0, 'p5-shell-probe-mocha', 'Shell', { command: 'cmd' });
+      });
+      await waitForPaintedTerminal(page, 20000);
+    },
+    cleanup: async (page) => {
+      await killProbePane(page);
+      // Leave the palette as this chrome pass found it, so the regions after
+      // this one are captured under the same theme as every previous phase.
+      await page.evaluate(() => window.cwm.setTheme('myrlin-light'));
+    },
+  },
   { id: 'docs', apply: async (page) => page.evaluate(() => window.cwm.setViewMode('docs')) },
   { id: 'costs', apply: async (page) => page.evaluate(() => window.cwm.setViewMode('costs')) },
   {
@@ -151,6 +210,57 @@ const REGION_ROUTES = [
     },
   },
 ];
+
+/**
+ * Wait until the pane in slot 0 has actually painted rows.
+ *
+ * xterm renders through the DOM renderer in this application (no WebGL addon
+ * is loaded), so rendered rows are real text nodes and this is a true "has it
+ * painted" test rather than a sleep. A timeout resolves rather than throws:
+ * an empty terminal surface is still a picture of the surface, and losing the
+ * whole capture run because one CLI was slow to boot would be worse.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @param {number} timeoutMs - How long to wait for the first painted row.
+ * @returns {Promise<void>} Resolves either way.
+ */
+async function waitForPaintedTerminal(page, timeoutMs) {
+  await page.waitForFunction(
+    () => {
+      const screen = document.querySelector('#term-pane-0 .xterm-screen');
+      return !!screen && screen.textContent.trim().length > 0;
+    },
+    { timeout: timeoutMs }
+  ).catch(() => { /* captured empty rather than not at all */ });
+  // One extra frame so a half-drawn first paint is not what gets photographed.
+  await page.waitForTimeout(600);
+}
+
+/**
+ * Kill the probe PTY and drop its pane.
+ *
+ * The kill matters more than the dispose. dispose() closes the CLIENT socket;
+ * the PTY on the server side survives it, and a capture run that opened three
+ * probe panes would leave three live child processes behind for the harness's
+ * shutdown to reap. This asks the application's own endpoint to end them,
+ * which is the same path the close button uses.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @returns {Promise<void>} Resolves when the pane is gone.
+ */
+async function killProbePane(page) {
+  await page.evaluate(async () => {
+    const pane = window.cwm.terminalPanes && window.cwm.terminalPanes[0];
+    const sessionId = pane && pane.sessionId;
+    if (sessionId) {
+      try {
+        await window.cwm.api('POST', '/api/pty/' + encodeURIComponent(sessionId) + '/kill');
+      } catch (_) { /* an already-dead session is the outcome we wanted */ }
+    }
+    if (pane && typeof pane.dispose === 'function') pane.dispose();
+    if (window.cwm.terminalPanes) window.cwm.terminalPanes[0] = null;
+  });
+}
 
 /**
  * Remove startup-token values before an error reaches logs.
@@ -744,6 +854,9 @@ async function run() {
       for (const chrome of CHROMES) {
         const applied = await applyChrome(page, chrome);
         for (const region of REGION_ROUTES) {
+          // A region may pin itself to one chrome, which is how the two-axis
+          // proof shot avoids being captured twice with the same meaning.
+          if (region.chromeOnly && region.chromeOnly !== chrome.id) continue;
           await region.apply(page);
           await page.waitForTimeout(400);
           const name = ['desktop', chrome.id, region.id].join('-') + '.png';
@@ -755,13 +868,43 @@ async function run() {
             'captured PNG exceeds ' + ABSOLUTE_MAX_DIM + 'px: ' + file
           );
           assert.ok(dims.bytes > MIN_PNG_BYTES, 'captured region PNG is suspiciously small: ' + file);
+          // Read the LIVE attributes and grounds rather than reusing the ones
+          // applyChrome reported, because a region may change either (the
+          // two-axis proof shot deliberately does). Recording them is what
+          // turns "the picture looks dark" into a number somebody can act on.
+          const state = await page.evaluate(() => {
+            const root = document.documentElement;
+            const pane = document.querySelector('.terminal-pane:not(.terminal-pane-empty) .terminal-container');
+            const sidebar = document.querySelector('#sidebar');
+            const styleOf = (el) => (el ? getComputedStyle(el).backgroundColor : null);
+            return {
+              chromeAttr: root.dataset.chrome || null,
+              themeAttr: root.dataset.theme || null,
+              themeChoiceAttr: root.dataset.themeChoice || null,
+              uiShellAttr: root.dataset.uiShell || null,
+              bodyBackground: getComputedStyle(document.body).backgroundColor,
+              sidebarBackground: styleOf(sidebar),
+              terminalBackground: styleOf(pane),
+              termBgVar: getComputedStyle(root).getPropertyValue('--term-bg').trim() || null,
+              termAccentVar: getComputedStyle(root).getPropertyValue('--term-accent').trim() || null,
+              appBgPrimary: getComputedStyle(root).getPropertyValue('--app-bg-primary').trim() || null,
+            };
+          });
           manifest.regionShots.push({
             name, chrome: chrome.id, region: region.id,
             width: dims.width, height: dims.height, bytes: dims.bytes,
-            themeAttr: applied.themeAttr, chromeAttr: applied.chromeAttr,
+            themeAttr: state.themeAttr, chromeAttr: state.chromeAttr,
+            state,
           });
+          console.log('    state ' + JSON.stringify(state));
           console.log('  captured regions/' + name + '  ' + dims.width + 'x' + dims.height +
             '  ' + Math.round(dims.bytes / 1024) + 'KB');
+          // A region that opened something live tears it down itself, so the
+          // next region in the loop never inherits a PTY, a socket or a pane.
+          if (typeof region.cleanup === 'function') {
+            await region.cleanup(page);
+            await page.waitForTimeout(200);
+          }
         }
         // Leave the shell in a neutral state before the next chrome pass, so an
         // open settings overlay never leaks into the following capture.
