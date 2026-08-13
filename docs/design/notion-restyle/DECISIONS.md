@@ -1417,8 +1417,8 @@ maps were handled.
 
 | Measure | After P3 | After P4 |
 | --- | --- | --- |
-| `styles.css` lines | 13728 | **14486** |
-| `focused-shell.css` lines | 1488 | **1596** |
+| `styles.css` lines | 13728 | **14788** |
+| `focused-shell.css` lines | 1488 | **1626** |
 | Gate G3, `[hidden]` guards (up is better) | 22 | **25** |
 | Gate G4, Catppuccin `var()` in chrome | 1021 | **902** |
 | Gate G5b, raw `rgba()` outside `:root` | 71 | **46** |
@@ -1426,6 +1426,7 @@ maps were handled.
 | Gate G9a, `linear-gradient` | 5 | **1** |
 | Gate G9b, `backdrop-filter` | 6 | **0** |
 | Test files / assertions | 82 / 1368 | 83 / **1402** |
+| `app.js` lines | 26127 | **27085** |
 
 The assertion delta is **+34**, of which +33 is P4's (28 in the new
 `recency-surfaces.test.js`, 5 in `instance-colors.test.js` for the chip
