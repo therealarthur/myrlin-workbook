@@ -193,6 +193,32 @@
   --font-sans: var(--font-app-ui);
   --font-mono: "iA Writer Mono", Nitti, Menlo, Courier, monospace;
 
+  /* THE TERMINAL FACE, Notion restyle P5.5. An INVENTION: see INVENTIONS.md.
+     Until P5 the terminal face was a literal string inside terminal.js
+     (`'JetBrains Mono', 'Cascadia Code', Consolas, monospace`) and nothing in
+     CSS could reach it, which is half of CURRENT-UI.md section 6's finding.
+     It now arrives through the terminalSurface projection, which reads THIS
+     token, so a theme can override the face the same way it overrides a hue.
+
+     WHY IT IS ITS OWN TOKEN rather than --font-code or --font-mono. The three
+     answer three different questions and DECISIONS.md 3.3 only settled one of
+     them: --font-mono is the capture's editor face for code blocks, ids,
+     branch names and diff hunks; --font-code is the capture's native-metrics
+     code stack; and the terminal face has a constraint neither of them has,
+     which is that changing it changes the PTY column count. One token means
+     the orchestrator's ruling (iA Writer Mono by default) and OQ-2's fallback
+     chain can both be true, and means a future per-theme override does not
+     have to fight the editor's face.
+
+     THE CHAIN, in order and each for a reason. iA Writer Mono is vendored and
+     self hosted beside this file, so it needs no network and is the same face
+     on every machine. JetBrains Mono is next because it was the shipped
+     terminal face before P5 and P1.2 removed the webfont link that loaded it:
+     a user who has it installed locally keeps exactly what they had, which is
+     what "JetBrains Mono stays a selectable token" means. Everything after
+     that is --font-code verbatim, so OQ-2's default is still the floor. */
+  --font-terminal: "iA Writer Mono", "JetBrains Mono", var(--font-code);
+
   /* ─── Provider accent tokens ──────────────────────────────────
      Per-provider visual identity, layered on top of the Catppuccin
      palette tokens above. Every theme overrides --mauve, --green,
@@ -8169,6 +8195,73 @@ body.cwm-dragging .sidebar-backdrop {
 .terminal-pane-empty.drag-over .terminal-container {
   border-color: var(--app-text-blue); color: var(--app-text-blue);
   background: var(--app-bg-blue);
+}
+
+/* ─── Multi-line paste confirm (Notion restyle P5.2) ────────────
+ *
+ * TERMINAL-ARCHITECTURE.md 9.4: a multi-line paste into an application that
+ * has NOT enabled bracketed paste is the one paste that surprises people,
+ * because the PTY line discipline turns every line into its own command. This
+ * asks first. A session that enabled DEC 2004 never sees this dialog, which is
+ * why the common agent case is silent.
+ *
+ * WHY IT IS CHROME AND NOT TERMINAL PALETTE. Everything else P5 draws inside a
+ * pane belongs to the terminal surface and takes termBg / termInk. This does
+ * not: it is the APPLICATION asking a question about what it is holding, in
+ * the same voice as a context menu or a toast, so it takes the popover recipe
+ * P4.1 settled on (elevated ground, one shadow token, one radius, one
+ * entrance). Painting it in the terminal palette would make it read as output
+ * from the session, which is exactly the confusion it exists to prevent.
+ *
+ * Z-INDEX. 45, one rung above the pane-local Copy view overlay at 40 and far
+ * below the overlay layer, because both are pane-local and the question has to
+ * be answerable while the Copy view is open. Nothing here goes near the 10004
+ * ceiling the z-index ladder holds.
+ */
+.terminal-paste-confirm {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-callout);
+  box-shadow: var(--app-shadow-menu);
+  animation: mwFadein var(--duration-150) var(--ease-out);
+}
+/* DESIGN-SPEC 1.3, popover title: 14px / 600. */
+.terminal-paste-confirm-title {
+  font-size: var(--app-property-size);
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+.terminal-paste-confirm-detail {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+/* The preview is the user's own text, so it is drawn as CODE rather than as
+   copy: one line, the terminal's own face, ellipsised rather than wrapped so
+   the dialog height cannot depend on what was copied. */
+.terminal-paste-confirm-preview {
+  font-family: var(--font-terminal, var(--font-code));
+  font-size: 12px;
+  color: var(--app-text-primary);
+  background: var(--app-bg-tertiary);
+  border-radius: var(--radius-row-icon);
+  padding: 4px 8px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.terminal-paste-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* ─── Pane View Container, Badge, Back Button ──────────── */

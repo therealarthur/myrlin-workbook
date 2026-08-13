@@ -218,6 +218,127 @@ const ACTIVATE_CONNECT_GUARD_MS = 1500;
 // user is actually looking at.
 const ACTIVATE_VISIBILITY_RATIO = 0.5;
 
+/* ═══════════════════════════════════════════════════════════════════
+   PASTE INPUT PREPARATION
+   Notion restyle phase P5, work packages P5.1 and P5.2.
+   TERMINAL-ARCHITECTURE.md defects D1 and D2, sections 9.2 to 9.4.
+
+   Three paste entry points (beforeinput/insertFromPaste, the native
+   paste event, and the explicit pasteFromClipboard menu action) used to
+   build their own payload with the same two lines each:
+
+       const bracketedText = '\x1b[200~' + text + '\x1b[201~';
+       this.ws.send(JSON.stringify({ type: 'input', data: bracketedText }));
+
+   Both lines carried a defect that the architecture measured against a
+   live PTY rather than inferred:
+
+   D1  The brackets were applied UNCONDITIONALLY. DEC 2004 is a mode the
+       APPLICATION turns on; an application that has not asked for it
+       receives the literal characters `[200~` and `[201~` around the
+       paste. Every agent CLI measured has the mode on, so this was
+       invisible on the common path and broken on every bare shell.
+
+   D2  Newlines were sent verbatim. Windows clipboard text is CRLF, and a
+       PTY line discipline reads CR LF as an Enter FOLLOWED BY a stray
+       line feed, so a two line paste executed as two commands plus two
+       blank lines. xterm's own paste path normalises first, and this is
+       the exact normalisation it performs.
+
+   The fix is one pure function, at module level rather than on the class,
+   for two reasons. It has no instance state, so it is testable without a
+   DOM, an xterm or a socket; and test/bracketed-paste-isolation.test.js
+   gates the character distance between `pasteFromClipboard` and
+   `this.ws.send(`, so the call site has to stay one short line.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// The multi-line paste confirm setting, TERMINAL-ARCHITECTURE 9.4. `auto` is
+// the table: bracketed sessions never nag, unbracketed multi-line always asks.
+// The other two exist because a user who knows what they are doing should be
+// able to say so once instead of per paste.
+const PASTE_CONFIRM_AUTO = 'auto';
+const PASTE_CONFIRM_ALWAYS = 'always';
+const PASTE_CONFIRM_NEVER = 'never';
+
+// The two halves of DEC 2004 bracketed paste. Named rather than inlined so the
+// sanitiser below and the wrapper agree by construction.
+const BRACKETED_PASTE_START = '\x1b[200~';
+const BRACKETED_PASTE_END = '\x1b[201~';
+
+// Every embedded end marker is removed from a bracketed payload. This is the
+// one place in the terminal path where content from OUTSIDE the application
+// (the system clipboard) is framed by control sequences, so it gets an
+// explicit sanitiser rather than an assumption: an end marker inside the
+// payload would close the bracket early and let everything after it be read as
+// TYPED input by the receiving application. That is the difference between
+// pasting a README that happens to quote an escape sequence and executing it.
+const BRACKETED_PASTE_END_RE = /\x1b\[201~/g;
+
+// How much of the first line the multi-line confirm shows. Long enough to
+// recognise a command, short enough that the dialog never grows a scrollbar.
+const PASTE_PREVIEW_MAX_CHARS = 120;
+
+/**
+ * Prepare clipboard text for delivery to a PTY.
+ *
+ * Pure: no DOM, no socket, no instance state, so the whole truth table is
+ * unit-testable (test/paste-input-preparation.test.js).
+ *
+ * @param {string} text - Raw clipboard text, in whatever newline flavour the
+ *   source platform used.
+ * @param {{bracketedPasteMode?: boolean, confirmMultiline?: string}} [opts] -
+ *   `bracketedPasteMode` is the LIVE state of DEC 2004 for the receiving
+ *   application, never an assumption. `confirmMultiline` is the 9.4 setting
+ *   and defaults to `auto`.
+ * @returns {{data: string, needsConfirm: boolean, lineCount: number,
+ *   bracketed: boolean, firstLine: string}} `data` is exactly what should go on
+ *   the wire once any confirm has been answered.
+ */
+function prepareInputForPty(text, opts) {
+  const options = opts || {};
+  const raw = typeof text === 'string' ? text : (text == null ? '' : String(text));
+  const bracketed = options.bracketedPasteMode === true;
+
+  // D2. The same expression xterm uses (`e.replace(/\r?\n/g, "\r")`), chosen
+  // deliberately over a broader one: CRLF and LF both become one CR, and a
+  // LONE CR is already correct and is left exactly as it is.
+  let data = raw.replace(/\r?\n/g, '\r');
+
+  // Count before the brackets go on, so the count describes the user's text
+  // rather than the framing. A trailing newline COUNTS as a second line,
+  // because a trailing CR is what makes a shell execute the last command:
+  // "one line plus Enter" is precisely the case the confirm exists for.
+  const segments = data.split('\r');
+  const lineCount = segments.length;
+  const firstLine = segments[0].slice(0, PASTE_PREVIEW_MAX_CHARS);
+
+  if (bracketed) {
+    // D1's sanitiser, and then D1's wrapper. Order matters: strip first, so a
+    // marker that arrived inside the payload cannot survive into the framed
+    // string, and never strip the marker this function is about to add.
+    data = data.replace(BRACKETED_PASTE_END_RE, '');
+    data = BRACKETED_PASTE_START + data + BRACKETED_PASTE_END;
+  }
+
+  const multiline = lineCount > 1;
+  const mode = options.confirmMultiline || PASTE_CONFIRM_AUTO;
+  let needsConfirm;
+  if (mode === PASTE_CONFIRM_NEVER) {
+    needsConfirm = false;
+  } else if (mode === PASTE_CONFIRM_ALWAYS) {
+    needsConfirm = multiline;
+  } else {
+    // `auto`, the 9.4 table. An application that turned DEC 2004 on has told
+    // the terminal it will handle a multi-line payload itself, so asking would
+    // be nagging about a case that is already safe. Every agent CLI measured
+    // in TERMINAL-ARCHITECTURE section 2 has it on, so the common path is
+    // silent and the bare-shell path, where each line becomes a command, asks.
+    needsConfirm = multiline && !bracketed;
+  }
+
+  return { data: data, needsConfirm: needsConfirm, lineCount: lineCount, bracketed: bracketed, firstLine: firstLine };
+}
+
 class TerminalPane {
   // ── Theme palettes for xterm.js ──────────────────────────
   static THEME_MOCHA = {
@@ -955,6 +1076,19 @@ class TerminalPane {
     this._writeRaf = null;
     this._pasteHandled = false;
     this._pasteHandledResetTimer = null;
+    // ── P5.1 paste correctness state ─────────────────────────────
+    // _remoteBracketedPaste: the last DEC 2004 state reported by the server's
+    //   VT sidecar `mode` frame (P6.3). Stays undefined, and therefore unused,
+    //   whenever CWM_VT_SIDECAR is off, which is the default. Never a boolean
+    //   until a frame actually arrives, so `typeof === 'boolean'` is the test.
+    // _modeSeq: the highest mode-frame sequence number seen. The sidecar
+    //   stamps a monotonic seq precisely so a client can drop a reordered or
+    //   duplicated frame without keeping its own history.
+    // _pasteConfirmEl: the live multi-line paste dialog, so a pane that is
+    //   disposed or rebound mid-decision cannot leave one orphaned in the DOM.
+    this._remoteBracketedPaste = undefined;
+    this._modeSeq = 0;
+    this._pasteConfirmEl = null;
     // Copy-mode root cause (user report, 2026-07-25): Claude Code's interactive
     // TUI turns on terminal mouse tracking (DECSET 1000/1002/1003 + SGR 1006).
     // While that is active, xterm forwards a plain drag/wheel to the PTY instead
@@ -1232,7 +1366,13 @@ class TerminalPane {
         fontSize: 13,
         fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
         lineHeight: 1.2,
-        scrollback: 5000,
+        // P5.3, TERMINAL-ARCHITECTURE defect D7. The client ring was 5000 lines
+        // against a 100 KB server ring, so a chatty shell trimmed its own
+        // history away from BOTH ends within an hour and the content was then
+        // gone for good. 10000 lines at this cell size measures roughly 8 MB
+        // per pane in xterm 6's buffer, which is the figure VG-5 exists to
+        // confirm against a heap snapshot rather than an estimate.
+        scrollback: 10000,
         // Issue #41: animate wheel and Shift+PageUp/Down scrolling instead of
         // jumping in discrete row blocks. Resolves to 0 (instant) when the
         // setting is off or the OS requests reduced motion.
@@ -1344,6 +1484,69 @@ class TerminalPane {
         // to xterm's control-character path merely because letter case changed.
         const shortcutKey = typeof e.key === 'string' ? e.key.toLowerCase() : '';
 
+        // ── Ctrl+Shift+C, copy ALWAYS (TERMINAL-ARCHITECTURE D5 and 8.4) ──
+        //
+        // The Linux terminal convention, and the answer to the one thing plain
+        // Ctrl+C cannot do: copy when the user is not sure whether a selection
+        // exists. Plain Ctrl+C is deliberately ambiguous (selection copies,
+        // no selection interrupts), which means a user who wants to copy has to
+        // know the state of something they cannot see. This shortcut has one
+        // meaning and never sends ETX.
+        //
+        // It is written `mod && e.shiftKey && shortcutKey` rather than
+        // `mod && shortcutKey && e.shiftKey`, and it sits ABOVE the plain
+        // branch, for two reasons that are both load bearing:
+        //
+        //   BEHAVIOUR. `mod && shortcutKey === 'c'` is also true with Shift
+        //   held, so the plain branch below would otherwise swallow this
+        //   shortcut and hand it to a native copy that Chromium has already
+        //   bound to Inspect Element.
+        //
+        //   PRESERVATION. Three suites slice the plain branch out of this file
+        //   BY ITS SOURCE TEXT (copy-secure-context-fallback, terminal-select-v2
+        //   and terminal-select-mode) and assert that the slice contains no
+        //   preventDefault and no copyTextToClipboard. A branch that began with
+        //   the same characters, or that sat between the plain branch and the
+        //   `// Ctrl+V / Cmd+V` comment below, would be extracted as part of it
+        //   and would turn all three red while behaving correctly.
+        //
+        // preventDefault here is aimed at the browser, not at xterm: xterm 6
+        // already produces nothing for a Ctrl+SHIFT+letter (its control-code
+        // branch requires `!e.shiftKey`), so there was never a SIGINT to
+        // suppress; what there is, is a DevTools shortcut to keep out of the
+        // way when DevTools is closed.
+        if (mod && e.shiftKey && shortcutKey === 'c') {
+          e.preventDefault();
+          const selection = this.getCopySelection();
+          if (selection.hasSelection && selection.text) {
+            TerminalPane.copyTextToClipboard(selection.text);
+          }
+          return false;
+        }
+
+        // ── Ctrl+Shift+A, select all (D5 and 8.4) ──
+        //
+        // Terminal.selectAll() has existed in xterm 6 the whole time
+        // (xterm.d.ts line 1191) and nothing was wired to it, so "copy the
+        // whole terminal window" had no single action.
+        //
+        // WHY NOT Ctrl+A. Ctrl+A is beginning-of-line in readline and in every
+        // shell, editor and agent CLI this application spawns, and it is the
+        // tmux and screen prefix. Intercepting it would break the terminal to
+        // add a convenience, which is the opposite of what a terminal is for.
+        // 8.4 rules on this explicitly and picks the Shift form; Cmd+A already
+        // reaches xterm's own SELECT_ALL on macOS and is left alone.
+        //
+        // Stage 3 upgrades this to select the whole history document; today it
+        // selects the whole terminal buffer, which is everything that exists.
+        if (mod && e.shiftKey && shortcutKey === 'a') {
+          e.preventDefault();
+          try {
+            if (this.term && typeof this.term.selectAll === 'function') this.term.selectAll();
+          } catch (_) { /* a disposed terminal has nothing to select */ }
+          return false;
+        }
+
         // Ctrl+C / Cmd+C with an xterm selection belongs to the browser's
         // trusted native copy path. Returning false keeps xterm from turning
         // the shortcut into ETX/SIGINT, while deliberately NOT calling
@@ -1445,8 +1648,7 @@ class TerminalPane {
                 this._pasteHandled = false;
                 this._pasteHandledResetTimer = null;
               }, 0);
-              const bracketedText = '\x1b[200~' + text + '\x1b[201~';
-              this.ws.send(JSON.stringify({ type: 'input', data: bracketedText }));
+              this._sendPastePayload(text);
             }
             return;
           }
@@ -1492,8 +1694,7 @@ class TerminalPane {
           }
           const text = (e.clipboardData || window.clipboardData || '').getData('text');
           if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
-            const bracketedText = '\x1b[200~' + text + '\x1b[201~';
-            this.ws.send(JSON.stringify({ type: 'input', data: bracketedText }));
+            this._sendPastePayload(text);
           }
         }, { capture: true });
       }
@@ -1734,6 +1935,29 @@ class TerminalPane {
             this._activitySample = '';
             if (this.term) this.term.reset();
             return;
+          } else if (msg.type === 'mode') {
+            // P6.3's mode signal, consumed by P5.1's paste path.
+            //
+            // The server's headless VT sees every byte of the session,
+            // including the bytes that arrived before this client attached, so
+            // it knows whether the application has DEC 2004 on even when the
+            // local xterm was reset a moment ago by a resync. It is behind
+            // CWM_VT_SIDECAR and defaults OFF, so this branch is an UPGRADE:
+            // isBracketedPasteMode falls back to xterm's own reader and then to
+            // false, and nothing in P5 requires a frame ever to arrive.
+            //
+            // Out-of-order and duplicate frames are dropped on `seq`, which the
+            // sidecar stamps for exactly this purpose. A frame with no seq (an
+            // older or hand-rolled server) is accepted, because refusing an
+            // unversioned signal would be worse than acting on a stale one:
+            // the worst case is a bracket decision one mode-change out of date.
+            if (typeof msg.seq !== 'number' || msg.seq >= this._modeSeq) {
+              if (typeof msg.seq === 'number') this._modeSeq = msg.seq;
+              if (typeof msg.bracketedPaste === 'boolean') {
+                this._remoteBracketedPaste = msg.bracketedPaste;
+              }
+            }
+            return;
           } else if (msg.type === 'error') {
             this._flushWriteBuffer();
             this._status('[Error: ' + msg.message + ']', 'red');
@@ -1820,6 +2044,15 @@ class TerminalPane {
    * it moved up here so the availability guard could be added without changing
    * the pasteFromClipboard..this.ws.send proximity the isolation gate checks.)
    *
+   * P5.1 AMENDS THAT PARAGRAPH IN ONE RESPECT, and the amendment is the whole
+   * point of the work package: the wrapping is now CONDITIONAL on the receiving
+   * application having enabled DEC 2004, which prepareInputForPty reads from the
+   * live terminal rather than assuming. Against an application that never asked
+   * for bracketed paste (a bare cmd.exe, powershell.exe, or any simple REPL) the
+   * markers were delivered as literal garbage, which is defect D1 in
+   * TERMINAL-ARCHITECTURE.md section 4. Newline normalisation (D2) and the
+   * multi-line confirm (9.4) arrive on the same call.
+   *
    * Availability: the async Clipboard API (navigator.clipboard.readText) only
    * exists in secure contexts (https or localhost). On http over LAN, the
    * documented remote-access mode, navigator.clipboard is undefined. Rather
@@ -1850,9 +2083,10 @@ class TerminalPane {
     }
     try {
       const text = await navigator.clipboard.readText();
-      if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
-        const bracketedText = '\x1b[200~' + text + '\x1b[201~';
-        this.ws.send(JSON.stringify({ type: 'input', data: bracketedText }));
+      const paste = text ? prepareInputForPty(text, this.pasteOptions()) : null;
+      if (paste && paste.needsConfirm) this._confirmMultilinePaste(paste);
+      else if (paste && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'input', data: paste.data }));
       }
       // Refocus the terminal after the async clipboard read completes.
       // The await can cause the browser to shift focus away from xterm's
@@ -1869,6 +2103,196 @@ class TerminalPane {
       if (this.term) this.term.focus();
       return false;
     }
+  }
+
+  /**
+   * Read the LIVE bracketed-paste state for the application on the other end
+   * of this pane's PTY.
+   *
+   * Three sources, in falling order of authority, because P5 must work whether
+   * or not P6's server-side VT sidecar is switched on:
+   *
+   *   1. The `mode` control frame (TERMINAL-ARCHITECTURE stage 2, P6.3). The
+   *      server's headless VT is the same parser the real terminal uses and it
+   *      sees every byte, including bytes this client was not attached for. It
+   *      is behind CWM_VT_SIDECAR and DEFAULTS OFF, so it is an upgrade rather
+   *      than a dependency: nothing here may require it.
+   *   2. `term.modes.bracketedPasteMode`, xterm 6's own public IModes reader
+   *      (xterm.d.ts line 1919). Correct for everything this client has seen,
+   *      which is everything after attach.
+   *   3. False. An application that has not asked for bracketing does not want
+   *      it, and this is the SAFE default in both directions: a missing bracket
+   *      pastes literally, while a spurious bracket prints `[200~` into the
+   *      user's shell.
+   *
+   * @returns {boolean} Whether DEC 2004 is currently enabled.
+   */
+  isBracketedPasteMode() {
+    if (typeof this._remoteBracketedPaste === 'boolean') return this._remoteBracketedPaste;
+    try {
+      if (this.term && this.term.modes) return this.term.modes.bracketedPasteMode === true;
+    } catch (_) { /* a disposed or partially constructed terminal reports nothing */ }
+    return false;
+  }
+
+  /**
+   * The options every paste entry point passes to prepareInputForPty.
+   *
+   * One method so the three call sites cannot drift, which is exactly how D1
+   * and D2 came to exist in three places at once.
+   *
+   * @returns {{bracketedPasteMode: boolean, confirmMultiline: string}} Options.
+   */
+  pasteOptions() {
+    return {
+      bracketedPasteMode: this.isBracketedPasteMode(),
+      confirmMultiline: TerminalPane.multilinePasteSetting(),
+    };
+  }
+
+  /**
+   * Read the `terminalConfirmMultilinePaste` setting.
+   *
+   * Static and defensive for the same reason getSmoothScrollDuration is: a
+   * pane can be constructed before the app shell has loaded its settings, and
+   * a paste must never throw on a malformed localStorage value.
+   *
+   * @returns {string} `auto` (the 9.4 table), `always`, or `never`.
+   */
+  static multilinePasteSetting() {
+    try {
+      const stored = JSON.parse(localStorage.getItem('cwm_settings') || '{}');
+      const value = stored && stored.terminalConfirmMultilinePaste;
+      if (value === PASTE_CONFIRM_ALWAYS || value === PASTE_CONFIRM_NEVER) return value;
+    } catch (_) { /* unreadable or malformed settings fall through to the default */ }
+    return PASTE_CONFIRM_AUTO;
+  }
+
+  /**
+   * Prepare and deliver one paste, asking first when 9.4 says to ask.
+   *
+   * Used by the two NATIVE entry points (beforeinput/insertFromPaste and the
+   * paste event). Both have already called preventDefault, so nothing is on a
+   * deadline: deferring the send behind a confirm is safe.
+   *
+   * @param {string} text - Raw clipboard text.
+   * @returns {void}
+   */
+  _sendPastePayload(text) {
+    const paste = prepareInputForPty(text, this.pasteOptions());
+    if (paste.needsConfirm) {
+      this._confirmMultilinePaste(paste);
+      return;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'input', data: paste.data }));
+    }
+  }
+
+  /**
+   * Ask before sending a multi-line paste to an application that has not
+   * enabled bracketed paste.
+   *
+   * WHY THIS IS A PANE-LOCAL DIALOG rather than window.confirm or an app-shell
+   * modal. window.confirm blocks the event loop, which stalls the PTY write
+   * pipeline of every other pane on the page. An app-shell modal would put the
+   * decision in app.js, a file this work package does not own, and would put a
+   * chrome-coloured card over a terminal-coloured surface. This is parented on
+   * the pane, styled entirely from stylesheet classes (no inline colour), and
+   * dismissable three ways: Paste, Cancel, Escape.
+   *
+   * The default action is PASTE, matching Windows Terminal's own
+   * confirmMultilinePaste dialog: the user asked for this, the confirm exists
+   * to make the consequence visible, not to make it hard.
+   *
+   * @param {{data: string, lineCount: number, firstLine: string}} paste - A
+   *   prepared payload from prepareInputForPty.
+   * @returns {void}
+   */
+  _confirmMultilinePaste(paste) {
+    const pane = this.paneEl || (this._getOwnedContainer() &&
+      this._getOwnedContainer().closest('.terminal-pane'));
+    if (!pane || typeof document === 'undefined') {
+      // No surface to ask on. Send rather than silently swallow the paste:
+      // losing a user's clipboard with no message is worse than the mild
+      // surprise the confirm exists to prevent.
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'input', data: paste.data }));
+      }
+      return;
+    }
+    this._dismissPasteConfirm();
+
+    const root = document.createElement('div');
+    root.className = 'terminal-paste-confirm';
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'false');
+    root.setAttribute('aria-label', 'Confirm multi-line paste');
+
+    const title = document.createElement('div');
+    title.className = 'terminal-paste-confirm-title';
+    title.textContent = 'Paste ' + paste.lineCount + ' lines into this session?';
+
+    const detail = document.createElement('div');
+    detail.className = 'terminal-paste-confirm-detail';
+    detail.textContent = 'Each line runs as its own command. It starts with:';
+
+    const preview = document.createElement('div');
+    preview.className = 'terminal-paste-confirm-preview';
+    preview.textContent = paste.firstLine;
+
+    const actions = document.createElement('div');
+    actions.className = 'terminal-paste-confirm-actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn-ghost btn-sm terminal-paste-confirm-cancel';
+    cancel.textContent = 'Cancel';
+    const accept = document.createElement('button');
+    accept.type = 'button';
+    accept.className = 'btn btn-primary btn-sm terminal-paste-confirm-accept';
+    accept.textContent = 'Paste';
+    actions.appendChild(cancel);
+    actions.appendChild(accept);
+
+    root.appendChild(title);
+    root.appendChild(detail);
+    root.appendChild(preview);
+    root.appendChild(actions);
+
+    const close = () => this._dismissPasteConfirm();
+    const send = () => {
+      close();
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'input', data: paste.data }));
+      }
+      this.focus();
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); close(); this.focus(); }
+      else if (e.key === 'Enter') { e.stopPropagation(); send(); }
+    };
+    accept.addEventListener('click', send);
+    cancel.addEventListener('click', () => { close(); this.focus(); });
+    root.addEventListener('keydown', onKey);
+
+    pane.appendChild(root);
+    this._pasteConfirmEl = root;
+    try { accept.focus(); } catch (_) { /* a detached pane cannot take focus */ }
+  }
+
+  /**
+   * Remove the multi-line paste confirm if one is open.
+   *
+   * Idempotent, and called from dispose() and detachHostBindings() as well as
+   * from the dialog's own buttons, so a pane that is torn down or moved to
+   * another slot mid-decision never leaves an orphan dialog in the DOM.
+   *
+   * @returns {void}
+   */
+  _dismissPasteConfirm() {
+    if (!this._pasteConfirmEl) return;
+    try { this._pasteConfirmEl.remove(); } catch (_) { /* already detached */ }
+    this._pasteConfirmEl = null;
   }
 
   /**
@@ -1976,6 +2400,11 @@ class TerminalPane {
     if (this._selNoticeTimer) { clearTimeout(this._selNoticeTimer); this._selNoticeTimer = null; }
     this._removeSelectModeWheelGuard();
     this._destroyCopyView();
+    // P5.2: the multi-line paste confirm is parented on the pane element, so it
+    // is a fixed-host resource exactly like the Copy view overlay above. A
+    // cached pane that kept its dialog attached would leave a question about
+    // one session floating over another session's terminal.
+    this._dismissPasteConfirm();
     if (this._copyViewBtn) {
       try { this._copyViewBtn.remove(); } catch (_) {}
       this._copyViewBtn = null;
@@ -5271,6 +5700,9 @@ class TerminalPane {
     // session it no longer displays.
     this._removeVisibilityActivate();
     this._destroyCopyView();
+    // P5.2: a disposed pane must not leave its paste question on screen, and
+    // the answer would have nowhere to go anyway once the socket is closed.
+    this._dismissPasteConfirm();
     if (this._copyViewBtn) { try { this._copyViewBtn.remove(); } catch (_) {} this._copyViewBtn = null; }
     if (this.ws) { this.ws.onmessage = null; this.ws.onclose = null; this.ws.close(); }
     if (this.term && this.term.element &&
