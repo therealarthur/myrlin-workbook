@@ -1780,6 +1780,20 @@ class CWMApp {
         if (typeof this.renderTerminalGroupTabs === 'function' && this._tabGroups) {
           this.renderTerminalGroupTabs();
         }
+        // NOTION RESTYLE P10.2. The three phone screens are display:none
+        // above the breakpoint, so a tablet rotated out of portrait, or a
+        // desktop window dragged wider, would land on a mode whose panel
+        // cannot render and show an EMPTY main column with a breadcrumb that
+        // says Home. Measured at 900px in the P10 capture.
+        //
+        // The fallback is Sessions rather than the workbench, because all
+        // three phone screens are about finding a session and Sessions is the
+        // desktop surface that answers the same question. Crossing back down
+        // does not restore the phone screen: the user is now somewhere real
+        // and moving them again would be the second surprise.
+        if (!this.isMobile && CWMApp.MOBILE_ONLY_VIEW_MODES.includes(this.state.viewMode)) {
+          this.setViewMode('workspace');
+        }
       };
       // addEventListener('change') is the modern API; older Safari only has
       // addListener. Prefer the former, fall back to the latter.
@@ -13144,6 +13158,22 @@ class CWMApp {
   setViewMode(mode) {
     // Migrate legacy "all" mode to "workspace" for existing users
     if (mode === 'all') mode = 'workspace';
+
+    // NOTION RESTYLE P10.2. The three phone screens are display:none above
+    // the phone breakpoint, so entering one on a wider layout renders an
+    // EMPTY main column under a breadcrumb that says Home. Measured at 900px
+    // in the P10 capture, and reachable four ways: a tablet rotating out of
+    // portrait, a desktop window dragged wider, a stale `cwm_viewMode`
+    // restored on another device, and a direct call.
+    //
+    // The guard lives HERE rather than only on the breakpoint listener
+    // because it is the one place all four paths pass through. Sessions is
+    // the fallback because all three phone screens are about finding a
+    // session, and Sessions is the desktop surface that answers the same
+    // question.
+    if (CWMApp.MOBILE_ONLY_VIEW_MODES.includes(mode) && !this.isMobile) {
+      mode = 'workspace';
+    }
 
     this.state.viewMode = mode;
     localStorage.setItem('cwm_viewMode', mode);

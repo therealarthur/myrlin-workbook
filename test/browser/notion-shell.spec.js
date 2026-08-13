@@ -73,6 +73,11 @@ const ABSOLUTE_MAX_DIM = 2000;
 // A screenshot smaller than this is a blank or failed capture, not a picture.
 const MIN_PNG_BYTES = 1024;
 
+// The touch floor. PROCEDURE 4.1 and TEST-CONSTRAINTS section 9 both pin 44px
+// as the existing guarantee, and MOBILE-EXPERIENCE D.1 raises the mock to it
+// rather than lowering the floor to the mock.
+const TOUCH_FLOOR_PX = 44;
+
 /**
  * The capture matrix. Editing these three arrays changes every phase's picture
  * set at once, which is the point: P0's before pictures and P4's after pictures
@@ -210,6 +215,265 @@ const REGION_ROUTES = [
     },
   },
 ];
+
+/**
+ * OPT-IN MOBILE MATRIX, added by P10.
+ *
+ * The two standard routes stay frozen for comparability, exactly as
+ * REGION_ROUTES explains, so the phone IA gets its own opt-in pass under
+ * `--mobile`, into a `mobile/` subdirectory and a separate manifest key.
+ *
+ * BUILD-CONTRACT 5.2 makes P10's gate "the 44px sweep returns ZERO rows, no
+ * two expanded hit rects intersect, every A.3 route walks to its surface".
+ * None of that can be read off a screenshot, so this pass also measures.
+ *
+ * The tablet widths are here because MOBILE-EXPERIENCE H.3 item 6 raises the
+ * breakpoint as an open question: 768 is exactly on the phone breakpoint and
+ * 900 is the tablet boundary it proposes. They are PROBED, not decided.
+ */
+const MOBILE_VIEWPORTS = [
+  { id: 'phone', width: 390, height: 844 },
+  { id: 'tablet768', width: 768, height: 1024 },
+  { id: 'tablet900', width: 900, height: 1200 },
+];
+
+const MOBILE_ROUTES = [
+  // `reseed` re-applies the live presentation state after the view switch.
+  // setViewMode's final branch calls loadSessions(), which re-fetches the
+  // roster and restores every seeded status to its stored value, so a
+  // one-time seed before the loop is silently undone by the time the shutter
+  // opens. Home and Attention are the two surfaces that draw live state.
+  { id: 'home', mode: 'home', reseed: true },
+  { id: 'sessions', mode: 'workspace' },
+  { id: 'terminal', mode: 'terminal' },
+  { id: 'attention', mode: 'attention', reseed: true },
+  { id: 'search', mode: 'search' },
+];
+
+/**
+ * Give the phone pass something to photograph.
+ *
+ * Every seeded fixture session is STOPPED, which is correct for the desktop
+ * matrix but means Home draws neither its attention banner nor its "Active
+ * now" cards, and the Attention tab draws its empty state. Those are three of
+ * the surfaces P10 built, so the pass would photograph everything except the
+ * new work.
+ *
+ * This marks two sessions live and one as needing input, IN THE CLIENT ONLY.
+ * It is a presentation state, not a fixture change: nothing is written to the
+ * store, no PTY is started, and the desktop matrix that runs before this is
+ * already captured. The alternative, editing the shared fixture, would change
+ * every existing shot in the comparison corpus.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @returns {Promise<number>} How many sessions were marked live.
+ */
+function seedMobilePresentationState(page) {
+  return page.evaluate(() => {
+    const roster = window.cwm.state.allSessions || window.cwm.state.sessions || [];
+    const live = roster.slice(0, 3);
+    live.forEach((s, i) => {
+      s.status = 'running';
+      s.lastActive = new Date(Date.now() - (i + 1) * 4 * 60 * 1000).toISOString();
+      // Slot 0 is the one the probe PANE opens, and pane state WINS in the
+      // queue merge because it is live, so a needs-input mark on it would be
+      // overwritten by the pane's own 'running'. The mark goes on the
+      // sessions that have no pane, which is also the more interesting
+      // picture: an attention banner for a session you are NOT looking at.
+      window.cwm._setAttentionState(s.id, i === 0 ? 'running' : 'needs-input');
+    });
+    if (window.cwm.renderSessions) window.cwm.renderSessions();
+    if (window.cwm.renderAttentionQueue) window.cwm.renderAttentionQueue();
+    return live.length;
+  });
+}
+
+// Anything a finger can land on. Deliberately broad: the point of the sweep
+// is to find the control nobody remembered was interactive.
+const TOUCH_TARGET_SELECTOR = [
+  'button', 'a[href]', 'input', 'select', 'textarea', 'summary',
+  '[role="button"]', '[role="tab"]', '[role="menuitem"]', '[tabindex]:not([tabindex="-1"])',
+  '.mobile-tab', '.mobile-home-row', '.mobile-recent-row', '.mobile-session-card',
+  '.mobile-attention-row', '.mobile-scope-chip', '.terminal-tab', '.action-sheet-item',
+].join(', ');
+
+/**
+ * Run the 44px sweep and the adjacency check in one page pass.
+ *
+ * MOBILE-EXPERIENCE D.1 and D.2. The hit rect is the element's own box UNIONED
+ * with any `::before` expansion, because the project idiom for "small visual,
+ * legal target" is a transparent pseudo-element, and a sweep that measured
+ * only the element would report a false failure on every control that already
+ * uses it. `getBoundingClientRect` on a pseudo-element is not available, so
+ * the expansion is derived from its computed inset, which is what the idiom
+ * actually writes.
+ *
+ * The adjacency check is the other half of D.2: two expanded targets that
+ * overlap make each other's outer edges dead.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @param {number} floor - The touch floor in CSS pixels.
+ * @returns {Promise<object>} { checked, under, overlaps }.
+ */
+function sweepTouchTargets(page, floor) {
+  return page.evaluate(({ selector, floorPx }) => {
+    const describe = (el) => {
+      const cls = (el.className && typeof el.className === 'string')
+        ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.')
+        : '';
+      return el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + cls;
+    };
+
+    const parsePx = (value) => {
+      const n = parseFloat(value);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const rects = [];
+    for (const el of document.querySelectorAll(selector)) {
+      if (!el.getClientRects().length) continue;
+      // xterm's helper textarea is an IME and accessibility shim parked at
+      // the cursor, one cell wide. It is not a control, nobody aims at it,
+      // and on a phone the restyle deliberately keeps focus AWAY from it
+      // (MOBILE-EXPERIENCE C.4 rule 3). Sizing it to 44px would move the
+      // IME candidate window and break composition.
+      if (el.classList && el.classList.contains('xterm-helper-textarea')) continue;
+      const style = getComputedStyle(el);
+      if (style.visibility === 'hidden' || style.pointerEvents === 'none') continue;
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+
+      // Union with the ::before expansion, when the element uses the idiom.
+      let top = box.top;
+      let left = box.left;
+      let right = box.right;
+      let bottom = box.bottom;
+      const before = getComputedStyle(el, '::before');
+      if (before && before.content && before.content !== 'none' && before.position === 'absolute') {
+        const clips = (() => {
+          let p = el.parentElement;
+          while (p) {
+            const ps = getComputedStyle(p);
+            if (ps.overflow !== 'visible' || ps.overflowX !== 'visible' || ps.overflowY !== 'visible') return true;
+            p = p.parentElement;
+          }
+          return false;
+        })();
+        if (!clips) {
+          top -= Math.max(0, -parsePx(before.top));
+          left -= Math.max(0, -parsePx(before.left));
+          right += Math.max(0, -parsePx(before.right));
+          bottom += Math.max(0, -parsePx(before.bottom));
+        }
+      }
+
+      // A deliberately LAYERED element (sticky section header, absolute
+      // overlay, fixed bar) legitimately sits over the content beneath it,
+      // and the topmost one wins the tap. That is z-order working, not a
+      // dead edge, so such pairs are excluded from the adjacency check.
+      // D.2's constraint is about two targets side by side in one flow.
+      let layered = style.position === 'sticky' || style.position === 'fixed' ||
+        style.position === 'absolute';
+      if (!layered) {
+        let p = el.parentElement;
+        let depth = 0;
+        while (p && depth < 6) {
+          const ps = getComputedStyle(p);
+          if (ps.position === 'sticky' || ps.position === 'fixed' || ps.position === 'absolute') {
+            layered = true;
+            break;
+          }
+          p = p.parentElement;
+          depth++;
+        }
+      }
+
+      rects.push({
+        selector: describe(el),
+        layered,
+        width: Math.round((right - left) * 10) / 10,
+        height: Math.round((bottom - top) * 10) / 10,
+        top: Math.round(top),
+        left: Math.round(left),
+        right: Math.round(right),
+        bottom: Math.round(bottom),
+      });
+    }
+
+    const under = rects.filter(r => r.width + 0.5 < floorPx || r.height + 0.5 < floorPx);
+
+    // Adjacency: only EXPANDED targets can steal each other's edges, and only
+    // when they overlap by more than a hairline. A parent and its own child
+    // (a button inside a row) overlap by construction and are not a defect.
+    const overlaps = [];
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i];
+        const b = rects[j];
+        if (a.layered || b.layered) continue;
+        const dx = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const dy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (dx > 1 && dy > 1) {
+          const contains = (a.left <= b.left && a.right >= b.right &&
+            a.top <= b.top && a.bottom >= b.bottom) ||
+            (b.left <= a.left && b.right >= a.right && b.top <= a.top && b.bottom >= a.bottom);
+          if (!contains) overlaps.push({ a: a.selector, b: b.selector, dx, dy });
+        }
+      }
+    }
+
+    return { checked: rects.length, under, overlaps: overlaps.slice(0, 40), rects: rects.slice(0, 200) };
+  }, { selector: TOUCH_TARGET_SELECTOR, floorPx: floor });
+}
+
+/**
+ * Read the phone-specific measurements the P10 gate names.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @returns {Promise<object>} Custom properties, chrome heights, the tab list.
+ */
+function readMobileMetrics(page) {
+  return page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    const prop = (name) => root.getPropertyValue(name).trim();
+    const tabBar = document.querySelector('#mobile-tab-bar');
+    const tabs = Array.from(document.querySelectorAll('#mobile-tab-bar .mobile-tab'));
+    const rect = (el) => {
+      if (!el) return null;
+      const b = el.getBoundingClientRect();
+      return { width: Math.round(b.width), height: Math.round(b.height) };
+    };
+    const toast = document.querySelector('.toast-container');
+    return {
+      mwVh: prop('--mw-vh'),
+      mwKb: prop('--mw-kb'),
+      mwTabbarH: prop('--mw-tabbar-h'),
+      mwToolbarH: prop('--mw-toolbar-h'),
+      mwInputrowH: prop('--mw-inputrow-h'),
+      tabBarVisible: !!(tabBar && tabBar.getClientRects().length),
+      tabBarRect: rect(tabBar),
+      tabs: tabs.map(t => ({
+        view: t.dataset.view,
+        label: (t.textContent || '').trim(),
+        rect: rect(t),
+        current: t.getAttribute('aria-current'),
+      })),
+      badgeVisible: !!(document.querySelector('#mobile-attention-badge') &&
+        !document.querySelector('#mobile-attention-badge').hidden),
+      appHeight: rect(document.querySelector('.app')),
+      toastBottom: toast ? getComputedStyle(toast).bottom : null,
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      paneHeaderDisplay: (() => {
+        const h = document.querySelector('#term-pane-0 .terminal-pane-header');
+        return h ? getComputedStyle(h).display : null;
+      })(),
+      inputRowDisplay: (() => {
+        const r = document.querySelector('#term-pane-0 .terminal-mobile-input-row');
+        return r ? getComputedStyle(r).display : null;
+      })(),
+    };
+  });
+}
 
 /**
  * Wait until the pane in slot 0 has actually painted rows.
@@ -914,6 +1178,119 @@ async function run() {
           window.cwm.setViewMode('workspace');
         });
       }
+    }
+
+    // ── OPT-IN MOBILE PASS (P10) ──────────────────────────────────
+    // Five tabs at three widths in both chromes, plus the 44px sweep and the
+    // adjacency check that are BUILD-CONTRACT 5.2's P10 gate. Into mobile/,
+    // under its own manifest key, so the standard shot list is unchanged.
+    if (process.argv.includes('--mobile')) {
+      const mobileDir = path.join(outputDir, 'mobile');
+      fs.mkdirSync(mobileDir, { recursive: true });
+      manifest.mobileShots = [];
+      manifest.mobileSweep = [];
+
+      // Open one real pane so the Terminal tab photographs the chip strip,
+      // the key toolbar and the PERMANENT INPUT ROW rather than the empty
+      // state. The probe PTY is killed in the finally-style cleanup below,
+      // the same way the region pass handles its own.
+      const mobilePaneOpened = await page.evaluate(async () => {
+        const roster = window.cwm.state.allSessions || window.cwm.state.sessions || [];
+        const target = roster[0];
+        if (!target || !window.cwm.openTerminalInPane) return false;
+        window.cwm.setViewMode('terminal');
+        try {
+          await window.cwm.openTerminalInPane(0, target.id, target.name);
+        } catch (_) {
+          return false;
+        }
+        return true;
+      });
+      if (mobilePaneOpened) await waitForPaintedTerminal(page, 8000);
+      manifest.mobilePaneOpened = mobilePaneOpened;
+      // Seeded AFTER the pane, so the pane's own 'running' cannot overwrite
+      // the needs-input marks the banner and the Attention list read.
+      manifest.mobileSeededLive = await seedMobilePresentationState(page);
+
+      for (const viewport of MOBILE_VIEWPORTS) {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        for (const chrome of CHROMES) {
+          const applied = await applyChrome(page, chrome);
+          for (const route of MOBILE_ROUTES) {
+            await page.evaluate((mode) => window.cwm.setViewMode(mode), route.mode);
+            await page.waitForTimeout(400);
+            if (route.reseed) {
+              await seedMobilePresentationState(page);
+              await page.evaluate((mode) => {
+                if (mode === 'home' && window.cwm.renderMobileHome) window.cwm.renderMobileHome();
+                if (mode === 'attention' && window.cwm.renderMobileAttention) {
+                  window.cwm.renderMobileAttention();
+                }
+              }, route.mode);
+              await page.waitForTimeout(150);
+            }
+
+            const name = [viewport.id, chrome.id, route.id].join('-') + '.png';
+            const file = path.join(mobileDir, name);
+            await page.screenshot({ path: file, fullPage: false });
+
+            const dims = pngDimensions(file);
+            assert.ok(
+              dims.width <= ABSOLUTE_MAX_DIM && dims.height <= ABSOLUTE_MAX_DIM,
+              'captured PNG exceeds ' + ABSOLUTE_MAX_DIM + 'px: ' + file
+            );
+            assert.ok(dims.bytes > MIN_PNG_BYTES, 'captured mobile PNG is suspiciously small: ' + file);
+
+            const mobileMetrics = await readMobileMetrics(page);
+            manifest.mobileShots.push({
+              name,
+              viewport: viewport.id,
+              width: viewport.width,
+              chrome: chrome.id,
+              route: route.id,
+              pngWidth: dims.width,
+              pngHeight: dims.height,
+              bytes: dims.bytes,
+              chromeAttr: applied.chromeAttr,
+              metrics: mobileMetrics,
+            });
+            console.log('  captured mobile/' + name + '  ' + dims.width + 'x' + dims.height +
+              '  ' + Math.round(dims.bytes / 1024) + 'KB' +
+              '  tabs=' + mobileMetrics.tabs.length +
+              '  tabbar=' + (mobileMetrics.tabBarRect ? mobileMetrics.tabBarRect.height : 0) + 'px');
+
+            // The sweep runs at PHONE widths only. Above the breakpoint the
+            // shell is the desktop one and a 44px floor is not the contract
+            // there; PROCEDURE's pointer-coarse block is.
+            if (viewport.width <= 768) {
+              const sweep = await sweepTouchTargets(page, TOUCH_FLOOR_PX);
+              manifest.mobileSweep.push({
+                viewport: viewport.id,
+                chrome: chrome.id,
+                route: route.id,
+                checked: sweep.checked,
+                underCount: sweep.under.length,
+                under: sweep.under,
+                overlapCount: sweep.overlaps.length,
+                overlaps: sweep.overlaps,
+              });
+              console.log('    44px sweep: ' + sweep.checked + ' targets, ' +
+                sweep.under.length + ' under floor, ' + sweep.overlaps.length + ' overlapping');
+              for (const row of sweep.under) {
+                console.log('      UNDER ' + row.selector + '  ' + row.width + 'x' + row.height);
+              }
+            }
+          }
+        }
+      }
+
+      // Kill the probe PTY. The kill matters more than the dispose: dispose
+      // closes the CLIENT socket and the PTY on the server survives it.
+      if (mobilePaneOpened) await killProbePane(page);
+
+      // Leave the shell where the desktop pass expects it.
+      await page.evaluate(() => window.cwm.setViewMode('workspace'));
+      await page.setViewportSize({ width: VIEWPORTS[0].width, height: VIEWPORTS[0].height });
     }
 
     // One metric block per viewport and chrome, hoisted out of the shot list so

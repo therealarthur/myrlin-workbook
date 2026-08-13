@@ -248,6 +248,15 @@
     display: none !important;
   }
 
+  /* P10.1: with the view tabs and the focused More button both hidden,
+     `.header-center` is an empty flex child that still takes a share of
+     the 390px bar and squeezes the workspace name down to one letter.
+     The whole cluster goes, and the header becomes what the mock draws:
+     tile, name, "+", avatar. */
+  .app-header .header-center {
+    display: none !important;
+  }
+
   /* Hide header-right actions - moved to "More" tab */
   .header-right {
     display: none;
@@ -1674,6 +1683,16 @@
   display: none !important;
 }
 
+/* The two injected phone header controls have the same problem in reverse:
+   they are INJECTED at bind time regardless of width, so without a base
+   rule they render as ordinary buttons in the desktop topbar. Measured at
+   900px in the P10 capture, where a stray "+" appeared beside the
+   breadcrumb. The phone block below turns them back on. */
+.mobile-header-back,
+.mobile-header-new {
+  display: none;
+}
+
 @media (max-width: 768px) {
 
   .mobile-screen:not([hidden]) {
@@ -2139,6 +2158,37 @@
   .app-header .header-brand[data-mw-route="workspace-switch"] {
     min-height: 44px;
     cursor: pointer;
+    gap: 8px;
+    /* Grows to fill the bar so the name has room, but never below the
+       touch floor: the tile alone is a target even when the name has
+       truncated to nothing. */
+    flex: 1 1 auto;
+  }
+
+  /* The mock's header is tile, then NAME, then "+", then avatar. The
+     focused shell hides the name at phone widths, which made sense when
+     the header also carried a tab row; it does not now, because the
+     bottom bar carries navigation and the header carries identity (D.3
+     rule 1). The name comes back, at the mock's 15/600, truncating rather
+     than wrapping so the 50px bar can never grow. */
+  :root[data-ui-shell] .app-header .header-title {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* The tile itself: the mock draws a 24px rounded square. The focused
+     shell sizes the logo at 34px for a header that had no name beside it. */
+  :root[data-ui-shell] .app-header .header-logo-img {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
   }
 
   /* The breadcrumb and the focused-shell More button are desktop chrome.
@@ -2178,5 +2228,155 @@
 
   .mobile-tab-badge[hidden] {
     display: none !important;
+  }
+
+  /* ─── THE 44px SWEEP (P10.6, MOBILE-EXPERIENCE D.1 and D.2) ──
+     Measured with the harness rather than eyeballed: at 390px the
+     enumerated interactive set had sixteen elements under the floor on
+     Home and nineteen on Sessions. Every one is fixed here rather than in
+     the sheet that authored it, because these are PHONE metrics and the
+     desktop sizes are correct for a pointer.
+
+     The technique throughout is D.1's: keep the drawn visual size, expand
+     the hit box. Where an ancestor scrolls or clips, the item's own
+     padding grows instead, because `overflow-x: auto` computes the other
+     axis to `auto` and a clipped pseudo-element is a silent failure. */
+
+  /* The stated idiom, authored once. `inset: calc((44px - 100%) / -2)`
+     expands symmetrically to the floor on both axes; the pseudo-element is
+     transparent and inherits pointer events, so nothing changes visually
+     and everything changes ergonomically. */
+  .mw-touch-expand {
+    position: relative;
+  }
+
+  .mw-touch-expand::before {
+    content: '';
+    position: absolute;
+    inset: calc((44px - 100%) / -2);
+  }
+
+  /* The phone header. Five controls, all drawn under the floor by rules
+     written for a pointer. The account chip and the sidebar toggle grow
+     their own box because the header sets `overflow: hidden` and would
+     clip a pseudo-element (D.2 constraint 1).
+
+     The `[data-ui-shell]` prefix is load-bearing, not decoration.
+     focused-shell.css authors `:root[data-ui-shell="focused"]
+     .account-chip { min-height: var(--focused-control-height) }` and
+     loads AFTER this sheet, so a two-class selector here loses the tie.
+     It also raises the floor at phone WIDTH rather than only at
+     `pointer: coarse`, which matters because a narrow desktop window gets
+     this layout with a mouse attached and the coarse block never fires. */
+  :root[data-ui-shell] .app-header .sidebar-toggle,
+  :root[data-ui-shell] .app-header .account-chip {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* The workspace tile is 34px wide because the brand is a logo plus a
+     label; the tile is the tap target and takes the floor on both axes. */
+  .app-header .header-brand {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* The mock's 32px header buttons keep their drawn size and take the
+     floor from the pseudo-element above. The header clips, so they take
+     it from their own box as well; the two agree, and the visual stays
+     32px because the SVG inside is fixed. */
+  .app-header .mobile-header-back,
+  .app-header .mobile-header-new,
+  .mobile-screen-overflow {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Adjacent expanded targets must not overlap or their outer edges go
+     dead. The mock's 6px to 10px header gaps rise to 12px (D.2
+     constraint 2). */
+  .app-header .header-left {
+    gap: 12px;
+  }
+
+  /* The sidebar drawer is still reachable on a phone from the header
+     toggle, so every row in it is a live touch target even though the
+     Sessions tab is now the canonical route. P11 retires the edge-swipe;
+     until then these are hittable and must clear the floor. */
+  #sidebar .sidebar-launch-btn,
+  #sidebar .sidebar-tab,
+  #sidebar .sidebar-recent-toggle,
+  #sidebar .sidebar-recent-row,
+  #sidebar .sidebar-recent-all,
+  #sidebar #toggle-hidden-btn {
+    min-height: 44px;
+  }
+
+  /* Row-shaped controls take the floor from padding rather than from a
+     height, so their text stays vertically centred at any wrap. */
+  #sidebar .sidebar-recent-row,
+  #sidebar .sidebar-recent-all {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  /* The Sessions panel header and its empty-state CTA. */
+  .session-list-panel .panel-header .btn,
+  .session-table-new {
+    min-height: 44px;
+  }
+
+  /* The tab-group strip's add button. 26x22 drawn; the strip scrolls, so
+     it grows its own box. */
+  .terminal-groups-add {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* The chip strip's own controls. The `::before { inset: -13px }` rule
+     above is RETAINED and is what a non-scrolling ancestor would use, but
+     the strip sets `overflow-x: auto`, which clips a pseudo-element and
+     computes the other axis to `auto` as well. D.2 is explicit about this
+     case: inside a scroll container the ITEM'S OWN PADDING grows instead.
+     Measured, the close control was 18x18 and the add chip 39x44. */
+  .terminal-tab-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .terminal-tab.terminal-tab-add {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* NO FLOATING ACTION BUTTONS ON PHONES (MOBILE-EXPERIENCE B.6). The
+     upload FAB is already hidden here; the schedule FAB was not, and the
+     comment at its definition says so out loud. It is
+     `position: absolute; bottom: 12px`, and the toolbar and input row are
+     the pane's last children, so it lands ON TOP of them and clips
+     whichever key sits at that x offset. It is also 32px, under the
+     floor, and `opacity: 0` until a hover that a phone never delivers.
+
+     Its capability moved to the pane overflow sheet as "Scheduled
+     messages (n)", with the count the badge carried, so nothing is lost.
+     P11.3 owns this rule in the contract; it ships here because the 44px
+     sweep found it and the P10 gate is zero rows. */
+  .terminal-pane-schedule {
+    display: none !important;
+  }
+
+  /* The copy hint's dismiss control, injected by terminal.js at 13x19. */
+  .terminal-copy-hint-x {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* The bottom bar is 64px of content per the mock and C.7. The focused
+     shell authors 60px at `:root[data-ui-shell="focused"] .mobile-tab-bar`
+     and loads after this sheet, so the tie goes to it. One element
+     qualifier settles it without `!important`, which would make the
+     height unoverridable by anything downstream. */
+  :root[data-ui-shell] nav.mobile-tab-bar {
+    height: var(--mw-tabbar-h);
   }
 }
