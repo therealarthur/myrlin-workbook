@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.11] - 2026-08-13
+
+This prerelease changes nothing you can see. It is the scaffold the Notion restyle is built on: the design bundle is vendored into the served tree, the before pictures are captured, and the mechanical floor that keeps the restyle from breaking the app is now enforced by the test suite.
+
+### Added
+
+- **The captured Notion design bundle now lives in the served tree**, at `src/web/public/design/notion/`: the five token files, the machine-readable token provenance, the component paint layer, and the two font families. Nothing links to any of it yet, and the token files deliberately never will be. The reason is a real trap: the phantom-token gate treats `styles.css` and `styles-mobile.css` as the only places a custom property can be defined, so a token defined in a vendored file and used in `styles.css` would turn CI red and, worse, would silently do nothing in the browser. So the raw values get authored into `styles.css` instead, and a new test diffs the two copies on every run so the duplication cannot drift apart in silence.
+- **A screenshot harness that captures the whole application at two sizes in both light and dark**, into `screenshots/notion-restyle/`. It boots the real application against a disposable sandbox on a random port, signs in with a one-use token, seeds an invented set of projects and sessions so the pictures show real rows rather than empty states, and records the numbers each later phase has to hit: header height, sidebar width, body ink, font stack. Every captured image is checked to be at most 2000px on both axes. It never touches your profile, your credentials or your sessions, and the credential refresh sweep is switched off before the server starts.
+- **Thirteen mechanical gates, run as part of `npm test`.** They protect the things a restyle breaks by accident: 378 element ids, 278 class names that JavaScript queries but that a designer would see no reason to keep, 46 `data-` attributes, and the guard rules that make hidden elements stay hidden. Alongside those, ten counters track the work still to do (radius literals, gradients, uppercase labels, leftover palette colours) and fail if any of them moves the wrong way. Run `npm run gates` to see the current state.
+- **A decision log, an inventions log and a deviations log** under `docs/design/notion-restyle/`, plus the recorded starting measurements for every counter. Anything the restyle does differently from the captured brand gets a row with what the brand says, what shipped, why, and what it costs.
+
+### Fixed
+
+- **Nothing user-facing.** One correction worth recording: a scan for em dashes reported the codebase was clean. It was not, and the scan was wrong. There are 147 of them, two in text the app actually shows you. They are now counted, frozen so the number cannot grow, and queued for the copy pass.
+
 ## [1.3.0-alpha.10] - 2026-08-06
 
 This prerelease changes when Select mode pauses output, and lets the Copy view read the whole conversation instead of only what fit on the screen.
