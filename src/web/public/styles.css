@@ -7712,29 +7712,41 @@ html.activity-indicators-disabled .terminal-pane-activity {
   border-left: 1px solid var(--surface1);
 }
 
+/*
+ * THE ITALIC MONOSPACE PROJECT ROW, retired (DECISIONS 11.5 item 7).
+ * A 10px italic monospace grey line is three departures from the type system
+ * in one rule: this app has one UI face, no italics, and mono is reserved for
+ * identifiers, paths and terminal output. It made the project group inside a
+ * workspace read as a code comment rather than as a section label.
+ *
+ * It becomes the sidebar SECTION LABEL, which is what it is: 12px, weight
+ * 500, --app-sidebar-section-label, sentence case, at the sidebar's own row
+ * padding (BUILD-CONTRACT 2.12).
+ */
 .ws-project-group-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 8px;
+  padding: 4px 8px;
   cursor: pointer;
-  color: var(--overlay0);
-  font-size: 10px;
-  font-family: var(--font-mono);
-  font-style: italic;
+  color: var(--app-sidebar-section-label);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  font-style: normal;
   user-select: none;
   transition: color var(--transition-fast);
   margin: 2px 0;
 }
 
 .ws-project-group-header:hover {
-  color: var(--subtext0);
+  color: var(--app-text-secondary);
 }
 
 .ws-project-group-chevron {
-  font-size: 8px;
+  font-size: 10px;
   transition: transform var(--transition-fast);
-  color: var(--overlay0);
+  color: var(--app-icon-tertiary);
   flex-shrink: 0;
 }
 

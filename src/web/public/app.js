@@ -1917,6 +1917,9 @@ class CWMApp {
     // and the workbench continue row (recency surface 4).
     this.bindRecentSection();
     this.bindWorkbenchRecent();
+    // Notion restyle P4: keyboard activation for the row controls that are
+    // divs rather than buttons.
+    this.bindRowKeyboardActivation();
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -8078,7 +8081,7 @@ class CWMApp {
         return `<span class="session-badge session-badge-tag" style="background:${pair.fill};color:${pair.ink};">${this.escapeHtml(tag)}</span>`;
       }).join('');
 
-      return `<div class="task-item" data-session-id="${t.sessionId || ''}" data-task-id="${t.id}">
+      return `<div class="task-item" data-session-id="${t.sessionId || ''}" data-task-id="${t.id}" role="button" tabindex="0">
         <span class="task-item-dot ${dotClass}"></span>
         <span class="task-item-branch">${this.escapeHtml(t.branch || t.description || t.id)}</span>
         ${openBtn}
@@ -8274,7 +8277,7 @@ class CWMApp {
       return `<span class="session-badge session-badge-tag" style="background:${pair.fill};color:${pair.ink};">${this.escapeHtml(tag)}</span>`;
     }).join('');
 
-    return `<div class="kanban-card${task.blockedBy && task.blockedBy.length > 0 ? ' kanban-card-blocked-state' : ''}" draggable="true" data-task-id="${task.id}" data-session-id="${task.sessionId || ''}">
+    return `<div class="kanban-card${task.blockedBy && task.blockedBy.length > 0 ? ' kanban-card-blocked-state' : ''}" draggable="true" role="button" tabindex="0" data-task-id="${task.id}" data-session-id="${task.sessionId || ''}">
       <div class="kanban-card-title">${this.escapeHtml(task.branch || task.description || task.id)}</div>
       <div class="kanban-card-meta">
         ${modelShort ? `<span class="session-badge session-badge-model">${this.escapeHtml(modelShort)}</span>` : ''}
@@ -13704,7 +13707,7 @@ class CWMApp {
 
         // Phase 18 data-provider default for sessions from pre-v1.2 servers lacking the field.
         const sessProvider = this.escapeHtml(s.provider || 'claude'); /* gsd:provider-literal-allowed */
-        return `<div class="ws-session-item${isHidden ? ' ws-session-hidden' : ''}" data-session-id="${s.id}" data-provider="${sessProvider}" draggable="true" title="${this.escapeHtml(s.workingDir || '')}">
+        return `<div class="ws-session-item${isHidden ? ' ws-session-hidden' : ''}" data-session-id="${s.id}" data-provider="${sessProvider}" draggable="true" role="button" tabindex="0" title="${this.escapeHtml(s.workingDir || '')}">
           <span class="ws-session-dot${dotClass}"${tristateAttr}></span>
           <span class="ws-session-name">${this.escapeHtml(name)}</span>${pip}${timeEl}
           ${metaRow}
@@ -13749,7 +13752,7 @@ class CWMApp {
 
       return `
         <div class="workspace-accordion${isWsHidden ? ' hidden-item' : ''}" data-id="${ws.id}">
-          <div class="workspace-item${isActive ? ' active' : ''}" data-id="${ws.id}"${groupAttrs} draggable="true" style="--ws-color: ${color};${groupColor ? ' --ws-group-color: ' + groupColor + ';' : ''}">
+          <div class="workspace-item${isActive ? ' active' : ''}" data-id="${ws.id}"${groupAttrs} draggable="true" role="button" tabindex="0" style="--ws-color: ${color};${groupColor ? ' --ws-group-color: ' + groupColor + ';' : ''}">
             <span class="ws-chevron${showBody ? ' open' : ''}">&#9654;</span>
             ${(() => {
               const iconSvg = ws.icon
@@ -14243,7 +14246,7 @@ class CWMApp {
         : '';
 
       return `
-        <tr class="${rowCls.join(' ')}"
+        <tr class="${rowCls.join(' ')}" tabindex="0"
              data-id="${s.id}"${attentionState ? ` data-attention-state="${attentionState}"` : ''} draggable="true">
           <td class="session-cell-name">
             <div class="session-info">
@@ -14578,6 +14581,43 @@ class CWMApp {
           <span class="workbench-recent-meta">${project}${this.providerChipHtml(r.providerId)}${time}</span>
         </button>`;
     }).join('');
+  }
+
+  /**
+   * Keyboard activation for the row controls that are divs and table rows
+   * rather than buttons.
+   *
+   * P3 shipped a focus ring for these and DECISIONS 11.3.1 item 3 recorded
+   * the gap: eleven custom controls could not take focus at all, so the rings
+   * never fired. P4 gives six of them `tabindex="0"`; a tab stop that cannot
+   * be activated from the keyboard is only half the fix, so this translates
+   * Enter and Space into the click their delegated handlers already listen
+   * for.
+   *
+   * ONE delegated listener on the document, capture phase off, rather than
+   * one per container: these rows are re-rendered constantly, and a listener
+   * per container per render is how listener leaks start. Space is prevented
+   * from scrolling the page, Enter is not, because Enter has no default here.
+   *
+   * A row inside a text input or a real button is ignored, so typing a space
+   * into the projects filter never activates the row behind it.
+   */
+  bindRowKeyboardActivation() {
+    const ROW_SELECTOR = '.ws-session-item, .workspace-item, .project-session-item, ' +
+      '.session-item, .kanban-card, .task-item';
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const target = e.target;
+      if (!target || typeof target.closest !== 'function') return;
+      if (target.matches('input, textarea, select, button, a')) return;
+      const row = target.closest(ROW_SELECTOR);
+      if (!row) return;
+      // Only the focused row itself, never a row that merely contains the
+      // focused element, so a button inside a card keeps its own behaviour.
+      if (row !== target) return;
+      if (e.key === ' ') e.preventDefault();
+      row.click();
+    });
   }
 
   /**
@@ -15797,7 +15837,7 @@ class CWMApp {
         const liveDot = s.live
           ? '<span class="session-live-dot" title="Active within last 2 min (transcript recently written; not proof a process is running)"></span>'
           : '';
-        return `<div class="project-session-item" draggable="true" data-session-name="${this.escapeHtml(sessName)}" data-project-path="${this.escapeHtml(p.realPath || '')}" data-project-encoded="${this.escapeHtml(encoded)}" data-provider="${projProvider}" data-live="${s.live ? '1' : '0'}" title="${this.escapeHtml(tooltip)}">
+        return `<div class="project-session-item" draggable="true" data-session-name="${this.escapeHtml(sessName)}" data-project-path="${this.escapeHtml(p.realPath || '')}" data-project-encoded="${this.escapeHtml(encoded)}" data-provider="${projProvider}" data-live="${s.live ? '1' : '0'}" role="button" tabindex="0" title="${this.escapeHtml(tooltip)}">
           ${liveDot}<span class="project-session-name">${this.escapeHtml(displayName)}</span>
           ${archivedBadge}
           ${sessSize ? `<span class="project-session-size">${sessSize}</span>` : ''}
@@ -22974,8 +23014,15 @@ class CWMApp {
       return m.replace('claude-', '');
     };
 
-    // Color palette for breakdown bars (Catppuccin accent colors)
-    const barColors = ['var(--green)', 'var(--blue)', 'var(--mauve)', 'var(--peach)', 'var(--red)', 'var(--yellow)', 'var(--teal)', 'var(--pink)'];
+    // THE SIXTH COLOUR MAP (DECISIONS 10.7.6 item 5). P2.7 re-pointed five
+    // JS colour maps through the chrome hue projection and recorded this one,
+    // the Costs breakdown ramp, as the same shape but not on 1.8's list. It
+    // is a chrome ramp painting chrome bars, so DESIGN-SPEC 10.4 applies to
+    // it exactly as it did to the other five: the terminal's palette never
+    // paints chrome. The names and their ORDER are unchanged, so no bar
+    // changed which position it sits at; only the resolution moved.
+    const barColors = ['green', 'blue', 'mauve', 'peach', 'red', 'yellow', 'teal', 'pink']
+      .map(name => this._hueVar(name));
 
     let html = '';
 

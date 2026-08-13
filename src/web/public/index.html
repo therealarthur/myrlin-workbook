@@ -59,7 +59,7 @@
     Verified by test/browser/notion-shell.spec.js, which fails if the page
     requests fonts.googleapis.com or fonts.gstatic.com on a cold load.
   -->
-  <link rel="stylesheet" href="design/notion/fonts.css?v=20260813-notion-p1">
+  <link rel="stylesheet" href="design/notion/fonts.css?v=20260813-notion-p4">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
   <!--
     The captured nt-* paint layer, linked BEFORE styles.css on purpose so that
@@ -75,19 +75,19 @@
     nothing. Every value this project consumes is authored into the styles.css
     :root block instead. See BUILD-CONTRACT 1.1.1 and risk R9.
   -->
-  <link rel="stylesheet" href="design/notion/components.css?v=20260813-notion-p1">
+  <link rel="stylesheet" href="design/notion/components.css?v=20260813-notion-p4">
   <!--
     styles.css and styles-mobile.css carried no cachebuster at all, so a
     CSS-only change shipped stale to every warm cache. The Notion restyle is
     almost entirely CSS-only changes, which makes that a real defect rather
     than a theoretical one. See BUILD-CONTRACT risk R7.
   -->
-  <link rel="stylesheet" href="styles.css?v=20260813-notion-p1">
-  <link rel="stylesheet" href="styles-mobile.css?v=20260813-notion-p1">
-  <link rel="stylesheet" href="semantic-theme.css?v=20260813-notion-p1">
-  <link rel="stylesheet" href="focused-shell.css?v=20260813-notion-p1">
-  <script src="theme-registry.js?v=20260813-notion-p1"></script>
-  <script src="experience-model.js?v=20260813-notion-p1"></script>
+  <link rel="stylesheet" href="styles.css?v=20260813-notion-p4">
+  <link rel="stylesheet" href="styles-mobile.css?v=20260813-notion-p4">
+  <link rel="stylesheet" href="semantic-theme.css?v=20260813-notion-p4">
+  <link rel="stylesheet" href="focused-shell.css?v=20260813-notion-p4">
+  <script src="theme-registry.js?v=20260813-notion-p4"></script>
+  <script src="experience-model.js?v=20260813-notion-p4"></script>
   <script>
     (function() {
       try {
@@ -2117,13 +2117,13 @@
        server-side /api/providers metadata onto these locals to build the
        runtime map window.CWMProviderSpecs. -->
   <script src="provider-specs.js"></script>
-  <script src="terminal.js?v=20260813-notion-p1"></script>
-  <script src="instance-colors.js"></script>
+  <script src="terminal.js?v=20260813-notion-p4"></script>
+  <script src="instance-colors.js?v=20260813-notion-p4"></script>
   <!-- Issue #10 Tier 1 Phase 4: MirrorPaneView (read-only session mirror).
        MUST load before app.js so window.MirrorPaneView exists when
        _renderMirrorInPane mounts a mirror pane. -->
   <script src="mirror-view.js?v=20260727-copy-native8"></script>
-  <script src="app.js?v=20260813-notion-p1"></script>
+  <script src="app.js?v=20260813-notion-p4"></script>
   <script src="schedules.js"></script>
   <script>
     if ('serviceWorker' in navigator) {

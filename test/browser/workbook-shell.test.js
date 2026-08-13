@@ -372,8 +372,8 @@ async function run() {
     // cachebusters landed, so npm run test:workbook-shell could not pass. They
     // are brought to the current values as part of the same atomic bump rather
     // than left broken, which is why a bump is a FIVE-file change, not four.
-    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260813-notion-p1');
-    assert.strictEqual(shell.appScript, 'app.js?v=20260813-notion-p1');
+    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260813-notion-p4');
+    assert.strictEqual(shell.appScript, 'app.js?v=20260813-notion-p4');
     assert.strictEqual(shell.terminalClass, 'function', 'production TerminalPane must load');
     assert.strictEqual(shell.selectInterceptor, 'function', 'Select-mode interceptor must be present');
     assert.strictEqual(shell.themeRegistry, 'object', 'canonical theme registry must load before the app');

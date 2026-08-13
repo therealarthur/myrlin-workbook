@@ -171,7 +171,7 @@ check('index.html cache-busts the native-copy terminal fix', () => {
   // and three tests. Both scripts really did change in P1 (terminal.js for the
   // three font strings, app.js for setChrome), so they share this phase token
   // rather than drifting apart for no reason.
-  assert.ok(/terminal\.js\?v=20260813-notion-p1/.test(indexSrc),
+  assert.ok(/terminal\.js\?v=20260813-notion-p4/.test(indexSrc),
     'expected the current terminal.js cache token');
 });
 
@@ -182,7 +182,7 @@ check('index.html cache-busts the app pane-focus/host fix', () => {
   // SANCTIONED EDIT SE-7 (BUILD-CONTRACT.md 5.4, phase P1.6): Notion restyle
   // phase P1: assets changed, cachebuster bumped atomically across index.html
   // and three tests.
-  assert.ok(/app\.js\?v=20260813-notion-p1/.test(indexSrc),
+  assert.ok(/app\.js\?v=20260813-notion-p4/.test(indexSrc),
     'expected the current app.js cache token');
 });
 

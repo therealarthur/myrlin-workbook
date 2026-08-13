@@ -135,7 +135,7 @@ check('experience and semantic assets load before pre-paint and focused CSS', ()
     // and three tests.
     assert.match(
       html,
-      new RegExp(`${escapeRegExp(asset)}\\?v=20260813-notion-p1`),
+      new RegExp(`${escapeRegExp(asset)}\\?v=20260813-notion-p4`),
       `${asset} cachebuster is stale`
     );
   }
