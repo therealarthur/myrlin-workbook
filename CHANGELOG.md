@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.12] - 2026-08-13
+
+This is the first prerelease of the Notion restyle you can actually see. The application turns warm and light, the type stops being a webfont, and the whole colour system moves onto a new foundation. Nothing has moved on screen yet: the header is still the same height, the sidebar is still the same width, and every panel is still where it was. That is deliberate. This release changes what things are made of; the next one changes where they sit.
+
+### Changed
+
+- **The application has a light theme and a dark theme of its own, separate from the terminal palette.** Until now the thirteen Catppuccin palettes coloured everything: the terminal, the sidebar, the header, every button. Those thirteen are excellent terminal palettes and they are all still here, unchanged, still switchable from the same picker. What changed is that the chrome around the terminal stopped borrowing from them. The chrome now has two themes of its own, light and dark, taken from the captured design system, and they are chosen independently. A light terminal palette on dark chrome is a legal combination and it works. The chrome theme is remembered between visits and, on a first visit, follows the same system light or dark preference the palette already followed, so a new profile always gets a matching pair.
+- **Text is warmer and easier on the eye.** Body ink in light is a warm near-black rather than a blue-grey, and in dark it is a warm off-white rather than a cool lavender-white. Neither is ever pure black, which is the single most common cause of eye strain in a light interface.
+- **The interface font is now your operating system's own UI font.** It was Plus Jakarta Sans, fetched from Google. The design system this restyle follows ships no webfont for application chrome on purpose, because a webfont on an application surface is instantly recognisable as not-native on both macOS and Windows. Code, file paths, ids, branch names and diff hunks now set in iA Writer Mono, which is served from this application rather than from anywhere else.
+- **The status colours gained a distinction they were missing.** A completed session is now teal and a running session is green. They used to be the same green, which meant the sidebar dots, the table chips and the attention list could not tell you which of the two you were looking at.
+
+### Removed
+
+- **The last external request is gone.** The application no longer contacts fonts.googleapis.com or fonts.gstatic.com, or any other outside origin, on any page load. That was the only one, and it was a blocking round trip on every cold start. On a LAN, behind a tunnel or on an aeroplane it was a delay for a font that was never going to arrive. The two font families that still ship are served from this application and their licences permit it. A test now fails the build if any external font request comes back.
+
+### Fixed
+
+- **Stylesheet changes reach your browser again.** The two main stylesheets carried no cache-busting version at all, so a change to either of them shipped stale to anyone with a warm cache. Since this restyle is almost entirely stylesheet changes, that would have meant most of it silently not arriving. Every asset the page loads now carries a version and they all move together.
+- **The browser acceptance test can pass again.** Two of its assertions still expected script versions from before the Select v3 and mobile-select work landed, so the whole browser lane failed before the restyle touched anything. Recorded during the baseline pass, fixed here as part of the version bump.
+
+### Testing
+
+- The token parity gate is now load-bearing. It compares 319 design tokens between the application stylesheet and the captured design bundle on every run, per theme, and fails on any single value that drifts. Before this release it had nothing to compare and passed trivially.
+- Five test expectations moved, each in the same commit as the change that moved it, each with the reason written next to it, and none of them deleted: the provider identity colours, the Copy view font, and the asset versions in three files plus the browser lane.
+
 ## [1.3.0-alpha.11] - 2026-08-13
 
 This prerelease changes nothing you can see. It is the scaffold the Notion restyle is built on: the design bundle is vendored into the served tree, the before pictures are captured, and the mechanical floor that keeps the restyle from breaking the app is now enforced by the test suite.

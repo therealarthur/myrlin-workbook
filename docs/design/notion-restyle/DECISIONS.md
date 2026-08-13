@@ -417,7 +417,7 @@ fixing it, per `BUILD-CONTRACT.md` 4.1 item 7.
 
 | # | Finding | Evidence | Recommendation |
 | --- | --- | --- | --- |
-| F1 | The browser lane is red before the restyle touches anything. `test/browser/workbook-shell.test.js` lines 366 and 367 assert `terminal.js?v=20260727-copy-native8` and `app.js?v=20260727-copy-native8`, but `index.html` serves `terminal.js?v=20260806-selectv3` and `app.js?v=20260805-mobile-select1`. The assertions were not updated when the Select v3 and mobile-select cachebusters landed. | `grep -n "copy-native8" test/browser/workbook-shell.test.js src/web/public/index.html` | This is a fourth file in the G10 atomic set that the contract's list does not name. Gate G10 reports it as a warning rather than failing, because failing would make an unmodified-source gate red. The orchestrator should either fix those two lines (a one-line-each test edit outside the sanctioned list, so it needs an explicit blessing) or add the file to SE-7. Until then `npm run test:workbook-shell` cannot pass. |
+| F1 | **CLOSED in P1.6.** The orchestrator blessed the fix as SE-11 and the two assertions were brought to the current values inside the same atomic cachebuster bump. `npm run test:workbook-shell` now passes, and gate G10b reports clean. Original finding follows. The browser lane is red before the restyle touches anything. `test/browser/workbook-shell.test.js` lines 366 and 367 assert `terminal.js?v=20260727-copy-native8` and `app.js?v=20260727-copy-native8`, but `index.html` serves `terminal.js?v=20260806-selectv3` and `app.js?v=20260805-mobile-select1`. The assertions were not updated when the Select v3 and mobile-select cachebusters landed. | `grep -n "copy-native8" test/browser/workbook-shell.test.js src/web/public/index.html` | This is a fourth file in the G10 atomic set that the contract's list does not name. Gate G10 reports it as a warning rather than failing, because failing would make an unmodified-source gate red. The orchestrator should either fix those two lines (a one-line-each test edit outside the sanctioned list, so it needs an explicit blessing) or add the file to SE-7. Until then `npm run test:workbook-shell` cannot pass. |
 | F2 | The `--text-tertiary` Latte-only override at `focused-shell.css:30` is already inert and is pinned verbatim by `focused-shell.test.js`. | contract 1.3 | No action. Recorded so P1 does not "fix" it. |
 
 ---
@@ -471,3 +471,208 @@ a stylesheet claims:
    Re-point them per table C. Do not delete `--radius-xl`; retire it by alias.
 3. **A cachebuster bump is a five-file atomic change**, and G10 checks four of them.
    `test/browser/workbook-shell.test.js` is the fifth and is already stale, see F1.
+
+All three traps were hit and cleared in P1. Trap 1 cost one design decision (the reduced-motion
+block, 9.2.2); trap 2 cost nothing, the eight names were re-pointed as written; trap 3 cost the
+SE-11 authorisation and closed F1.
+
+---
+
+## 9. Phase P1, the token foundation
+
+### 9.1 What shipped, and where
+
+| WP | Commit | Files | What |
+| --- | --- | --- | --- |
+| P1.1 | `fff6747` | `styles.css`, `test/css-tokens.test.js` | The Notion `:root` token block, the reduced-motion block, the dark chrome block, and the alias flip for tables B, C and D. Sanctioned edit SE-1. |
+| P1.2 | `973ea9b` | `design/notion/fonts.css` (new), `index.html`, `terminal.js`, `test/terminal-select-v2.test.js` | Five self-hosted `@font-face` blocks, the Google Fonts link and both preconnects gone, three terminal font strings on tokens. Sanctioned edit SE-4. |
+| P1.3 | `a437a2a` | `semantic-theme.css` | Table E, every right-hand side onto the chrome layer. No test edit needed. |
+| P1.4 | `cca5d4a` | `index.html`, `app.js` | `data-surface="app"`, `data-chrome`, pre-paint stamping, `cwm_chrome`, `setChrome()`, `syncThemeColorMeta()`, the `theme-color` pair. No test edit needed. |
+| P1.6 | `e7a1c88` | `index.html`, four test files | `components.css` linked before `styles.css`, cachebusters bumped atomically to `20260813-notion-p1`. Sanctioned edits SE-7 and SE-11. |
+
+There is no P1.5 commit. Its content, the sanctioned test edits, shipped inside the commits that
+made the source changes those edits describe, which is what contract 5.4 requires. See 9.3.3.
+
+### 9.2 Ambiguities resolved during P1
+
+#### 9.2.1 The bundle's numeric radius ramp cannot be copied at all
+
+**Tension.** Table C re-points `--radius-lg` to `var(--radius-popover)`, and the bundle defines
+`--radius-popover: var(--radius-12)`. `phantom-tokens.test.js` then requires `--radius-12` to be
+defined in `styles.css`, and the parity gate requires whatever is authored to equal the bundle's
+value for that name. The bundle's value for `--radius-12`, read the way the parity gate reads it, is
+`0`: its own `.mkt-theme-academic, .mkt-theme-serif` block re-declares all ten ramp names as zero,
+and last definition in source order wins.
+
+So all three of the obvious moves fail. Authoring `0.75rem` fails the parity diff. Authoring `0`
+ships square corners. Authoring `--radius-popover: 12px` fails the diff too, because the bundle's
+value for that name is the string `var(--radius-12)`, not `12px`.
+
+**Resolution: author neither.** The ramp and the twelve aliases built on it are not authored. The
+project consumes the capture's literal-valued semantic radii, which cover the whole Notion editor
+set (3.5, 4, 6, 10, 100 percent), and `--radius-lg` carries a literal `12px` with a comment at the
+definition site. Recorded as `DEVIATIONS.md` DV-4. Sixteen bundle names were found to carry this
+last-wins hazard; the other six are handled in 9.2.2.
+
+**P2 consequence:** the radius sweep has every token it needs. It does **not** have
+`--radius-popover`, `--radius-card`, `--radius-menu-item` or `--radius-button`. Use
+`--radius-callout` (10px) for cards and callouts, `--radius-app-button` (6px) for buttons,
+`--radius-property-chip` (4px) for chips, and `--radius-lg` (12px) where the popover radius is
+wanted.
+
+#### 9.2.2 Four motion tokens are only correct if the reduced-motion block is authored too
+
+The same last-wins hazard hits `--motion-card-hover`, `--motion-illustration-enter`,
+`--motion-marquee` and `--motion-long-fade`, whose winning bundle value comes from the bundle's own
+`@media (prefers-reduced-motion: reduce)` block. Here, unlike the radius case, reproducing the
+cascade is the *right* thing rather than a workaround: `PROCEDURE.md` step 10 requires decorative
+motion to be authored so that reduced motion removes it. So `styles.css` carries the full value in
+`:root` and the reduced value in a `@media (prefers-reduced-motion: reduce) { :root { ... } }` block,
+exactly as the capture does. The parity diff reads the same last definition and matches. Flattening
+to the reduced value would have passed the gate and shipped four dead animation tokens.
+
+Three further names, `--font-body`, `--font-display` and `--font-features`, have a benign version of
+the same conflict: their winner comes from the bundle's `[data-surface="app"]` block, which is the
+surface this project is on, so the winner is what should be authored anyway.
+
+#### 9.2.3 Contract 1.7's premise about the terminal font strings is not true of this source
+
+1.7 says `terminal.js:4047` carries `font: 11px/1.4 'Plus Jakarta Sans'` "with **no fallback**", and
+warns that deleting the Google Fonts link "leaves those two strings with no fallback family and both
+surfaces fall back to Times. This is a real bug the font step would otherwise introduce."
+
+Measured: all three strings already carry fallbacks (`system-ui, sans-serif` on the two sans sites,
+`'Cascadia Code', Consolas, monospace` on the mono site). The bug does not exist and removing the
+link was safe with or without the change. The three edits were made anyway, because the contract
+specifies them and `DECISIONS.md` 3.3 fixes the terminal on `--font-code`, but they are **fidelity,
+not a bug fix**, and no phase should treat the removal of a webfont link as blocked on them.
+
+Six further `'Plus Jakarta Sans'` strings exist in `terminal.js` (lines near 4372, 4393, 4410, 4426
+and 5169) and one xterm `fontFamily` at 1233. None is named by 1.7 and none was touched. All six
+carry `system-ui, sans-serif` fallbacks so none regressed. The xterm one at 1233 is the actual
+terminal font and belongs to P5 with the `terminalSurface` projection, because changing it changes
+column metrics.
+
+#### 9.2.4 Table E gives the running state two different hues
+
+`--status-running` keeps `var(--color-info)`, which resolves to `--app-text-blue`, while table E
+gives `--status-running-surface` the value `var(--app-bg-green)`. A blue ink on a green wash is
+incoherent, and 1.9 C5's supporting sentence ("Green is running") suggests the intended end state is
+a green running ink.
+
+**Not settled here**, because it belongs to the phase that builds the status system, and because it
+is currently inert: of the five `--status-*-surface` tokens only `--status-needs-input-surface` has
+a consumer anywhere in the source (`focused-shell.css:687`), and that one is coherent (yellow on
+yellow). P1 shipped table E exactly as written. **P3 or P4 must decide** whether running is blue
+(and its wash becomes `--app-bg-blue`) or green (and `--status-running` stops pointing at
+`--color-info`). Either is a one-line change in `semantic-theme.css`.
+
+#### 9.2.5 The chrome default reads the palette's signal, not its own
+
+1.1.2 says `data-chrome` defaults "from `prefers-color-scheme`", which admits two implementations.
+The bootstrap already computes `prefersLight` for the palette default, so the chrome default reuses
+**that same variable** rather than querying `(prefers-color-scheme: dark)` separately.
+
+The difference only shows up on a browser that supports neither query, where both queries return
+false: a separate dark query would give light chrome while the palette default gives Mocha, which is
+a dark palette. That is precisely the combination that looks worst between P1 and P4, because it
+puts the new dark ink on the un-swept Catppuccin dark surfaces. Sharing the signal makes chrome and
+palette agree on every fresh profile by construction.
+
+### 9.3 Scope decisions, and what was deliberately left alone
+
+#### 9.3.1 `focused-shell.css` was not touched, and it re-derives two of the flipped aliases
+
+Table B says the `--border-subtle` and `--text-muted` re-derivations in `focused-shell.css` "also
+re-point". The file plan (3.2) assigns that file to **P2**, and the P1 work-package table gives it to
+no one. It was left alone.
+
+The consequence is concrete and P2 owns it: `:root[data-ui-shell="focused"]` at `focused-shell.css:24-26`
+overrides `--text-muted` and `--border-subtle` with palette-derived `color-mix()`, and
+`data-ui-shell` is always set, so those two aliases stay Catppuccin for **95 consumption sites**
+(36 and 59) despite the `:root` re-point. `focused-shell.css:38` likewise still paints the header
+with `color-mix(in srgb, var(--mantle) 94%, var(--base))`, which is why the header band in the P1
+screenshots is still the palette colour rather than the chrome ground.
+
+#### 9.3.2 The twelve palette blocks still override four chrome tokens
+
+File-plan rule 6 freezes the 12 `:root[data-theme="<id>"]` blocks through P1 and P2. Each of them
+re-declares `--border-subtle` and all four `--shadow-*` tokens with literals, so on any non-Mocha
+palette those five re-points are shadowed. On Mocha, which is the base `:root`, all five hold. This
+is C7's "retire in place" work and it lands with the elevation sweep.
+
+#### 9.3.3 Four of the six sanctioned edits P1.5 lists were not made
+
+SE-2, SE-3, SE-5 and SE-6 retarget assertions over **call sites** in `styles.css`, not over token
+definitions. P1 changed no call site, so all four tests pass unedited, and making the edits would
+have asserted values that do not exist yet. Contract 5.4 requires each sanctioned edit to ship in the
+same commit as its source change, and 4.1 item 7 forbids editing a test that is not broken. Recorded
+as `DEVIATIONS.md` DV-6, with the phase each edit moves to.
+
+### 9.4 The numbers
+
+| Measure | Before P1 | After P1 |
+| --- | --- | --- |
+| Bundle-family tokens compared by `notion-token-parity.test.js` | **0** (trivially passing) | **319** |
+| `styles.css` lines | 12202 | 12784 |
+| `semantic-theme.css` lines | 93 | 137 |
+| Gate G4, Catppuccin `var()` in chrome | 1259 | **1229** |
+| Gate G10b, stale browser-lane pins | 1 (WARN) | **0** (PASS) |
+| G3, G5a, G5b, G6, G7, G8, G9a, G9b, G11, G12a, G12b | unchanged | unchanged |
+| External origins requested on a cold load | `fonts.googleapis.com` | **none** |
+| Test files / assertions | 82 / 1315 | 82 / **1317** |
+
+The +2 assertions are **not** P1's: they come from the concurrent Codex track
+(`codex-state-db.test.js`, 64 to 66). P1's own delta is **zero added and zero removed**. It retargeted
+13 existing assertions in five files (SE-1 six, SE-4 one, SE-7 four, SE-11 two) and deleted none.
+
+Measured against the P1 gate additions in contract 5.2:
+
+| Gate addition | Result |
+| --- | --- |
+| `getComputedStyle(document.body).fontFamily` starts with `ui-sans-serif` | yes, all 8 shots |
+| Zero requests to `fonts.googleapis.com` or `fonts.gstatic.com` | yes, `manifest.externalRequests` is `[]` |
+| Body ink `#2c2c2b` light | yes, `rgb(44, 44, 43)`, was `rgb(76, 79, 105)` |
+| Body ink `#f0efed` dark | yes, `rgb(240, 239, 237)`, was `rgb(205, 214, 244)` |
+| Never `#000000` | yes |
+| Toggling `data-chrome` leaves no orphaned surface | see 9.5 |
+
+### 9.5 The P1 screenshots, and an honest reading of them
+
+`screenshots/notion-restyle/p1/`, eight shots plus `manifest.json`, same matrix as the baseline.
+The harness now reports `chrome=light` and `chrome=dark` rather than falling back to the appearance
+choice, so from P1 the matrix captures the real chrome themes.
+
+What is right: the ground and the ink are Notion's in both chromes, the type is the OS UI stack, code
+and paths are iA Writer Mono, layout is byte-identical to the baseline (header 58px, sidebar 264px,
+no horizontal overflow at either width), and nothing is unreadable in any of the eight.
+
+What is still Catppuccin, all of it expected and all of it owned by a later phase: the header band
+(9.3.1), the primary button fill, the tab underline, the sidebar project accents and the session
+badges. These are direct `var(--mauve)` and friends at call sites, which is the 1229 that G4 still
+counts and which P2 to P4 sweep.
+
+One observation that is **not** a P1 defect: in the light workbench shot the sidebar "New Session"
+button and the active "Workbench" nav pill read as low-contrast grey on grey. The P0 baseline shot
+shows the identical rendering, so it predates the restyle. Worth fixing when P2 reaches those two
+components.
+
+### 9.6 What P2 inherits
+
+1. A complete chrome token layer in `styles.css` `:root`: 319 bundle-verbatim tokens plus 3 documented
+   inventions, light values in `:root`, dark values under `:root[data-chrome="dark"], :root[data-theme="dark"]`,
+   and a parity gate that fails on any drift. Add a token by adding it to the generated block **with
+   the bundle's value**; the gate will tell you immediately if you paraphrase.
+2. The alias layer already pointing at it. `--bg-primary`, `--text-primary`, `--accent`, `--border`,
+   `--radius-sm`, `--transition-fast`, `--shadow-lg` and the rest resolve to Notion values with no
+   call-site change, so P2 can restyle a region by editing its rule bodies alone.
+3. `data-chrome` live, persisted, defaulted, stamped pre-paint, and switchable at runtime through
+   `window.cwm.setChrome(chrome, { persist })`. The screenshot harness already drives it.
+4. Two files P2 must touch early, because they currently shadow the chrome layer:
+   `focused-shell.css:24-26` (95 sites, 9.3.1) and `focused-shell.css:38` (the header band).
+5. The five radius tokens re-pointed and ready for the 199-literal sweep, with the caveat in 9.2.1
+   about which names exist.
+6. `design/notion/components.css` linked before `styles.css`. Its `.nt-*` classes are inert because no
+   markup carries them yet, and the non-bundle-family tokens it consumes (`--space-*`, `--text-*-size`,
+   `--mkt-*`) are **not** authored in `styles.css`. P2 authors whichever of those it actually uses.
+7. One open decision handed forward: 9.2.4, the running-state hue.

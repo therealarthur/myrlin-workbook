@@ -17,6 +17,13 @@
       "failures": 0,
       "recordedAt": "2026-08-13",
       "note": "includes 3 files and 120 assertions from the concurrent P6 and P8 tracks (codex-paths 22, codex-state-db 64, vt-sidecar 34); P0 itself contributed notion-token-parity 13 and do-not-break-gates 17"
+    },
+    "postP1": {
+      "files": 82,
+      "assertions": 1317,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "P1 added and removed zero assertions; it retargeted 13 existing ones across five files (SE-1, SE-4, SE-7, SE-11). The +2 against postP0-plus-drift comes from the concurrent P8 track (codex-state-db 64 to 66)."
     }
   },
   "gates": {
@@ -28,7 +35,7 @@
     },
     "G4": {
       "name": "Catppuccin var() consumption outside the palette blocks",
-      "baseline": 1259,
+      "baseline": 1229,
       "target": 0,
       "phase": "P4"
     },
