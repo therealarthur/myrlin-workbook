@@ -693,8 +693,17 @@
           </div>
         </div>
 
-        <!-- Terminal Grid (starts with 1 pane, auto-expands on drop) -->
-        <div class="terminal-grid" id="terminal-grid" data-panes="1" hidden>
+        <!-- Terminal Grid (starts with 1 pane, auto-expands on drop)
+             Notion restyle P11.1, MOBILE-EXPERIENCE B.2: the pane grid and
+             every pane container in it are the CHROME zone. A long press on
+             pane background does nothing at all; the pane action sheet is
+             reached from the pinned overflow chip and from a long press on a
+             pane chip, both of which are affordances. Declaring it here makes
+             the zone visible in the DOM, which is what B.2 asks for, and the
+             three text surfaces inside it (the xterm screen, the Copy view
+             and the Reader) are matched structurally because another track
+             authors them. -->
+        <div class="terminal-grid" id="terminal-grid" data-panes="1" data-mw-zone="chrome" hidden>
           <div class="terminal-tab-strip" id="terminal-tab-strip" hidden></div>
           <div class="terminal-pane terminal-pane-empty" id="term-pane-0" data-slot="0">
             <div class="terminal-pane-header">
@@ -760,11 +769,11 @@
               <svg width="14" height="14"><use href="#icon-clock"/></svg>
               <span class="pane-schedule-count" hidden>0</span>
             </button>
-            <div class="terminal-mobile-input-row">
+            <div class="terminal-mobile-input-row" data-mw-zone="chrome">
               <input type="text" class="mobile-type-input" placeholder="Type here..." enterkeyhint="send" autocomplete="off" />
               <button class="mobile-send-btn">Send</button>
             </div>
-            <div class="terminal-mobile-toolbar">
+            <div class="terminal-mobile-toolbar" data-mw-zone="chrome">
               <button class="toolbar-reader" data-key="reader" title="Full-screen scrollable reader">&#128196; Read</button>
               <button class="toolbar-keyboard" data-key="keyboard" title="Toggle keyboard">&#9000; Type</button>
               <button class="toolbar-send" data-key="enter">Enter</button>
@@ -815,11 +824,11 @@
               <svg width="14" height="14"><use href="#icon-clock"/></svg>
               <span class="pane-schedule-count" hidden>0</span>
             </button>
-            <div class="terminal-mobile-input-row">
+            <div class="terminal-mobile-input-row" data-mw-zone="chrome">
               <input type="text" class="mobile-type-input" placeholder="Type here..." enterkeyhint="send" autocomplete="off" />
               <button class="mobile-send-btn">Send</button>
             </div>
-            <div class="terminal-mobile-toolbar">
+            <div class="terminal-mobile-toolbar" data-mw-zone="chrome">
               <button class="toolbar-reader" data-key="reader" title="Full-screen scrollable reader">&#128196; Read</button>
               <button class="toolbar-keyboard" data-key="keyboard" title="Toggle keyboard">&#9000; Type</button>
               <button class="toolbar-send" data-key="enter">Enter</button>
@@ -870,11 +879,11 @@
               <svg width="14" height="14"><use href="#icon-clock"/></svg>
               <span class="pane-schedule-count" hidden>0</span>
             </button>
-            <div class="terminal-mobile-input-row">
+            <div class="terminal-mobile-input-row" data-mw-zone="chrome">
               <input type="text" class="mobile-type-input" placeholder="Type here..." enterkeyhint="send" autocomplete="off" />
               <button class="mobile-send-btn">Send</button>
             </div>
-            <div class="terminal-mobile-toolbar">
+            <div class="terminal-mobile-toolbar" data-mw-zone="chrome">
               <button class="toolbar-reader" data-key="reader" title="Full-screen scrollable reader">&#128196; Read</button>
               <button class="toolbar-keyboard" data-key="keyboard" title="Toggle keyboard">&#9000; Type</button>
               <button class="toolbar-send" data-key="enter">Enter</button>
@@ -925,11 +934,11 @@
               <svg width="14" height="14"><use href="#icon-clock"/></svg>
               <span class="pane-schedule-count" hidden>0</span>
             </button>
-            <div class="terminal-mobile-input-row">
+            <div class="terminal-mobile-input-row" data-mw-zone="chrome">
               <input type="text" class="mobile-type-input" placeholder="Type here..." enterkeyhint="send" autocomplete="off" />
               <button class="mobile-send-btn">Send</button>
             </div>
-            <div class="terminal-mobile-toolbar">
+            <div class="terminal-mobile-toolbar" data-mw-zone="chrome">
               <button class="toolbar-reader" data-key="reader" title="Full-screen scrollable reader">&#128196; Read</button>
               <button class="toolbar-keyboard" data-key="keyboard" title="Toggle keyboard">&#9000; Type</button>
               <button class="toolbar-send" data-key="enter">Enter</button>
@@ -980,11 +989,11 @@
               <svg width="14" height="14"><use href="#icon-clock"/></svg>
               <span class="pane-schedule-count" hidden>0</span>
             </button>
-            <div class="terminal-mobile-input-row">
+            <div class="terminal-mobile-input-row" data-mw-zone="chrome">
               <input type="text" class="mobile-type-input" placeholder="Type here..." enterkeyhint="send" autocomplete="off" />
               <button class="mobile-send-btn">Send</button>
             </div>
-            <div class="terminal-mobile-toolbar">
+            <div class="terminal-mobile-toolbar" data-mw-zone="chrome">
               <button class="toolbar-reader" data-key="reader" title="Full-screen scrollable reader">&#128196; Read</button>
               <button class="toolbar-keyboard" data-key="keyboard" title="Toggle keyboard">&#9000; Type</button>
               <button class="toolbar-send" data-key="enter">Enter</button>
@@ -1035,11 +1044,11 @@
               <svg width="14" height="14"><use href="#icon-clock"/></svg>
               <span class="pane-schedule-count" hidden>0</span>
             </button>
-            <div class="terminal-mobile-input-row">
+            <div class="terminal-mobile-input-row" data-mw-zone="chrome">
               <input type="text" class="mobile-type-input" placeholder="Type here..." enterkeyhint="send" autocomplete="off" />
               <button class="mobile-send-btn">Send</button>
             </div>
-            <div class="terminal-mobile-toolbar">
+            <div class="terminal-mobile-toolbar" data-mw-zone="chrome">
               <button class="toolbar-reader" data-key="reader" title="Full-screen scrollable reader">&#128196; Read</button>
               <button class="toolbar-keyboard" data-key="keyboard" title="Toggle keyboard">&#9000; Type</button>
               <button class="toolbar-send" data-key="enter">Enter</button>

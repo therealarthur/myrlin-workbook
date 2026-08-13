@@ -2380,3 +2380,494 @@
     height: var(--mw-tabbar-h);
   }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 12: TOUCH, THE THREE ZONES AND THE SURFACES THEY GOVERN
+   (Notion restyle P11, MOBILE-EXPERIENCE B)
+
+   P10 built the phone's information architecture: where everything
+   lives. This block is the other half of the same question: what a
+   finger does when it lands there.
+
+   Five things ship here, in the order MOBILE-EXPERIENCE B states them:
+   the three-zone model's own declarations (B.2), the toast contract's
+   root cause (B.5), the priority-plus toolbar (B.7), the Sessions tab
+   surface A.3.2 asks for, and the shared-width notice (B.9 rule 5).
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── B.2, THE THREE ZONES ─────────────────────────────────────
+   The zone attribute is the model's declaration site, so the CSS that
+   belongs to a zone is written against the attribute rather than
+   against the thirty class names that carry it.
+
+   These are OUTSIDE the phone breakpoint on purpose. A tablet
+   touchscreen and a touch-enabled laptop have the same callout
+   problem, and `user-select` on an affordance is correct at every
+   width: a session row was never text a person selects. */
+[data-mw-zone="affordance"],
+[data-mw-zone="chrome"] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  /* A long press that opened a sheet must not also paint a tap
+     highlight, which on Android lingers underneath it. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Text zones say so explicitly, because several of them are nested
+   inside affordances (a notes field inside a peek card) and would
+   otherwise inherit the rule above and lose their selection. */
+[data-mw-zone="text"] {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+@media (max-width: 768px) {
+
+  /* ─── B.5, THE TOAST CONTRACT ────────────────────────────────
+     P10 fixed the ANCHOR: a toast is positioned above the measured
+     bottom stack rather than at a magic 72px. This is the ROOT CAUSE
+     underneath it, and it is independent of placement.
+
+     `.toast` sets `pointer-events: auto` and `cursor: grab`, so every
+     toast is a full-width interactive rectangle. A toast with no
+     action button is a NOTICE, not a control, and a notice that eats
+     a tap is a bug however well it is placed. `showToast` sets
+     `.toast-notice` for exactly that case; the `:has()` form is the
+     same rule for anything the class misses, and it is second because
+     `:has()` is not universal on older WebKit. */
+  .toast-notice,
+  .toast:not(:has(.toast-action)) {
+    pointer-events: none;
+    cursor: default;
+  }
+
+  /* A notice's close button is unreachable by definition once the
+     toast above it is inert, and an unreachable 12px control is worse
+     than no control: it is a dead 12px target in the 44px sweep. The
+     notice auto-dismisses in 3.5 seconds (6 for warnings and errors),
+     which is what replaces it. */
+  .toast-notice .toast-close {
+    display: none;
+  }
+
+  /* The action is the one part of an actionable toast that must take
+     a tap, and it takes it at the floor. */
+  .toast .toast-action {
+    pointer-events: auto;
+    min-height: 44px;
+    padding: 0 12px;
+    border: none;
+    border-radius: var(--radius-app-button);
+    background: var(--app-bg-interactive);
+    color: var(--app-text-primary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  /* ─── B.7, THE PRIORITY-PLUS KEY TOOLBAR ─────────────────────
+     NO HORIZONTAL SCROLLING. The strip used to be `overflow-x: auto`
+     with thirteen buttons in it, so at 390px about six were visible
+     and the rest were past a fold with nothing indicating they
+     existed. It also competed with the pane-switch swipe for the
+     horizontal axis.
+
+     `overflow-x: hidden` is the safety net, not the mechanism: app.js
+     measures the strip and hides the keys that do not fit, so nothing
+     should ever reach this rule. It is here so that a layout pass
+     which has not run yet can never produce a scrolling strip. */
+  .terminal-mobile-toolbar {
+    overflow-x: hidden;
+    flex-wrap: nowrap;
+  }
+
+  /* A key that overflowed is hidden by the layout pass. The guard is
+     paired with the display rule above it, per DO-NOT-BREAK rule 3. */
+  .terminal-mobile-toolbar button[hidden] {
+    display: none !important;
+  }
+
+  /* The pinned overflow control. Sticky and opaque so it is legible
+     above any content, at the floor on both axes, and it never
+     scrolls because the strip no longer scrolls at all. */
+  .terminal-mobile-toolbar .toolbar-overflow {
+    position: sticky;
+    right: 0;
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    flex-shrink: 0;
+    background: var(--app-bg-secondary);
+    color: var(--app-text-secondary);
+    border: 1px solid var(--app-border-primary);
+    border-radius: 8px;
+  }
+
+  /* The unseen-items dot. A STATIC disc, not a pulse: gate G14 bans an
+     animated mark anywhere in this product, and a dot that has to be
+     noticed once is exactly the case a static shape answers. */
+  .toolbar-overflow-dot {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--app-text-blue);
+  }
+
+  .toolbar-overflow-dot[hidden] {
+    display: none !important;
+  }
+
+  /* ─── A.3.2, THE SESSIONS TAB SURFACE ────────────────────────
+     The filter pill row, the header overflow, bulk select and the row
+     swipe actions. Every rule is inside this breakpoint, and the
+     controls themselves are injected by app.js only on a phone, so
+     the desktop Sessions table is untouched. */
+
+  .mobile-session-filters {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-bottom: 1px solid var(--app-border-secondary);
+    flex-shrink: 0;
+  }
+
+  .mobile-session-filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* A pill is a chip in the Notion idiom: a wash ground, no border, a
+     10px radius. The active pill takes the blue PAIR rather than a
+     fill, so the row reads as a filter and not as four buttons. */
+  .mobile-session-filter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    /* Both axes, measured. The 44px sweep caught "All" at 39.5 x 44: a short
+       label plus 12px of padding is under the floor on the horizontal axis,
+       which is the axis a pill row is easiest to miss on. */
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 12px;
+    border: none;
+    border-radius: var(--radius-status-chip);
+    background: var(--app-bg-tertiary);
+    color: var(--app-text-secondary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  .mobile-session-filter.active {
+    background: var(--app-bg-blue);
+    color: var(--app-text-blue);
+  }
+
+  .mobile-session-filter-count {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.75;
+  }
+
+  /* The header overflow, matching the two header buttons beside it. */
+  .mobile-sessions-overflow {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: 1px solid var(--app-border-primary);
+    border-radius: var(--radius-app-button);
+    background: var(--app-bg-primary);
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  /* Bulk select. The checkbox is drawn rather than an `input`, because
+     an input inside a table row inherits the row's tap handling and
+     fights it; this is a role="checkbox" span that the row's own
+     handler toggles. 22px drawn, and the ROW is the 44px target. */
+  .mw-row-check {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    margin-right: 8px;
+    border: 1.5px solid var(--app-border-strong);
+    border-radius: var(--radius-property-chip);
+    flex-shrink: 0;
+  }
+
+  .mw-row-check[aria-checked="true"] {
+    background: var(--app-accent-blue);
+    border-color: var(--app-accent-blue);
+  }
+
+  .mw-row-check[aria-checked="true"]::after {
+    content: '\2713';
+    color: var(--app-on-accent);
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  .session-item.mw-selected {
+    background: var(--app-bg-blue);
+  }
+
+  /* The select-mode action bar. Above the tab bar, never over it: a
+     bar that covered the Attention badge would hide the alarm (B.5
+     rule 5), and the same arithmetic answers both. */
+  .mobile-select-bar {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(var(--mw-tabbar-h) + var(--mw-toast-gap));
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--app-border-primary);
+    border-radius: var(--radius-callout);
+    background: var(--app-bg-elevated);
+    box-shadow: var(--app-shadow-menu);
+  }
+
+  .mobile-select-count {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--app-text-secondary);
+  }
+
+  .mobile-select-bar .btn {
+    min-height: 44px;
+  }
+
+  /* ─── B.3, THE ROW SWIPE ─────────────────────────────────────
+     Reveal only. A swipe never performs the action (rule R5), so the
+     revealed buttons are ordinary controls at the floor and the row
+     springs back below the 72px threshold.
+
+     The row must be opaque or the layer shows through it. The list is
+     the positioned ancestor and the layer is its absolutely positioned
+     child, so the layer scrolls with the rows for free. */
+  .session-list {
+    position: relative;
+  }
+
+  .session-table tbody tr.session-item {
+    background: var(--app-bg-primary);
+    position: relative;
+    z-index: 1;
+    transition: transform 0.15s ease;
+  }
+
+  .mw-swipe-actions {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    pointer-events: none;
+  }
+
+  .mw-swipe-actions[hidden] {
+    display: none !important;
+  }
+
+  .mw-swipe-side {
+    display: flex;
+    gap: 2px;
+  }
+
+  /* Only the side actually being revealed takes pointer events, so a
+     button hidden under the row can never be hit through it. */
+  .mw-swipe-actions.mw-swipe-showing-lead .mw-swipe-lead,
+  .mw-swipe-actions.mw-swipe-showing-trail .mw-swipe-trail {
+    pointer-events: auto;
+  }
+
+  .mw-swipe-action {
+    display: grid;
+    place-items: center;
+    min-width: 72px;
+    min-height: 44px;
+    padding: 0 10px;
+    border: none;
+    border-radius: var(--radius-callout);
+    color: var(--app-on-accent);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .mw-swipe-terminal {
+    background: var(--app-text-green);
+  }
+
+  .mw-swipe-start {
+    background: var(--app-text-blue);
+  }
+
+  .mw-swipe-stop,
+  .mw-swipe-hide {
+    background: var(--app-text-red);
+  }
+
+  /* ─── B.9 RULE 5, THE SHARED-WIDTH NOTICE ────────────────────
+     One line, dismissible, inside the pane and above the toolbar. It
+     EXPLAINS rather than fights: the alternative to saying so is
+     claiming the width back automatically, which is the thrash the
+     whole of B.9 exists to stop. */
+  .mw-width-notice {
+    order: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 6px 12px;
+    background: var(--app-bg-yellow);
+    color: var(--app-text-yellow);
+    border-top: 1px solid var(--app-border-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  .mw-width-notice-text {
+    flex: 1;
+  }
+
+  .mw-width-notice-close {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    border: none;
+    background: none;
+    color: inherit;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  /* ─── DV-26 RESOLVED: THE DESKTOP PANE INPUT ROW ─────────────
+     Recorded in DEVIATIONS as "styled but not created": P5 shipped the
+     PALETTE contract for this row (the terminal ground, the top rule,
+     the prompt glyph and the typed ink) and left the row itself
+     `display: none` above the phone breakpoint, because turning it on
+     is an IA decision and `app.js` was another track's file that week.
+     Both blockers are gone, so the row is turned on below, outside
+     this media query.
+
+     The phone side is unchanged: everything above still applies. */
+}
+
+/* DV-26, the desktop half. DESIGN-SPEC 5.6 draws a pane input row on
+   EVERY pane: a prompt, a field, an attach button, a microphone and a
+   Send. `styles.css` hides it with `.terminal-mobile-input-row
+   { display: none }`; this sheet loads after it, so one rule at equal
+   specificity turns it back on, and the box is authored here because
+   `styles.css` has one writer per phase and it is not this one
+   (BUILD-CONTRACT 4.1 item 4, the DV-P10-5 precedent).
+
+   The composer's SEND PATH was already wired for all six panes:
+   `bindEvents` binds every `.terminal-mobile-input-row` it finds and
+   `_injectMobileInputRowControls` injects the image and microphone
+   buttons into each, neither of them gated on width. What was missing
+   was the surface, which is this. */
+@media (min-width: 769px) {
+  .terminal-pane .terminal-mobile-input-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    flex-shrink: 0;
+  }
+
+  /* A desktop composer is 32px, not the phone's 44: the touch floor is
+     a TOUCH floor, and every pixel here comes out of the terminal it
+     sits under. Six panes at 44px would cost 264px of transcript. */
+  .terminal-pane .terminal-mobile-input-row input {
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+    min-height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--app-border-primary);
+    border-radius: var(--radius-app-button);
+    background: var(--app-bg-primary);
+    font-size: 13px;
+    outline: none;
+  }
+
+  .terminal-pane .terminal-mobile-input-row input:focus {
+    border-color: var(--app-accent-blue);
+    box-shadow: var(--app-input-focus-ring);
+  }
+
+  .terminal-pane .terminal-mobile-input-row .mobile-input-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--app-border-primary);
+    border-radius: var(--radius-app-button);
+    background: var(--app-bg-primary);
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .terminal-pane .terminal-mobile-input-row .mobile-input-btn[hidden] {
+    display: none;
+  }
+
+  .terminal-pane .terminal-mobile-input-row .mobile-send-btn {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 10px;
+    border: none;
+    border-radius: var(--radius-app-button);
+    background: var(--app-accent-blue);
+    color: var(--app-on-accent);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  /* An empty pane has no session to type at, and the drop slot is the
+     whole message there. */
+  .terminal-pane-empty .terminal-mobile-input-row {
+    display: none;
+  }
+
+  .terminal-pane .terminal-mobile-input-row[hidden] {
+    display: none !important;
+  }
+}

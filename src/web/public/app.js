@@ -250,6 +250,99 @@ class CWMApp {
    *  MOBILE-EXPERIENCE D.1 row 9. */
   static MOBILE_BADGE_MAX = 9;
 
+  /* ─── The three-zone touch model, Notion restyle P11.1 ───────────────
+     MOBILE-EXPERIENCE B.2. Every touch surface in this application is
+     exactly one of three zones, and the zone decides what a long press
+     means. The declarations below are the ALLOWLIST half of that model;
+     the resolver is `_mwZoneOf` and the binder is `_mwBindLongPress`. */
+
+  /** Text surfaces this file does not author, matched structurally.
+   *
+   *  Zone membership is normally declared with `data-mw-zone="text"` in the
+   *  markup, which is what B.2 asks for. Four of the members are created by
+   *  xterm, by terminal.js or by terminal-history.js, so this application
+   *  cannot put an attribute on them without editing another track's file.
+   *  They are matched by selector instead, which is the same allowlist with
+   *  a different spelling: a surface has to be NAMED here to be a text zone,
+   *  and anything unnamed falls through to `chrome`, where nothing happens.
+   *
+   *  `.terminal-history` is listed before that surface exists, deliberately.
+   *  B.4 rule 3 requires the scrollback-history surface to be a text zone,
+   *  and naming it now means it is born correct rather than born stealing a
+   *  selection gesture. */
+  static MW_TEXT_ZONE_SELECTOR = [
+    '.xterm-screen', '.xterm-viewport', '.terminal-container',
+    '.terminal-copyview', '.terminal-reader', '.terminal-reader-content',
+    '.terminal-history',
+    'input', 'textarea', 'select',
+    '[contenteditable=""]', '[contenteditable="true"]',
+  ].join(', ');
+
+  /** The zone names, so a typo in the markup cannot invent a fourth zone. */
+  static MW_ZONES = ['text', 'affordance', 'chrome'];
+
+  /** How long the click and contextmenu swallow stays armed after a long
+   *  press fires. Long enough to cover the touchend that follows the hold
+   *  and the platform's own delayed `contextmenu`, short enough that the
+   *  next deliberate tap is never eaten. */
+  static MW_LONGPRESS_SWALLOW_MS = 700;
+
+  /** The fallback timing table, used only when mobile-viewport.js is absent.
+   *  MOBILE-EXPERIENCE's appendix names that module as the home of every
+   *  measurement the mobile program introduces, so these numbers are read
+   *  from it at run time; a shell served without the driver still needs one
+   *  answer rather than a crash, and two different long-press durations on
+   *  adjacent elements is exactly what makes a gesture feel unreliable. */
+  static MW_FALLBACK_CONSTANTS = {
+    MW_LONGPRESS_MS: 400,
+    MW_LONGPRESS_MOVE_PX: 8,
+    MW_LONGPRESS_HAPTIC_MS: 25,
+    MW_VP_SETTLE_MS: 150,
+    MW_KEYBOARD_MIN_INSET_PX: 120,
+    MW_SWIPE_MIN_PX: 96,
+    MW_SWIPE_EDGE_PX: 32,
+    MW_PHONE_MAX_WIDTH_PX: 768,
+    MW_TABLET_MAX_WIDTH_PX: 900,
+  };
+
+  /** Row swipe reveal threshold, MOBILE-EXPERIENCE B.3 row "Sessions row".
+   *  Below it the row springs back; at or past it the actions stay open.
+   *  A swipe NEVER performs the action (B.1 rule R5), so there is no
+   *  second, larger threshold. */
+  static MW_SWIPE_REVEAL_PX = 72;
+
+  /** How far past the reveal width a row may be dragged, so the rubber band
+   *  has somewhere to go without the row leaving the screen. */
+  static MW_SWIPE_MAX_PX = 96;
+
+  /** The key toolbar's priority order (MOBILE-EXPERIENCE B.7 step 1). Index
+   *  IS the priority: everything that does not fit goes to the overflow
+   *  sheet in this order, so the keys a person reaches for most are the ones
+   *  that survive the narrowest phone. */
+  static MW_TOOLBAR_PRIORITY = [
+    'enter', 'ctrlc', 'escape', 'up', 'down', 'tab', 'copy',
+    'ctrld', 'select', 'copyview', 'reader',
+  ];
+
+  /** The pinned overflow control's own width, excluded from the fit budget
+   *  before any key is measured (B.7 step 2). */
+  static MW_TOOLBAR_OVERFLOW_PX = 44;
+
+  /** Toast durations, MOBILE-EXPERIENCE B.5 rule 3. A toast carrying an
+   *  action is indefinite, because dismissing it would remove the action. */
+  static TOAST_DURATION_MS = 3500;
+  static TOAST_DURATION_LOUD_MS = 6000;
+
+  /** At most this many toasts are on a phone at once, oldest evicted
+   *  (B.5 rule 3). A third toast on a 390px screen is a wall. */
+  static TOAST_MAX_VISIBLE_PHONE = 2;
+
+  /** How far past this client's own fit an applied PTY width has to be
+   *  before the pane says so (MOBILE-EXPERIENCE B.9 rule 5). 20 percent is
+   *  the contract's number: below it a shared width is merely untidy, above
+   *  it the wrapping makes the output unreadable. */
+  static MW_WIDTH_NOTICE_RATIO = 1.2;
+
   constructor() {
     // ─── State ─────────────────────────────────────────────────
     this.state = {
@@ -1731,9 +1824,37 @@ class CWMApp {
     // exactly one thing the driver cannot do for itself: fit the terminal,
     // ONCE per settle window rather than once per event, because every
     // applied resize is a full ConPTY repaint on every attached client (C.6).
+    // ─── P11.6: the geometry claim gate (MOBILE-EXPERIENCE B.9) ───
+    //
+    // Published on the window so the pane layer has ONE answer to consult
+    // rather than re-deriving four conditions. `terminal.js` belongs to
+    // another track this phase, so the gate is consulted by the app-layer
+    // claim paths today and the one-line read inside `_requestActivate` is
+    // recorded as post-P7 mop-up.
+    window.MyrlinClaimGate = {
+      canClaim: (sessionId) => this.canClaimGeometry(sessionId),
+      follows: (sessionId) => this.followsThisDevice(sessionId),
+      suppress: () => this.suppressGeometryClaims(),
+    };
+    // The suppression window OPENS on the first frame of a viewport change
+    // and CLOSES a settle window after the last one. The driver only
+    // publishes a trailing-edge subscription, which is right for expensive
+    // work and wrong for a guard: by the time it fires the jank has already
+    // happened. This listener reads no geometry at all; it only marks that
+    // geometry is moving, so the C.1 single-reader contract is intact.
+    if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+      window.visualViewport.addEventListener('resize', () => this.suppressGeometryClaims());
+    }
+
     if (window.MyrlinMobileViewport) {
       window.MyrlinMobileViewport.start();
       window.MyrlinMobileViewport.onSettle(() => {
+        // P11.4 and P11.6, both once per settle rather than once per event:
+        // the toolbar fit and the shared-width notice. Neither depends on the
+        // Terminal tab being active, so both run before the early return.
+        this.layoutMobileToolbars();
+        this.syncPaneWidthNotice();
+        this.suppressGeometryClaims();
         if (this.state.viewMode !== 'terminal') return;
         // Fit only the pane the user can see. safeFit already bails on a
         // zero-rect container, so the others are cheap no-ops, but skipping
@@ -1794,6 +1915,11 @@ class CWMApp {
         if (!this.isMobile && CWMApp.MOBILE_ONLY_VIEW_MODES.includes(this.state.viewMode)) {
           this.setViewMode('workspace');
         }
+        // NOTION RESTYLE P11.4 and P11.5. Two phone-only states are decided by
+        // WIDTH and therefore have to be re-decided on a crossing: which keys
+        // fit in the toolbar, and whether rows advertise a drag.
+        if (typeof this.layoutMobileToolbars === 'function') this.layoutMobileToolbars();
+        if (typeof this.syncMobileDndState === 'function') this.syncMobileDndState();
       };
       // addEventListener('change') is the modern API; older Safari only has
       // addListener. Prefer the former, fall back to the latter.
@@ -1822,11 +1948,23 @@ class CWMApp {
     this.bindMobileInputRowControls();
     this.bindMobileTextareaFocusGuard();
 
+    // ─── Mobile: the three-zone long-press model (P11.1) ───────
+    // One delegated listener per list container, keyed on the affordance
+    // zone. Bound here, after the containers exist and before any of them
+    // renders a row, so no surface is ever live without its gesture.
+    this.bindMwLongPressHosts();
+    // ─── Mobile: the priority-plus key toolbar (P11.4) ─────────
+    this.bindMobileToolbarOverflow();
+
     // Toolbar buttons send input directly via WebSocket - they work in
     // both scroll and type mode, no textarea focus needed.
     document.querySelectorAll('.terminal-mobile-toolbar button').forEach(btn => {
       btn.addEventListener('click', () => {
         const key = btn.dataset.key;
+        // P11.4: the pinned overflow control lives inside this toolbar and
+        // has no data-key. It carries its own listener; this one must not
+        // treat it as an unrecognised key.
+        if (!key) return;
         const activePane = this._activeTerminalSlot !== null
           ? this.terminalPanes[this._activeTerminalSlot]
           : this.terminalPanes.find(tp => tp !== null);
@@ -2267,7 +2405,16 @@ class CWMApp {
   _activateActiveTerminalPane() {
     if (!this.terminalPanes || this._activeTerminalSlot === null || this._activeTerminalSlot === undefined) return;
     const tp = this.terminalPanes[this._activeTerminalSlot];
-    if (tp && typeof tp.activate === 'function') tp.activate();
+    if (!tp || typeof tp.activate !== 'function') return;
+    // NOTION RESTYLE P11.6, MOBILE-EXPERIENCE B.9 rules 1, 2 and 4. This is
+    // the AMBIENT claim path, fired by visibility and focus rather than by an
+    // explicit user action, so it is exactly the one the gate is for: the
+    // document has to be visible, the Terminal tab has to be the surface on
+    // screen, the keyboard must not be settling, and the session must still
+    // be following this device. An explicit "take over" bypasses all four,
+    // because the user has just said which device they mean.
+    if (!this.canClaimGeometry(tp.sessionId)) return;
+    tp.activate();
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -2340,6 +2487,308 @@ class CWMApp {
       }
     });
     return created;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE PRIORITY-PLUS KEY TOOLBAR   (Notion restyle P11.4)
+
+     MOBILE-EXPERIENCE B.7. What this replaces: thirteen buttons in a
+     horizontal scroller with no overflow affordance. At 390px about six
+     were visible, so Esc, the arrows and the camera lived past the fold
+     with nothing on screen indicating they existed at all. The scroller
+     also competed with the pane-switch swipe for the horizontal axis.
+
+     THE ALGORITHM. Items carry an explicit priority. On layout and on
+     every settle, the available width is measured, the pinned overflow
+     control and the padding are subtracted, and items are fitted in
+     priority order. Everything that does not fit is HIDDEN from the
+     strip and listed in the overflow sheet instead, under a Keys group,
+     with the same `data-key`, so both surfaces route through the one
+     click handler and cannot diverge.
+
+     NO HORIZONTAL SCROLLING. If the strip would scroll, it overflows
+     instead. That frees the horizontal axis on the toolbar, which is
+     what makes the guarded pane swipe (P11.5) safe to keep.
+
+     THE HONEST COUNT. B.7 works the arithmetic and this build measures
+     it: at 390px the fit is five to six keys plus the overflow, not the
+     mock's seven, because seven requires 40px keys and the touch floor
+     is 44. The floor wins, per PROCEDURE section 4. DESIGN-SPEC 14.3
+     draws seven; this is the documented departure.
+
+     NOTHING IS DELETED. Every button stays in `index.html` and every
+     handler stays bound; an overflowed key is `hidden` and its sheet row
+     clicks the very same element.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Add the pinned overflow control to every fixed-slot toolbar.
+   *
+   * Injected for the same reason the Select-mode buttons are: six
+   * hand-written copies of one control drift, and the pane markup belongs to
+   * another track. Idempotent.
+   *
+   * @returns {number} How many controls were created.
+   */
+  _injectMobileToolbarOverflow() {
+    let created = 0;
+    document.querySelectorAll('.terminal-mobile-toolbar').forEach((toolbar) => {
+      // P11.1: every key is an AFFORDANCE inside a CHROME strip. The strip
+      // carries its zone in index.html; the keys take theirs here because
+      // two of them are injected by this file and hand-authoring the
+      // attribute sixty-six times across six identical pane templates is how
+      // one of them ends up missing it.
+      toolbar.querySelectorAll('[data-key]').forEach((key) => {
+        key.dataset.mwZone = 'affordance';
+      });
+      const sendBtn = toolbar.parentNode
+        ? toolbar.parentNode.querySelector('.terminal-mobile-input-row .mobile-send-btn')
+        : null;
+      if (sendBtn) sendBtn.dataset.mwZone = 'affordance';
+      if (toolbar.querySelector('.toolbar-overflow')) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toolbar-overflow';
+      btn.dataset.mwZone = 'affordance';
+      btn.dataset.mwRoute = 'toolbar-overflow';
+      btn.setAttribute('aria-haspopup', 'dialog');
+      btn.setAttribute('aria-label', 'More keys');
+      btn.title = 'More keys';
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">' +
+        '<circle cx="4" cy="8" r="1.35" fill="currentColor"/>' +
+        '<circle cx="8" cy="8" r="1.35" fill="currentColor"/>' +
+        '<circle cx="12" cy="8" r="1.35" fill="currentColor"/>' +
+        '</svg><span class="toolbar-overflow-dot" hidden aria-hidden="true"></span>';
+      toolbar.appendChild(btn);
+      created++;
+    });
+    return created;
+  }
+
+  /**
+   * Wire the overflow control and the recalculation triggers.
+   *
+   * Three triggers, and no fourth: the viewport driver's settle (which
+   * already fires exactly once per keyboard or rotation window), a debounced
+   * window resize for the desktop-narrowing case the driver does not see,
+   * and an explicit call from `updateTerminalTabs` when a pane becomes the
+   * active one. A ResizeObserver per toolbar would fire during the keyboard
+   * animation, which is the storm C.6 exists to avoid.
+   *
+   * @returns {void}
+   */
+  bindMobileToolbarOverflow() {
+    if (this._mobileToolbarBound) return;
+    this._mobileToolbarBound = true;
+    this._injectMobileToolbarOverflow();
+
+    document.addEventListener('click', (e) => {
+      const btn = e.target && e.target.closest ? e.target.closest('.toolbar-overflow') : null;
+      if (!btn) return;
+      const paneEl = btn.closest('.terminal-pane');
+      const slot = paneEl ? parseInt(paneEl.dataset.slot, 10) : NaN;
+      this.showMobileToolbarOverflow(Number.isNaN(slot) ? undefined : slot);
+    });
+
+    // The settle-driven re-layout is registered ONCE, in bindEvents, beside
+    // the other two things that must happen per settle window. A second
+    // subscription here would fit every toolbar twice per keyboard open.
+    window.addEventListener('resize', () => {
+      clearTimeout(this._mobileToolbarTimer);
+      this._mobileToolbarTimer = setTimeout(
+        () => this.layoutMobileToolbars(),
+        CWMApp.mwConstants().MW_VP_SETTLE_MS
+      );
+    });
+    // First pass on the next frame: the toolbars are laid out by then and a
+    // measurement taken during bindEvents would read a zero-width strip.
+    requestAnimationFrame(() => this.layoutMobileToolbars());
+  }
+
+  /**
+   * Fit each visible toolbar's keys, priority first, and overflow the rest.
+   *
+   * MEASUREMENT, NOT ESTIMATION. Key widths depend on the font, the theme's
+   * letter spacing and the label text, so the widths are read from the live
+   * boxes rather than assumed from B.7's worked example. The example is the
+   * sanity check; this is the answer.
+   *
+   * @returns {Object|null} { fitted, overflowed, width } for the active
+   *   toolbar, for tests and diagnostics.
+   */
+  layoutMobileToolbars() {
+    if (!this.isPhone) {
+      // Above the breakpoint nothing is hidden, so a rotation back to a
+      // wide layout restores every key rather than stranding one in a sheet
+      // no desktop surface opens.
+      document.querySelectorAll('.terminal-mobile-toolbar [data-key][hidden]').forEach((btn) => {
+        btn.hidden = false;
+      });
+      this._mobileToolbarOverflowKeys = [];
+      return null;
+    }
+    let result = null;
+    document.querySelectorAll('.terminal-mobile-toolbar').forEach((toolbar) => {
+      const width = toolbar.clientWidth;
+      // A toolbar inside a pane the phone is not showing measures zero. It
+      // is laid out again the moment its pane becomes active.
+      if (!width) return;
+      const fitted = this._fitToolbar(toolbar, width);
+      const paneEl = toolbar.closest('.terminal-pane');
+      if (paneEl && paneEl.classList.contains('mobile-active')) result = fitted;
+    });
+    if (result) {
+      this._mobileToolbarOverflowKeys = result.overflowed;
+      this._syncToolbarOverflowDot();
+    }
+    return result;
+  }
+
+  /**
+   * Fit one toolbar. Extracted so the algorithm is testable in isolation and
+   * so `layoutMobileToolbars` reads as the loop it is.
+   *
+   * @param {Element} toolbar - The toolbar element.
+   * @param {number} width - Its client width in CSS pixels.
+   * @returns {Object} { fitted, overflowed, width, budget }.
+   */
+  _fitToolbar(toolbar, width) {
+    const style = window.getComputedStyle(toolbar);
+    const padding = parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0');
+    const gap = parseFloat(style.columnGap || style.gap || '0') || 0;
+    const overflowBtn = toolbar.querySelector('.toolbar-overflow');
+    // The pinned control's own width comes out of the budget BEFORE any key
+    // is measured (B.7 step 2), because it never scrolls and never hides.
+    const reserved = overflowBtn
+      ? Math.max(overflowBtn.offsetWidth || 0, CWMApp.MW_TOOLBAR_OVERFLOW_PX)
+      : 0;
+    const budget = width - padding - reserved - gap;
+
+    const buttons = Array.from(toolbar.querySelectorAll('[data-key]'));
+    // Un-hide everything first so every key is measurable. Hidden elements
+    // report offsetWidth 0, and a key hidden by the previous pass would then
+    // look free and never come back.
+    buttons.forEach((btn) => { btn.hidden = false; });
+
+    const byKey = new Map(buttons.map(b => [b.dataset.key, b]));
+    const ordered = [];
+    for (const key of CWMApp.MW_TOOLBAR_PRIORITY) {
+      if (byKey.has(key)) { ordered.push(byKey.get(key)); byKey.delete(key); }
+    }
+    // Anything not named in the priority table is appended in DOM order, so
+    // a key added later is overflowed rather than silently dropped.
+    for (const btn of byKey.values()) ordered.push(btn);
+
+    const fitted = [];
+    const overflowed = [];
+    let used = 0;
+    for (const btn of ordered) {
+      // A key the stylesheet hides (the obsolete Type and camera keys, D.1)
+      // is not a candidate and must not consume budget.
+      if (window.getComputedStyle(btn).display === 'none') continue;
+      const w = btn.offsetWidth || CWMApp.MW_TOOLBAR_OVERFLOW_PX;
+      const next = used === 0 ? w : used + gap + w;
+      if (next <= budget) {
+        used = next;
+        fitted.push(btn.dataset.key);
+      } else {
+        overflowed.push(btn.dataset.key);
+        btn.hidden = true;
+      }
+    }
+    if (overflowBtn) {
+      // The control is pinned, not conditional: a toolbar whose keys all fit
+      // still carries it, because the sheet also holds the pane actions and
+      // a control that appears and disappears is not a landmark.
+      overflowBtn.hidden = false;
+    }
+    return { fitted, overflowed, width, budget };
+  }
+
+  /**
+   * Show a dot on the overflow control while it holds keys the user has not
+   * seen since the set last changed (B.7 step 4).
+   *
+   * @returns {boolean} True when the dot is showing.
+   */
+  _syncToolbarOverflowDot() {
+    const keys = (this._mobileToolbarOverflowKeys || []).join(',');
+    const unseen = keys.length > 0 && keys !== this._mobileToolbarSeenKeys;
+    document.querySelectorAll('.toolbar-overflow-dot').forEach((dot) => {
+      dot.hidden = !unseen;
+    });
+    return unseen;
+  }
+
+  /**
+   * Open the toolbar overflow sheet: the keys that did not fit, then the
+   * pane actions.
+   *
+   * ONE SHEET, not two. B.7 sends overflowed keys to "the overflow sheet",
+   * and A.3.3 sends fifteen pane capabilities to "the pane overflow sheet".
+   * Two sheets reachable from two dots eight pixels apart would be a puzzle,
+   * so the keys are a group at the top of the sheet that already exists.
+   *
+   * @param {number} [slot] - Pane slot; defaults to the active pane.
+   * @returns {void}
+   */
+  showMobileToolbarOverflow(slot) {
+    const target = (slot === undefined || slot === null)
+      ? (this._activeTerminalSlot !== null && this._activeTerminalSlot !== undefined
+        ? this._activeTerminalSlot
+        : this.terminalPanes.findIndex(tp => tp !== null))
+      : slot;
+    if (target === -1 || target === undefined) return;
+    this._mobileToolbarSeenKeys = (this._mobileToolbarOverflowKeys || []).join(',');
+    this._syncToolbarOverflowDot();
+    const pane = this.terminalPanes[target];
+    const title = pane && pane.sessionName ? pane.sessionName : 'Terminal';
+    const items = this.buildMobileToolbarOverflowItems(target)
+      .concat(this.buildMobilePaneOverflowItems(target));
+    this.showActionSheet(title, items);
+  }
+
+  /**
+   * Build the Keys group for the overflow sheet.
+   *
+   * Each row CLICKS the hidden button rather than re-implementing what the
+   * key sends, so the sheet and the strip are the same code path by
+   * construction. That is the same delegation rule the rest of the phone IA
+   * follows and it is why an overflowed key can never behave differently
+   * from a fitted one.
+   *
+   * @param {number} slot - Pane slot index.
+   * @returns {Array<Object>} Action-sheet items, empty when nothing overflowed.
+   */
+  buildMobileToolbarOverflowItems(slot) {
+    const paneEl = document.getElementById('term-pane-' + slot);
+    const toolbar = paneEl ? paneEl.querySelector('.terminal-mobile-toolbar') : null;
+    if (!toolbar) return [];
+    const hidden = Array.from(toolbar.querySelectorAll('[data-key][hidden]'));
+    if (hidden.length === 0) return [];
+    const labels = {
+      enter: 'Enter', ctrlc: 'Ctrl+C', escape: 'Esc', up: 'Up', down: 'Down',
+      tab: 'Tab', copy: 'Copy', ctrld: 'Ctrl+D', select: 'Select mode',
+      copyview: 'Copy view', reader: 'Reader', keyboard: 'Type', upload: 'Image',
+    };
+    // Four overflowed keys ALREADY have a row further down this same sheet,
+    // because A.3.3 routes their capabilities into the pane overflow's Text
+    // and Keys groups. Listing them twice is what the first p11 capture
+    // showed: "Reader" appeared under Keys and again under Text, eight rows
+    // apart. The toolbar group carries only the keys that have no other row.
+    const alreadyInPaneSheet = new Set(['reader', 'select', 'copyview', 'ctrld']);
+    const items = [];
+    for (const btn of hidden) {
+      const key = btn.dataset.key;
+      if (alreadyInPaneSheet.has(key)) continue;
+      items.push({
+        label: labels[key] || (btn.textContent || key || '').trim() || key,
+        action: () => btn.click(),
+      });
+    }
+    if (items.length === 0) return [];
+    items.unshift({ type: 'sep', label: 'Keys' });
+    return items;
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -2659,6 +3108,17 @@ class CWMApp {
         })),
       });
     }
+    // P11.6, MOBILE-EXPERIENCE B.9 rule 4. The user-facing escape hatch for
+    // a problem that cannot be fully solved client-side: one PTY, two
+    // clients, one width. Default ON, so nothing changes for the single
+    // client case; OFF means this device stores its viewport and never
+    // claims, which pins the other device as the owner.
+    items.push({
+      label: 'Follow this device',
+      hint: 'Width',
+      check: this.followsThisDevice(pane.sessionId),
+      action: () => this.toggleFollowThisDevice(pane.sessionId),
+    });
 
     items.push({ type: 'sep', label: 'Troubleshoot' });
     items.push({
@@ -2766,6 +3226,1337 @@ class CWMApp {
     // well makes the button state update in the same frame as the tap, which
     // matters because the toolbar is the only feedback a phone user gets.
     this._syncMobileSelectToolbar(pane);
+    return true;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE THREE-ZONE LONG-PRESS MODEL   (Notion restyle P11.1)
+
+     MOBILE-EXPERIENCE B.2. What this replaces was a DENYLIST: a
+     touchstart on the pane container armed a 600ms timer for every
+     touch that was not inside `.terminal-container, .xterm,
+     .terminal-copyview`. A denylist is wrong here for one reason that
+     is worth stating plainly: every new text surface has to REMEMBER to
+     add itself, and the failure mode is silent. The user's selection
+     gesture is stolen and replaced by a menu whose second item can be
+     destructive.
+
+     The allowlist inverts the failure mode. A surface nobody classified
+     resolves to `chrome`, where a long press does nothing at all. A
+     missing menu is discoverable and harmless; a stolen selection with
+     Restart session one tap away is neither.
+
+     THE THREE ZONES
+
+       text        Native or xterm selection only. No context listener is
+                   ever bound. Declared with data-mw-zone="text", or
+                   matched structurally by MW_TEXT_ZONE_SELECTOR for the
+                   surfaces this file does not author.
+       affordance  Context sheet at MW_LONGPRESS_MS, cancelled by
+                   MW_LONGPRESS_MOVE_PX of travel, confirmed by a
+                   MW_LONGPRESS_HAPTIC_MS haptic, with the platform's own
+                   click and contextmenu swallowed afterwards.
+       chrome      Nothing. Headers, toolbar backgrounds, the gaps
+                   between keys, empty pane area, the tab bar background.
+
+     ONE TIMING CONSTANT. The five long-press call sites in this file
+     used to run at 500ms (four lists) and 600ms (the pane), while
+     terminal.js armed mobile text selection at 400ms. Three durations
+     on adjacent elements is what makes a gesture feel unreliable, so
+     every site now reads MW_LONGPRESS_MS from the viewport driver,
+     which is also the number terminal.js uses.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * The mobile measurement table, from its one owner.
+   *
+   * mobile-viewport.js publishes every `MW_*` constant on
+   * `window.MyrlinMobileViewport.constants`, and MOBILE-EXPERIENCE's appendix
+   * names that module as their home. Reading them here rather than
+   * re-declaring them is what keeps a gesture's slop and the viewport
+   * driver's idea of a phone from drifting apart.
+   *
+   * @returns {Object} The constant table, or the local fallback.
+   */
+  static mwConstants() {
+    const published = (typeof window !== 'undefined' && window.MyrlinMobileViewport)
+      ? window.MyrlinMobileViewport.constants
+      : null;
+    return published || CWMApp.MW_FALLBACK_CONSTANTS;
+  }
+
+  /**
+   * Whether the shell is at phone width right now.
+   *
+   * Routed through the viewport driver so the breakpoint has ONE reader.
+   * `isMobile` remains the pre-restyle spelling and is deliberately left
+   * alone; this is the same question asked of the module that owns it.
+   *
+   * @returns {boolean} True at or below the phone breakpoint.
+   */
+  get isPhone() {
+    if (typeof window !== 'undefined' && window.MyrlinMobileViewport &&
+        typeof window.MyrlinMobileViewport.isPhone === 'function') {
+      return window.MyrlinMobileViewport.isPhone();
+    }
+    return this.isMobile;
+  }
+
+  /**
+   * Resolve which of the three zones a touched element belongs to.
+   *
+   * NEAREST DECLARATION WINS, which is the case that makes the model work
+   * for composed surfaces: a notes field inside a session peek card is a
+   * text zone inside an affordance, and the field is the closer ancestor,
+   * so a long press there selects a word instead of opening a sheet.
+   *
+   * @param {Element} el - The event target.
+   * @returns {string} 'text', 'affordance' or 'chrome'.
+   */
+  _mwZoneOf(el) {
+    if (!el || typeof el.closest !== 'function') return 'chrome';
+    const declared = el.closest('[data-mw-zone]');
+    const textual = el.closest(CWMApp.MW_TEXT_ZONE_SELECTOR);
+    if (declared && textual && declared !== textual) {
+      // Whichever is the DESCENDANT of the other is the closer ancestor of
+      // the touch, because both are on the same ancestor chain.
+      if (declared.contains(textual)) return 'text';
+    }
+    if (declared) {
+      const zone = declared.dataset ? declared.dataset.mwZone : null;
+      return CWMApp.MW_ZONES.includes(zone) ? zone : 'chrome';
+    }
+    if (textual) return 'text';
+    return 'chrome';
+  }
+
+  /**
+   * Whether a touchmove has travelled past the long-press slop.
+   *
+   * The four sidebar and strip long-press sites predate this model and are
+   * PINNED by `test/mobile-ux-fixes.test.js` P1-2(b) and P1-3 down to their
+   * timer variable names and their dragstart handlers, so they keep their own
+   * timers rather than moving onto `_mwBindLongPress`. What they take from
+   * the model is the part that decides how the gesture FEELS: one duration,
+   * one slop, one haptic.
+   *
+   * @param {TouchEvent} e - The move event.
+   * @param {Object} origin - { x, y } recorded at touchstart.
+   * @returns {boolean} True when the hold should be cancelled.
+   */
+  _mwPastSlop(e, origin) {
+    if (!origin || !e.touches || e.touches.length === 0) return true;
+    const slop = CWMApp.mwConstants().MW_LONGPRESS_MOVE_PX;
+    return Math.abs(e.touches[0].clientX - origin.x) > slop ||
+      Math.abs(e.touches[0].clientY - origin.y) > slop;
+  }
+
+  /**
+   * Fire the platform's long-press confirmation, where there is one.
+   *
+   * Wrapped because `navigator.vibrate` throws on a few embedded WebViews
+   * and is absent on iOS Safari entirely; a missing haptic must never cost
+   * the gesture.
+   *
+   * @returns {boolean} True when a haptic was actually requested.
+   */
+  _mwHaptic() {
+    const ms = CWMApp.mwConstants().MW_LONGPRESS_HAPTIC_MS;
+    try {
+      if (navigator && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(ms);
+        return true;
+      }
+    } catch (_) {
+      // A platform that refuses to buzz is not an error.
+    }
+    return false;
+  }
+
+  /**
+   * Swallow the click and the contextmenu that follow a fired long press.
+   *
+   * Two different platforms produce two different sequels to a hold. Android
+   * Chrome fires `contextmenu` at roughly the same moment as our timer and
+   * then a `click` on release; iOS Safari fires only the click. Both would
+   * otherwise reach the row's ordinary tap handler and open the session the
+   * user was long-pressing, on top of the sheet.
+   *
+   * Capture phase on the document, so it lands before any delegated
+   * listener, and self-removing on a timer so a swallow can never leak into
+   * the next deliberate tap.
+   *
+   * @returns {void}
+   */
+  _mwSuppressNextClick() {
+    if (this._mwSwallow) this._mwSwallow();
+    const swallow = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      release();
+    };
+    const release = () => {
+      if (this._mwSwallowTimer) clearTimeout(this._mwSwallowTimer);
+      this._mwSwallowTimer = null;
+      this._mwSwallow = null;
+      document.removeEventListener('click', swallow, true);
+      document.removeEventListener('contextmenu', swallow, true);
+    };
+    this._mwSwallow = release;
+    document.addEventListener('click', swallow, true);
+    document.addEventListener('contextmenu', swallow, true);
+    this._mwSwallowTimer = setTimeout(release, CWMApp.MW_LONGPRESS_SWALLOW_MS);
+  }
+
+  /**
+   * Bind ONE delegated long-press listener to a list container.
+   *
+   * B.2: "One delegated listener per list container, keyed on
+   * [data-mw-zone='affordance']. Not on the pane, not on the document." A
+   * listener per row would leak on every re-render, and a listener on the
+   * document would be the denylist again with extra steps.
+   *
+   * The handler only ever runs when the touch STARTED on an affordance and
+   * the finger stayed inside the slop for the whole hold. Everything else,
+   * including a hold that begins on a text zone nested inside the row, is
+   * left to the platform.
+   *
+   * @param {Element} container - The persistent container to delegate from.
+   * @param {Function} handler - Called with (affordanceEl, point).
+   * @param {Object} [options] - { selector } to narrow the affordance match.
+   * @returns {boolean} True when the binding was installed.
+   */
+  _mwBindLongPress(container, handler, options = {}) {
+    if (!container || typeof container.addEventListener !== 'function') return false;
+    if (container._mwLongPressBound) return false;
+    container._mwLongPressBound = true;
+
+    const selector = options.selector || '[data-mw-zone="affordance"]';
+    let timer = null;
+    let armed = null;
+    let startX = 0;
+    let startY = 0;
+
+    const cancel = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      armed = null;
+    };
+
+    container.addEventListener('touchstart', (e) => {
+      cancel();
+      if (!e.touches || e.touches.length !== 1) return;
+      const target = (e.target && typeof e.target.closest === 'function')
+        ? e.target.closest(selector)
+        : null;
+      if (!target) return;
+      // The selector found an affordance ANCESTOR; the zone resolver decides
+      // whether the point actually touched is one, which is how a text zone
+      // nested inside a row keeps its selection.
+      if (this._mwZoneOf(e.target) !== 'affordance') return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      armed = target;
+      timer = setTimeout(() => {
+        timer = null;
+        const el = armed;
+        armed = null;
+        if (!el || (el.isConnected === false)) return;
+        this._mwHaptic();
+        this._mwSuppressNextClick();
+        handler(el, { clientX: startX, clientY: startY });
+      }, CWMApp.mwConstants().MW_LONGPRESS_MS);
+    }, { passive: true });
+
+    container.addEventListener('touchmove', (e) => {
+      if (!timer || !e.touches || e.touches.length === 0) return;
+      const slop = CWMApp.mwConstants().MW_LONGPRESS_MOVE_PX;
+      const dx = Math.abs(e.touches[0].clientX - startX);
+      const dy = Math.abs(e.touches[0].clientY - startY);
+      if (dx > slop || dy > slop) cancel();
+    }, { passive: true });
+
+    container.addEventListener('touchend', cancel, { passive: true });
+    container.addEventListener('touchcancel', cancel, { passive: true });
+    // DragDropTouch arms a drag at 350ms, inside our 400ms window. A drag
+    // that wins the race must not also open a sheet behind itself.
+    container.addEventListener('dragstart', cancel);
+    return true;
+  }
+
+  /**
+   * Wire every long-press host the phone IA has.
+   *
+   * Called once from bindEvents, after the containers exist. Each entry is a
+   * container plus what a hold on one of its affordances means; adding a
+   * surface means adding a row here, not inventing a fifth timer.
+   *
+   * @returns {void}
+   */
+  bindMwLongPressHosts() {
+    // 1. The bottom tab bar. B.3 row 1: each tab carries a quick-actions
+    //    sheet, which is the one gesture in the app that is purely a
+    //    shortcut, so every item in it has a tap route elsewhere (R4).
+    if (this.els.mobileTabBar) {
+      this._mwBindLongPress(this.els.mobileTabBar, (el) => {
+        this.showMobileTabQuickActions(el.dataset ? el.dataset.view : null);
+      }, { selector: '.mobile-tab' });
+    }
+
+    // 2. The pane chip strip. This is where the pane action sheet MOVED to
+    //    (B.2): a chip is an affordance, the pane container is chrome.
+    if (this.els.terminalTabStrip) {
+      this._mwBindLongPress(this.els.terminalTabStrip, (el) => {
+        const slot = parseInt(el.dataset.slot, 10);
+        if (Number.isNaN(slot)) this.showMobilePaneOverflow();
+        else this.showMobilePaneOverflow(slot);
+      }, { selector: '.terminal-tab[data-slot], .terminal-tab-overflow' });
+    }
+
+    // 3. Home cards and rows, and the Attention rows. Both lists are session
+    //    rows by another name, so a hold opens the session context sheet.
+    if (this.els.mobileHomeScroll) {
+      this._mwBindLongPress(this.els.mobileHomeScroll, (el, point) => {
+        this._openMobileSessionSheetFor(el, point);
+      }, { selector: '.mobile-session-card, .mobile-recent-row' });
+    }
+    if (this.els.mobileAttentionList) {
+      this._mwBindLongPress(this.els.mobileAttentionList, (el, point) => {
+        const id = el.dataset ? el.dataset.sessionId : null;
+        if (id) this.showContextMenu(id, point.clientX, point.clientY);
+      }, { selector: '.mobile-attention-row[data-session-id]' });
+    }
+
+    // 4. The key toolbar and the input row. B.3 gives Ctrl+C the modifier
+    //    sheet, Send the two Enter policies and the image button its three
+    //    sources; every other key does nothing on a hold, which is why this
+    //    binds on the pane grid with a narrow selector rather than on each
+    //    of the six toolbars.
+    if (this.els.terminalGrid) {
+      this._mwBindLongPress(this.els.terminalGrid, (el) => {
+        this._runMobileKeyLongPress(el);
+      }, { selector: '.terminal-mobile-toolbar [data-key], .terminal-mobile-input-row [data-input-key], .terminal-mobile-input-row .mobile-send-btn' });
+    }
+  }
+
+  /**
+   * Open the session context sheet for a Home card or Recent row.
+   *
+   * Both carry `data-recent-key` rather than a session id, because the
+   * recency list merges Workbook sessions with discovered upstream ones.
+   * Only the first kind has a store record and therefore a context sheet;
+   * for the second the tap route (open it) is the only action there is, so
+   * the hold is a no-op rather than an empty sheet.
+   *
+   * @param {Element} el - The card or row.
+   * @param {Object} point - { clientX, clientY } of the hold.
+   * @returns {boolean} True when a sheet was opened.
+   */
+  _openMobileSessionSheetFor(el, point) {
+    const key = (el && el.dataset) ? el.dataset.recentKey : null;
+    if (!key) return false;
+    const row = this.getRecentSessions(0).find(r => r.key === key);
+    const id = row && row.sessionId ? row.sessionId : (row && row.id ? row.id : null);
+    if (!id) return false;
+    const known = (this.state.allSessions || this.state.sessions || [])
+      .some(s => s.id === id);
+    if (!known) return false;
+    this.showContextMenu(id, point ? point.clientX : 0, point ? point.clientY : 0);
+    return true;
+  }
+
+  /**
+   * Run the long-press meaning of one toolbar key or input-row control.
+   *
+   * MOBILE-EXPERIENCE B.3. Three controls have one and the rest deliberately
+   * do not: a key that repeats on hold is a footgun on a terminal, and a
+   * sheet on every key would make the toolbar unpredictable.
+   *
+   * @param {Element} el - The pressed control.
+   * @returns {boolean} True when a sheet was opened.
+   */
+  _runMobileKeyLongPress(el) {
+    if (!el || !el.dataset) return false;
+    const paneEl = el.closest ? el.closest('.terminal-pane') : null;
+    const slot = paneEl ? parseInt(paneEl.dataset.slot, 10) : NaN;
+    if (Number.isNaN(slot)) return false;
+
+    if (el.dataset.key === 'ctrlc') {
+      this.showActionSheet('Control keys', this.buildMobileModifierItems(slot));
+      return true;
+    }
+    if (el.classList && el.classList.contains('mobile-send-btn')) {
+      this.showActionSheet('Send', [
+        { label: 'Send without Enter', action: () => this._sendMobileInput(slot, { withEnter: false }) },
+        { label: 'Send Shift+Enter (newline)', action: () => this._sendMobileInput(slot, { shiftEnter: true }) },
+      ]);
+      return true;
+    }
+    if (el.dataset.inputKey === 'image') {
+      // The three sources the platform offers are chosen by the `capture`
+      // attribute on the shared file input, so this routes through the one
+      // upload path rather than opening a second picker.
+      this.showActionSheet('Attach an image', [
+        { label: 'Camera', action: () => this._openMobileImagePicker(slot, 'environment') },
+        { label: 'Photo library', action: () => this._openMobileImagePicker(slot, null) },
+        { label: 'Files', action: () => this._openMobileImagePicker(slot, null) },
+      ]);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Open the shared image picker for a pane, optionally asking the platform
+   * for the camera rather than the library.
+   *
+   * `capture` is set and then removed, because the attribute is sticky on
+   * the shared input and a later Files tap would otherwise still open the
+   * camera on Android.
+   *
+   * @param {number} slot - Pane slot index.
+   * @param {string|null} capture - 'environment', 'user' or null.
+   * @returns {boolean} True when the picker was opened.
+   */
+  _openMobileImagePicker(slot, capture) {
+    const pane = this.terminalPanes[slot];
+    const input = this.els.imageUploadInput;
+    if (!pane || !input) return false;
+    this._uploadTarget = { terminalPane: pane, groupId: this._activeGroupId };
+    if (capture) input.setAttribute('capture', capture);
+    else input.removeAttribute('capture');
+    input.click();
+    if (capture) {
+      // Cleared on the next tick so the click has already been dispatched
+      // with the attribute in place.
+      setTimeout(() => input.removeAttribute('capture'), 0);
+    }
+    return true;
+  }
+
+  /**
+   * Build the Ctrl+A through Ctrl+Z modifier sheet.
+   *
+   * A.3.3 row "Key: any other Ctrl combination" records this as NOT
+   * AVAILABLE today: the toolbar has Ctrl+C and Ctrl+D and there is no way
+   * to send Ctrl+R, Ctrl+Z or Ctrl+L from a phone at all. This is the route.
+   *
+   * @param {number} slot - Pane slot index.
+   * @returns {Array<Object>} Action-sheet items.
+   */
+  buildMobileModifierItems(slot) {
+    const pane = this.terminalPanes[slot];
+    if (!pane) return [{ label: 'No terminal in this pane', disabled: true }];
+    const send = (letter) => {
+      if (!pane.ws || pane.ws.readyState !== WebSocket.OPEN) return;
+      // Ctrl+<letter> is the control character at the letter's position in
+      // the alphabet: Ctrl+A is 0x01 through Ctrl+Z at 0x1a.
+      const code = letter.toUpperCase().charCodeAt(0) - 64;
+      pane.ws.send(JSON.stringify({ type: 'input', data: String.fromCharCode(code) }));
+    };
+    const items = [{ type: 'sep', label: 'Common' }];
+    // The six a CLI user actually reaches for, then the full alphabet, so
+    // the sheet is useful before it is exhaustive.
+    for (const [letter, what] of [
+      ['C', 'interrupt'], ['D', 'end of input'], ['Z', 'suspend'],
+      ['L', 'clear'], ['R', 'reverse search'], ['U', 'clear line'],
+    ]) {
+      items.push({ label: 'Ctrl+' + letter, hint: what, action: () => send(letter) });
+    }
+    items.push({ type: 'sep', label: 'All' });
+    for (let i = 0; i < 26; i++) {
+      const letter = String.fromCharCode(65 + i);
+      items.push({ label: 'Ctrl+' + letter, action: () => send(letter) });
+    }
+    return items;
+  }
+
+  /**
+   * The bottom tab bar's quick-actions sheet (MOBILE-EXPERIENCE B.3 row 1).
+   *
+   * Every item here has a tap route on the destination itself, which is the
+   * reachability invariant A.5 states: this gesture is a shortcut and never
+   * the only way to anything.
+   *
+   * @param {string} view - The tab's `data-view`.
+   * @returns {boolean} True when a sheet was opened.
+   */
+  showMobileTabQuickActions(view) {
+    const items = [];
+    if (view === 'home') {
+      items.push({ label: 'New session', action: () => this.createSession() });
+      items.push({ label: 'New agent task', action: () => this.openNewTaskDialog() });
+    } else if (view === 'sessions') {
+      items.push({ label: 'New session', action: () => this.createSession() });
+      items.push({ label: 'Select', action: () => this.setMobileSessionSelectMode(true) });
+    } else if (view === 'terminal') {
+      const panes = [];
+      for (let i = 0; i < CWMApp.MAX_PANES; i++) {
+        const tp = this.terminalPanes[i];
+        if (tp) panes.push({ label: tp.sessionName || ('Pane ' + (i + 1)), slot: i });
+      }
+      if (panes.length === 0) items.push({ label: 'No open panes', disabled: true });
+      else {
+        panes.forEach(p => items.push({
+          label: p.label,
+          check: p.slot === this._activeTerminalSlot,
+          action: () => this.switchTerminalTab(p.slot),
+        }));
+      }
+    } else if (view === 'attention') {
+      items.push({ label: 'Stop all', danger: true, action: () => this.stopAllSessions() });
+    } else if (view === 'search') {
+      items.push({ label: 'Commands', action: () => this.openMobileSearchScope('commands') });
+      items.push({ label: 'Conversations', action: () => this.openMobileSearchScope('conversations') });
+      items.push({ label: 'Help', action: () => this.openMobileSearchScope('help') });
+    } else {
+      return false;
+    }
+    this.showActionSheet('Quick actions', items);
+    return true;
+  }
+
+  /**
+   * Stop every running session.
+   *
+   * MOBILE-EXPERIENCE A.3.4 gives the Attention tab exactly one overflow
+   * item, "Stop all", in the danger group. P10 wired that row to
+   * `restartAllSessions`, which is not what the label says and is the more
+   * dangerous of the two: a user asking a queue of stuck sessions to stop
+   * would have restarted every session in the workbook instead. The row now
+   * calls this, and `restartAllSessions` keeps its own separate route in
+   * `showMoreMenu` ("Restart all sessions"), where the label is truthful.
+   *
+   * Sequential rather than parallel, and confirmed first, for the same
+   * reason `restartAllSessions` is: this is a bulk destructive action on
+   * live processes.
+   *
+   * @returns {Promise<number>} How many sessions were asked to stop.
+   */
+  async stopAllSessions() {
+    const running = (this.state.allSessions || this.state.sessions || [])
+      .filter(s => s.status === 'running');
+    if (running.length === 0) {
+      this.showToast('No running sessions', 'info');
+      return 0;
+    }
+    const ok = await this.showConfirmModal({
+      title: 'Stop all sessions?',
+      message: `This stops <strong>${running.length}</strong> running session${running.length === 1 ? '' : 's'}. Their transcripts are kept and each one can be started again.`,
+      confirmText: 'Stop all',
+      confirmClass: 'btn-danger',
+    });
+    if (!ok) return 0;
+    let stopped = 0;
+    for (const session of running) {
+      try {
+        await this.api('POST', `/api/sessions/${session.id}/stop`);
+        stopped++;
+      } catch (_) {
+        // One refusal must not abandon the rest of the queue.
+      }
+    }
+    await this.loadSessions();
+    this.showToast(`Stopped ${stopped} session${stopped === 1 ? '' : 's'}`, 'info');
+    return stopped;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     SHARED-PTY WIDTH DISCIPLINE, THE CLIENT HALF   (P11.6)
+
+     MOBILE-EXPERIENCE B.9. One PTY is shared by N clients and exactly one
+     of them owns the geometry. A phone and a desktop attached to the same
+     session therefore fight: the desktop's wide frames arrive on the
+     phone, the phone claims, the desktop claims back, and every applied
+     resize is a full ConPTY repaint into BOTH clients.
+
+     The server half (an ownership debounce and alternate-buffer-aware
+     replay) shipped in P6. This is the client half, and it is three
+     things:
+
+       1. A CLAIM GATE, published for the pane layer to consult. A claim
+          is only genuinely wanted when the document is visible, the
+          Terminal tab is the active one, and the keyboard is not
+          mid-settle. `onSettle` is where the suppression window is
+          opened and closed, because it already fires exactly once per
+          settle rather than once per resize event.
+       2. A PER-SESSION "Follow this device" SWITCH, default on. Off
+          means this client stores its viewport but never claims, which
+          is the escape hatch for a problem that cannot be fully solved
+          client-side: a user watching from a phone while working on a
+          desktop can pin the desktop as the owner.
+       3. A NOTICE, not a fight. When the applied width is more than
+          MW_WIDTH_NOTICE_RATIO times this client's own fit, the pane says
+          so in one dismissible line and offers to take over. The
+          alternative, claiming automatically, is the thrash.
+
+     WHAT THIS PHASE COULD NOT REACH. `_requestActivate` lives in
+     `terminal.js`, which another track owns this phase, so the gate is
+     PUBLISHED here and consulted by the app-layer claim paths only. The
+     one-line read inside `_requestActivate` is listed in this phase's
+     report as post-P7 mop-up.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Open the claim-suppression window.
+   *
+   * B.9 rule 2: never claim while the keyboard is settling. Keyboard open
+   * and close changes ROWS, not columns, but every applied resize is a full
+   * repaint, and doing it three times during a 250ms keyboard animation is
+   * visible jank on both clients.
+   *
+   * @returns {number} The timestamp until which claims are suppressed.
+   */
+  suppressGeometryClaims() {
+    const c = CWMApp.mwConstants();
+    // The settle window plus its own length again: the driver fires on the
+    // TRAILING edge, so a claim arriving one frame later is still inside the
+    // animation the user is watching.
+    this._claimSuppressedUntil = Date.now() + (c.MW_VP_SETTLE_MS * 2);
+    return this._claimSuppressedUntil;
+  }
+
+  /**
+   * Whether this client may claim PTY geometry right now.
+   *
+   * Published on `window.MyrlinClaimGate` so the pane layer can consult one
+   * answer rather than re-deriving four conditions.
+   *
+   * @param {string} [sessionId] - Session the claim is for, for rule 4.
+   * @returns {boolean} True when a claim is genuinely wanted.
+   */
+  canClaimGeometry(sessionId) {
+    // Rule 1, both halves: the document has to be visible AND the Terminal
+    // tab has to be the surface the user is looking at. A phone showing the
+    // Sessions tab can still satisfy an IntersectionObserver on a pane laid
+    // out behind it, which is a claim the user did not ask for.
+    if (typeof document !== 'undefined' && document.visibilityState &&
+        document.visibilityState !== 'visible') {
+      return false;
+    }
+    if (this.isPhone && this.state.viewMode !== 'terminal') return false;
+    // Rule 2: not while the keyboard is settling.
+    if (this._claimSuppressedUntil && Date.now() < this._claimSuppressedUntil) return false;
+    // Rule 4: the per-session escape hatch.
+    if (sessionId && !this.followsThisDevice(sessionId)) return false;
+    return true;
+  }
+
+  /**
+   * Whether a session follows THIS device's geometry (B.9 rule 4).
+   *
+   * Default ON, so nothing changes for the single-client case that is most
+   * of the world. Persisted per session id, because the answer is a property
+   * of how a person works on one session, not a global preference.
+   *
+   * @param {string} sessionId - Session id.
+   * @returns {boolean} True when this client may own geometry.
+   */
+  followsThisDevice(sessionId) {
+    if (!sessionId) return true;
+    if (!this._followDevice) {
+      this._followDevice = new Set();
+      try {
+        const raw = localStorage.getItem('cwm_noFollowSessions');
+        if (raw) JSON.parse(raw).forEach(id => this._followDevice.add(id));
+      } catch (_) {
+        // Unreadable storage means the default, which is to follow.
+      }
+    }
+    return !this._followDevice.has(sessionId);
+  }
+
+  /**
+   * Toggle "Follow this device" for a session.
+   *
+   * @param {string} sessionId - Session id.
+   * @returns {boolean} The resulting state (true means this device follows).
+   */
+  toggleFollowThisDevice(sessionId) {
+    if (!sessionId) return true;
+    this.followsThisDevice(sessionId);
+    const following = !this._followDevice.has(sessionId);
+    if (following) this._followDevice.add(sessionId);
+    else this._followDevice.delete(sessionId);
+    try {
+      localStorage.setItem('cwm_noFollowSessions', JSON.stringify([...this._followDevice]));
+    } catch (_) {
+      // The choice still applies to this visit.
+    }
+    const now = !following;
+    this.showToast(
+      now ? 'This device sets the width' : 'This device follows the other device',
+      'info'
+    );
+    return now;
+  }
+
+  /**
+   * Compare the applied PTY width against this client's own fit and show or
+   * clear the "another device is setting the width" notice.
+   *
+   * B.9 rule 5. The renderer never assumes `term.cols` equals its own fit
+   * result, because on a shared PTY it frequently does not. Turning a silent
+   * unreadable state into an explained one is the whole point: the user can
+   * see WHY the output is wrapping and has one tap to fix it.
+   *
+   * @param {number} [slot] - Pane slot; defaults to the active pane.
+   * @returns {boolean} True when the notice is showing after the call.
+   */
+  syncPaneWidthNotice(slot) {
+    const target = (slot === undefined || slot === null) ? this._activeTerminalSlot : slot;
+    if (target === null || target === undefined) return false;
+    const pane = this.terminalPanes[target];
+    const paneEl = document.getElementById('term-pane-' + target);
+    if (!pane || !paneEl) return false;
+    if (!this.isPhone) {
+      this._clearPaneWidthNotice(paneEl);
+      return false;
+    }
+
+    let proposed = null;
+    try {
+      if (pane.fitAddon && typeof pane.fitAddon.proposeDimensions === 'function') {
+        proposed = pane.fitAddon.proposeDimensions();
+      }
+    } catch (_) {
+      proposed = null;
+    }
+    const mine = proposed && proposed.cols ? proposed.cols : 0;
+    const applied = pane.term && pane.term.cols ? pane.term.cols : 0;
+    if (!mine || !applied) return false;
+    if (applied <= mine * CWMApp.MW_WIDTH_NOTICE_RATIO) {
+      this._clearPaneWidthNotice(paneEl);
+      return false;
+    }
+    if (paneEl.querySelector('.mw-width-notice')) return true;
+
+    const notice = document.createElement('div');
+    notice.className = 'mw-width-notice';
+    notice.dataset.mwZone = 'affordance';
+    notice.setAttribute('role', 'status');
+    notice.innerHTML =
+      '<span class="mw-width-notice-text">Another device is setting the width. ' +
+      'Tap to take over.</span>' +
+      '<button type="button" class="mw-width-notice-close" aria-label="Dismiss">&times;</button>';
+    notice.addEventListener('click', (e) => {
+      if (e.target && e.target.closest && e.target.closest('.mw-width-notice-close')) {
+        this._clearPaneWidthNotice(paneEl);
+        return;
+      }
+      // Taking over is an EXPLICIT claim, so it bypasses the foreground gate
+      // by definition: the user just said this is the device they are using.
+      if (typeof pane.activate === 'function') pane.activate();
+      this._clearPaneWidthNotice(paneEl);
+    });
+    const toolbar = paneEl.querySelector('.terminal-mobile-toolbar');
+    if (toolbar && toolbar.parentNode === paneEl) paneEl.insertBefore(notice, toolbar);
+    else paneEl.appendChild(notice);
+    return true;
+  }
+
+  /**
+   * Remove the width notice from a pane, if it is showing.
+   *
+   * @param {Element} paneEl - The pane element.
+   * @returns {boolean} True when a notice was removed.
+   */
+  _clearPaneWidthNotice(paneEl) {
+    const el = paneEl ? paneEl.querySelector('.mw-width-notice') : null;
+    if (!el) return false;
+    el.remove();
+    return true;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE SESSIONS TAB SURFACE   (Notion restyle P11, MOBILE-EXPERIENCE A.3.2)
+
+     What P10 left here was the P4 phone floor: the desktop session table
+     with its rows collapsed to cards. Four rows of A.3.2 had no phone
+     route at all, and DECISIONS 15.6 names them as the largest single
+     item this phase inherits: the filter pills, the header overflow,
+     bulk select, and the row swipe actions.
+
+     Every one of them is built as a PHONE-ONLY layer over the same
+     `renderSessions` table. The alternative, a second list renderer for
+     the phone, is the two-engines mistake DV-P10-2 already refused once:
+     the desktop table and the phone list would drift in sort order, in
+     hidden-session handling and in what a row even is.
+
+     WHAT THE DESKTOP SEES. Nothing. The filter is applied only at phone
+     width, the pill row and the overflow button are `display: none`
+     above the breakpoint, select mode cannot be entered without the
+     phone-only control that turns it on, and the swipe layer binds to
+     touch events the desktop does not send.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * The filter pill row's four states (A.3.2 row 2), plus the sort chip
+   * that A.3.6 folds the `recent` view into.
+   *
+   * `needs-input` reads the attention queue rather than the session record,
+   * because "needs input" is a live pane state and not a stored status.
+   *
+   * @returns {Array<Object>} Pill descriptors.
+   */
+  static MOBILE_SESSION_FILTERS = [
+    { id: 'all', label: 'All' },
+    { id: 'running', label: 'Running' },
+    { id: 'needs-input', label: 'Needs input' },
+    { id: 'stopped', label: 'Stopped' },
+  ];
+
+  /**
+   * Apply the phone filter pill to a session list.
+   *
+   * Returns the input untouched above the phone breakpoint, which is the
+   * whole safety story for this feature: a filter chosen on a phone can
+   * never silently hide rows from a desktop that restored the same
+   * localStorage value in a narrow window.
+   *
+   * @param {Array<Object>} sessions - Sessions after the hidden-row filter.
+   * @returns {Array<Object>} The filtered list.
+   */
+  applyMobileSessionFilter(sessions) {
+    const filter = this._mobileSessionFilter || 'all';
+    if (!this.isPhone || filter === 'all') return sessions;
+    if (filter === 'running') return sessions.filter(s => s.status === 'running');
+    if (filter === 'stopped') return sessions.filter(s => s.status !== 'running');
+    if (filter === 'needs-input') {
+      const queue = this._getAttentionQueue().filter(item => item.actionable);
+      const ids = new Set(queue.map(item => item.sessionId));
+      return sessions.filter(s => ids.has(s.id));
+    }
+    return sessions;
+  }
+
+  /**
+   * Set the phone filter and re-render.
+   *
+   * @param {string} id - One of MOBILE_SESSION_FILTERS.
+   * @returns {void}
+   */
+  setMobileSessionFilter(id) {
+    const known = CWMApp.MOBILE_SESSION_FILTERS.some(f => f.id === id);
+    this._mobileSessionFilter = known ? id : 'all';
+    try {
+      localStorage.setItem('cwm_mobileSessionFilter', this._mobileSessionFilter);
+    } catch (_) {
+      // A private-mode browser with no storage still gets the filter for
+      // this visit; only the memory of it is lost.
+    }
+    this.renderMobileSessionChrome();
+    this.renderSessions();
+  }
+
+  /**
+   * Draw the phone chrome that sits above the Sessions table: the filter
+   * pill row, and the select-mode action bar when it is on.
+   *
+   * Injected rather than authored into index.html because the panel header
+   * is shared with the desktop, and because a row that only exists on a
+   * phone should not be a permanent piece of desktop markup that a rule has
+   * to hide. Idempotent: the containers are created once and their contents
+   * are re-rendered.
+   *
+   * @returns {boolean} True when the chrome exists after the call.
+   */
+  renderMobileSessionChrome() {
+    const panel = this.els.sessionListPanel;
+    if (!panel) return false;
+    const header = panel.querySelector('.panel-header');
+    if (!header) return false;
+
+    // 1. The header overflow button, beside the two existing header buttons.
+    if (!panel.querySelector('.mobile-sessions-overflow')) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'mobile-sessions-overflow';
+      btn.dataset.mwZone = 'affordance';
+      btn.dataset.mwRoute = 'sessions-overflow';
+      btn.setAttribute('aria-haspopup', 'dialog');
+      btn.setAttribute('aria-label', 'Session list options');
+      btn.title = 'Session list options';
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">' +
+        '<circle cx="4" cy="8" r="1.35" fill="currentColor"/>' +
+        '<circle cx="8" cy="8" r="1.35" fill="currentColor"/>' +
+        '<circle cx="12" cy="8" r="1.35" fill="currentColor"/>' +
+        '</svg>';
+      btn.addEventListener('click', () => this.showMobileSessionsOverflow());
+      const actions = header.lastElementChild;
+      if (actions && actions !== header.firstElementChild) actions.appendChild(btn);
+      else header.appendChild(btn);
+    }
+
+    // 2. The filter pill row, directly under the header (A.3.2 row 2).
+    let pills = panel.querySelector('.mobile-session-filters');
+    if (!pills) {
+      pills = document.createElement('div');
+      pills.className = 'mobile-session-filters';
+      pills.dataset.mwZone = 'chrome';
+      pills.setAttribute('role', 'tablist');
+      pills.setAttribute('aria-label', 'Filter sessions');
+      pills.addEventListener('click', (e) => {
+        const pill = e.target && e.target.closest ? e.target.closest('[data-mw-filter]') : null;
+        if (pill) this.setMobileSessionFilter(pill.dataset.mwFilter);
+      });
+      header.insertAdjacentElement('afterend', pills);
+    }
+    const active = this._mobileSessionFilter || 'all';
+    const counts = this._mobileSessionFilterCounts();
+    pills.innerHTML = CWMApp.MOBILE_SESSION_FILTERS.map(f => {
+      const on = f.id === active;
+      const count = counts[f.id];
+      return '<button type="button" class="mobile-session-filter' + (on ? ' active' : '') +
+        '" role="tab" aria-selected="' + (on ? 'true' : 'false') + '"' +
+        ' data-mw-zone="affordance" data-mw-filter="' + f.id + '">' +
+        this.escapeHtml(f.label) +
+        (count ? '<span class="mobile-session-filter-count">' + count + '</span>' : '') +
+        '</button>';
+    }).join('');
+
+    // 3. The select-mode action bar, only while select mode is on.
+    let bar = panel.querySelector('.mobile-select-bar');
+    if (this._mobileSessionSelect) {
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.className = 'mobile-select-bar';
+        bar.dataset.mwZone = 'chrome';
+        bar.setAttribute('role', 'toolbar');
+        bar.innerHTML =
+          '<span class="mobile-select-count" aria-live="polite">0 selected</span>' +
+          '<button type="button" class="btn btn-ghost btn-sm mobile-select-all" data-mw-zone="affordance">All</button>' +
+          '<button type="button" class="btn btn-danger btn-sm mobile-select-stop" data-mw-zone="affordance">Stop</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm mobile-select-cancel" data-mw-zone="affordance">Cancel</button>';
+        bar.querySelector('.mobile-select-all').addEventListener('click', () => this.toggleMobileSelectAll());
+        bar.querySelector('.mobile-select-stop').addEventListener('click', () => this.stopMobileSelectedSessions());
+        bar.querySelector('.mobile-select-cancel').addEventListener('click', () => this.setMobileSessionSelectMode(false));
+        panel.appendChild(bar);
+      }
+      const n = this._mobileSelectedSessions ? this._mobileSelectedSessions.size : 0;
+      const countEl = bar.querySelector('.mobile-select-count');
+      if (countEl) countEl.textContent = n + ' selected';
+      const stopBtn = bar.querySelector('.mobile-select-stop');
+      if (stopBtn) stopBtn.disabled = n === 0;
+    } else if (bar) {
+      bar.remove();
+    }
+    return true;
+  }
+
+  /**
+   * Count what each filter pill would show, so the row carries the same
+   * information density the desktop table's header does.
+   *
+   * @returns {Object} Counts keyed by filter id, zero omitted.
+   */
+  _mobileSessionFilterCounts() {
+    const sessions = (this.state.sessions || [])
+      .filter(s => this.state.showHidden || !this.state.hiddenSessions.has(s.id));
+    const attention = new Set(
+      this._getAttentionQueue().filter(i => i.actionable).map(i => i.sessionId)
+    );
+    return {
+      all: 0,
+      running: sessions.filter(s => s.status === 'running').length,
+      'needs-input': sessions.filter(s => attention.has(s.id)).length,
+      stopped: sessions.filter(s => s.status !== 'running').length,
+    };
+  }
+
+  /**
+   * The Sessions header overflow sheet (A.3.2 rows "Bulk select" and
+   * "Restart all sessions", plus the two list-scope switches the sidebar
+   * owns on the desktop).
+   *
+   * @returns {void}
+   */
+  showMobileSessionsOverflow() {
+    const sort = this.getSessionsSort();
+    const items = [
+      {
+        label: this._mobileSessionSelect ? 'Done selecting' : 'Select',
+        action: () => this.setMobileSessionSelectMode(!this._mobileSessionSelect),
+      },
+      {
+        label: 'Sort',
+        hint: sort.key === 'lastActive' ? 'Recent' : sort.key,
+        submenu: [
+          { label: 'Recent', check: sort.key === 'lastActive', action: () => this.setSessionsSort('lastActive', 'desc') },
+          { label: 'Name', check: sort.key === 'name', action: () => this.setSessionsSort('name', 'asc') },
+          { label: 'Project', check: sort.key === 'project', action: () => this.setSessionsSort('project', 'asc') },
+          { label: 'Status', check: sort.key === 'status', action: () => this.setSessionsSort('status', 'asc') },
+          { label: 'Cost', check: sort.key === 'cost', action: () => this.setSessionsSort('cost', 'desc') },
+        ],
+      },
+      { type: 'sep' },
+      { label: 'Discover sessions', action: () => this.discoverSessions() },
+      {
+        label: this.state.showHidden ? 'Hide hidden sessions' : 'Show hidden sessions',
+        check: !!this.state.showHidden,
+        action: () => this.toggleShowHidden(),
+      },
+      { label: 'Projects', action: () => this.openMobileWorkspaceSheet() },
+      { type: 'sep' },
+      { label: 'Restart all sessions', danger: true, action: () => this.restartAllSessions() },
+    ];
+    this.showActionSheet('Sessions', items);
+  }
+
+  /**
+   * Enter or leave bulk select mode.
+   *
+   * @param {boolean} on - Desired state.
+   * @returns {boolean} The resulting state.
+   */
+  setMobileSessionSelectMode(on) {
+    this._mobileSessionSelect = !!on;
+    if (!this._mobileSessionSelect) this._mobileSelectedSessions = new Set();
+    else if (!this._mobileSelectedSessions) this._mobileSelectedSessions = new Set();
+    if (this.els.sessionListPanel) {
+      this.els.sessionListPanel.classList.toggle('mw-select-mode', this._mobileSessionSelect);
+    }
+    this.renderSessions();
+    this.renderMobileSessionChrome();
+    return this._mobileSessionSelect;
+  }
+
+  /**
+   * Toggle one row's checkbox in select mode.
+   *
+   * @param {string} id - Session id.
+   * @returns {boolean} True when the row is now selected.
+   */
+  toggleMobileSessionSelected(id) {
+    if (!this._mobileSelectedSessions) this._mobileSelectedSessions = new Set();
+    const on = !this._mobileSelectedSessions.has(id);
+    if (on) this._mobileSelectedSessions.add(id);
+    else this._mobileSelectedSessions.delete(id);
+    const row = this.els.sessionList
+      ? this.els.sessionList.querySelector(`.session-item[data-id="${CSS.escape(id)}"]`)
+      : null;
+    if (row) {
+      row.classList.toggle('mw-selected', on);
+      const box = row.querySelector('.mw-row-check');
+      if (box) box.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+    this.renderMobileSessionChrome();
+    return on;
+  }
+
+  /**
+   * Select or clear every visible row.
+   *
+   * @returns {number} How many rows are selected afterwards.
+   */
+  toggleMobileSelectAll() {
+    const rows = this.els.sessionList
+      ? Array.from(this.els.sessionList.querySelectorAll('.session-item[data-id]'))
+      : [];
+    const ids = rows.map(r => r.dataset.id);
+    const allOn = ids.length > 0 && this._mobileSelectedSessions &&
+      ids.every(id => this._mobileSelectedSessions.has(id));
+    this._mobileSelectedSessions = new Set(allOn ? [] : ids);
+    rows.forEach(r => {
+      const on = !allOn;
+      r.classList.toggle('mw-selected', on);
+      const box = r.querySelector('.mw-row-check');
+      if (box) box.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    this.renderMobileSessionChrome();
+    return this._mobileSelectedSessions.size;
+  }
+
+  /**
+   * Stop every selected running session.
+   *
+   * Confirmed once for the whole batch rather than once per session, and
+   * sequential so a slow server cannot be hit with twenty parallel stops.
+   *
+   * @returns {Promise<number>} How many were asked to stop.
+   */
+  async stopMobileSelectedSessions() {
+    const ids = this._mobileSelectedSessions ? Array.from(this._mobileSelectedSessions) : [];
+    const running = (this.state.allSessions || this.state.sessions || [])
+      .filter(s => ids.includes(s.id) && s.status === 'running');
+    if (running.length === 0) {
+      this.showToast('No running sessions selected', 'info');
+      return 0;
+    }
+    const ok = await this.showConfirmModal({
+      title: 'Stop selected sessions?',
+      message: `This stops <strong>${running.length}</strong> selected running session${running.length === 1 ? '' : 's'}.`,
+      confirmText: 'Stop',
+      confirmClass: 'btn-danger',
+    });
+    if (!ok) return 0;
+    let stopped = 0;
+    for (const session of running) {
+      try {
+        await this.api('POST', `/api/sessions/${session.id}/stop`);
+        stopped++;
+      } catch (_) {
+        // Keep going: a session that refuses to stop must not strand the rest.
+      }
+    }
+    this.setMobileSessionSelectMode(false);
+    await this.loadSessions();
+    this.showToast(`Stopped ${stopped} session${stopped === 1 ? '' : 's'}`, 'info');
+    return stopped;
+  }
+
+  /* ─── Row swipe actions (MOBILE-EXPERIENCE B.3, R5) ──────────
+     Left reveals Stop and Hide, right reveals Terminal, at a 72px
+     threshold with a spring back below it. A SWIPE NEVER PERFORMS THE
+     ACTION: it reveals buttons, and the buttons are what act. That is
+     rule R5, and it is why there is no second, larger threshold.
+
+     ONE shared action layer rather than per-row markup. `renderSessions`
+     rewrites the whole table on every SSE tick, so per-row buttons would
+     be rebuilt several times a minute and the open row's state would be
+     lost with them. A `<tr>` also cannot legally be wrapped in a div,
+     which is what the pre-existing (and never-built) `.session-item-
+     wrapper` rules in styles-mobile.css assumed. */
+
+  /**
+   * Install the swipe layer on the Sessions list.
+   *
+   * @returns {boolean} True when the layer is bound.
+   */
+  bindMobileSessionSwipe() {
+    const list = this.els.sessionList;
+    if (!list || list._mwSwipeBound) return false;
+    list._mwSwipeBound = true;
+
+    const c = CWMApp.mwConstants();
+    let row = null;
+    let startX = 0;
+    let startY = 0;
+    let dx = 0;
+    let axis = null;
+
+    const closeOpen = () => {
+      if (this._mwSwipeRow) {
+        this._mwSwipeRow.style.transform = '';
+        this._mwSwipeRow.classList.remove('mw-swipe-open');
+      }
+      this._mwSwipeRow = null;
+      this._hideMobileSwipeActions();
+    };
+    this._mwCloseSwipe = closeOpen;
+
+    list.addEventListener('touchstart', (e) => {
+      if (!this.isPhone || !e.touches || e.touches.length !== 1) return;
+      const target = e.target && e.target.closest ? e.target.closest('.session-item[data-id]') : null;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      // R2: the edge belongs to the OS back gesture, so a swipe that starts
+      // there is never ours.
+      if (startX < c.MW_SWIPE_EDGE_PX ||
+          startX > (window.innerWidth - c.MW_SWIPE_EDGE_PX)) {
+        row = null;
+        return;
+      }
+      if (this._mwSwipeRow && this._mwSwipeRow !== target) closeOpen();
+      row = target;
+      dx = 0;
+      axis = null;
+    }, { passive: true });
+
+    list.addEventListener('touchmove', (e) => {
+      if (!row || !e.touches || e.touches.length !== 1) return;
+      const moveX = e.touches[0].clientX - startX;
+      const moveY = e.touches[0].clientY - startY;
+      if (!axis) {
+        if (Math.abs(moveX) < c.MW_LONGPRESS_MOVE_PX &&
+            Math.abs(moveY) < c.MW_LONGPRESS_MOVE_PX) return;
+        // The axis is decided ONCE, on the first meaningful movement, so a
+        // diagonal drag cannot flip between scrolling and revealing.
+        axis = Math.abs(moveX) > Math.abs(moveY) ? 'x' : 'y';
+        if (axis === 'x') this._showMobileSwipeActions(row);
+      }
+      if (axis !== 'x') return;
+      const max = CWMApp.MW_SWIPE_MAX_PX;
+      dx = Math.max(-max, Math.min(max, moveX));
+      row.style.transform = 'translateX(' + dx + 'px)';
+      this._positionMobileSwipeActions(row, dx);
+    }, { passive: true });
+
+    const settle = () => {
+      if (!row) return;
+      const open = Math.abs(dx) >= CWMApp.MW_SWIPE_REVEAL_PX;
+      if (axis === 'x' && open) {
+        const rest = dx > 0 ? CWMApp.MW_SWIPE_REVEAL_PX : -CWMApp.MW_SWIPE_REVEAL_PX;
+        row.style.transform = 'translateX(' + rest + 'px)';
+        row.classList.add('mw-swipe-open');
+        this._mwSwipeRow = row;
+        this._positionMobileSwipeActions(row, rest);
+      } else if (axis === 'x') {
+        row.style.transform = '';
+        row.classList.remove('mw-swipe-open');
+        this._mwSwipeRow = null;
+        this._hideMobileSwipeActions();
+      }
+      row = null;
+      axis = null;
+    };
+    list.addEventListener('touchend', settle, { passive: true });
+    list.addEventListener('touchcancel', () => { closeOpen(); row = null; axis = null; }, { passive: true });
+    // Any tap outside the open row closes it, which is the affordance every
+    // platform's own swipe rows have.
+    list.addEventListener('click', (e) => {
+      if (!this._mwSwipeRow) return;
+      if (e.target && e.target.closest && e.target.closest('.mw-swipe-action')) return;
+      closeOpen();
+    }, true);
+    return true;
+  }
+
+  /**
+   * Create (once) and fill the shared swipe action layer for a row.
+   *
+   * @param {Element} rowEl - The row being swiped.
+   * @returns {Element|null} The layer.
+   */
+  _showMobileSwipeActions(rowEl) {
+    const list = this.els.sessionList;
+    if (!list || !rowEl) return null;
+    let layer = this._mwSwipeLayer;
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.className = 'mw-swipe-actions';
+      layer.dataset.mwZone = 'chrome';
+      layer.hidden = true;
+      list.appendChild(layer);
+      this._mwSwipeLayer = layer;
+    }
+    const id = rowEl.dataset.id;
+    const session = (this.state.allSessions || this.state.sessions || []).find(s => s.id === id);
+    const running = session && session.status === 'running';
+    layer.innerHTML =
+      '<div class="mw-swipe-side mw-swipe-lead">' +
+      '<button type="button" class="mw-swipe-action mw-swipe-terminal" data-mw-zone="affordance"' +
+      ' data-swipe-action="terminal" data-id="' + this.escapeHtml(id) + '">Terminal</button>' +
+      '</div>' +
+      '<div class="mw-swipe-side mw-swipe-trail">' +
+      (running
+        ? '<button type="button" class="mw-swipe-action mw-swipe-stop" data-mw-zone="affordance"' +
+          ' data-swipe-action="stop" data-id="' + this.escapeHtml(id) + '">Stop</button>'
+        : '<button type="button" class="mw-swipe-action mw-swipe-start" data-mw-zone="affordance"' +
+          ' data-swipe-action="start" data-id="' + this.escapeHtml(id) + '">Start</button>') +
+      '<button type="button" class="mw-swipe-action mw-swipe-hide" data-mw-zone="affordance"' +
+      ' data-swipe-action="hide" data-id="' + this.escapeHtml(id) + '">Hide</button>' +
+      '</div>';
+    if (!layer._mwBound) {
+      layer._mwBound = true;
+      layer.addEventListener('click', (e) => {
+        const btn = e.target && e.target.closest ? e.target.closest('[data-swipe-action]') : null;
+        if (!btn) return;
+        e.stopPropagation();
+        this._runMobileSwipeAction(btn.dataset.swipeAction, btn.dataset.id);
+      });
+    }
+    layer.hidden = false;
+    return layer;
+  }
+
+  /**
+   * Keep the action layer aligned with the row it belongs to.
+   *
+   * The layer is absolutely positioned inside the scrolling list, so it
+   * scrolls with the row for free; only its vertical offset and height have
+   * to be written, and only while a row is actually being dragged.
+   *
+   * @param {Element} rowEl - The swiped row.
+   * @param {number} offset - Current row translation.
+   * @returns {void}
+   */
+  _positionMobileSwipeActions(rowEl, offset) {
+    const layer = this._mwSwipeLayer;
+    const list = this.els.sessionList;
+    if (!layer || !list || !rowEl) return;
+    layer.style.top = (rowEl.offsetTop) + 'px';
+    layer.style.height = rowEl.offsetHeight + 'px';
+    layer.classList.toggle('mw-swipe-showing-lead', offset > 0);
+    layer.classList.toggle('mw-swipe-showing-trail', offset < 0);
+  }
+
+  /** Hide the shared swipe layer without destroying it. @returns {void} */
+  _hideMobileSwipeActions() {
+    if (this._mwSwipeLayer) this._mwSwipeLayer.hidden = true;
+  }
+
+  /**
+   * Run one revealed swipe action.
+   *
+   * Each arm calls the SAME method the context sheet and the desktop menu
+   * call, so a revealed action and a menu action can never diverge.
+   *
+   * @param {string} action - 'terminal', 'stop', 'start' or 'hide'.
+   * @param {string} id - Session id.
+   * @returns {boolean} True when an action ran.
+   */
+  _runMobileSwipeAction(action, id) {
+    if (this._mwCloseSwipe) this._mwCloseSwipe();
+    if (!id) return false;
+    if (action === 'terminal') { this.openSessionInCurrentPane(id); return true; }
+    if (action === 'stop') { this.stopSession(id); return true; }
+    if (action === 'start') { this.startSession(id); return true; }
+    if (action === 'hide') { this.deleteSession(id); return true; }
+    return false;
+  }
+
+  /**
+   * Open a session in the pane the phone is already showing, then switch to
+   * the Terminal tab.
+   *
+   * A.3.2 row "Open session in terminal": on a phone the canonical route is
+   * a row TAP, because there is exactly one visible pane and dragging a row
+   * onto it is the gesture B.8 removes. The desktop "Open in Terminal"
+   * looks for an EMPTY slot and refuses when all six are full, which on a
+   * phone would mean the primary action of the primary list failing with a
+   * warning toast.
+   *
+   * @param {string} id - Session id.
+   * @param {Object} [opts] - { newPane: true } to force an empty slot.
+   * @returns {boolean} True when a pane was asked to open.
+   */
+  openSessionInCurrentPane(id, opts = {}) {
+    const session = (this.state.allSessions || this.state.sessions || []).find(s => s.id === id);
+    if (!session) return false;
+    const spawnOpts = {};
+    if (session.resumeSessionId) spawnOpts.resumeSessionId = session.resumeSessionId;
+    if (session.workingDir) spawnOpts.cwd = session.workingDir;
+    if (session.command) spawnOpts.command = session.command;
+    if (session.bypassPermissions) spawnOpts.bypassPermissions = true;
+    if (session.verbose) spawnOpts.verbose = true;
+    if (session.model) spawnOpts.model = session.model;
+    if (session.agentTeams) spawnOpts.agentTeams = true;
+
+    let slot;
+    if (opts.newPane) {
+      slot = this._findEmptyPaneSlot();
+      if (slot === -1) {
+        this.showToast('All terminal panes full. Close one first.', 'warning');
+        return false;
+      }
+    } else {
+      const active = this._activeTerminalSlot;
+      const existing = this.terminalPanes.findIndex(tp => tp && tp.sessionId === id);
+      if (existing !== -1) slot = existing;
+      else if (active !== null && active !== undefined && this.terminalPanes[active]) slot = active;
+      else {
+        const empty = this._findEmptyPaneSlot();
+        slot = empty === -1 ? 0 : empty;
+      }
+    }
+    this.setViewMode('terminal');
+    if (this.terminalPanes[slot] && this.terminalPanes[slot].sessionId === id) {
+      this.switchTerminalTab(slot);
+      return true;
+    }
+    this.openTerminalInPane(slot, id, session.name, spawnOpts);
     return true;
   }
 
@@ -3229,7 +5020,13 @@ class CWMApp {
     }
     items.push(
       { type: 'sep' },
-      { label: 'Stop all', action: () => this.restartAllSessions(), danger: true }
+      // P11: the row now does what its label says. P10 wired "Stop all" to
+      // `restartAllSessions`, which is the more dangerous of the two and not
+      // what A.3.4 asks for: a user asking a queue of stuck sessions to STOP
+      // would have restarted every session in the workbook. "Restart all
+      // sessions" keeps its own route in `showMoreMenu` and in the Sessions
+      // header overflow, where the label is truthful.
+      { label: 'Stop all', danger: true, action: () => this.stopAllSessions() }
     );
     return items;
   }
@@ -3592,6 +5389,9 @@ class CWMApp {
     // ── WORKSPACE SIDEBAR LIST ───────────────────────────────
     const wsList = this.els.workspaceList;
     let wsLPTimer = null;
+    // P11.1: the touch origin, so the cancel is the contract's 8px slop
+    // rather than "any movement at all", which cancelled on a tremor.
+    let wsLPOrigin = null;
 
     // Click delegation
     wsList.addEventListener('click', (e) => {
@@ -3741,36 +5541,59 @@ class CWMApp {
       }
     });
 
-    // Touch long-press delegation
+    // Touch long-press delegation.
+    //
+    // Notion restyle P11.1 (MOBILE-EXPERIENCE B.2): the duration is now the
+    // ONE constant the whole app uses, published by mobile-viewport.js and
+    // matched by terminal.js. It was 500ms here, 600ms on the pane and 400ms
+    // inside xterm; three durations on adjacent elements is exactly what
+    // makes a gesture feel unreliable. The haptic and the 8px movement slop
+    // come from the same table. The listener SHAPE is preserved because
+    // mobile-ux-fixes.test.js P1-2(b) pins it.
     wsList.addEventListener('touchstart', (e) => {
       clearTimeout(wsLPTimer);
+      const lpMs = CWMApp.mwConstants().MW_LONGPRESS_MS;
+      if (e.touches && e.touches[0]) {
+        wsLPOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
       const wsSessionItem = e.target.closest('.ws-session-item');
       if (wsSessionItem) {
         wsLPTimer = setTimeout(() => {
           const touch = e.touches[0];
-          if (touch) this.showContextMenu(wsSessionItem.dataset.sessionId, touch.clientX, touch.clientY);
-        }, 500);
+          if (!touch) return;
+          this._mwHaptic();
+          this._mwSuppressNextClick();
+          this.showContextMenu(wsSessionItem.dataset.sessionId, touch.clientX, touch.clientY);
+        }, lpMs);
         return;
       }
       const workspaceItem = e.target.closest('.workspace-item');
       if (workspaceItem) {
         wsLPTimer = setTimeout(() => {
           const touch = e.touches[0];
-          if (touch) this.showWorkspaceContextMenu(workspaceItem.dataset.id, touch.clientX, touch.clientY);
-        }, 500);
+          if (!touch) return;
+          this._mwHaptic();
+          this._mwSuppressNextClick();
+          this.showWorkspaceContextMenu(workspaceItem.dataset.id, touch.clientX, touch.clientY);
+        }, lpMs);
         return;
       }
       const groupHeader = e.target.closest('.workspace-group-header');
       if (groupHeader) {
         wsLPTimer = setTimeout(() => {
           const touch = e.touches[0];
-          if (touch) this.showGroupContextMenu(groupHeader.dataset.groupId, touch.clientX, touch.clientY);
-        }, 500);
+          if (!touch) return;
+          this._mwHaptic();
+          this._mwSuppressNextClick();
+          this.showGroupContextMenu(groupHeader.dataset.groupId, touch.clientX, touch.clientY);
+        }, lpMs);
         return;
       }
     }, { passive: false });
     wsList.addEventListener('touchend', () => clearTimeout(wsLPTimer));
-    wsList.addEventListener('touchmove', () => clearTimeout(wsLPTimer));
+    wsList.addEventListener('touchmove', (e) => {
+      if (this._mwPastSlop(e, wsLPOrigin)) clearTimeout(wsLPTimer);
+    });
 
     // Double-click for inline rename
     wsList.addEventListener('dblclick', (e) => {
@@ -3950,6 +5773,7 @@ class CWMApp {
     // ── SESSION LIST (main panel) ────────────────────────────
     const sessList = this.els.sessionList;
     let sessLPTimer = null;
+    let sessLPOrigin = null;
 
     sessList.addEventListener('click', (e) => {
       // Notion restyle P4.3: the Sessions view is a table, so the same
@@ -3967,7 +5791,29 @@ class CWMApp {
         return;
       }
       const item = e.target.closest('.session-item');
-      if (item) this.selectSession(item.dataset.id);
+      if (!item) return;
+      // Notion restyle P11, MOBILE-EXPERIENCE A.3.2. Two phone-only branches
+      // sit ahead of the desktop behaviour, and neither exists above the
+      // breakpoint:
+      //   1. In bulk select mode a tap toggles the row's checkbox. A tap that
+      //      opened a session while the user was selecting rows would be the
+      //      worst possible outcome of a mis-hit.
+      //   2. Otherwise a tap OPENS the session in the pane the phone is
+      //      already showing and switches to Terminal, which is what A.3.2
+      //      makes the canonical route now that dragging a row onto a pane is
+      //      removed (B.8). The peek sheet keeps its route through the row's
+      //      long-press sheet, "View Details".
+      if (this.isPhone && this._mobileSessionSelect) {
+        this.toggleMobileSessionSelected(item.dataset.id);
+        return;
+      }
+      if (this.isPhone) {
+        // Deliberately NOT selectSession first: that opens the detail peek,
+        // which setViewMode('terminal') would then close in the same frame.
+        this.openSessionInCurrentPane(item.dataset.id);
+        return;
+      }
+      this.selectSession(item.dataset.id);
     });
 
     sessList.addEventListener('contextmenu', (e) => {
@@ -3975,18 +5821,31 @@ class CWMApp {
       if (item) { e.preventDefault(); e.stopPropagation(); this.showContextMenu(item.dataset.id, e.clientX, e.clientY); }
     });
 
+    // P11.1: unified duration, slop and haptic, exactly as on wsList above.
+    // The Sessions row is the affordance A.3.2 routes the most capabilities
+    // through, so this is the hold that has to feel right.
     sessList.addEventListener('touchstart', (e) => {
       clearTimeout(sessLPTimer);
+      if (e.touches && e.touches[0]) {
+        sessLPOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
       const item = e.target.closest('.session-item');
-      if (item) {
+      // Select mode owns the row: a hold there would open a context sheet for
+      // a row the user is in the middle of ticking.
+      if (item && !(this.isPhone && this._mobileSessionSelect)) {
         sessLPTimer = setTimeout(() => {
           const touch = e.touches[0];
-          if (touch) this.showContextMenu(item.dataset.id, touch.clientX, touch.clientY);
-        }, 500);
+          if (!touch) return;
+          this._mwHaptic();
+          this._mwSuppressNextClick();
+          this.showContextMenu(item.dataset.id, touch.clientX, touch.clientY);
+        }, CWMApp.mwConstants().MW_LONGPRESS_MS);
       }
     }, { passive: false });
     sessList.addEventListener('touchend', () => clearTimeout(sessLPTimer));
-    sessList.addEventListener('touchmove', () => clearTimeout(sessLPTimer));
+    sessList.addEventListener('touchmove', (e) => {
+      if (this._mwPastSlop(e, sessLPOrigin)) clearTimeout(sessLPTimer);
+    });
 
     // Session list drag (moved from initDragAndDrop)
     sessList.addEventListener('dragstart', (e) => {
@@ -4008,6 +5867,7 @@ class CWMApp {
     const projList = this.els.projectsList;
     if (projList) {
       let projLPTimer = null;
+      let projLPOrigin = null;
 
       projList.addEventListener('click', (e) => {
         const header = e.target.closest('.project-accordion-header');
@@ -4087,17 +5947,24 @@ class CWMApp {
         if (el) el.classList.remove('dragging');
       });
 
+      // P11.1: unified duration, slop and haptic (MOBILE-EXPERIENCE B.2).
       projList.addEventListener('touchstart', (e) => {
         clearTimeout(projLPTimer);
+        const lpMs = CWMApp.mwConstants().MW_LONGPRESS_MS;
+        if (e.touches && e.touches[0]) {
+          projLPOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
         const sessionItem = e.target.closest('.project-session-item');
         if (sessionItem) {
           projLPTimer = setTimeout(() => {
             const touch = e.touches[0];
             if (touch) {
               const itemProvider = sessionItem.dataset.provider || 'claude'; /* gsd:provider-literal-allowed (back-compat default) */
+              this._mwHaptic();
+              this._mwSuppressNextClick();
               this.showProjectSessionContextMenu(sessionItem.dataset.sessionName, sessionItem.dataset.projectPath, touch.clientX, touch.clientY, itemProvider);
             }
-          }, 500);
+          }, lpMs);
           return;
         }
         const header = e.target.closest('.project-accordion-header');
@@ -4107,13 +5974,17 @@ class CWMApp {
             if (touch) {
               const accordion = header.closest('.project-accordion');
               const accProvider = (accordion && accordion.dataset.provider) || 'claude'; /* gsd:provider-literal-allowed (back-compat default, mirrors mouse contextmenu) */
+              this._mwHaptic();
+              this._mwSuppressNextClick();
               this.showProjectContextMenu(accordion.dataset.encoded, header.querySelector('.project-name').textContent, accordion.dataset.path, touch.clientX, touch.clientY, accProvider);
             }
-          }, 500);
+          }, lpMs);
         }
       }, { passive: false });
       projList.addEventListener('touchend', () => clearTimeout(projLPTimer));
-      projList.addEventListener('touchmove', () => clearTimeout(projLPTimer));
+      projList.addEventListener('touchmove', (e) => {
+        if (this._mwPastSlop(e, projLPOrigin)) clearTimeout(projLPTimer);
+      });
     }
 
     // ── TERMINAL TAB GROUP STRIP (P1-3) ──────────────────────
@@ -4124,11 +5995,17 @@ class CWMApp {
     // _renderContextItems (an action sheet on mobile). Mirrors the wsList pattern.
     const tabStrip = this.els.terminalGroupsTabs;
     if (tabStrip) {
-      // Long-press threshold, matched to the sidebar lists for a consistent feel.
-      const TAB_LONG_PRESS_MS = 500;
+      // Long-press threshold, matched to the sidebar lists for a consistent
+      // feel. P11.1: "matched to the sidebar lists" is now literal rather
+      // than aspirational, because both read the one published constant.
+      const TAB_LONG_PRESS_MS = CWMApp.mwConstants().MW_LONGPRESS_MS;
       let tabLPTimer = null;
+      let tabLPOrigin = null;
       tabStrip.addEventListener('touchstart', (e) => {
         clearTimeout(tabLPTimer);
+        if (e.touches && e.touches[0]) {
+          tabLPOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
         const tabEl = e.target.closest && e.target.closest('.terminal-group-tab');
         if (!tabEl) return;
         tabLPTimer = setTimeout(() => {
@@ -4137,11 +6014,15 @@ class CWMApp {
           const groupId = tabEl.dataset.groupId;
           const group = this._tabGroups.find(g => g.id === groupId);
           const items = this._buildTerminalTabContextItems(groupId, tabEl);
+          this._mwHaptic();
+          this._mwSuppressNextClick();
           this._renderContextItems(group ? group.name : 'Tab Group', items, touch.clientX, touch.clientY);
         }, TAB_LONG_PRESS_MS);
       }, { passive: false });
       tabStrip.addEventListener('touchend', () => clearTimeout(tabLPTimer));
-      tabStrip.addEventListener('touchmove', () => clearTimeout(tabLPTimer));
+      tabStrip.addEventListener('touchmove', (e) => {
+        if (this._mwPastSlop(e, tabLPOrigin)) clearTimeout(tabLPTimer);
+      });
       // Guard: tabs are draggable (reorder). Cancel the long-press the instant a
       // drag begins so it does not pop a sheet over the drag. Delegated on the
       // container so it covers the freshly-rendered tab buttons every render.
@@ -14468,7 +16349,34 @@ class CWMApp {
     });
   }
 
-  showToast(message, level = 'info') {
+  /**
+   * Show a toast.
+   *
+   * NOTION RESTYLE P11.2, MOBILE-EXPERIENCE B.5. THE ROOT CAUSE, FIRST.
+   *
+   * `.toast` sets `pointer-events: auto` and `cursor: grab`, so every toast
+   * is a full-width interactive rectangle. The container is
+   * `pointer-events: none`, which does nothing for the children. On the
+   * Terminal tab the bottom stack is the tab bar plus the input row plus the
+   * key toolbar, and a toast anchored above it still covered a control the
+   * moment the anchor was wrong. P10 fixed the ANCHOR, which is placement;
+   * this fixes the CAUSE, which is that a notice is not a control.
+   *
+   * A toast with no action button is now `.toast-notice`, and the stylesheet
+   * makes that class `pointer-events: none`. The class is set here rather
+   * than relying on `:has(.toast-action)` alone because `:has()` is not
+   * universal on older WebKit, and this is the one rule that must never fail
+   * to apply.
+   *
+   * The signature is BACK-COMPATIBLE. Ninety-odd call sites pass
+   * `(message, level)` and are unchanged; the third argument is opt-in.
+   *
+   * @param {string} message - The text.
+   * @param {string} [level] - 'info', 'success', 'warning' or 'error'.
+   * @param {Object} [options] - { action: { label, onClick }, duration }.
+   * @returns {Element|null} The toast element.
+   */
+  showToast(message, level = 'info', options = {}) {
     const icons = {
       info: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M9 8v4M9 6v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
       success: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M6 9.5l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -14476,11 +16384,17 @@ class CWMApp {
       error: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     };
 
+    const action = options && options.action && options.action.label ? options.action : null;
     const toast = document.createElement('div');
-    toast.className = `toast toast-${level}`;
+    // B.5 rule 1 and 6: a toast is a NOTICE unless it carries an action, and
+    // only the interactive kind keeps its pointer events, its swipe and its
+    // indefinite lifetime.
+    toast.className = `toast toast-${level}` + (action ? ' toast-actionable' : ' toast-notice');
+    toast.setAttribute('role', level === 'error' || level === 'warning' ? 'alert' : 'status');
     toast.innerHTML = `
       <span class="toast-icon">${icons[level] || icons.info}</span>
       <span class="toast-message">${this.escapeHtml(message)}</span>
+      ${action ? `<button type="button" class="toast-action" data-mw-zone="affordance">${this.escapeHtml(String(action.label))}</button>` : ''}
       <button class="toast-close" aria-label="Dismiss">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -14489,6 +16403,13 @@ class CWMApp {
     `;
 
     toast.querySelector('.toast-close').addEventListener('click', () => this.dismissToast(toast));
+    if (action) {
+      const actionBtn = toast.querySelector('.toast-action');
+      actionBtn.addEventListener('click', () => {
+        this.dismissToast(toast);
+        if (typeof action.onClick === 'function') action.onClick();
+      });
+    }
 
     // Swipe-to-dismiss: drag right to remove
     let startX = 0, currentX = 0, dragging = false;
@@ -14532,8 +16453,30 @@ class CWMApp {
 
     this.els.toastContainer.appendChild(toast);
 
-    // Auto-dismiss after 60 seconds
-    setTimeout(() => this.dismissToast(toast), 60000);
+    // B.5 rule 3: at most two on a phone, oldest evicted. A third toast on a
+    // 390px screen is a wall, and the one underneath is the one the user was
+    // reading. The desktop keeps its unbounded stack, where there is room.
+    if (this.isPhone) {
+      const live = Array.from(this.els.toastContainer.querySelectorAll('.toast:not(.toast-exit)'));
+      while (live.length > CWMApp.TOAST_MAX_VISIBLE_PHONE) {
+        this.dismissToast(live.shift());
+      }
+    }
+
+    // B.5 rule 3: 3500ms, 6000ms for warnings and errors, indefinite only
+    // when an action is attached, because dismissing a toast the user has to
+    // press would remove the action with it. The old value was a flat 60
+    // SECONDS for every toast, which on a phone meant a permanent band across
+    // the bottom of the app.
+    const duration = (options && typeof options.duration === 'number')
+      ? options.duration
+      : (action
+        ? 0
+        : ((level === 'error' || level === 'warning')
+          ? CWMApp.TOAST_DURATION_LOUD_MS
+          : CWMApp.TOAST_DURATION_MS));
+    if (duration > 0) setTimeout(() => this.dismissToast(toast), duration);
+    return toast;
   }
 
   dismissToast(toast) {
@@ -15619,8 +17562,16 @@ class CWMApp {
    */
   renderSessions() {
     const list = this.els.sessionList;
-    const sessions = this.state.sessions.filter(s => this.state.showHidden || !this.state.hiddenSessions.has(s.id));
+    const visible = this.state.sessions.filter(s => this.state.showHidden || !this.state.hiddenSessions.has(s.id));
+    // Notion restyle P11, MOBILE-EXPERIENCE A.3.2: the phone filter pill row.
+    // A no-op above the phone breakpoint and a no-op at 'all', so the desktop
+    // table is byte-identical to what it was.
+    const sessions = this.applyMobileSessionFilter(visible);
     const empty = this.els.sessionEmpty;
+    // The phone chrome is drawn even when the list is empty, because an empty
+    // list is often the RESULT of a filter and the way back is the pill row.
+    this.renderMobileSessionChrome();
+    this.bindMobileSessionSwipe();
 
     if (sessions.length === 0) {
       list.innerHTML = '';
@@ -15661,6 +17612,18 @@ class CWMApp {
       if (isSelected) rowCls.push('active');
       if (attentionState) rowCls.push('attention-state');
       if (isHidden) rowCls.push('is-hidden-row');
+      // P11: bulk select (A.3.2). The class carries the state so a re-render
+      // triggered by an SSE tick mid-selection does not clear the checkboxes.
+      const isChecked = !!(this._mobileSelectedSessions && this._mobileSelectedSessions.has(s.id));
+      if (this._mobileSessionSelect && isChecked) rowCls.push('mw-selected');
+      const checkCell = this._mobileSessionSelect
+        ? '<span class="mw-row-check" role="checkbox" aria-checked="' + (isChecked ? 'true' : 'false') +
+          '" aria-label="Select session"></span>'
+        : '';
+      // B.8: drag and drop is removed on phones, so the row does not advertise
+      // a gesture the shell will not honour. The attribute is unchanged at
+      // every other width, where the desktop drop targets exist.
+      const draggable = this.isPhone ? 'false' : 'true';
 
       // The Project cell shows the folder NAME, not the path. DESIGN-SPEC 6
       // draws it as "{emoji} {name}", and a truncated absolute path in a 18
@@ -15675,10 +17638,11 @@ class CWMApp {
         : '';
 
       return `
-        <tr class="${rowCls.join(' ')}" tabindex="0"
-             data-id="${s.id}"${attentionState ? ` data-attention-state="${attentionState}"` : ''} draggable="true">
+        <tr class="${rowCls.join(' ')}" tabindex="0" data-mw-zone="affordance"
+             data-id="${s.id}"${attentionState ? ` data-attention-state="${attentionState}"` : ''} draggable="${draggable}">
           <td class="session-cell-name">
             <div class="session-info">
+              ${checkCell}
               <span class="session-status"><span class="status-dot ${statusClass}"></span></span>
               <span class="session-name">${this.escapeHtml(s.name)}</span>
               ${s.topic ? `<span class="session-topic">${this.escapeHtml(s.topic)}</span>` : ''}
@@ -18129,6 +20093,7 @@ class CWMApp {
 
         // Long-press for mobile terminal context menu
         let termLongPress = null;
+        let paneLPOrigin = null;
         // P1-2(a): terminal.js already arms mobile text-selection at 400ms on a
         // still hold inside the xterm surface. Firing the pane context sheet
         // here on the same hold double-fires. Skip when the touch lands on the
@@ -18141,20 +20106,52 @@ class CWMApp {
         // over it both cancels the selection and puts Kill Session one tap from
         // a copy gesture. Verified in QA before this line existed.
         const TERMINAL_SURFACE_SELECTOR = '.terminal-container, .xterm, .terminal-copyview';
+        //
+        // NOTION RESTYLE P11.1, MOBILE-EXPERIENCE B.2. THE PANE CONTAINER IS
+        // CHROME, NOT AN AFFORDANCE.
+        //
+        // The selector above is a DENYLIST, and a denylist is the wrong shape
+        // for this question. Every new text surface has to remember to add
+        // itself, and the failure mode is silent: the user's selection gesture
+        // is stolen and replaced by a sheet whose last item is Restart
+        // session. The Reader overlay, the scrollback-history surface and any
+        // future inline diff are each one forgotten line away from that.
+        //
+        // On a PHONE the pane sheet now has two explicit hosts, both of them
+        // affordances: the pinned overflow chip at the end of the chip strip
+        // (a tap, P10.5) and a long press on a pane chip (P11.1). So the
+        // container listener no longer arms at phone widths at all.
+        //
+        // It is RETAINED, unchanged, for every other width. A desktop or
+        // tablet touchscreen has no right-click, the pane header IS visible
+        // there, and this is that pointer's only route to the pane menu.
+        // Deleting it would remove a capability from a device the mobile
+        // contract does not speak for. `_mwZoneOf` is consulted rather than
+        // the denylist so the two models cannot disagree about what a text
+        // surface is.
         pane.addEventListener('touchstart', (e) => {
           if (this.isMobile && e.target && e.target.closest &&
               e.target.closest(TERMINAL_SURFACE_SELECTOR)) {
             return;
           }
+          // P11.1: the phone's pane container is chrome. Nothing is armed.
+          if (this.isPhone) return;
+          if (this._mwZoneOf(e.target) === 'text') return;
+          if (e.touches && e.touches[0]) {
+            paneLPOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+          }
           termLongPress = setTimeout(() => {
             const tp = this.terminalPanes[slotIdx];
             if (!tp) return;
             const touch = e.touches[0];
+            this._mwHaptic();
             this.showTerminalContextMenu(slotIdx, touch.clientX, touch.clientY);
-          }, 600);
+          }, CWMApp.mwConstants().MW_LONGPRESS_MS);
         }, { passive: true });
         pane.addEventListener('touchend', () => clearTimeout(termLongPress));
-        pane.addEventListener('touchmove', () => clearTimeout(termLongPress));
+        pane.addEventListener('touchmove', (e) => {
+          if (this._mwPastSlop(e, paneLPOrigin)) clearTimeout(termLongPress);
+        });
 
       // Double-click on pane title for inline rename
       const paneTitleEl = pane.querySelector('.terminal-pane-title');
@@ -20756,6 +22753,28 @@ class CWMApp {
       return false;
     }
 
+    // DV-26, and the reason the desktop composer could not have worked
+    // without this. `setActiveTerminalPane` ends in `tp.focus()`, which moves
+    // focus to xterm's hidden textarea. This listener is on the PANE in the
+    // capture phase, so a mousedown on the pane's own input row would reach
+    // it first, activate the pane, and hand focus to xterm before the field
+    // ever received it: the caret would appear and vanish on every click and
+    // the row would be untypeable.
+    //
+    // The composer is a text zone inside a chrome container (B.2), so the
+    // rule is the same one the zone model states: a click there belongs to
+    // the field. The pane is still made active when it is not, because that
+    // is what decides which PTY the typing reaches.
+    const composer = (eventTarget && eventTarget.closest)
+      ? eventTarget.closest('.terminal-mobile-input-row')
+      : null;
+    if (composer) {
+      if (this._activeTerminalSlot !== focusSlot) this.setActiveTerminalPane(focusSlot);
+      const field = composer.querySelector('.mobile-type-input');
+      if (field) field.focus({ preventScroll: true });
+      return false;
+    }
+
     this.setActiveTerminalPane(focusSlot);
     return true;
   }
@@ -20796,7 +22815,14 @@ class CWMApp {
       // Re-assert this pane's geometry on the shared PTY. Clicking into a
       // pane means the user works here now, so this client's viewport wins
       // over any other device that resized the same session.
-      if (typeof tp.activate === 'function') tp.activate();
+      //
+      // P11.6: gated on the session still FOLLOWING this device (B.9 rule 4).
+      // Focusing a pane whose owner the user deliberately pinned elsewhere
+      // must not silently unpin it; the pane overflow sheet is where that
+      // choice is made and unmade.
+      if (typeof tp.activate === 'function' && this.followsThisDevice(tp.sessionId)) {
+        tp.activate();
+      }
 
       // Acknowledge completion on focus. An unresolved needs-input signal is
       // deliberately not cleared simply because the pane received focus;
@@ -20907,6 +22933,21 @@ class CWMApp {
   /**
    * Initialize horizontal swipe gesture to switch between terminal panes.
    * Only active on mobile. Scoped to terminal-grid to avoid sidebar conflicts.
+   *
+   * NOTION RESTYLE P11.5, MOBILE-EXPERIENCE B.3 row "Terminal body". The
+   * guards below are ADDITIVE to the gesture that was here; none of them
+   * makes the swipe do anything new, and each one names a case where it used
+   * to fire when the user meant something else:
+   *
+   *   1. 96px of travel, not 80. On a 360px device 80px is 22 percent of the
+   *      width, which collides with a lazy vertical scroll.
+   *   2. 32px of edge exclusion on BOTH sides, not 30px on the left. The
+   *      edge belongs to the OS back gesture (B.1 rule R2), and the right
+   *      edge is the back gesture on Android.
+   *   3. Inert while a selection exists, while Select mode is on and while
+   *      the Copy view is open. All three are states in which a horizontal
+   *      drag is the user EXTENDING a selection, and switching panes under
+   *      them throws the selection away.
    */
   initTerminalPaneSwipe() {
     // Enable touch pane swipe on any touch-capable device, not just phones.
@@ -20926,6 +22967,8 @@ class CWMApp {
       const activeTP = this._activeTerminalSlot !== null
         ? this.terminalPanes[this._activeTerminalSlot] : null;
       if (activeTP && activeTP._mobileTypeMode) return;
+      // P11.5 guard 3: a horizontal drag over live text is a selection.
+      if (this._paneSwipeInert(activeTP)) return;
 
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
@@ -20941,12 +22984,22 @@ class CWMApp {
       const dx = touch.clientX - startX;
       const dy = touch.clientY - startY;
       const elapsed = Date.now() - startTime;
+      const c = CWMApp.mwConstants();
 
-      // Must be: fast (<300ms), predominantly horizontal, >80px travel
-      if (elapsed > 300 || Math.abs(dy) > Math.abs(dx) * 0.7 || Math.abs(dx) < 80) return;
+      // Must be: fast (<300ms), predominantly horizontal, and past the
+      // published travel threshold.
+      if (elapsed > 300 || Math.abs(dy) > Math.abs(dx) * 0.7 ||
+          Math.abs(dx) < c.MW_SWIPE_MIN_PX) return;
 
-      // Don't trigger if started near left edge (sidebar swipe zone)
-      if (startX < 30) return;
+      // P11.5 guard 2: both edges belong to the OS.
+      if (startX < c.MW_SWIPE_EDGE_PX) return;
+      if (startX > (window.innerWidth - c.MW_SWIPE_EDGE_PX)) return;
+
+      // Re-checked on release as well as on press: Select mode can be turned
+      // on, or a selection made, between the two events.
+      const activeAtEnd = this._activeTerminalSlot !== null
+        ? this.terminalPanes[this._activeTerminalSlot] : null;
+      if (this._paneSwipeInert(activeAtEnd)) return;
 
       // Get ordered list of active pane indices
       const activePanes = this.terminalPanes
@@ -20967,6 +23020,43 @@ class CWMApp {
     }, { passive: true });
   }
 
+  /**
+   * Whether the pane-switch swipe must stay inert right now.
+   *
+   * MOBILE-EXPERIENCE B.3: "inert while a selection exists, while Select mode
+   * is on, and while the Copy view is open". Each is read from the pane
+   * rather than tracked here, so this can never disagree with the pane about
+   * its own state. Every access is guarded because a mirror pane occupies the
+   * same slot array without being a full TerminalPane.
+   *
+   * @param {Object} pane - The pane under the gesture, or null.
+   * @returns {boolean} True when the swipe must not fire.
+   */
+  _paneSwipeInert(pane) {
+    if (!pane) return false;
+    // `_selectMode` and `_copyOverlayOpen` are the pane's own flag names; the
+    // pane also publishes both through `cwm:select-chrome`, which is what the
+    // mobile toolbar syncs from.
+    if (pane._selectMode || pane._copyOverlayOpen) return true;
+    try {
+      if (typeof pane.getCopySelection === 'function') {
+        const sel = pane.getCopySelection();
+        if (sel && sel.hasSelection) return true;
+      } else if (pane.term && typeof pane.term.hasSelection === 'function' && pane.term.hasSelection()) {
+        return true;
+      }
+    } catch (_) {
+      // A pane mid-teardown must not wedge the gesture; treat it as free.
+    }
+    // A native DOM selection over the Copy view or the Reader is the same
+    // case and is not visible to xterm's model.
+    try {
+      const sel = window.getSelection ? window.getSelection() : null;
+      if (sel && !sel.isCollapsed && String(sel).length > 0) return true;
+    } catch (_) { /* selection API unavailable */ }
+    return false;
+  }
+
   _setupResizeDrag(handle, direction) {
     const start = (clientX, clientY, isTouch) => {
       const grid = this.els.terminalGrid;
@@ -20984,13 +23074,26 @@ class CWMApp {
 
       handle.classList.add('active');
 
+      // DV-27, the second half. The drag has to measure the same box the
+      // handle is positioned against, which is the grid's CONTENT box: the
+      // tracks live there, the padding does not. Zero pad today, so this is
+      // the identical arithmetic; non-zero pad later, and the handle still
+      // lands on the seam rather than a pad-width away from it.
+      const dragStyle = window.getComputedStyle(grid);
+      const padL = parseFloat(dragStyle.paddingLeft || '0') || 0;
+      const padR = parseFloat(dragStyle.paddingRight || '0') || 0;
+      const padT = parseFloat(dragStyle.paddingTop || '0') || 0;
+      const padB = parseFloat(dragStyle.paddingBottom || '0') || 0;
+
       const move = (cx, cy) => {
         if (direction === 'col') {
-          const ratio = (cx - gridRect.left) / gridRect.width;
+          const inner = Math.max(1, gridRect.width - padL - padR);
+          const ratio = (cx - gridRect.left - padL) / inner;
           const clamped = Math.max(0.15, Math.min(0.85, ratio));
           this._gridColSizes = [clamped, 1 - clamped];
         } else {
-          const ratio = (cy - gridRect.top) / gridRect.height;
+          const inner = Math.max(1, gridRect.height - padT - padB);
+          const ratio = (cy - gridRect.top - padT) / inner;
           const clamped = Math.max(0.15, Math.min(0.85, ratio));
           this._gridRowSizes = [clamped, 1 - clamped];
         }
@@ -21064,13 +23167,37 @@ class CWMApp {
 
     // Position and show/hide resize handles
     // Column resize only works for 2-col layouts (2-4 panes); 5-6 panes use equal 3-col grid
+    //
+    // DV-27 RESOLVED, the app.js half. DESIGN-SPEC 5.2 gives the pane grid
+    // `padding: 12px 16px 16px`, and P5 shipped the gap and the ground but
+    // NOT the padding, because these two handles are absolutely positioned
+    // children of the grid and a percentage on such a child resolves against
+    // the containing block's PADDING box while the grid TRACKS live in its
+    // CONTENT box. A 16px horizontal pad would therefore offset the handle
+    // from the seam it drags by up to 16px, on the only control in the region
+    // whose entire job is to be exactly on that seam.
+    //
+    // The fix is to convert the track percentage into a padding-box offset:
+    // the seam sits `padLeft + pct% of the content width` from the padding
+    // box's left edge. Written as a `calc()` over the measured pad so it is
+    // correct BEFORE the padding lands (both terms are zero today, so this is
+    // a no-op that produces the identical string) and correct AFTER it lands
+    // without a second edit. The stylesheet half belongs to whoever owns
+    // styles.css next; this side is now ready for it either way.
+    const gridStyle = window.getComputedStyle(grid);
+    const padLeft = parseFloat(gridStyle.paddingLeft || '0') || 0;
+    const padRight = parseFloat(gridStyle.paddingRight || '0') || 0;
+    const padTop = parseFloat(gridStyle.paddingTop || '0') || 0;
+    const padBottom = parseFloat(gridStyle.paddingBottom || '0') || 0;
     if (this._colResizeHandle) {
       const showCol = filledCount >= 2 && filledCount <= 4;
       this._colResizeHandle.hidden = !showCol;
       if (showCol) {
         const totalFr = this._gridColSizes[0] + this._gridColSizes[1];
         const pct = (this._gridColSizes[0] / totalFr) * 100;
-        this._colResizeHandle.style.left = `calc(${pct}% - 3px)`;
+        this._colResizeHandle.style.left = (padLeft || padRight)
+          ? `calc(${padLeft}px + (100% - ${padLeft + padRight}px) * ${pct / 100} - 3px)`
+          : `calc(${pct}% - 3px)`;
       }
     }
     if (this._rowResizeHandle) {
@@ -21079,7 +23206,9 @@ class CWMApp {
       if (showRow) {
         const totalFr = this._gridRowSizes[0] + this._gridRowSizes[1];
         const pct = (this._gridRowSizes[0] / totalFr) * 100;
-        this._rowResizeHandle.style.top = `calc(${pct}% - 3px)`;
+        this._rowResizeHandle.style.top = (padTop || padBottom)
+          ? `calc(${padTop}px + (100% - ${padTop + padBottom}px) * ${pct / 100} - 3px)`
+          : `calc(${pct}% - 3px)`;
       }
     }
   }
@@ -21578,15 +23707,17 @@ class CWMApp {
           ? (p.tp.sessionName || 'Terminal')
           : (p.mirror.title || p.mirror.providerSessionId || 'Mirror')
       );
+      // P11.1: a chip is an AFFORDANCE, which is what makes it a legal host
+      // for the pane action sheet that moved off the pane container (B.2).
       return `<div class="terminal-tab-item${isActive ? ' active' : ''}" data-slot="${p.idx}">
-        <button type="button" class="terminal-tab${isActive ? ' active' : ''}" data-slot="${p.idx}">
+        <button type="button" class="terminal-tab${isActive ? ' active' : ''}" data-mw-zone="affordance" data-slot="${p.idx}">
           ${paneName}
         </button>
-        <button type="button" class="terminal-tab-close" data-slot="${p.idx}"
+        <button type="button" class="terminal-tab-close" data-mw-zone="affordance" data-slot="${p.idx}"
           title="Close pane" aria-label="Close ${paneName} pane">&times;</button>
       </div>`;
     }).join('') +
-      `<button class="terminal-tab terminal-tab-add" title="Open terminal">+</button>` +
+      `<button class="terminal-tab terminal-tab-add" data-mw-zone="affordance" title="Open terminal">+</button>` +
       // NOTION RESTYLE P10.5. The pane overflow, pinned at the end of the chip
       // strip. Fifteen pane-scoped capabilities route here (A.3.3), four of
       // which had NO phone route at all because their only host was
@@ -21742,6 +23873,10 @@ class CWMApp {
       // still be open from an earlier visit to this tab, so both are re-read
       // from the pane rather than assumed off.
       this._syncMobileSelectToolbar(tp, activeEl);
+      // P11.4: the toolbar that just became visible has never been measured,
+      // because a toolbar inside a hidden pane reports zero width. Next frame,
+      // once the pane has been laid out.
+      requestAnimationFrame(() => this.layoutMobileToolbars());
     }
 
     // Update pane indicator dots
@@ -21762,11 +23897,45 @@ class CWMApp {
 
   /* ─── Touch Gestures ─────────────────────────────────────── */
 
+  /**
+   * Publish whether drag and drop is available at this width.
+   *
+   * MOBILE-EXPERIENCE B.8. The desktop model is "drag a session onto a
+   * pane". On a phone there is exactly one visible pane, so there is no
+   * meaningful drop target, and the DragDropTouch polyfill listens on the
+   * document in the bubble phase and already has a documented interaction
+   * with the terminal's touchmove handling. The gesture buys nothing and
+   * costs a conflict with vertical scroll.
+   *
+   * The polyfill itself is initialised in `index.html` before this class
+   * exists and is deliberately left alone: it is what makes drag work on a
+   * TABLET touchscreen, which this contract does not speak for. What changes
+   * on a phone is that nothing advertises a drag (`draggable="false"` on the
+   * rows) and the shell says so in one attribute, which is both the CSS hook
+   * and the thing a test can read.
+   *
+   * @returns {string} 'off' at phone widths, 'on' above them.
+   */
+  syncMobileDndState() {
+    const state = this.isPhone ? 'off' : 'on';
+    if (document.documentElement.dataset.mwDnd !== state) {
+      document.documentElement.dataset.mwDnd = state;
+      // The rows carry `draggable` from their render, so a rotation across
+      // the breakpoint has to re-render them rather than only re-label the
+      // shell. Cheap: this fires on a breakpoint CROSSING, not on a resize.
+      if (this.els && this.els.sessionList && this.state && this.state.sessions) {
+        this.renderSessions();
+      }
+    }
+    return state;
+  }
+
   initTouchGestures() {
     let startX = 0;
     let startY = 0;
     let startTime = 0;
     let tracking = false;
+    this.syncMobileDndState();
 
     document.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
@@ -21788,11 +23957,29 @@ class CWMApp {
       // Only count as swipe if: fast (<300ms), mostly horizontal, >60px distance
       if (elapsed > 300 || Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 60) return;
 
-      // Swipe right from left edge → open sidebar
+      const c = CWMApp.mwConstants();
+
+      // Swipe right from left edge → open sidebar.
+      //
+      // NOTION RESTYLE P11.5, MOBILE-EXPERIENCE B.1 rule R2: no app gesture
+      // starts within the edge zone, because that zone is the operating
+      // system's back gesture on both platforms. This gesture starts INSIDE
+      // it by definition, so on a phone it is retired. That is the correct
+      // trade and it costs nothing: the drawer's contents are the Sessions
+      // tab and the Home workspace sheet, both of which are taps, and the
+      // drawer itself is still reachable from "Projects" in either.
+      //
+      // Above the phone breakpoint the gesture is UNCHANGED. A tablet has
+      // room for the drawer, its edge zone is a smaller fraction of the
+      // screen, and the phone IA is not what it is running.
       if (dx > 0 && startX < 30 && !this.state.sidebarOpen) {
+        if (this.isPhone) return;
         this.toggleSidebar();
         return;
       }
+      // A swipe that starts in the right-hand edge zone is the OS back
+      // gesture on Android and belongs to nobody here.
+      if (this.isPhone && startX > (window.innerWidth - c.MW_SWIPE_EDGE_PX)) return;
 
       // Swipe left while sidebar open → close sidebar
       if (dx < 0 && this.state.sidebarOpen) {
