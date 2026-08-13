@@ -69,6 +69,26 @@
   });
 
   /**
+   * The matching block BACKGROUNDS, the other half of the named block colour
+   * system (BUILD-CONTRACT 2.3 row 3: a content label is `--app-bg-<hue>`
+   * behind `--app-text-<hue>`). Unlike the inks these DO flip with the chrome
+   * theme, which is the point: the ink is the identity and stays put, the
+   * ground under it follows the surface it is drawn on.
+   */
+  const BLOCK_HUE_BG_TOKENS = Object.freeze({
+    gray: '--app-bg-gray',
+    brown: '--app-bg-brown',
+    orange: '--app-bg-orange',
+    yellow: '--app-bg-yellow',
+    green: '--app-bg-green',
+    blue: '--app-bg-blue',
+    purple: '--app-bg-purple',
+    pink: '--app-bg-pink',
+    red: '--app-bg-red',
+    teal: '--app-bg-teal',
+  });
+
+  /**
    * Every legacy palette name this application has ever persisted, mapped to
    * the block hue it now resolves to. Pairings are BUILD-CONTRACT 1.8
    * verbatim: 1.9 rule C1 says map on ROLE, not on hue, and the tag row of
@@ -111,9 +131,44 @@
    * @returns {string} A `--app-text-<hue>` custom-property name. Never empty.
    */
   function blockHueToken(name) {
+    return BLOCK_HUE_TOKENS[blockHue(name)];
+  }
+
+  /**
+   * Resolve a palette name, or a canonical block hue name, to the canonical
+   * block hue itself. The one place the fallback decision is made, so the ink
+   * accessor and the background accessor can never disagree about what an
+   * unrecognised name means.
+   *
+   * @param {string} name - Legacy palette name ('mauve') or block hue ('purple').
+   * @returns {string} A canonical block hue name. Never empty.
+   */
+  function blockHue(name) {
     const key = typeof name === 'string' ? name.trim().toLowerCase() : '';
-    const hue = PALETTE_BLOCK_HUE[key] || (BLOCK_HUE_TOKENS[key] ? key : FALLBACK_BLOCK_HUE);
-    return BLOCK_HUE_TOKENS[hue];
+    return PALETTE_BLOCK_HUE[key] || (BLOCK_HUE_TOKENS[key] ? key : FALLBACK_BLOCK_HUE);
+  }
+
+  /**
+   * Resolve a palette name to the block BACKGROUND token that pairs with its
+   * ink. Used for content labels (user-authored tags), which are the one
+   * surface BUILD-CONTRACT 1.8 sends to the named block palette rather than
+   * to the chip palette.
+   *
+   * @param {string} name - Legacy palette name or block hue name.
+   * @returns {string} An `--app-bg-<hue>` custom-property name. Never empty.
+   */
+  function blockHueBgToken(name) {
+    return BLOCK_HUE_BG_TOKENS[blockHue(name)];
+  }
+
+  /**
+   * The background token, wrapped as a CSS value ready for an inline style.
+   *
+   * @param {string} name - Legacy palette name or block hue name.
+   * @returns {string} e.g. `var(--app-bg-purple)`.
+   */
+  function blockHueBgVar(name) {
+    return 'var(' + blockHueBgToken(name) + ')';
   }
 
   /**
@@ -209,11 +264,15 @@
     // Chrome hue projection (BUILD-CONTRACT 1.8). Additive: every name above
     // keeps its original identity and shape.
     BLOCK_HUE_TOKENS,
+    BLOCK_HUE_BG_TOKENS,
     PALETTE_BLOCK_HUE,
     FALLBACK_BLOCK_HUE,
     TAB_COLOR_TOKENS,
+    blockHue,
     blockHueToken,
     blockHueVar,
+    blockHueBgToken,
+    blockHueBgVar,
     blockHueWash,
     getTabColorVar,
   };

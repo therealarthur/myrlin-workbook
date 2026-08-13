@@ -139,6 +139,17 @@ class CWMApp {
    *  server-side); anything fresher is served from the cache with no SSH. */
   static MAC_STATE_STALE_MS = 5 * 60 * 1000;
 
+  // ── Chrome hue fallbacks (Notion restyle P2.7, BUILD-CONTRACT 1.8) ──
+  /** The identity ink used when instance-colors.js is missing or stale.
+   *  Gray is the named block palette's own neutral, so an unresolvable
+   *  colour degrades to a legible dot on both chrome themes instead of to a
+   *  broken var() or, worse, to a terminal-palette leak. Both fallbacks are
+   *  chrome tokens by construction: DESIGN-SPEC 10.4 has no exception for
+   *  error paths. */
+  static FALLBACK_HUE_VAR = 'var(--app-text-gray)';
+  /** The block ground that pairs with FALLBACK_HUE_VAR. */
+  static FALLBACK_HUE_BG_VAR = 'var(--app-bg-gray)';
+
   constructor() {
     // ─── State ─────────────────────────────────────────────────
     this.state = {
@@ -244,8 +255,18 @@ class CWMApp {
     // Cache of TerminalPane instances per group to avoid reconnection on tab switch.
     // Key: groupId, Value: { panes: [TerminalPane|null x MAX_PANES], domFragments: [DocumentFragment|null x MAX_PANES] }
     this._groupPaneCache = {};
+    // Slot identity, by POSITION in the grid, never by content. The six names
+    // are persisted-state vocabulary and stay exactly as they are; what they
+    // paint is resolved at string-build time by _hueVar (P2.7). DESIGN-SPEC
+    // 5.3 gives the first four slots as purple, blue, green, orange, which is
+    // precisely what mauve, blue, green, peach now resolve to; red and pink
+    // extend the ramp to this application's six slots.
     this.PANE_SLOT_COLORS = ['mauve', 'blue', 'green', 'peach', 'red', 'pink'];
     this.TAB_COLORS = (window.InstanceColors && window.InstanceColors.TAB_COLORS) || [];
+    // The same six tab names projected onto chrome tokens, per contract 1.8.
+    // Read once here so a render path can reach the map without a module hop;
+    // _hueVar remains the resolver every template actually calls.
+    this.TAB_COLOR_TOKENS = (window.InstanceColors && window.InstanceColors.TAB_COLOR_TOKENS) || {};
     this._gridColSizes = [1, 1];  // fr ratios for column widths
     this._gridRowSizes = [1, 1];  // fr ratios for row heights
     // Voice recognition instances per slot (for mic-to-terminal input)
@@ -5586,14 +5607,91 @@ class CWMApp {
     return window.InstanceColors.getTabColor(tabId, this._tabGroups || []);
   }
 
-  /** Render one indicator: top half = tab colour, bottom half = slot colour, 1px divider. */
+  /* ─── Chrome hue resolution (BUILD-CONTRACT 1.8, P2.7) ──────────────────
+     Every inline style in this file that paints an identity colour goes
+     through one of these three. They exist so no render path concatenates
+     `var(--` and a palette name again: DESIGN-SPEC 10.4 lists what the
+     terminal palette may paint, and the sidebar, the tab strip, a chip and a
+     folder header are not on that list.
+
+     instance-colors.js owns the name-to-hue table because it is the one
+     module that is both a browser <script> and requireable from Node, so the
+     mapping is unit-testable. These wrappers add only the degradation
+     policy, which is a client-side concern: instance-colors.js is loaded
+     without a cachebuster, so a browser holding a stale copy must still
+     render a legible dot rather than throw inside a template literal. */
+
+  /**
+   * The CSS value that paints a persisted palette name as an identity mark:
+   * a dot, a pip, a tab colour, a folder tint, a workspace accent.
+   *
+   * @param {string} name - Persisted palette name ('mauve') or block hue ('purple').
+   * @returns {string} e.g. `var(--app-text-purple)`.
+   */
+  _hueVar(name) {
+    const ic = window.InstanceColors;
+    if (ic && typeof ic.blockHueVar === 'function') return ic.blockHueVar(name);
+    return this._hueResolverMissing();
+  }
+
+  /**
+   * The block BACKGROUND that pairs with `_hueVar`, for content labels
+   * (BUILD-CONTRACT 2.3 row 3: user-authored tags are named block colours,
+   * not chips).
+   *
+   * @param {string} name - Persisted palette name or block hue name.
+   * @returns {string} e.g. `var(--app-bg-purple)`.
+   */
+  _hueBgVar(name) {
+    const ic = window.InstanceColors;
+    if (ic && typeof ic.blockHueBgVar === 'function') return ic.blockHueBgVar(name);
+    return CWMApp.FALLBACK_HUE_BG_VAR;
+  }
+
+  /**
+   * The identity ink mixed down over whatever it sits on, for surfaces that
+   * tint rather than mark. Derived from the same ink so a wash can never
+   * drift away from the dot it belongs to.
+   *
+   * @param {string} name - Persisted palette name or block hue name.
+   * @param {number} percent - Ink share, 0 to 100.
+   * @returns {string} A `color-mix(...)` CSS value.
+   */
+  _hueWash(name, percent) {
+    const ic = window.InstanceColors;
+    if (ic && typeof ic.blockHueWash === 'function') return ic.blockHueWash(name, percent);
+    return 'color-mix(in srgb, ' + this._hueResolverMissing() + ' ' + percent + '%, transparent)';
+  }
+
+  /**
+   * Report a missing or stale instance-colors.js exactly once, then hand back
+   * the neutral block ink. Warned rather than swallowed: a silent fallback
+   * that greys every identity colour in the product is a bug report nobody
+   * can diagnose from a screenshot.
+   *
+   * @returns {string} The neutral identity ink.
+   */
+  _hueResolverMissing() {
+    if (!this._hueResolverWarned) {
+      this._hueResolverWarned = true;
+      console.warn('[cwm] instance-colors.js is missing or stale; identity colours ' +
+        'fall back to ' + CWMApp.FALLBACK_HUE_VAR + '. A hard reload should fix it.');
+    }
+    return CWMApp.FALLBACK_HUE_VAR;
+  }
+
+  /** Render one indicator: top half = tab colour, bottom half = slot colour, 1px divider.
+   *  Both halves are identity marks, so both resolve through the chrome hue
+   *  projection rather than through the terminal palette (P2.7). The pip's
+   *  MEANING is unchanged: outer is still the tab's positional colour and
+   *  inner is still the slot's. */
   renderInstanceIndicator({ tabColor, slotColor, title, tabId, slot }) {
     return `<span class="instance-indicator"
       title="${this.escapeHtml(title || '')}"
       data-tab-id="${this.escapeHtml(tabId)}"
       data-slot="${slot}"
-      style="--c-outer:var(--${tabColor});
-             --c-inner:var(--${slotColor})">
+      style="--c-outer:${this._hueVar(tabColor)};
+             --c-inner:${this._hueVar(slotColor)}">
       <span class="instance-indicator-square">
         <span class="instance-indicator-inner"></span>
       </span>
@@ -7696,7 +7794,7 @@ class CWMApp {
 
       const listTagBadges = (t.tags || []).slice(0, 3).map(tag => {
         const color = this._tagColor(tag);
-        return `<span class="session-badge session-badge-tag" style="background:color-mix(in srgb, var(--${color}) 15%, transparent);color:var(--${color});">${this.escapeHtml(tag)}</span>`;
+        return `<span class="session-badge session-badge-tag" style="background:${this._hueBgVar(color)};color:${this._hueVar(color)};">${this.escapeHtml(tag)}</span>`;
       }).join('');
 
       return `<div class="task-item" data-session-id="${t.sessionId || ''}" data-task-id="${t.id}">
@@ -7768,7 +7866,22 @@ class CWMApp {
     this._wireKanbanEvents();
   }
 
-  /** Map a tag name to a consistent Catppuccin color variable */
+  /** Map a tag name to a consistent colour NAME, by hash.
+   *
+   *  The eight-name ramp and the hash are unchanged, deliberately: a tag's
+   *  colour has to be stable across renders, sessions and devices, and the
+   *  hash is the only thing that makes it so. What changed in P2.7 is where
+   *  the name is painted from. Callers resolve it through _hueBgVar plus
+   *  _hueVar, which is the named block colour pair: user-authored tags are
+   *  CONTENT LABELS (PROCEDURE 3.3 rule 5, BUILD-CONTRACT 2.3 row 3), so
+   *  they take the block palette rather than the chip palette. The eight
+   *  names collapse onto six block hues (sky joins teal, rosewater joins
+   *  flamingo as brown), which is the intended collapse: contract 1.8 row 3
+   *  spells out that pairing.
+   *
+   *  @param {string} tag - The tag text.
+   *  @returns {string} A palette name for _hueVar / _hueBgVar.
+   */
   _tagColor(tag) {
     const palette = ['teal', 'pink', 'sky', 'peach', 'lavender', 'flamingo', 'sapphire', 'rosewater'];
     let hash = 0;
@@ -7876,7 +7989,7 @@ class CWMApp {
     // Tag badges
     const tagBadges = (task.tags || []).map(tag => {
       const color = this._tagColor(tag);
-      return `<span class="session-badge session-badge-tag" style="background:color-mix(in srgb, var(--${color}) 15%, transparent);color:var(--${color});">${this.escapeHtml(tag)}</span>`;
+      return `<span class="session-badge session-badge-tag" style="background:${this._hueBgVar(color)};color:${this._hueVar(color)};">${this.escapeHtml(tag)}</span>`;
     }).join('');
 
     return `<div class="kanban-card${task.blockedBy && task.blockedBy.length > 0 ? ' kanban-card-blocked-state' : ''}" draggable="true" data-task-id="${task.id}" data-session-id="${task.sessionId || ''}">
@@ -12049,9 +12162,18 @@ class CWMApp {
       this.modalResolve = resolve;
       this.els.modalTitle.textContent = title;
 
-      // Swatches preview the theme token (var(--name)) rather than a hardcoded
-      // Mocha hex, so the color picker shows each option's real color in every
-      // Catppuccin flavor. data-color still stores the token name.
+      // Swatches preview the token rather than a hardcoded hex, so the picker
+      // shows each option's real colour under the live theme. data-color still
+      // stores the palette NAME, which is what gets persisted.
+      //
+      // P2.7: the swatch resolves through _hueVar, exactly as the workspace
+      // row, the group header and the folder header do. Contract 1.8 row 5
+      // requires it: a picker that previewed the terminal palette while the
+      // row it feeds painted from the chrome layer would be lying about what
+      // the user is choosing. Twelve options against colorMap's thirteen keys
+      // is pre-existing (rosewater renders if persisted but is not offered);
+      // both lists now resolve through the same table, so the two can differ
+      // in membership without ever differing in hue.
       const colorOptions = [
         'mauve', 'blue', 'green', 'red', 'peach', 'teal',
         'pink', 'yellow', 'lavender', 'sapphire', 'sky', 'flamingo',
@@ -12072,7 +12194,7 @@ class CWMApp {
                 ${colorOptions.map(name => `
                   <div class="color-swatch${name === selectedColor ? ' selected' : ''}"
                        data-color="${name}"
-                       style="background: var(--${name})"
+                       style="background: ${this._hueVar(name)}"
                        title="${name}">
                   </div>
                 `).join('')}
@@ -13039,17 +13161,33 @@ class CWMApp {
       return;
     }
 
-    // Emit theme tokens (var(--name)) rather than hardcoded Mocha hexes so the
-    // workspace/group color stripes follow every Catppuccin flavor. Each value
-    // feeds an inline CSS custom property (--ws-color / --group-color /
-    // --ws-group-color) that CSS consumes via var(), so a token resolves and
-    // re-resolves on theme switch. Matches the var(--${color}) pattern used by
-    // tag badges elsewhere in this file.
+    // Emit tokens rather than hardcoded hexes, so a colour resolves and
+    // re-resolves on a theme switch. Each value feeds an inline CSS custom
+    // property (--ws-color / --group-color / --ws-group-color) that the
+    // stylesheet consumes via var().
+    //
+    // P2.7: the KEYS are persisted state and do not move. workspace.color and
+    // group.color hold these exact strings on every existing install, and the
+    // colour picker writes them back. The VALUES moved from the terminal
+    // palette onto the chrome layer, because a workspace accent is chrome and
+    // DESIGN-SPEC 10.4 says the palette paints the transcript and nothing
+    // else. Thirteen keys because that is the full set the picker plus any
+    // older persisted value can produce; unrecognised values still fall
+    // through to the raw-colour branch below.
     const colorMap = {
-      mauve: 'var(--mauve)', blue: 'var(--blue)', green: 'var(--green)', red: 'var(--red)',
-      peach: 'var(--peach)', teal: 'var(--teal)', pink: 'var(--pink)', yellow: 'var(--yellow)',
-      lavender: 'var(--lavender)', sapphire: 'var(--sapphire)', sky: 'var(--sky)', flamingo: 'var(--flamingo)',
-      rosewater: 'var(--rosewater)',
+      mauve: this._hueVar('mauve'),
+      blue: this._hueVar('blue'),
+      green: this._hueVar('green'),
+      red: this._hueVar('red'),
+      peach: this._hueVar('peach'),
+      teal: this._hueVar('teal'),
+      pink: this._hueVar('pink'),
+      yellow: this._hueVar('yellow'),
+      lavender: this._hueVar('lavender'),
+      sapphire: this._hueVar('sapphire'),
+      sky: this._hueVar('sky'),
+      flamingo: this._hueVar('flamingo'),
+      rosewater: this._hueVar('rosewater'),
     };
 
     // Phase 18-02: render-time provider filter. 'all' lets every session
@@ -13174,7 +13312,7 @@ class CWMApp {
         if (s.tags && s.tags.length > 0) {
           for (const tag of s.tags.slice(0, 3)) {
             const color = this._tagColor(tag);
-            badges += `<span class="session-badge session-badge-tag" style="background:color-mix(in srgb, var(--${color}) 15%, transparent);color:var(--${color});">${this.escapeHtml(tag)}</span>`;
+            badges += `<span class="session-badge session-badge-tag" style="background:${this._hueBgVar(color)};color:${this._hueVar(color)};">${this.escapeHtml(tag)}</span>`;
           }
         }
 
@@ -20259,7 +20397,7 @@ class CWMApp {
       <button type="button" class="terminal-group-tab${isActive ? ' active' : ''}${attentionState ? ' attention-state' : ''}"
         data-group-id="${g.id}"
         ${attentionState ? `data-attention-state="${attentionState}"` : ''}
-        style="--tab-color:var(--${tabColor})">
+        style="--tab-color:${this._hueVar(tabColor)}">
         <span class="terminal-group-tab-dot${hasActive ? '' : ' inactive'}"></span>
         <span class="terminal-group-tab-name">${escapedName}</span>
         ${paneCount > 0 ? `<span class="terminal-group-tab-count">${paneCount}</span>` : ''}
@@ -20272,7 +20410,10 @@ class CWMApp {
   renderTerminalGroupTabs() {
     if (!this.els.terminalGroupsTabs) return;
 
-    // Available folder colors - maps to Catppuccin CSS vars
+    // Available folder colours. The eight NAMES are persisted on the folder
+    // record and stay as they are; P2.7 re-points what they paint onto the
+    // chrome layer through _hueVar, so a folder tint stops following whichever
+    // terminal palette happens to be selected (DESIGN-SPEC 10.4).
     const FOLDER_COLORS = ['mauve', 'blue', 'green', 'peach', 'red', 'pink', 'teal', 'yellow'];
 
     // Build HTML: folders first (with their tabs), then ungrouped tabs
@@ -20285,7 +20426,7 @@ class CWMApp {
       const color = folder.color || 'mauve';
 
       html += `<div class="tab-folder${folder.collapsed ? ' collapsed' : ''}" data-folder-id="${folder.id}">`;
-      html += `<button class="tab-folder-header" data-folder-id="${folder.id}" style="--folder-color: var(--${color})">`;
+      html += `<button class="tab-folder-header" data-folder-id="${folder.id}" style="--folder-color: ${this._hueVar(color)}">`;
       html += `<span class="tab-folder-chevron">${folder.collapsed ? '&#9656;' : '&#9662;'}</span>`;
       html += `<span class="tab-folder-name">${this.escapeHtml(folder.name)}</span>`;
       if (totalPanes > 0) html += `<span class="tab-folder-count">${totalPanes}</span>`;
@@ -20349,7 +20490,7 @@ class CWMApp {
 
         const colorItems = FOLDER_COLORS.map(c => ({
           label: c.charAt(0).toUpperCase() + c.slice(1),
-          icon: `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--${c})"></span>`,
+          icon: `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${this._hueVar(c)}"></span>`,
           action: () => { folder.color = c; this.renderTerminalGroupTabs(); this.saveTerminalLayout(); },
         }));
 
@@ -21358,7 +21499,7 @@ class CWMApp {
         .filter(f => !group || group.folderId !== f.id)
         .map(f => ({
           label: f.name,
-          icon: `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--${f.color || 'mauve'})"></span>`,
+          icon: `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${this._hueVar(f.color || 'mauve')}"></span>`,
           action: () => {
             if (group) group.folderId = f.id;
             this.renderTerminalGroupTabs();

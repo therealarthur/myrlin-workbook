@@ -85,10 +85,13 @@ check('getTabColor unknown tab falls back to first colour',
 
 const {
   BLOCK_HUE_TOKENS,
+  BLOCK_HUE_BG_TOKENS,
   PALETTE_BLOCK_HUE,
   TAB_COLOR_TOKENS,
   blockHueToken,
   blockHueVar,
+  blockHueBgToken,
+  blockHueBgVar,
   blockHueWash,
   getTabColorVar,
 } = InstanceColors;
@@ -148,6 +151,21 @@ check('resolution is case and whitespace insensitive',
 
 check('blockHueVar wraps the token as a CSS value',
   blockHueVar('mauve') === 'var(--app-text-purple)');
+
+// The named block colour system is a PAIR: ink plus its matching ground
+// (BUILD-CONTRACT 2.3 row 3). The two accessors must resolve every name to
+// the same hue or a content label ends up with red ink on a green wash.
+check('the block background palette covers the same ten hues',
+  eq(Object.keys(BLOCK_HUE_BG_TOKENS).sort(), Object.keys(BLOCK_HUE_TOKENS).sort()));
+check('every block background token is an --app-bg-<hue> custom property',
+  Object.entries(BLOCK_HUE_BG_TOKENS).every(([hue, token]) => token === '--app-bg-' + hue));
+check('ink and ground resolve every persisted name to the same hue',
+  [...Object.keys(PALETTE_BLOCK_HUE), 'purple', 'gray', 'nope', ''].every(name =>
+    blockHueToken(name).replace('--app-text-', '') ===
+    blockHueBgToken(name).replace('--app-bg-', '')));
+check('blockHueBgVar wraps the background token as a CSS value',
+  blockHueBgVar('mauve') === 'var(--app-bg-purple)' &&
+  blockHueBgVar('flamingo') === 'var(--app-bg-brown)');
 check('blockHueWash mixes the identity ink down over transparent',
   blockHueWash('mauve', 15) === 'color-mix(in srgb, var(--app-text-purple) 15%, transparent)');
 check('blockHueWash clamps an out-of-range percentage',
@@ -162,9 +180,12 @@ check('getTabColorVar keeps the positional rule and paints from chrome',
 // The gate that matters: no emitted string may reference the terminal palette.
 const emitted = [
   ...Object.values(BLOCK_HUE_TOKENS),
+  ...Object.values(BLOCK_HUE_BG_TOKENS),
   ...Object.values(TAB_COLOR_TOKENS),
   ...TAB_COLORS.map(blockHueVar),
   ...Object.keys(PALETTE_BLOCK_HUE).map(blockHueVar),
+  ...Object.keys(PALETTE_BLOCK_HUE).map(blockHueBgVar),
+  ...Object.keys(PALETTE_BLOCK_HUE).map(name => blockHueWash(name, 15)),
 ];
 const CATPPUCCIN = ['rosewater', 'flamingo', 'mauve', 'maroon', 'peach', 'sky', 'sapphire',
   'lavender', 'text', 'subtext1', 'subtext0', 'overlay2', 'overlay1', 'overlay0',
@@ -176,8 +197,8 @@ check('nothing this module emits names a Catppuccin custom property',
 // Freezing is what makes this a contract rather than a suggestion: a caller
 // cannot patch a hue at run time and desynchronise two surfaces.
 check('the projection tables are frozen',
-  Object.isFrozen(BLOCK_HUE_TOKENS) && Object.isFrozen(PALETTE_BLOCK_HUE) &&
-  Object.isFrozen(TAB_COLOR_TOKENS));
+  Object.isFrozen(BLOCK_HUE_TOKENS) && Object.isFrozen(BLOCK_HUE_BG_TOKENS) &&
+  Object.isFrozen(PALETTE_BLOCK_HUE) && Object.isFrozen(TAB_COLOR_TOKENS));
 
 console.log('\n' + (failed === 0 ? 'ALL PASS' : failed + ' FAILED') + ' (' + passed + ' passed)');
 process.exit(failed === 0 ? 0 : 1);
