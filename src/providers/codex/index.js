@@ -177,12 +177,75 @@ function supportsForkResume() {
 // ---------------------------------------------------------------------------
 
 let _watcher = null;
+let _archivedWatcher = null;
 let _pollTimer = null;
 let _debounceTimer = null;
 let _onChange = null;
 const DEBOUNCE_MS = 500;
 const POLL_MS = 5 * 60 * 1000; // 5 minutes
-const ROLLOUT_RE = /rollout-[a-f0-9-]+\.jsonl$/i;
+/**
+ * Filename filter for the rollout watchers.
+ *
+ * BUILD-CONTRACT P9.5, and this is a LIVE BUG FIX rather than a widening.
+ *
+ * The previous pattern was `/rollout-[a-f0-9-]+\.jsonl$/i`, which requires
+ * every character after `rollout-` to be a hex digit or a hyphen. A real Codex
+ * filename is
+ *
+ *     rollout-2026-08-12T13-16-17-019ff6f9-8b5f-7fb1-acef-874b662c6bc8.jsonl
+ *
+ * and the `T` in the ISO timestamp is not in that class, so the pattern matched
+ * NOTHING the desktop app has ever written. The watcher fired only for the
+ * synthetic filenames in its own test; in production every rollout event was
+ * discarded and the sidebar depended entirely on the 5-minute fallback poll.
+ * That is why a new Codex session "took a few minutes to show up".
+ *
+ * The replacement matches any `rollout-*.jsonl` at the end of a path, which is
+ * what the walk, discovery and search have always matched on, and still rejects
+ * `session_index.jsonl`, `state_5.sqlite-wal` and everything else in the noisy
+ * directory. The separator exclusion keeps it anchored to the basename, because
+ * fs.watch on a recursive watch reports a RELATIVE PATH, not a name.
+ */
+const ROLLOUT_RE = /rollout-[^\\/]*\.jsonl$/i;
+
+// ─── State-store polling (BUILD-CONTRACT P9.5, CODEX-PARITY B23) ───────────
+//
+// The rollout watcher above sees a file appear. It does NOT see the desktop app
+// record a thread, archive one, rename one or move it between folders, because
+// all of that happens inside `state_5.sqlite`, which is now the primary source
+// of discovery. A thread created in the app was therefore invisible to the
+// workbook until the 5-minute fallback poll happened to fire.
+//
+// It is a POLL, not an fs.watch, and that is the load-bearing decision.
+// CODEX-PARITY D.6 measured why: CODEX_HOME churns constantly from WAL
+// activity, `state_5.sqlite-wal` changed size unprompted during the
+// investigation, and the P9 read-only proof harness watched two files change in
+// six seconds with the workbook completely idle. An fs.watch on that directory
+// fires continuously. Two cheap stat calls on an interval do not.
+//
+// Two separate numbers, because they answer two different questions:
+//
+//   POLL     how often to LOOK. Two stats, so it can be brisk.
+//   MIN_FIRE how often to TELL ANYONE. Each fire clears the discover cache and
+//            broadcasts SSE to every connected client, and the WAL mtime
+//            advances whenever the app so much as breathes, so without this
+//            floor an active Codex session would refresh every client every
+//            15 seconds all day.
+//
+// A change observed during the cooldown is not dropped: it sets a pending flag
+// and fires on the trailing edge, so the worst case is one refresh per
+// MIN_FIRE window rather than a missed thread.
+const STATE_DB_POLL_MS = Number(process.env.CWM_CODEX_STATE_DB_POLL_MS) > 0
+  ? Number(process.env.CWM_CODEX_STATE_DB_POLL_MS)
+  : 15 * 1000;
+const STATE_DB_MIN_FIRE_MS = Number(process.env.CWM_CODEX_STATE_DB_MIN_FIRE_MS) > 0
+  ? Number(process.env.CWM_CODEX_STATE_DB_MIN_FIRE_MS)
+  : 30 * 1000;
+
+let _stateDbTimer = null;
+let _stateDbKey = null;
+let _stateDbLastFire = 0;
+let _stateDbPendingTimer = null;
 
 /**
  * Resolve the Codex sessions directory from process.env at call time.
@@ -197,13 +260,93 @@ function _sessionsDir() {
 }
 
 /**
+ * Resolve the Codex archived-sessions directory from process.env at call time.
+ *
+ * BUILD-CONTRACT P9.5: the watcher covered `sessions/` only, so a thread the
+ * desktop app archived, which MOVES its rollout out of `sessions/` and into
+ * this flat directory, produced no event at all. Discovery and search have both
+ * read this directory since the session-lifecycle work; the watcher had not
+ * caught up.
+ *
+ * @returns {string}
+ */
+function _archivedSessionsDir() {
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+  return path.join(codexHome, 'archived_sessions');
+}
+
+/**
  * Fire the registered onChange callback inside a try/catch so a thrower
  * does not crash the watcher.
+ *
+ * BUILD-CONTRACT P9.5: every fire, from every source, first drops the state
+ * store's warm cache. The callback's whole purpose is to make a consumer
+ * re-read, and a consumer that re-reads through a cache that still holds the
+ * pre-change snapshot has been told to look and then shown the old picture.
+ * The cache's own TTL is two seconds, so this is belt and braces rather than
+ * the only mechanism, but the cost is a few map assignments.
  */
 function _fire() {
+  try { stateDb.invalidate(); }
+  catch (_) { /* state-db is non-throwing; a broken contract must not stop the fire */ }
   if (typeof _onChange !== 'function') return;
   try { _onChange(); }
   catch (err) { console.warn('[codex/watch] onChange threw: ' + err.message); }
+}
+
+/**
+ * Fire, but no more often than STATE_DB_MIN_FIRE_MS.
+ *
+ * A change seen during the cooldown is remembered and fired on the trailing
+ * edge, so rate limiting delays a refresh and never drops one.
+ *
+ * @returns {void}
+ */
+function _fireRateLimited() {
+  const now = Date.now();
+  const sinceLast = now - _stateDbLastFire;
+  if (sinceLast >= STATE_DB_MIN_FIRE_MS) {
+    _stateDbLastFire = now;
+    _fire();
+    return;
+  }
+  if (_stateDbPendingTimer) return; // already scheduled for the trailing edge
+  _stateDbPendingTimer = setTimeout(() => {
+    _stateDbPendingTimer = null;
+    _stateDbLastFire = Date.now();
+    _fire();
+  }, STATE_DB_MIN_FIRE_MS - sinceLast);
+  // Do not hold the process open for a refresh notification.
+  if (typeof _stateDbPendingTimer.unref === 'function') _stateDbPendingTimer.unref();
+}
+
+/**
+ * One poll tick: compare the store's content key and fire when it moved.
+ *
+ * The key is `size:mtime` of `state_5.sqlite` plus the same for its `-wal`,
+ * which is exactly the key the store's own cache uses, so the watcher and the
+ * cache can never disagree about whether the database changed. Two stat calls,
+ * no open, no read, no parse.
+ *
+ * @returns {void}
+ */
+function _pollStateDb() {
+  let key = null;
+  try {
+    key = stateDb._internal.currentCacheKey();
+  } catch (_) {
+    return; // no database on this machine, or an unreadable one: nothing to do
+  }
+  if (key === null) return;
+  if (_stateDbKey === null) {
+    // First observation establishes the baseline. Firing here would mean one
+    // spurious refresh on every server start.
+    _stateDbKey = key;
+    return;
+  }
+  if (key === _stateDbKey) return;
+  _stateDbKey = key;
+  _fireRateLimited();
 }
 
 /**
@@ -224,6 +367,11 @@ function _startWatcher(onChange) {
   const sessionsDir = _sessionsDir();
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_watcher) { try { _watcher.close(); } catch (_) {} _watcher = null; }
+  if (_archivedWatcher) { try { _archivedWatcher.close(); } catch (_) {} _archivedWatcher = null; }
+  if (_stateDbTimer) { clearInterval(_stateDbTimer); _stateDbTimer = null; }
+  if (_stateDbPendingTimer) { clearTimeout(_stateDbPendingTimer); _stateDbPendingTimer = null; }
+  _stateDbKey = null;
+  _stateDbLastFire = 0;
   if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null; }
   if (!fs.existsSync(sessionsDir)) {
     console.warn('[codex/watch] sessions dir missing: ' + sessionsDir + ' (poll fallback active)');
@@ -242,6 +390,38 @@ function _startWatcher(onChange) {
       console.warn('[codex/watch] could not start watcher: ' + err.message);
     }
   }
+
+  // BUILD-CONTRACT P9.5: archiving a thread MOVES its rollout from sessions/ to
+  // archived_sessions/, which the watch above cannot see because the file is
+  // gone from the tree it watches. Same debounce, same rollout-name filter, so
+  // the two watches coalesce into one fire when a move produces both events.
+  // Absent directory is the normal case on a machine that has never archived.
+  const archivedDir = _archivedSessionsDir();
+  if (fs.existsSync(archivedDir)) {
+    try {
+      _archivedWatcher = fs.watch(archivedDir, { recursive: true }, (_event, filename) => {
+        if (!filename) return;
+        if (!ROLLOUT_RE.test(String(filename))) return;
+        if (_debounceTimer) clearTimeout(_debounceTimer);
+        _debounceTimer = setTimeout(_fire, DEBOUNCE_MS);
+      });
+      _archivedWatcher.on('error', (err) => {
+        console.warn('[codex/watch] archived watcher error: ' + err.message);
+      });
+    } catch (err) {
+      console.warn('[codex/watch] could not watch archived_sessions: ' + err.message);
+    }
+  }
+
+  // BUILD-CONTRACT P9.5: the state-store poll. Two stat calls per tick, rate
+  // limited on the way out. See the constants above for why this is a poll and
+  // not an fs.watch.
+  _stateDbTimer = setInterval(_pollStateDb, STATE_DB_POLL_MS);
+  if (typeof _stateDbTimer.unref === 'function') _stateDbTimer.unref();
+  // Establish the baseline immediately so the first tick compares against the
+  // state at startup rather than firing on it.
+  _pollStateDb();
+
   _pollTimer = setInterval(_fire, POLL_MS);
 }
 
@@ -252,6 +432,13 @@ function _stopWatcher() {
   if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null; }
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_watcher) { try { _watcher.close(); } catch (_) {} _watcher = null; }
+  // P9.5: the two additions get torn down in the same place, so a dispose still
+  // leaves no timer and no handle behind.
+  if (_archivedWatcher) { try { _archivedWatcher.close(); } catch (_) {} _archivedWatcher = null; }
+  if (_stateDbTimer) { clearInterval(_stateDbTimer); _stateDbTimer = null; }
+  if (_stateDbPendingTimer) { clearTimeout(_stateDbPendingTimer); _stateDbPendingTimer = null; }
+  _stateDbKey = null;
+  _stateDbLastFire = 0;
   _onChange = null;
 }
 
@@ -514,4 +701,14 @@ module.exports = {
   // going through the registry. Production code must use init().
   _startWatcherForTesting: _startWatcher,
   _stopWatcherForTesting: _stopWatcher,
+  // BUILD-CONTRACT P9.5 test surface: the state-store poll tick and its two
+  // intervals, exposed so a test can drive the tick directly instead of waiting
+  // fifteen seconds for a timer.
+  _pollStateDbForTesting: _pollStateDb,
+  _watcherConstants: {
+    DEBOUNCE_MS: DEBOUNCE_MS,
+    POLL_MS: POLL_MS,
+    STATE_DB_POLL_MS: STATE_DB_POLL_MS,
+    STATE_DB_MIN_FIRE_MS: STATE_DB_MIN_FIRE_MS,
+  },
 };

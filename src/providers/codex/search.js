@@ -57,6 +57,19 @@ const fsp = require('fs').promises;
 const path = require('path');
 const os = require('os');
 
+// BUILD-CONTRACT P9.4: the title cascade. Search used to label a result with
+// whatever `thread_name_updated` event it could find inside the file, an event
+// that exists in 2 of 796 rollouts, and fall back to a raw UUID for the other
+// 794. The store and the session index between them carry a title for most
+// threads, and P8 already built the cascade that resolves one; this module just
+// has to ask.
+//
+// No require cycle: state-db pulls in ./paths only, and discover pulls in
+// parse's _internal. Nothing under providers/codex requires search except the
+// provider barrel.
+const stateDb = require('./state-db');
+const discover = require('./discover');
+
 // ─── Blocking-read guards (2026-07-02, mirrors claude/search.js) ─────────
 // Rollouts are usually small, but the same failure class applies: a sync
 // whole-file read blocks the event loop so neither the in-loop budget check
@@ -281,6 +294,121 @@ function getSearchableFiles() {
   return files;
 }
 
+// ---------------------------------------------------------------------------
+// Title and project index (BUILD-CONTRACT P9.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cached title/cwd index, keyed by the resolved CODEX_HOME so a test that
+ * mutates the env invalidates it exactly the way the file-list cache does.
+ */
+let _titleIndex = null;
+let _titleIndexTime = 0;
+let _titleIndexRoot = null;
+
+/**
+ * Same TTL as the file-list cache. A search is a burst of work against a
+ * snapshot of the disk; both caches should age at the same rate or the labels
+ * and the files they label can disagree.
+ */
+const TITLE_INDEX_TTL = CODEX_SEARCH_FILE_CACHE_TTL;
+
+/**
+ * Build (or return cached) `threadId -> {title, projectPath}`.
+ *
+ * BUILD-CONTRACT P9.4 / CODEX-PARITY B9. Measured coverage of the sources, over
+ * the 125-thread visible set:
+ *
+ *   local_thread_catalog.display_title        1 row
+ *   threads.name                              0 rows
+ *   session_index.jsonl thread_name          55 of 125
+ *   event_msg.thread_name_updated             2 of 796 FILES
+ *   threads.preview (truncated)             all 125
+ *
+ * Search previously used ONLY the fourth of those, and fell back to printing a
+ * raw UUID. So 794 of 796 files were labelled with a UUID in the results list.
+ * The cascade resolves the first four in memory and truncates the preview when
+ * nothing better exists, which is the same label the sidebar shows, so a search
+ * hit and a sidebar row finally name the same session the same way.
+ *
+ * Degrades to an empty map on any failure, at which point every call site falls
+ * back to exactly what it did before.
+ *
+ * Built ONCE per search, before the file loop, so the per-match path stays a
+ * map lookup and the whole index costs one database read rather than one per
+ * matching file.
+ *
+ * @returns {Promise<Map<string, {title: (string|null), projectPath: (string|null)}>>}
+ */
+async function getTitleIndex() {
+  const codexHome = getCodexHome();
+  const now = Date.now();
+  if (
+    _titleIndexRoot === codexHome &&
+    _titleIndex &&
+    now - _titleIndexTime < TITLE_INDEX_TTL
+  ) {
+    return _titleIndex;
+  }
+
+  const index = new Map();
+  try {
+    // Every thread, not the visible projection: a search can match inside an
+    // archived thread or a spawn child, and a result the user can see deserves
+    // a label whatever the sidebar decided about it.
+    let threads = null;
+    try {
+      threads = await stateDb.listThreads({
+        includeArchived: true,
+        includeSpawnChildren: true,
+        includeHidden: true,
+      });
+    } catch (_) {
+      threads = null; // state-db is non-throwing; the guard is belt and braces
+    }
+
+    let indexTitles = new Map();
+    try {
+      indexTitles = discover._internal.buildSessionIndexTitleMap();
+    } catch (_) {
+      indexTitles = new Map();
+    }
+
+    if (Array.isArray(threads)) {
+      for (const t of threads) {
+        if (!t || typeof t.id !== 'string') continue;
+        const parts = Object.assign({}, t.titleParts || {}, {
+          indexTitle: indexTitles.get(t.id) || null,
+        });
+        let resolved = null;
+        try {
+          resolved = stateDb.resolveTitle(parts);
+        } catch (_) {
+          resolved = null;
+        }
+        index.set(t.id, {
+          title: resolved && resolved.title ? resolved.title : null,
+          projectPath: t.cwd || null,
+        });
+      }
+    }
+
+    // Threads the store never saw, or a cold cache: the session index alone
+    // still labels a good share of them.
+    for (const [id, title] of indexTitles) {
+      if (index.has(id)) continue;
+      index.set(id, { title: title, projectPath: null });
+    }
+  } catch (_) {
+    // Never throws; an empty index means every caller falls back.
+  }
+
+  _titleIndex = index;
+  _titleIndexTime = now;
+  _titleIndexRoot = codexHome;
+  return index;
+}
+
 /**
  * Extract the joined text from a response_item.message content array.
  * Codex content parts have type in {input_text, output_text}; other parts
@@ -398,6 +526,10 @@ async function search({ query, limit, timeBudgetMs } = {}) {
   const searchQuery = query.trim().toLowerCase();
   const startTime = Date.now();
   const files = getSearchableFiles();
+  // BUILD-CONTRACT P9.4: resolve the label index ONCE, before the loop, so a
+  // result carries the title the user recognises instead of a UUID. Cached with
+  // the same TTL as the file list, so a burst of searches costs one read.
+  const titleIndex = await getTitleIndex();
   const results = [];
   let searchedFiles = 0;
   let timedOut = false;
@@ -481,16 +613,34 @@ async function search({ query, limit, timeBudgetMs } = {}) {
 
       if (results.length < safeLimit) {
         if (!lazyResolved) {
-          // Resolve thread name (title) and cwd lazily; one pass per file.
-          try {
-            sessionName = findLatestThreadName(lines);
-          } catch (_) { sessionName = null; }
+          // BUILD-CONTRACT P9.4: the cascade first, the file scan second.
+          //
+          // The old order was the file scan and then a raw UUID, which is what
+          // 794 of 796 results were labelled with, because the
+          // `thread_name_updated` event the scan looks for exists in 2 files.
+          // The index resolves catalog title, user rename, session_index title
+          // and truncated preview from memory; the scan stays as the fallback
+          // for a thread the store has never recorded, which is the one case it
+          // can still win.
+          const indexed = fileInfo.sessionId ? titleIndex.get(fileInfo.sessionId) : null;
+          sessionName = indexed && indexed.title ? indexed.title : null;
+          if (!sessionName) {
+            try {
+              sessionName = findLatestThreadName(lines);
+            } catch (_) { sessionName = null; }
+          }
           if (!sessionName) {
             sessionName = fileInfo.sessionId || null;
           }
-          try {
-            projectPath = findCwd(lines);
-          } catch (_) { projectPath = null; }
+          // The store's cwd is normalised (the `\\?\` prefix stripped), which
+          // the raw session_meta value is not, so preferring it also fixes the
+          // duplicate-folder split for search results.
+          projectPath = indexed && indexed.projectPath ? indexed.projectPath : null;
+          if (!projectPath) {
+            try {
+              projectPath = findCwd(lines);
+            } catch (_) { projectPath = null; }
+          }
           projectName = projectPath ? path.basename(projectPath) : null;
           lazyResolved = true;
         }
@@ -547,11 +697,17 @@ module.exports = {
     extractMessageText: extractMessageText,
     findLatestThreadName: findLatestThreadName,
     findCwd: findCwd,
+    // BUILD-CONTRACT P9.4: the label index, exposed so a test can assert the
+    // cascade directly rather than inferring it from a result row.
+    getTitleIndex: getTitleIndex,
     /** Reset the file-list cache; used by tests to force a re-walk. */
     _resetCache: function () {
       _codexSearchFileCache = null;
       _codexSearchFileCacheTime = 0;
       _codexSearchFileCacheRoot = null;
+      _titleIndex = null;
+      _titleIndexTime = 0;
+      _titleIndexRoot = null;
     },
   },
 };

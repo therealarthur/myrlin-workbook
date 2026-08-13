@@ -957,6 +957,8 @@ const standaloneTests = [
   'codex-transcript-drift.test.js', // Notion restyle P9.1/P9.2: the recovered custom_tool_call emit set, array-form tool results, image containment, the unknown-payload counter, and one fixture per cli_version shape family
   'codex-usage-cost.test.js',       // Notion restyle P9.3: token_count normalisers, the cached-read conversion, and the cost capability gate that replaced a false $0.00 with an explicit unsupported state carrying real token counts
   'summarize-route-shadow.test.js', // Notion restyle P9 (CODEX-PARITY B12): the two registrations on one path, the previously-dead docs handler reached by delegation, the opt-in side effect, and provider-dispatched artifact resolution
+  'codex-search-titles.test.js',    // Notion restyle P9.4: search labels come from the title cascade, the in-file event survives as the fallback, and a raw UUID is the last resort
+  'codex-state-db-watcher.test.js', // Notion restyle P9.5: state_5.sqlite mtime poll with a fire floor, archived_sessions watch, cache invalidation on every fire, and the rollout filter that never matched a real filename
 ];
 
 let standaloneFailed = 0;
