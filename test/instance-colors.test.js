@@ -11,6 +11,12 @@ const {
   getTabColor,
 } = require(path.join(__dirname, '..', 'src', 'web', 'public', 'instance-colors.js'));
 
+// Notion restyle P2.7 additions. Destructured separately, and the module is
+// required a second time by name below, so the original destructure above
+// stays character-for-character what it was: BUILD-CONTRACT 4.4 P2.7's done
+// criterion is that this file is green with no edit to an existing assertion.
+const InstanceColors = require(path.join(__dirname, '..', 'src', 'web', 'public', 'instance-colors.js'));
+
 let passed = 0, failed = 0;
 function check(name, ok, detail) {
   if (ok) { passed++; console.log('  PASS  ' + name); }
@@ -69,6 +75,109 @@ check('getTabColor wraps at global index 7', getTabColor('tw7', longTabs) === 'y
 // 5. Unknown tab falls back to first colour
 check('getTabColor unknown tab falls back to first colour',
   getTabColor('nope', tabs) === 'red');
+
+/* ─── 6. Chrome hue projection (Notion restyle P2.7) ────────────────────────
+   BUILD-CONTRACT 1.8 requires the palette NAMES to survive untouched and the
+   emitted CSS to move onto the chrome layer. These assertions guard both
+   halves: the arrays above are still the same six strings (checks 1 and 3 to
+   5 above prove that), and nothing this module emits may name a Catppuccin
+   custom property ever again. DESIGN-SPEC 10.4. */
+
+const {
+  BLOCK_HUE_TOKENS,
+  PALETTE_BLOCK_HUE,
+  TAB_COLOR_TOKENS,
+  blockHueToken,
+  blockHueVar,
+  blockHueWash,
+  getTabColorVar,
+} = InstanceColors;
+
+check('TAB_COLOR_TOKENS covers exactly the six TAB_COLORS names',
+  eq(Object.keys(TAB_COLOR_TOKENS).sort(), [...TAB_COLORS].sort()));
+
+// The literal BUILD-CONTRACT 1.8 table for TAB_COLORS, spelled out rather
+// than derived, so a change to the resolver cannot quietly agree with itself.
+check('TAB_COLOR_TOKENS matches BUILD-CONTRACT 1.8 verbatim',
+  eq(TAB_COLOR_TOKENS, {
+    red: '--app-text-red',
+    yellow: '--app-text-yellow',
+    green: '--app-text-green',
+    teal: '--app-text-teal',
+    blue: '--app-text-blue',
+    mauve: '--app-text-purple',
+  }),
+  JSON.stringify(TAB_COLOR_TOKENS));
+
+check('the block palette is the ten named Notion hues',
+  eq(Object.keys(BLOCK_HUE_TOKENS).sort(),
+    ['blue', 'brown', 'gray', 'green', 'orange', 'pink', 'purple', 'red', 'teal', 'yellow']));
+
+check('every block hue token is an --app-text-<hue> custom property',
+  Object.entries(BLOCK_HUE_TOKENS).every(([hue, token]) => token === '--app-text-' + hue));
+
+// The five names with no one-to-one Notion equivalent, per BUILD-CONTRACT 1.8
+// row 3. These are the ones a careless mapping gets wrong.
+check('sky maps to teal, not blue', blockHueToken('sky') === '--app-text-teal');
+check('lavender maps to purple', blockHueToken('lavender') === '--app-text-purple');
+check('sapphire maps to blue', blockHueToken('sapphire') === '--app-text-blue');
+check('flamingo maps to brown', blockHueToken('flamingo') === '--app-text-brown');
+check('rosewater maps to brown', blockHueToken('rosewater') === '--app-text-brown');
+check('peach maps to orange', blockHueToken('peach') === '--app-text-orange');
+check('mauve maps to purple, never to blue (contract 1.9 C1)',
+  blockHueToken('mauve') === '--app-text-purple');
+
+check('every persisted palette name resolves to a defined block hue',
+  Object.values(PALETTE_BLOCK_HUE).every(hue => typeof BLOCK_HUE_TOKENS[hue] === 'string'));
+
+check('the thirteen persistable palette names are all covered',
+  eq(Object.keys(PALETTE_BLOCK_HUE).sort(),
+    ['blue', 'flamingo', 'green', 'lavender', 'mauve', 'peach', 'pink', 'red',
+      'rosewater', 'sapphire', 'sky', 'teal', 'yellow']));
+
+// Canonical hue names resolve to themselves, so a caller may pass either
+// vocabulary without a lookup table of its own.
+check('a canonical hue name resolves to itself',
+  blockHueToken('purple') === '--app-text-purple' && blockHueToken('brown') === '--app-text-brown');
+
+// Robustness: persisted state is user data and can be anything at all.
+check('an unknown, empty or non-string name degrades to the neutral hue',
+  ['nope', '', null, undefined, 42, {}].every(v => blockHueToken(v) === '--app-text-gray'));
+check('resolution is case and whitespace insensitive',
+  blockHueToken('  MAUVE ') === '--app-text-purple');
+
+check('blockHueVar wraps the token as a CSS value',
+  blockHueVar('mauve') === 'var(--app-text-purple)');
+check('blockHueWash mixes the identity ink down over transparent',
+  blockHueWash('mauve', 15) === 'color-mix(in srgb, var(--app-text-purple) 15%, transparent)');
+check('blockHueWash clamps an out-of-range percentage',
+  blockHueWash('red', 140) === 'color-mix(in srgb, var(--app-text-red) 100%, transparent)' &&
+  blockHueWash('red', -5) === 'color-mix(in srgb, var(--app-text-red) 0%, transparent)');
+
+check('getTabColorVar keeps the positional rule and paints from chrome',
+  getTabColorVar('t1', tabs) === 'var(--app-text-red)' &&
+  getTabColorVar('t5', tabs) === 'var(--app-text-blue)' &&
+  getTabColorVar('nope', tabs) === 'var(--app-text-red)');
+
+// The gate that matters: no emitted string may reference the terminal palette.
+const emitted = [
+  ...Object.values(BLOCK_HUE_TOKENS),
+  ...Object.values(TAB_COLOR_TOKENS),
+  ...TAB_COLORS.map(blockHueVar),
+  ...Object.keys(PALETTE_BLOCK_HUE).map(blockHueVar),
+];
+const CATPPUCCIN = ['rosewater', 'flamingo', 'mauve', 'maroon', 'peach', 'sky', 'sapphire',
+  'lavender', 'text', 'subtext1', 'subtext0', 'overlay2', 'overlay1', 'overlay0',
+  'surface2', 'surface1', 'surface0', 'base', 'mantle', 'crust'];
+check('nothing this module emits names a Catppuccin custom property',
+  emitted.every(value => !CATPPUCCIN.some(name => value.includes('--' + name))),
+  emitted.join(' '));
+
+// Freezing is what makes this a contract rather than a suggestion: a caller
+// cannot patch a hue at run time and desynchronise two surfaces.
+check('the projection tables are frozen',
+  Object.isFrozen(BLOCK_HUE_TOKENS) && Object.isFrozen(PALETTE_BLOCK_HUE) &&
+  Object.isFrozen(TAB_COLOR_TOKENS));
 
 console.log('\n' + (failed === 0 ? 'ALL PASS' : failed + ' FAILED') + ' (' + passed + ' passed)');
 process.exit(failed === 0 ? 0 : 1);
