@@ -34,13 +34,48 @@
     return choice.id;
   }));
 
+  /*
+   * THE TEXT GLYPHS, reconciled in P12 with the drawn dot convention.
+   *
+   * Two vocabularies were describing the same five states in opposite shapes.
+   * The drawn one, settled in DECISIONS 13.1 and shipped across
+   * `.status-dot-*`, `.task-item-dot.*` and the sidebar tristate dot, is:
+   *
+   *   DISC (filled)  a session that is BUSY, working, running
+   *   RING (hollow)  a session that is WAITING on the person
+   *
+   * That ordering is deliberately the opposite of the naive "filled equals on,
+   * hollow equals off" reading, and DECISIONS 13.1 explains why: the ring is
+   * spent on needs-input because DV-14 measured the needs-input hue at 2.68:1
+   * on the light canvas, the only one of the ten under the 3:1 graphic floor,
+   * so the one dot whose COLOUR cannot be relied on is the one dot given a
+   * unique SHAPE.
+   *
+   * This table said the reverse. `needs-input` was a filled disc, `running` was
+   * a media-player triangle that appears nowhere else in the system, and the
+   * ring was spent on `stale`. Any surface that put a drawn dot beside a text
+   * glyph for the same session showed a filled mark and a hollow one for one
+   * state. The glyphs move; the drawn dots, which are the ones a person has
+   * been reading for nine phases, do not.
+   *
+   *   needs-input  disc  -> RING   U+25CB, matching .status-dot-idle
+   *   running      play  -> DISC   U+25CF, matching .status-dot-running
+   *   stale        ring  -> DOTTED U+25CC, the waiting ring gone intermittent,
+   *                                 which is what a stale session is
+   *   failed       U+00D7 and complete U+2713 are unchanged: a cross and a
+   *                                 check are not dots and collide with nothing
+   *
+   * Sanctioned as SE-17 by the orchestrator. The suite gains an explicit pin on
+   * the two load-bearing shapes so the next edit cannot quietly invert them
+   * again.
+   */
   var ATTENTION_STATES = Object.freeze({
     'needs-input': Object.freeze({
       id: 'needs-input',
       label: 'Needs input',
       priority: 0,
       actionable: true,
-      icon: '\u25cf',
+      icon: '\u25cb',
     }),
     failed: Object.freeze({
       id: 'failed',
@@ -61,14 +96,14 @@
       label: 'Stale',
       priority: 3,
       actionable: true,
-      icon: '\u25cb',
+      icon: '\u25cc',
     }),
     running: Object.freeze({
       id: 'running',
       label: 'Running',
       priority: 4,
       actionable: false,
-      icon: '\u25b6',
+      icon: '\u25cf',
     }),
   });
 
