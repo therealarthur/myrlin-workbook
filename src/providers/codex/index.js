@@ -669,6 +669,11 @@ module.exports = {
   parseUsage: usage.parseUsage,
   totalTokensSync: usage.totalTokensSync,
   COST_UNAVAILABLE: usage.COST_UNAVAILABLE,
+  // BUILD-CONTRACT P9.6: OPTIONAL capability feeding the account usage meters
+  // with plan and rate-limit data. Deliberately NOT sourced from the account
+  // switcher's live endpoint: this reads a line Codex writes locally on every
+  // turn, so it needs no credential, makes no network call and works offline.
+  getUsageSnapshot: usage.getRateLimitSnapshot,
   isIdleSignal: isIdleSignal,
   getKeyBindings: getKeyBindings,
   // Issue #10 Tier 1: OPTIONAL mirror capability. mirror.parseLine maps one

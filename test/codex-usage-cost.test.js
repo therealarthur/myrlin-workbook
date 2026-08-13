@@ -405,6 +405,71 @@ function req(server, method, urlPath, opts) {
     assert.strictEqual(codex.supportsTokenUsage(), true);
     assert.strictEqual(typeof codex.parseUsage, 'function');
     assert.strictEqual(typeof codex.totalTokensSync, 'function');
+    assert.strictEqual(typeof codex.getUsageSnapshot, 'function', 'P9.6 feed');
+  });
+
+  // ── 4. The usage snapshot route (P9.6) ─────────────────────────────────
+
+  await test('a provider with no snapshot capability says so, it does not 500', async () => {
+    const r = await req(listener, 'GET', '/api/providers/' + unpricedStub.id + '/usage-snapshot', { token: TOKEN });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.supported, false);
+    assert.strictEqual(r.body.reason, 'provider-reports-no-usage');
+  });
+
+  await test('an unknown provider 404s rather than pretending', async () => {
+    const r = await req(listener, 'GET', '/api/providers/no-such-provider/usage-snapshot', { token: TOKEN });
+    assert.strictEqual(r.status, 404);
+    assert.strictEqual(r.body.supported, false);
+  });
+
+  await test('a snapshot-capable provider returns the meter shape', async () => {
+    const snapshotStub = Object.assign({}, unpricedStub, {
+      id: 'test-snapshot-p9',
+      getUsageSnapshot: function () {
+        return Promise.resolve({
+          rateLimits: {
+            planType: 'pro',
+            limitId: 'codex',
+            limitName: null,
+            primary: { usedPercent: 42, windowMinutes: 300, resetsAt: 1777000000 },
+            secondary: null,
+            individual: null,
+            credits: { balance: 0, hasCredits: false, unlimited: false },
+            reachedType: null,
+            spendControlReached: false,
+          },
+          contextWindow: 258400,
+          threadId: 'aaaa',
+          observedAt: 1777000000000,
+        });
+      },
+    });
+    registry.register(snapshotStub);
+    const r = await req(listener, 'GET', '/api/providers/' + snapshotStub.id + '/usage-snapshot', { token: TOKEN });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.supported, true);
+    assert.strictEqual(r.body.rateLimits.planType, 'pro');
+    assert.strictEqual(r.body.rateLimits.primary.usedPercent, 42);
+    assert.strictEqual(r.body.contextWindow, 258400);
+    assert.strictEqual(typeof r.body.observedAt, 'number');
+  });
+
+  await test('a snapshot that throws degrades to unsupported, never a 500', async () => {
+    const throwingStub = Object.assign({}, unpricedStub, {
+      id: 'test-snapshot-throws-p9',
+      getUsageSnapshot: function () { throw new Error('boom'); },
+    });
+    registry.register(throwingStub);
+    const r = await req(listener, 'GET', '/api/providers/' + throwingStub.id + '/usage-snapshot', { token: TOKEN });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.supported, false);
+    assert.strictEqual(r.body.reason, 'snapshot-failed');
+  });
+
+  await test('the usage snapshot route is behind auth', async () => {
+    const r = await req(listener, 'GET', '/api/providers/' + unpricedStub.id + '/usage-snapshot', {});
+    assert.strictEqual(r.status, 401);
   });
 
   listener.close();

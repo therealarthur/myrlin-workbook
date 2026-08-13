@@ -2462,6 +2462,64 @@ app.get('/api/providers', requireAuth, (req, res) => {
 });
 
 /**
+ * GET /api/providers/:id/usage-snapshot
+ *
+ * BUILD-CONTRACT P9.6. The plan and rate-limit windows behind the account usage
+ * meters, for any provider that can report them locally.
+ *
+ * Deliberately NOT the account switcher's feed. That one calls a live vendor
+ * endpoint with the access token out of the credential file. This one reads a
+ * line the assistant writes locally on every turn, so it needs no credential,
+ * makes no network call, works offline and cannot fail because a token expired.
+ * The two are complementary: the switcher knows about the ACCOUNT, this knows
+ * about the CURRENT LIMIT WINDOW.
+ *
+ * Response (200), when the provider can answer:
+ *   {
+ *     provider: <the provider id from the path>,
+ *     supported: true,
+ *     rateLimits: {
+ *       planType, limitId, limitName, reachedType, spendControlReached,
+ *       primary:   {usedPercent, windowMinutes, resetsAt} | null,
+ *       secondary: {usedPercent, windowMinutes, resetsAt} | null,
+ *       individual:{usedPercent, windowMinutes, resetsAt} | null,
+ *       credits:   {balance, hasCredits, unlimited} | null
+ *     },
+ *     contextWindow: number|null,
+ *     observedAt: number|null
+ *   }
+ *
+ * Response (200), otherwise: `{provider, supported: false, reason}`. A meter
+ * must render "unknown" on that, never a full or an empty bar.
+ */
+app.get('/api/providers/:id/usage-snapshot', requireAuth, (req, res) => {
+  const provider = registry.getProvider(req.params.id);
+  if (!provider) {
+    return res.status(404).json({ error: 'Unknown provider', provider: req.params.id, supported: false });
+  }
+  if (typeof provider.getUsageSnapshot !== 'function') {
+    return res.json({ provider: provider.id, supported: false, reason: 'provider-reports-no-usage' });
+  }
+  Promise.resolve()
+    .then(() => provider.getUsageSnapshot())
+    .then((snapshot) => {
+      if (!snapshot || !snapshot.rateLimits) {
+        // Nothing on this machine can answer. "Unknown" is the honest render,
+        // and it is not the same thing as a limit of zero.
+        return res.json({ provider: provider.id, supported: false, reason: 'no-observation-on-disk' });
+      }
+      return res.json({
+        provider: provider.id,
+        supported: true,
+        rateLimits: snapshot.rateLimits,
+        contextWindow: typeof snapshot.contextWindow === 'number' ? snapshot.contextWindow : null,
+        observedAt: typeof snapshot.observedAt === 'number' ? snapshot.observedAt : null,
+      });
+    })
+    .catch(() => res.json({ provider: provider.id, supported: false, reason: 'snapshot-failed' }));
+});
+
+/**
  * PUT /api/providers/:id/enabled
  *
  * Toggle a provider's enabled state. Persists immediately to

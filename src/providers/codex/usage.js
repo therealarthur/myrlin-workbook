@@ -537,6 +537,71 @@ async function parseUsage(ref, opts) {
 }
 
 /**
+ * The account-level rate-limit and plan snapshot, read from the most recently
+ * active thread's rollout.
+ *
+ * BUILD-CONTRACT P9.6: "Rate-limit and plan data from `token_count.rate_limits`
+ * into the account usage popover."
+ *
+ * WHY THIS SOURCE AND NOT THE ACCOUNT SWITCHER'S. The existing usage feed in
+ * `accounts.js` calls a live ChatGPT endpoint with the access token out of the
+ * auth file. This one reads a local log line that Codex writes on every turn.
+ * It needs no credential, makes no network call, works offline, and cannot fail
+ * because a token expired. The two are complementary: the account switcher
+ * knows about the ACCOUNT, this knows about the CURRENT LIMIT WINDOW.
+ *
+ * "Most recently active" is the thread with the highest recency, which is the
+ * same ordering the sidebar uses, because rate limits are per account and the
+ * newest observation of them is the true one whichever thread recorded it.
+ *
+ * @param {Object} [opts]
+ * @param {number} [opts.maxThreads=3] - How many recent threads to try before
+ *   giving up. A thread can be recent and still carry no usage line, for
+ *   instance one that was opened and abandoned.
+ * @returns {Promise<{rateLimits: object, contextWindow: (number|null), threadId: string, observedAt: (number|null)}|null>}
+ *   Null when nothing on this machine can answer, which a caller must render as
+ *   "unknown" rather than as an empty meter.
+ */
+async function getRateLimitSnapshot(opts) {
+  try {
+    const options = opts && typeof opts === 'object' ? opts : {};
+    const maxThreads = Number.isFinite(options.maxThreads) && options.maxThreads > 0
+      ? Math.floor(options.maxThreads)
+      : 3;
+
+    let threads = null;
+    try {
+      threads = await stateDb.listThreads({
+        includeArchived: true,
+        includeSpawnChildren: true,
+        includeHidden: true,
+      });
+    } catch (_) {
+      threads = null;
+    }
+    if (!Array.isArray(threads) || threads.length === 0) return null;
+
+    const byRecency = threads
+      .filter((t) => t && t.rolloutPath)
+      .sort((a, b) => (b.recencyAtMs || b.updatedAtMs || 0) - (a.recencyAtMs || a.updatedAtMs || 0));
+
+    for (const thread of byRecency.slice(0, maxThreads)) {
+      const report = await parseUsage(thread.id, { artifactPath: thread.rolloutPath });
+      if (!report || !report.rateLimits) continue;
+      return {
+        rateLimits: report.rateLimits,
+        contextWindow: report.contextWindow,
+        threadId: thread.id,
+        observedAt: thread.recencyAtMs || thread.updatedAtMs || null,
+      };
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * Synchronous total from the warm SQLite cache only.
  *
  * `/api/cost/batch` iterates every session on the machine and cannot await once
@@ -558,6 +623,7 @@ function totalTokensSync(threadId) {
 
 module.exports = {
   parseUsage,
+  getRateLimitSnapshot,
   totalTokensSync,
   COST_UNAVAILABLE,
   USAGE_SOURCES,
