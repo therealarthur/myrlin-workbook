@@ -999,3 +999,254 @@ gate exists to prevent, while a topbar shadow that appears one frame late is inv
    gate G10.
 7. **The header stats popover**, DV-9's remaining P2.1 item, needs `index.html`. **P4 or the
    orchestrator.**
+
+## 11. Phase P3, primitives and chips
+
+### 11.1 What shipped, and where
+
+| WP | Commit | Files | What |
+| --- | --- | --- | --- |
+| P3.1 | `5c0c2d0` | `styles.css`, `focused-shell.css` | The `.btn` family rebuilt on two CTA weights and one hue. The mauve primary retired. Icon buttons, the small scale, the coarse-pointer 44px floor, the password toggle. |
+| P3.2 | `bcdce01` | `styles.css`, `semantic-theme.css`, `test/codex-status-strip.test.js` | The two chip systems split. Status dots at 7px, chip dots at 8px. The running-is-green ruling. The last coloured halo removed. Sanctioned edit SE-5. |
+| P3.3 | `a610ea8` | `styles.css`, `test/usage-meter.test.js` | The 28px field on fourteen call sites, the native checkbox, the captured switch, one 5px meter across five consumers, the two borderless editors. Sanctioned edit SE-6. |
+| P3.4, P3.5 | `7d58827` | `styles.css`, `semantic-theme.css` | The inset focus ring for controls inside clipping ancestors, and the forced-colors block extended from four selectors to thirty-eight. |
+
+P3.4 and P3.5 ship in one commit because P3.5's whole content is "give every component P3 drew a
+boundary", which is not meaningful until P3.4's coverage pass has decided which controls exist as
+controls. Splitting them would have produced one commit that could not be reviewed without the other.
+
+### 11.2 Ambiguities resolved during P3
+
+#### 11.2.1 The running state is green, and the role token is not what the call sites read
+
+`9.2.4` handed P3 an open decision: table E gave `--status-running` a blue ink (`--color-info`) and a
+green wash (`--app-bg-green`). The orchestrator ruled **green**, so `semantic-theme.css` now resolves
+`--status-running` to `--app-text-green` and the two halves finally agree. It points at the block
+palette directly rather than at `--color-success`, because a session that is running has not
+succeeded at anything and collapsing the two roles would make that distinction unsayable later.
+
+The second half of this is less obvious and cost a failed gate to find. The four `.status-dot-*`
+rules in `styles.css` cannot consume the `--status-*` role tokens at all:
+`phantom-tokens.test.js` reads token DEFINITIONS out of `styles.css` and `styles-mobile.css` only,
+and the roles are defined in `semantic-theme.css`, so every role reference from `styles.css` counts
+as a phantom and the rule is reported as one that "silently does nothing". The contract anticipates
+this without saying so: 2.3 spells the recipe as `background: var(--app-text-<hue>)`, the block
+palette, not the role. So the call sites name the block palette and the role layer keeps its job as
+the choke point for `.attention-state`, `focused-shell.css` and anything else that reads a state
+rather than a colour. The two agree by construction and the gate is what enforces it.
+
+#### 11.2.2 `.btn-ghost` stops meaning ghost, and `.btn-icon` has to take the ground back off
+
+Contract 2.2 maps `.btn-ghost` onto `nt-btn-app-secondary`, which is a FILLED control:
+`--app-bg-elevated` plus `--app-shadow-button`, an inset hairline and a 1px drop. The class name
+therefore stops describing its own recipe, which is uncomfortable and is nonetheless correct:
+`DO-NOT-BREAK.md` rule 2 freezes all 278 JS-coupled class names, and this is one of them.
+
+The complication is that 82 of the 131 `btn-ghost` usages also carry `btn-icon`, and
+`terminal-select-v2.test.js` pins the string `btn btn-ghost btn-icon btn-sm` character for character
+on the injected pane-header buttons. A filled, shadowed pane-header icon button would be wrong twice
+over: it is not the captured icon-button recipe, and it would put a shadow on up to eleven elements
+inside a single pane header, against P2.4's single-digit shadow budget for the whole screen.
+
+Resolved by ordering rather than by a new class. `.btn-icon` is authored AFTER `.btn-ghost` at equal
+specificity and re-declares `background: transparent` and `box-shadow: none`, so the shared string
+resolves to a bare 26px glyph while a plain `.btn-ghost` stays the secondary weight. No class was
+renamed, no markup changed, and the pinned string still passes unedited.
+
+#### 11.2.3 The chip is 14px, and DESIGN-SPEC says two different things
+
+`DESIGN-SPEC.md` 1.3's type table lists "Section labels, counts, meta, descriptions, chips" at 12px.
+The same section's closing paragraph says "`nt-chip` and `nt-table` pull 14px from `--app-chip-size`
+and `--app-property-size`", the captured token is 14px, and `BUILD-CONTRACT.md` P3.2's done criterion
+is explicit and measurable: "chips measure 20px tall at 4px radius with `0 6px` padding and
+14px/16.8px/500".
+
+Shipped at 14px, because the contract's number is the one a gate can check and the 12px row is a
+prose summary that also covers section labels and counts, which are genuinely 12px. The consequence
+is visible in the P3 screenshots and is recorded in 11.5 as a delta rather than silently corrected:
+in the sidebar tree the tag chip's 14px is one step LARGER than the 13px session name above it, so a
+property renders louder than its subject. The mock never draws a chip in a sidebar, so it has no
+opinion; what it does hold is "chip type equals row type", and the sidebar is the one surface in this
+app where those two numbers differ. Changing it means either a second chip scale or a 13px scoped
+override inside a region P4 owns, and neither is P3's call to make alone.
+
+#### 11.2.4 The status chip's leading dot needs markup that P3 does not own
+
+Contract 2.3 gives the status chip a leading dot and `DESIGN-SPEC.md` 6 draws it as
+`<span class="nt-chip-dot">`. Delivering that from CSS would mean a `::before` on `.status-badge`,
+and both of its consumers already put something in that position: `renderSessionDetail` emits
+`statusIcons[status]` ahead of the label, and the two pane-detail flag badges carry their own inline
+styles. A pseudo-element dot would sit next to a glyph on one and alone on the others.
+
+`.nt-chip-dot` therefore ships as a real class, 8px and `currentColor`, and nothing carries it yet.
+Adding it is a one-span change in the templates, which live in `index.html` and `app.js`.
+
+#### 11.2.5 The focus ring was being clipped, and the fix is an offset sign
+
+P2.6 gave every native focusable a 2px outline at `+1px`. An outline at a positive offset paints
+outside the border box, so any ancestor that clips gets to cut it. Five containers in `styles.css`
+clip, measured rather than assumed: `.sidebar` (`overflow: hidden`), `.settings-nav`, `.qs-results`
+and `.kanban-column-body` (`overflow-y: auto`) and `.codex-pane-status` (`overflow-x: auto`). A
+sidebar row spans the full width of a container with `overflow: hidden`, so at `+1px` its ring keeps
+two horizontal lines and loses both vertical edges: the keyboard user sees two dashes and no control.
+
+Twenty selectors inside those five now draw at `-2px`, inside their own border box, where nothing
+upstream can reach them. Outline follows `border-radius`, so an inset ring on a 6px pill is still a
+6px pill, and all twenty score (0,2,0), which outranks the universal (0,1,1) rule and is outranked by
+nothing else in the sheet. The five pinned `:focus-visible` rules are in other regions and other
+files and were not touched.
+
+#### 11.2.6 `outline: none` on a borderless editor is not an accessibility exception
+
+The docs raw editor and the notes textarea are the two surfaces contract 2.9 calls "the strongest
+Notion idiom in the whole app": no border, no ground, page content rather than a form field. Both
+carry `outline: none`, which looks like an A3 violation and is not: the declaration scores (0,1,0)
+and the universal `:is(...):focus-visible` rule scores (0,1,1), so a keyboard user gets the ring and
+a pointer user gets the clean document surface. That asymmetry is the entire point of
+`:focus-visible` and it is worth stating because the next reader will otherwise "fix" it.
+
+### 11.3 Scope decisions, and what was deliberately left alone
+
+#### 11.3.1 `app.js` and `index.html` were not in this phase's ownership set
+
+Two concurrent agents were working in the same worktree, one on `pty-manager.js` and `vt-sidecar.js`
+and one on `app.js` and `instance-colors.js`. This phase owned `styles.css`, `semantic-theme.css`,
+`focused-shell.css`, its two sanctioned test edits and the gate and screenshot baselines. Three
+contract items therefore shipped as CSS only:
+
+1. **P3.1's markup half.** `#create-session-btn` still contains an inline SVG plus button, and
+   contract 2.2 says "no icon inside the primary button". One template line in `index.html`.
+2. **P3.2's `app.js` chip render region.** The `.nt-chip-dot` span (11.2.4), and the
+   `renderSessionItem` emitter that writes `style="background: ..."` onto `.ws-session-dot`, which
+   10.7.6 item 4 already flagged as a blocker for the status recipe. An inline style beats every
+   rule, so the sidebar tree's dots take their hue from `app.js` and not from `.status-dot-*`.
+   `.status-dot`, `.detail-status-dot` and `.subagent-dot` are class-driven and did land.
+3. **P3.4's markup half.** Eleven custom controls render as `div` or `span` with no `tabindex`
+   (`.sidebar-tab`, `.ws-session-item`, `.workspace-item`, `.project-session-item`, `.session-item`,
+   `.qs-result`, `.search-result`, `.context-menu-item`, `.kanban-card`, `.task-item`,
+   `.codex-status-chip`), so they cannot take focus at all and their new rings never fire. The rings
+   ship anyway, so the fix is one attribute rather than an attribute plus a rule.
+   `.sidebar-tab` is the sharp case: it is one of the three attribute-frozen templates in 2.1, so
+   whoever adds `tabindex` there has to re-pin `provider-tabs.test.js` or add the attribute in a
+   position the existing regex tolerates.
+
+#### 11.3.2 The hover gate is live and reaches nothing, and closing it is not a primitives job
+
+The P2.7 agent shipped the `nt-enable-hover` strip on `#app` and recorded, honestly, that it changes
+nothing on screen because no rule in `styles.css` is written as `.nt-enable-hover .thing:hover`. That
+note names "the P3 or P4 stylesheet owner" as the fix.
+
+Not done here, deliberately. Gating only the primitives P3 owns would leave the sidebar rows, the
+table rows and the menu rows, which are the surfaces that actually flash under a scrolling pointer,
+ungated. A half-gated sheet is harder to reason about than an ungated one, and it would collide with
+P4's region work rule by rule. The recommendation is one dedicated pass, all rules at once, in P4.
+
+#### 11.3.3 Region-bespoke buttons were left to their regions
+
+The `.btn` family, the field family, the chip family, the switch, the checkbox and the meter are
+shared primitives and all of them moved. Buttons that name their own class inside one region
+(`.wt-review-btn` and its three variants, `.settings-scale-btn`, `.notes-toolbar-btn`,
+`.find-convo-search-btn`, `.tasks-td-refresh`, the account panel's own controls) did not. They are
+region work and P4 owns their surfaces; restyling them now would mean touching six regions to deliver
+a primitives phase, and the shared classes those regions also carry already moved underneath them.
+
+#### 11.3.4 Two of the four unspent sanctioned edits stay unspent
+
+SE-5 and SE-6 were spent here, each in the same commit as its source change, which is what 5.4
+requires. SE-2 and SE-3 are still unmade: SE-2 retargets the 4px pane-top accent and the 8 percent
+whole-pane tint, and SE-3 retargets the provider tint gradient. Both belong to the PANE FRAME, which
+is P4 and P5 work, and neither call site was touched here. The provider pill half of SE-2 did not
+need the edit either: `provider-label-pill.test.js` pins the pill's `::before` as referencing
+`--provider-claude-accent` and `--provider-codex-accent`, and the restyled chip keeps both.
+
+### 11.4 The numbers
+
+| Measure | After P2 | After P3 |
+| --- | --- | --- |
+| `styles.css` lines | 13168 | **13728** |
+| `semantic-theme.css` lines | 137 | **273** |
+| `focused-shell.css` lines | 1477 | **1488** |
+| Gate G4, Catppuccin `var()` in chrome | 1127 | **1021** |
+| Gate G5b, raw `rgba()` outside `:root` | 82 | **71** |
+| Gate G7, uppercase labels | 52 | **49** |
+| Gate G8, `translateY` occurrences | 17 | **16** |
+| Selectors inside `@media (forced-colors: active)` | 5 | **38** |
+| Test files / assertions | 82 / 1317 | 82 / **1368** |
+
+The G4 figure is not all P3's: the concurrent P2.7 track landed between P3.2 and P3.3 and took its
+own share. P3's own contribution is the button, chip, dot, field, switch and meter call sites.
+
+The assertion delta is **+51 and none of it is P3's**. All 51 land in `instance-colors.test.js`,
+which went from 13 to 64 when the P2.7 agent shipped its projection. P3's own delta is **zero added,
+zero removed and two retargeted**: SE-5 in `codex-status-strip.test.js` and SE-6's three
+whitespace-exact lines in `usage-meter.test.js`.
+
+Measured against the P3 gate additions in contract 5.2:
+
+| Gate addition | Result |
+| --- | --- |
+| Chips are 4px and cards are 10px, measured, and not the same number | **yes.** `--radius-property-chip` is 4px and every chip rule names it; `--radius-callout` and `--radius-collection-card` are 10px. Status chips are a third number, `--radius-status-chip` 10px at a 20px height, which is a pill rather than a card. |
+| Buttons, inputs and chips match their metrics in DevTools | **yes.** Button 28px / `0 8px` / 6px / 14px / 16.8px, small 24px, pane-header icon 26px. Field 28px / `0 8px` / 6px, search variant 32px. Chip 20px / `0 6px` / 4px / 14px / 16.8px / 500. Switch 26 by 16 with a 12px knob. Meter track 5px. |
+| Keyboard tab sweep shows a visible ring at every stop, both themes | **partially, and the gap is markup.** Every NATIVE focusable has a ring, and the twenty controls inside a clipping ancestor now have one that survives the clip. The eleven `div` and `span` controls in 11.3.1 item 3 are not tab stops at all today, so there is no stop to show a ring at. The ring measures 3.88:1 on the light canvas and 4.53:1 on the dark one. |
+| No class was renamed | **yes.** G1 378/378 ids and G2 278/278 classes, both unchanged. Two classes were ADDED, `.nt-chip-dot` and the `.input.is-invalid` state hook. |
+
+### 11.5 The P3 screenshots, and an honest reading of them
+
+`screenshots/notion-restyle/p3/`, eight shots plus `manifest.json`, the same matrix as P0 through P2.
+
+**What changed, and it is the thing the phase existed for.** The mauve is gone from every CTA.
+`Start session` and `+ New` are the Notion blue at 28px, `Browse sessions`, `Discover` and
+`Show hidden` are the hairline-inset secondary, and the two weights are one hue apart and nothing
+else. That was DECISIONS 10.5's number one delta and it is closed. The tag chips are Notion property
+chips in Notion hues rather than 9px palette-coloured mono pills, which was delta two, and the hue
+half of it closed at the same time through the concurrent P2.7 track. The session status dots are
+7px rather than 8px and carry no halo.
+
+**What still reads as the old design**, top deltas first, each with the phase that owns it:
+
+1. **The sidebar tag chips are louder than the session names.** 14px chip type above a 13px row
+   title, on its own line, in a 240px sidebar. The chip metric is the contract's measured number
+   (11.2.3) and the sidebar row is P2.2's; reconciling them is a region decision. **P4**, or the
+   orchestrator ruling on 11.2.3.
+2. **User tag chips pair block ink with block wash, and that pairing measures 2.41:1 to 3.85:1.**
+   The contract's own recipe for a named block colour is `--app-text-<hue>` on `--app-bg-<hue>`, and
+   Notion's actual callout does not do this: a coloured Notion callout carries DEFAULT ink on a
+   coloured ground, and the coloured ink is for text on the plain page. The pair that clears the
+   floor already exists in the system, `--app-chip-<hue>-ink` on `--app-chip-<hue>-fill` at 5.98:1
+   to 7.26:1. The hue arrives inline from `_hueVar`, so the fix is one line in the projection rather
+   than a stylesheet change. **The `instance-colors.js` owner**, with contract 2.3 to re-read.
+3. **The terminal group tab is still a bordered pill with a coloured underline.** Its hue is a
+   chrome token now, but the recipe is the underlined tab 2.7 rejects. **P4.4.**
+4. **The empty-state art is still a line icon in a rounded square**, which 2.12 names explicitly as
+   the thing never to do, and it is still the only non-sidebar shadow on the default screen.
+   **P4.5** and **P12.4.**
+5. **The Sessions view is still a bespoke list, not the measured database table.** **P4.3.**
+6. **The secondary button has almost no boundary in dark chrome.** `--app-bg-elevated` `#202020` on
+   the `#191919` canvas with a near-black inset hairline is about 1.1:1, so it reads as a bare label
+   until the pointer enters it. This is the capture's own dark secondary. **DV-15**, ruled at P12.
+7. **Project rows in the tree are still italic monospace grey.** **P4.**
+8. **The phone is still the old IA.** **P10.**
+9. **The topbar still has no breadcrumb.** **P4** or the orchestrator.
+
+### 11.6 What P4 inherits
+
+1. **A complete primitive layer.** Buttons, icon buttons, fields, selects, textareas, checkboxes,
+   the switch, the meter, both chip systems and both dot systems are single recipes on shared
+   classes. A region that carries `.btn`, `.input`, `.session-badge` or `.status-dot` is already
+   correct; a region that rolls its own control is not, and 11.3.3 lists the ones that do.
+2. **Two chip systems that must not be re-merged.** Property chip is `--app-chip-<hue>-fill` plus
+   `--app-chip-<hue>-ink` at 4px. Named block colour is `--app-bg-<hue>` plus `--app-text-<hue>` at
+   10px, is for user-authored content only, and does not clear the contrast floor (11.5 item 2).
+   Status dots are 7px block palette, chip dots are 8px `currentColor`.
+3. **A focus ring that survives a clipping ancestor**, and a list of the five containers that clip.
+   Any new scrolling region needs its controls added to that rule or they lose their ring silently.
+4. **Eleven controls that are not keyboard reachable** (11.3.1 item 3). The rings are already
+   written; the templates need `tabindex`, and one of the eleven is an attribute-frozen template.
+5. **A forced-colors block covering thirty-eight selectors.** Every new component drawn with a fill
+   needs a row added to it, or it vanishes in High Contrast. That is now a habit rather than an
+   afterthought, and P3.5's comment says which system colour to reach for.
+6. **Two sanctioned test edits still unspent**, SE-2 and SE-3, both waiting on the pane frame.
+7. **The hover gate, live and reaching nothing** (11.3.2). One dedicated pass, all rules at once.
+8. **Four new deviation rows**, DV-12 to DV-15, all of them contrast, all of them captured values,
+   and all of them pointing at the same owner: 5.5.4's full reckoning at P12. The measurements are
+   already in the rows, so that pass does not have to re-derive them.

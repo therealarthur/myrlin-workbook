@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.14] - 2026-08-13
+
+The last release moved the furniture. This one replaces the things you actually click. Buttons, fields, checkboxes, switches, tags, status chips and progress bars all stop being thirteen slightly different components and become one of each. The purple buttons are gone.
+
+### Changed
+
+- **There is one accent colour on a button now, and it is blue.** `Start session`, `New`, `Save` and every other confirming action used to be filled with the terminal palette's purple, which changed shade every time you switched terminal theme and was the loudest colour on the screen. They are now the design system's blue. There are exactly two button weights in the whole application: a filled blue one for the action you probably want, and a quiet white one with a hairline for everything else. There is no third colour and no filled red button, because a red rectangle is an alarm and a `Stop` button is a choice: dangerous actions now say so in red text on an ordinary control.
+- **Every button is the same size.** They were 13px text in 8px by 16px padding, which worked out to about 33px, except the ones that were 27px, and the two in the empty workbench that were 38px. They are all 28px now, with small ones at 24px and the little icon buttons in a pane header at 26px. Icon buttons grow to 44px on a touch screen.
+- **Buttons stopped shrinking when you press them.** The whole family scaled down to 97 percent on click, which blurs the label for the length of the press. A press is now a slightly darker background, which is what the rest of the interface already did.
+- **Every text field is the same field.** Fourteen of them: the login box, the settings search, Quick Find, the project search, find-in-conversations, the task search, the number inputs, the dialog forms, the schedule dropdowns. They had eleven different heights, six different corner radii, and four different focus colours between them, three of which were the old purple. They are now 28px with an 8px inset, a hairline border, and the design system's blue focus ring, which draws just inside and just outside the edge so it hugs the corner instead of boxing it.
+- **Checkboxes are blue and all three are the same size.** They were purple, and they were 14px in one place and 16px in another.
+- **The settings switches are the design system's switch**: 26px by 16px with a 12px white knob that slides, on a track that turns blue. They were 36px by 20px with a purple track and a knob the colour of your body text, and the whole track used to change shape as it moved.
+- **Tags, models, costs, ports, providers and plans are all the same kind of chip now**, and they are a different kind of chip from a status. This distinction is the point: a property chip is a small 4px-cornered thing with a translucent tint, so it sits correctly on a white row, a hovered row or a coloured panel with no special handling; a status chip is the same thing at a pill radius with a dot in front of it. They used to be 10px monospace pills in fifteen percent tints of their own text colour, which is close to invisible, and they used the same shape as a status.
+- **Status dots are 7px and they no longer glow.** A running or waiting session pulses gently instead, and under the "reduce motion" system setting it simply holds still rather than animating at all.
+- **A running session is green.** It was drawn with a green background and blue text, because two halves of the colour table disagreed with each other. Green everywhere now. Complete stays teal, which is a different state and now looks like one.
+- **Progress bars are one component with five users**: the account usage meter, the header meter, the token breakdown, the system resource gauges and the cost share column. Same 5px height, same track colour, same green, amber and red thresholds.
+- **The notes editor and the raw markdown editor have no box around them.** They are page content, not form fields, which is how the design system draws a note. The notes editor also stopped setting your prose in a monospace font.
+- **Form labels are sentence case** instead of spaced-out capitals.
+
+### Fixed
+
+- **Keyboard focus rings were being cut off.** Five parts of the interface clip whatever is inside them: the sidebar, the settings navigation, the Quick Find results, a board column, and the Codex status strip. A focus ring is drawn just outside the edge of a control, so anything focused inside one of those five lost part of its ring, and a full-width sidebar row lost both ends of it entirely: you saw two short dashes and no control. Twenty controls in those five places now draw the ring just inside their own edge, where nothing can cut it.
+- **Every field that switched its focus ring off now has one back.** Nine of them turned the ring off permanently to draw their own border tint, which is not a focus ring, and one of them drew nothing at all.
+- **The interface survives Windows High Contrast.** Everything this release drew is a filled shape, and High Contrast throws away filled shapes, so without this a chip would have been invisible text, a status dot would have been nothing at all, a switch would have been an empty rectangle, and the confirming button in a dialog would have looked exactly like the one that cancels. Buttons, chips, dots, fields, the switch and all four progress bars now keep a visible edge, and the confirming button, the "on" switch and the filled part of a progress bar take the system's own highlight colour.
+
+### Known
+
+- **Two colours in this release do not meet the contrast standard, and both are the design system's own.** The white label on the blue button measures 3.9:1 where 4.5:1 is the bar for text, and the red used for dangerous actions measures 4.3:1. Darkening either one would mean shipping a colour the design system does not contain, so both are recorded with their measurements and a decision on them is scheduled before this work is called finished. Neither colour is ever the only signal: buttons always carry a verb, and a `Stop` button says `Stop`.
+- **The yellow "waiting for you" dot measures 2.7:1** against a white page, below the 3:1 bar for a graphic. It pulses, and the chip next to it says `Needs input` in words, so the colour is never carrying the message alone.
+
+### Testing
+
+- The suite is green at 82 files and 1368 assertions. This release added and removed no test expectations and retargeted two, both of them pre-authorised: one Codex status colour and the three progress-bar threshold colours.
+- All seventeen mechanical gates pass. Leftover palette references fell from 1127 to 1021, raw colour values outside the token block from 82 to 71, all-capitals labels from 52 to 49, and the High Contrast rule set grew from 5 selectors to 38.
+- Eight screenshots at two sizes in both light and dark are recorded under `screenshots/notion-restyle/p3/`.
+
 ## [1.3.0-alpha.13] - 2026-08-13
 
 This is the one you can see. The previous release changed what the interface was made of; this one changes where things sit. The header is half the height it was, the sidebar is narrower and warmer, rows are tighter, and the coloured bars, glows and lifts are gone. If you know Notion, you should recognise the shape of this.

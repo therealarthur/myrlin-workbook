@@ -31,6 +31,13 @@
       "failures": 0,
       "recordedAt": "2026-08-13",
       "note": "P2 added, removed and retargeted ZERO assertions. No sanctioned test edit was needed: every P2 change was a rule body, and the anchors the suite reads (selectors, single-line rules, cachebusters, the two pinned focus rules, the frozen provider-tab template) were all preserved. The count is identical to postP1 because the concurrent tracks did not add a file between the two runs."
+    },
+    "postP3": {
+      "files": 82,
+      "assertions": 1368,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "P3 added and removed ZERO assertions and retargeted two: SE-5 in codex-status-strip.test.js and SE-6 three whitespace-exact single lines in usage-meter.test.js, each in the same commit as its source change. The +51 against postP2 is entirely the concurrent P2.7 track: instance-colors.test.js went from 13 to 64."
     }
   },
   "gates": {
@@ -42,7 +49,7 @@
     },
     "G4": {
       "name": "Catppuccin var() consumption outside the palette blocks",
-      "baseline": 1127,
+      "baseline": 1021,
       "target": 0,
       "phase": "P4"
     },
@@ -54,7 +61,7 @@
     },
     "G5b": {
       "name": "rgba()/hsla() literals outside a :root block",
-      "baseline": 82,
+      "baseline": 71,
       "target": 0,
       "phase": "P4"
     },
@@ -66,13 +73,13 @@
     },
     "G7": {
       "name": "text-transform: uppercase rules",
-      "baseline": 52,
+      "baseline": 49,
       "target": 1,
       "phase": "P4"
     },
     "G8": {
       "name": "translateY occurrences in styles.css",
-      "baseline": 17,
+      "baseline": 16,
       "target": null,
       "phase": "P12 review"
     },
@@ -96,7 +103,7 @@
     },
     "G12a": {
       "name": "em dash and horizontal bar occurrences in the scanned trees",
-      "baseline": 147,
+      "baseline": 146,
       "target": null,
       "phase": "P11 copy pass"
     },
