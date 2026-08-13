@@ -15,6 +15,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Looking for your Claude sessions no longer freezes the rest of the app.** Every refresh of the session list opened a slice of every transcript on your disk, all of them, in one uninterrupted go, and nothing else in the app could run until it finished: measured here at 130 milliseconds warm and 289 milliseconds cold, with every other request, every terminal and every timer stopped for the whole of it. It now re-reads a transcript only when that transcript has actually changed since the last look, and it hands control back constantly while it works. Same list, same order, same titles: the longest single pause dropped from 289 milliseconds to about 3, and the refresh itself is roughly two to three times quicker.
 
+## [1.3.0-alpha.25] - 2026-08-13
+
+Holding your finger on something now does one predictable thing, and it depends on what you are holding. The Sessions tab grew the parts it was missing: filters, a way to select several sessions at once, and a swipe on a row.
+
+### Added
+
+- **Filters on the Sessions tab.** All, Running, Needs input, Stopped, with counts, in a row under the header. Filtering is a phone thing; a wide window still shows the full table.
+- **Select several sessions and stop them together.** The Sessions header menu has a Select mode: tick the rows you mean, and a bar appears with the count and a Stop.
+- **Swipe a session row.** Right reveals Terminal, left reveals Stop and Hide. A swipe only ever REVEALS the buttons; it never performs one, so a mis-swipe cannot stop a session.
+- **Tapping a session opens it in the terminal you are already looking at**, and switches to the Terminal tab. Dragging a session onto a pane is gone on phones, where there was only ever one pane to drop it on.
+- **A menu on the Sessions header**: select, sort, discover sessions, show hidden, projects, restart all.
+- **Hold a key on the terminal toolbar.** Hold Ctrl+C for every other control key, Ctrl+A through Ctrl+Z, which a phone previously could not send at all. Hold Send for "send without Enter" and "send a newline". Hold the image button for camera, library or files.
+- **Hold a bottom tab for its shortcuts.** New session from Home and Sessions, the pane switcher from Terminal, Stop all from Attention.
+- **"Follow this device" in the terminal options.** When a phone and a desktop are looking at the same session they fight over how wide it should be. Turn this off on the phone and the desktop keeps the width.
+- **The terminal says when another device is setting the width**, in one line you can tap to take over, instead of leaving you with output wrapped at a width you did not ask for.
+- **The desktop panes have a message box again.** A prompt, a field, an image button, a microphone and Send, in the terminal's own colours, at the bottom of every pane.
+
+### Changed
+
+- **The terminal key row stopped scrolling sideways.** It used to hold thirteen buttons in a strip that scrolled, so about six were visible and the rest were past an edge with nothing to say they were there. It now fits what fits, at a size you can actually hit, and everything else moves into the "..." at the end of the row. On a 390-pixel phone that is five keys plus the menu; a bigger phone gets six.
+- **One hold, one duration, everywhere.** Different parts of the app waited 400, 500 or 600 milliseconds before deciding you were holding rather than tapping. They all wait the same time now, and a small wobble of your finger no longer cancels it.
+- **Holding your finger on terminal output selects text, and only that.** It used to open a menu whose second item could restart the session, which meant the gesture for copying a line was one slip away from killing what produced it.
+- **Notifications disappear on their own.** They used to sit for a full minute. Three and a half seconds now, six for warnings and errors, and one carrying a button stays until you deal with it. At most two at a time on a phone.
+- **Stop all now stops.** The item in the Attention menu was wired to restart every session instead.
+- **The sidebar no longer opens by swiping in from the left edge on a phone.** That edge is the operating system's back gesture on both platforms. The drawer is still one tap away from Sessions and from Home.
+
+### Fixed
+
+- **A notification can no longer swallow a tap.** One with nothing to press is now a notice: your finger goes through it to the button underneath.
+- **The pane switch swipe stopped fighting selection.** It ignores a swipe that starts at either screen edge, needs a longer and more deliberate travel, and does nothing at all while text is selected or select mode is on.
+
 ## [1.3.0-alpha.24] - 2026-08-13
 
 Scroll up in a terminal and you now reach the whole conversation, not just what the terminal happened to draw. Select across it, from an hour ago down into the line being written right now, and copy the lot.

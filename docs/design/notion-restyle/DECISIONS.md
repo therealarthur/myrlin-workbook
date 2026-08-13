@@ -2912,3 +2912,280 @@ about xterm's own scrollbar.
    without credentials or a network.
 7. **One measured Windows finding** that changes which routing case a pane is
    in (16.2.5).
+
+---
+
+## 17. Phase P11, mobile interaction and touch
+
+This section is P11's log. It covers MOBILE-EXPERIENCE section B in full, the
+Sessions surface A.3.2 asks for (which 15.6 named as the largest single item
+P11 inherited), and the three `app.js` items P5 and P10 left behind.
+
+### 17.1 What P11 shipped, and where
+
+| WP | Files | What |
+| --- | --- | --- |
+| P11.1 | `app.js`, `index.html`, `styles-mobile.css` | The three-zone allowlist, the shared delegated binder, one timing constant at every site, the pane container demoted to chrome on a phone, the chip long-press host, the tab-bar quick actions, the Ctrl+A to Ctrl+Z modifier sheet, and the Send and image long-press sheets. |
+| P11.2 | `app.js`, `styles-mobile.css` | The toast contract: `.toast-notice`, the `:has()` companion, the three durations, the two-toast phone cap, and an optional action button. |
+| P11.3 | verified only | Both FABs already compute to `display: none` at phone widths: P10 shipped the schedule rule under DV-P10-4, and the upload FAB has been suppressed in `styles.css` since before the restyle. Asserted rather than re-shipped. |
+| P11.4 | `app.js`, `styles-mobile.css` | The priority-plus toolbar: a measured fit, a pinned sticky overflow with an unseen dot, no horizontal scrolling, and a Keys group in the sheet that clicks the real buttons. |
+| P11.5 | `app.js` | `data-mw-dnd`, `draggable="false"` on phone rows, the guarded pane swipe (96px travel, both edges excluded, inert on a selection), and the retired edge-swipe drawer. |
+| P11.6 | `app.js`, `styles-mobile.css` | The claim gate, the settle-window suppression, the per-session Follow this device switch, and the shared-width notice. |
+| A.3.2 | `app.js`, `styles-mobile.css` | The Sessions tab surface: filter pills with counts, the header overflow, bulk select with its action bar, and the row swipe actions. |
+| Inherited | `app.js`, `styles-mobile.css` | DV-26 (the desktop pane composer, turned on and made typeable) and DV-27 (the splitter arithmetic, made padding-correct). |
+| SE-16 | `test/browser/workbook-shell.test.js` | The obsolete `#mobile-more-tab` bottom-tab block rewritten to the five-tab IA, and the two stale 58px header assertions retargeted to the 44px truth. |
+
+New file: `test/mobile-touch-model.test.js`, 58 assertions, three of them
+executed algorithms rather than source greps.
+
+### 17.2 The zone model, as built
+
+B.2 specifies an allowlist keyed on `data-mw-zone`. What shipped is that, plus
+one addition the specification does not name and one subtraction it does.
+
+**The addition: a structural allowlist for surfaces this track does not
+author.** `.xterm-screen`, `.terminal-copyview`, `.terminal-reader-content`
+and the scrollback-history surface are created by xterm, by `terminal.js` and
+by `terminal-history.js`. Putting an attribute on them means editing another
+track's file, which BUILD-CONTRACT 4.1 item 4 forbids while that track is
+live. `CWMApp.MW_TEXT_ZONE_SELECTOR` names them instead. It is the same
+allowlist with a different spelling: a surface has to be NAMED to be a text
+zone, and anything unnamed falls through to `chrome`, where nothing happens.
+`.terminal-history` is in that list before P7's surface reached the phone,
+which is B.4 rule 3 satisfied in advance rather than in arrears.
+
+**The subtraction: the four legacy long-press sites keep their own timers.**
+B.2 asks for "one delegated listener per list container". Four already exist
+(the workspace list, the session list, the projects list and the tab-group
+strip) and `test/mobile-ux-fixes.test.js` P1-2(b) and P1-3 pin them down to
+their timer VARIABLE NAMES and their `dragstart` handlers. Moving them onto
+the shared binder would have meant editing four pinned assertions this phase
+was not sanctioned to touch, and TEST-CONSTRAINTS is explicit that a pin is
+never edited to suit an implementation. They take what actually decides how
+the gesture feels instead: the one duration, the 8px slop and the haptic. The
+shared binder owns the five NEW hosts.
+
+**Resolution order.** `_mwZoneOf` returns the NEAREST declaration, which is
+the case that makes the model work for composed surfaces: a notes field inside
+a session peek card is a text zone inside an affordance, and the field is the
+closer ancestor, so a long press there selects a word rather than opening a
+sheet. Executed in `test/mobile-touch-model.test.js`.
+
+**The failure mode is inverted, which is the whole point.** A denylist that
+forgets a surface silently steals a selection and offers a destructive action
+in its place. An allowlist that forgets a surface produces no menu. One is
+discoverable and harmless; the other is what was reported.
+
+### 17.3 The toolbar arithmetic, measured rather than worked
+
+B.7 works an example and concludes "five to six keys on a 390px phone". The
+capture harness now measures the real algorithm against the real boxes, in
+both chromes:
+
+| Width | Fitted | Overflowed | Strip scrolls |
+| --- | --- | --- | --- |
+| 390px | **5** | 6 | **no** |
+
+The budget at 390px is 390, minus 16px of padding, minus the 44px pinned
+overflow, minus one 4px gap: 326px. The five that fit are Enter, Ctrl+C, Esc,
+Up and Down. B.7's own worked example predicted five or six and named Copy and
+Tab as the first to go; the measurement agrees, with the caveat that the
+algorithm measures drawn widths rather than assuming the example's, so the
+answer moves with the font and the theme rather than being frozen at authoring
+time.
+
+The six that overflow are Tab, Copy, Ctrl+D, Select mode, Copy view and
+Reader. Four of those six already have a row in the pane sheet below, so the
+Keys group lists only Tab and Copy (17.4.1).
+
+This is a documented departure from DESIGN-SPEC 14.3, which draws seven. Seven
+requires 40px keys and the touch floor is 44. The floor wins, per PROCEDURE
+section 4. Recorded as DV-P11-2.
+
+### 17.4 Ambiguities resolved during P11
+
+#### 17.4.1 The toolbar overflow and the pane overflow are ONE sheet
+
+B.7 sends overflowed keys to "the overflow sheet" and A.3.3 sends fifteen pane
+capabilities to "the pane overflow sheet". Two sheets reachable from two
+controls eight pixels apart is a puzzle, not an affordance, so the keys are a
+group at the top of the sheet that already exists.
+
+The first p11 capture then showed what that decision costs if it is taken
+naively: "Reader" appeared under Keys and again under Text, eight rows apart,
+along with Select mode, Copy view and Ctrl+D. The Keys group now lists only
+the overflowed keys that have no other row in the same sheet.
+
+#### 17.4.2 A phone row tap opens the session; the peek moves to the sheet
+
+A.3.2 makes the row tap "open in the current pane and switch to Terminal", and
+B.8 removes the drag that used to be the alternative. The desktop's tap
+behaviour (select, which opens the detail peek) is retained above the
+breakpoint and stays reachable on a phone from the row's long-press sheet,
+"View Details". `selectSession` is deliberately NOT called on the phone path:
+it opens the peek, which `setViewMode('terminal')` would close in the same
+frame, so the user would see it flash.
+
+#### 17.4.3 The row swipe uses one shared action layer, not per-row markup
+
+`styles-mobile.css` has carried `.session-item-wrapper` and `.swipe-action`
+rules since long before this phase, and nothing has ever built that markup. It
+could not be built as those rules assume: they want a wrapper element around
+the row, and since P4 the row is a `<tr>`, which cannot legally be wrapped in
+a div. `renderSessions` also rewrites the whole table on every SSE tick, so
+per-row buttons would be rebuilt several times a minute and the open row's
+state would go with them.
+
+One absolutely positioned layer inside the list, moved to the row being
+swiped, has neither problem: the list is the positioned ancestor, so the layer
+scrolls with the rows for free, and only one row can be open at a time anyway.
+The pre-existing rules are RETAINED untouched.
+
+#### 17.4.4 "Stop all" was wired to restart everything
+
+A.3.4 gives the Attention overflow exactly one item, "Stop all", in the danger
+group. P10 wired it to `restartAllSessions`. A user asking a queue of stuck
+sessions to stop would have restarted every session in the workbook instead.
+The row now calls a new `stopAllSessions`, which confirms once and stops
+sequentially; `restartAllSessions` keeps its own truthfully labelled routes in
+`showMoreMenu` and in the new Sessions header overflow.
+
+#### 17.4.5 The claim gate is published, not injected
+
+B.9 rules 1 to 3 belong inside `_requestActivate`, which lives in
+`terminal.js`. That file is P7's this phase. The gate is therefore a published
+predicate, `window.MyrlinClaimGate.canClaim`, consulted by the app-layer claim
+paths, and the one-line read inside `_requestActivate` is named in this
+phase's report as post-P7 mop-up.
+
+What is already effective without that line: the ambient visibility and focus
+claim path is gated on all four conditions, the focus-on-click claim respects
+Follow this device, and the suppression window opens on the FIRST frame of a
+viewport change rather than on the settle. The driver publishes a trailing
+edge subscription, which is right for expensive work and wrong for a guard:
+by the time it fires, the claim that caused the jank has already gone out.
+
+#### 17.4.6 The desktop composer needed one focus fix to be typeable
+
+DV-26 is closed by a display rule and a box, but the row would still have been
+unusable. The pane's capture-phase `mousedown` listener calls
+`setActiveTerminalPane`, which ends in `tp.focus()` on xterm's hidden
+textarea, so a click on the composer would have activated the pane and handed
+focus straight past the field: the caret would appear and vanish on every
+click. `_focusTerminalPaneFromPointer` now treats the composer the way the
+zone model treats any text zone, and the pane is still made active when it was
+not.
+
+#### 17.4.7 The comment stripper in the new test runs line comments FIRST
+
+`app.js` contains a line comment reading "(MIME /* types to avoid
+conflicts)". A block-comment pass that runs first treats that `/*` as the
+start of a comment and silently swallows the next twenty thousand characters
+of real code, up to the next `*/`. Anything asserted inside that region then
+passes or fails for the wrong reason, which is exactly what happened to the
+first draft of `mobile-touch-model.test.js`. The order is reversed there, and
+the `[^:]` guard is what keeps `https://` inside a string safe from the line
+pass. The sibling harnesses in `mobile-viewport.test.js` still strip blocks
+first; their assertions happen to fall outside the swallowed region, which is
+luck rather than design, and is flagged here for whoever touches them next.
+
+### 17.5 The numbers
+
+| Counter | Before P11 | After P11 |
+| --- | --- | --- |
+| Suite files | 95 | 96 (measured 97) |
+| Suite assertions | 1694 | 1752 (measured 1769) |
+| Suite failures | 0 | 0 |
+| Gates passing | 18/18 | 18/18 |
+| Touch targets under 44px at 390px | 0 | 0 |
+| Expanded hit rects intersecting | 0 | 0 |
+| Toolbar keys past the fold with no affordance | 6 | 0 |
+| Horizontally scrolling key strips at 390px | 1 | 0 |
+| Distinct long-press durations in `app.js` | 3 (400, 500, 600) | 1 (400) |
+| Controls a visible toast can swallow | 16 probed | 0 |
+| A.3.2 capabilities with no phone route | 4 | 0 |
+| `styles-mobile.css` lines | 2382 | 2873 |
+
+The before column is measured at commit `36208bd`, which is P7's release. The
+measured column is this track's own arithmetic against the branch: `npm test`
+reports 97 files and 1769 assertions because a concurrent Codex-track commit
+registered `claude-discover-budget.test.js` (17 assertions) between the two
+runs. P11 contributed one file and 58 assertions and retargeted five
+assertions in the browser lane under SE-16, none of them in `npm test`.
+
+**Two red runs during this phase belonged to other tracks, and both are worth
+recording because the next phase will see the same shape.** A run mid-phase
+reported five failures in `copy-secure-context-fallback.test.js`: P7's
+in-flight `terminal.js` had introduced an earlier occurrence of the string
+that test anchors its Ctrl+C extraction on, so the harness sliced the wrong
+branch. They were green again at P7's commit. A run at the end reported one
+failure in `credential-routes.test.js`, which pins `arthurs-mac-mini` as the
+default Mac host while an untracked `src/web/mac-host.js` in another agent's
+working tree changes that default to `alloy`. Neither is P11's, and neither
+touches a file P11 owns. A third failure, `find-jsonl-refactor.test.js`,
+appeared once and passed on every re-run: it writes a fixture into the REAL
+`~/.claude/projects` and searches it, which is the non-hermetic corpus scan
+that project memory already has open.
+
+### 17.6 The p11 screenshots, and an honest reading of them
+
+Forty-two shots in `screenshots/notion-restyle/p11/`: the four frozen
+comparison shots, the thirty-shot P10 mobile matrix at three widths in both
+chromes, and eight this phase added (a toolbar overflow, a long-press state
+and a DV-26 desktop composer, in each chrome, plus the two phone standards).
+Every one is dimension-checked before it can be read, and every one was
+looked at.
+
+**What the measurements say.** The 44px sweep returns zero rows and zero
+intersections on every phone route in both chromes; the one row it did report
+mid-phase was this phase's own filter pill at 39.5 x 44, and it was fixed
+rather than excused. The long-press probe synthesises a real 450ms hold and
+reports affordance to a sheet, text to no sheet, chrome to no sheet, which is
+BUILD-CONTRACT's P11.1 done criterion verbatim. The toast probe puts sixteen
+controls under a visible toast and swallows none of them, which is P11.2's.
+The toolbar reports five fitted, six overflowed and no horizontal scrolling,
+which is P11.4's.
+
+**What the pictures show.** The Sessions tab now opens on a pill row with live
+counts, a header overflow beside Discover and New, and the P4 cards below it.
+The Terminal tab shows five keys and a pinned overflow carrying its unseen
+dot, with the permanent input row under it and nothing scrolling sideways. The
+long-press shot is the session context sheet over a dimmed list, reached by a
+hold rather than by a method call. The DV-26 shot is a desktop pane with a
+prompt, a field, an image button, a microphone and Send, on the terminal
+ground, 45px tall.
+
+**What is honestly not right yet, and is not this phase's.** The session
+context sheet still draws platform emoji as its row icons, which P12.4's art
+direction bans. The Sessions panel title is drawn at the desktop's size and
+eats a third of the first phone screen. The tablet widths still get the phone
+IA with no tab bar, which is H.3 item 6's open question and deliberately still
+open.
+
+**What the pictures cannot show.** Everything in G.4, unchanged from 15.6:
+momentum feel, native selection handles, real keyboard geometry, IME and
+autocorrect, safe-area insets, haptics, standalone PWA chrome, and touch
+latency under live output. The synthesised hold proves the ROUTING of a long
+press, not how one feels under a real finger. The G.5 seventeen-step device
+script remains the only thing that verifies those, and it has still not been
+run.
+
+### 17.7 What P12 inherits
+
+1. **A zone model with an inverted failure mode**, and a resolver with
+   executed proofs. Classifying a new surface is one attribute; forgetting to
+   classify one is a missing menu rather than a stolen selection.
+2. **A measured toolbar.** Adding a key means adding it to
+   `MW_TOOLBAR_PRIORITY`; the fit re-measures itself and the overflow sheet
+   picks it up with no second edit.
+3. **A toast that is a notice unless it is a control**, with an action API
+   that nothing yet uses. P12.3's service-worker update toast is its first
+   real consumer, and B.5 rule 3 already says it must be the indefinite kind
+   that never reloads under the user's fingers.
+4. **A published claim gate**, waiting on one line inside `terminal.js`
+   `_requestActivate` once P7's track releases the file.
+5. **The Sessions surface closed against A.3.2**, so the phone IA has no named
+   gaps left from section A.
+6. **Three items that need a real device**, not an emulator: P11.7's touch
+   polish, P11.8's performance budget, and the G.5 script. All three are named
+   in this phase's report as explicitly unshipped rather than quietly skipped.

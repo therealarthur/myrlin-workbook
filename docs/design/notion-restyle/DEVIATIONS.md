@@ -396,3 +396,79 @@ is a version number. None is a preference.
 | **What it costs** | The phase-to-version map is now: P4r=21, P5=22, P6=17, P7=**24**, P8=19, P9=20, P10=23, with 16 and 18 permanent gaps. It lives in this file and not in the contract. P11 and P12 will need alpha.25 and alpha.26. |
 | **Approved by** | P7 implementation agent, per its brief, extending DV-22, DV-23, DV-P9-2 and DV-P10-6. |
 | **Date** | 2026-08-13 |
+
+---
+
+## P11 rows (mobile interaction and touch)
+
+Six departures. Two are from the MOCK, two are from the CONTRACT's mechanism
+where another track's ownership of a file made the stated mechanism
+unavailable, one is a test-pin collision, and one is another version
+collision. They are recorded as a block for the same reason the P9, P10 and P7
+rows are.
+
+### DV-P11-1. The four legacy long-press sites keep their own timers
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | MOBILE-EXPERIENCE B.2: "One delegated listener per list container, keyed on `[data-mw-zone="affordance"]`." BUILD-CONTRACT P11.1: "The three-zone long-press model as an allowlist, replacing today's denylist." |
+| **What shipped** | Five NEW hosts use the shared binder `_mwBindLongPress` exactly as specified. The four pre-existing sites (the workspace list, the session list, the projects list, the tab-group strip) keep their own timers and their own listener shape, and take the model's DURATION, its 8px slop and its haptic. |
+| **Why** | `test/mobile-ux-fixes.test.js` P1-2(b) pins `wsList`, `sessList` and `projList` down to their timer VARIABLE NAMES inside their `dragstart` handlers, and P1-3 pins `tabStrip.addEventListener('touchstart'` and `tabStrip.addEventListener('dragstart', () => clearTimeout(tabLPTimer))` verbatim. Rewriting the four sites onto the shared binder would have required editing four pinned assertions, and this phase's sanctioned test edit (SE-16) covers a different file. TEST-CONSTRAINTS is explicit that a pin is never edited to suit an implementation. |
+| **What it costs** | Five long-press implementations exist rather than one, so a future change to the gesture has five call sites to visit rather than one. The part that a user can feel is unified: one duration, one slop, one haptic, one click-swallow. The four sites are named here so the phase that unpins them (P12's consolidation, or any phase given the sanction) knows exactly what to fold in. |
+| **Approved by** | P11 implementation agent, under TEST-CONSTRAINTS section 9 and BUILD-CONTRACT 5.4. |
+| **Date** | 2026-08-13 |
+
+### DV-P11-2. Five keys at 390px, not the mock's seven
+
+| Field | Value |
+| --- | --- |
+| **What the mock says** | DESIGN-SPEC 14.3 draws a seven-key toolbar: Enter, Ctrl+C, Esc, Up, Down, Tab, Copy, plus an overflow. |
+| **What shipped** | Five keys plus the pinned overflow at 390px, measured in both chromes: Enter, Ctrl+C, Esc, Up, Down. Tab, Copy, Ctrl+D, Select mode, Copy view and Reader move into the sheet. |
+| **Why** | MOBILE-EXPERIENCE B.7 works this arithmetic itself and reaches the same answer: "The mock's seven-key row is achievable only if the keys are 40px wide, which is under the touch floor, so the honest answer is five to six keys on a 390px phone." The floor wins over the mock, per PROCEDURE section 4. The implementation MEASURES rather than assuming B.7's example widths, so the count moves with the font and the theme instead of being frozen. |
+| **What it costs** | Two of the mock's keys are one tap further away than it draws, and Tab in particular is a key a CLI user reaches for often. Mitigated by the overflow being PINNED (it never scrolls away), by its unseen-items dot, and by the sheet holding the pane actions too, so it is a control a user opens for other reasons anyway. A 430px phone fits six. |
+| **Approved by** | P11 implementation agent, under B.7 and PROCEDURE section 4. |
+| **Date** | 2026-08-13 |
+
+### DV-P11-3. B.9's claim guards are published, not injected
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | MOBILE-EXPERIENCE B.9 rules 1 to 3: "`_requestActivate` gains two additional guards", "suppress claims from the moment a `visualViewport` resize begins until 250ms after the last one", and "focus on the mobile input row must not reach xterm's textarea". BUILD-CONTRACT P11.6's done criterion is "no `activate` frame is sent while the Sessions tab is active". |
+| **What shipped** | The gate itself, as a published predicate (`window.MyrlinClaimGate.canClaim`, `canClaimGeometry`), consulted by every claim path that lives in `app.js`: the ambient visibility and focus path, and the click-to-focus path. Rule 3 was already satisfied by P10.5's focus guard. The one-line read inside `_requestActivate` is NOT made. |
+| **Why** | `_requestActivate` is in `terminal.js`, which the concurrent P7 track owned for the whole of this phase (it landed 2096 new lines and a release on that file mid-phase). BUILD-CONTRACT 4.1 item 4 forbids editing another track's file, and 4.2 says a collision is recorded rather than fought. |
+| **What it costs** | The IntersectionObserver claim inside `TerminalPane` is still ungated, so a pane that becomes visible for a reason the app layer did not initiate can still claim. In practice the phone case that motivated rule 1 is already covered, because `setViewMode` hides the terminal grid when another tab is showing and a hidden pane cannot cross the observer's visibility ratio; what remains uncovered is the exotic case of a laid-out but occluded pane. The one line is named in the P11 report's post-P7 mop-up list. |
+| **Approved by** | P11 implementation agent, under BUILD-CONTRACT 4.1 item 4 and 4.2. |
+| **Date** | 2026-08-13 |
+
+### DV-P11-4. The desktop composer's box is authored in the mobile stylesheet
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | BUILD-CONTRACT 3.2 gives `styles.css` one writer at a time and assigns `styles-mobile.css` to the mobile track. DV-26 says the desktop input row "is styled but not created", with the palette contract already shipped by P5 into `styles.css`. |
+| **What shipped** | DV-26 is CLOSED: the row is turned on above the phone breakpoint and its desktop box (32px field, 28px buttons, the flex row, the empty-pane suppression) is authored in `styles-mobile.css`, outside the phone media query, in a `@media (min-width: 769px)` block. |
+| **Why** | The rule that hides the row, `.terminal-mobile-input-row { display: none }`, lives in `styles.css`, whose single writer this phase was the P7 terminal track. `styles-mobile.css` loads after it, so one rule at equal specificity turns it on without touching another track's file. This is the DV-P10-5 precedent, applied again and for the same reason. |
+| **What it costs** | A phone stylesheet now contains a desktop-only block, which is the wrong home for it and is the second entry on P12's consolidation list after DV-P10-5's. Nothing about the rules is width-ambiguous, because the block carries its own `min-width` query. |
+| **Approved by** | P11 implementation agent, under BUILD-CONTRACT 4.1 item 4 and the DV-P10-5 precedent. |
+| **Date** | 2026-08-13 |
+
+### DV-P11-5. The `app.js` cachebuster is not bumped
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | Gate G10 requires the cachebusters in `index.html` and the three pinning tests to agree, and treats a bump as "a five-file atomic change". P10 bumped `app.js` to `?v=20260813-notion-p10` under sanctioned edit SE-7. |
+| **What shipped** | `app.js` keeps `?v=20260813-notion-p10` despite this phase changing roughly 2400 lines of it. |
+| **Why** | Bumping it means editing three pinning tests (`copy-secure-context-fallback.test.js`, `terminal-select-mode.test.js` and `test/browser/workbook-shell.test.js`), and only the third is inside this phase's sanction. It is also unnecessary for the reason DV-28 gives for `terminal.js`: `express.static` serves this tree with `maxAge 0` and an ETag, so a changed file is revalidated on every load anyway. |
+| **What it costs** | The query string no longer names the phase that last changed the file, so a reader diffing tags will see `notion-p10` on a file P11 rewrote a tenth of. Anyone bumping it later must do all four files in one commit, which is what G10 exists to enforce. |
+| **Approved by** | P11 implementation agent, extending DV-28's reasoning to the file next to it. |
+| **Date** | 2026-08-13 |
+
+### DV-P11-6. The version map, a fifth time: P11 is alpha.25
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | 4.4 assigns P11 `1.3.0-alpha.22`. DV-P10-6 then re-assigned it `alpha.24`, on the reasoning that P10 had taken 23. |
+| **What shipped** | `1.3.0-alpha.25`. |
+| **Why** | P7 cut `alpha.24` while this phase was in flight, hours after DV-P10-6 predicted that number for P11. This is the same collision DV-22, DV-23, DV-P9-2, DV-P10-6 and DV-32 all record: several tracks on one branch, and a version number is a single mutable line. |
+| **What it costs** | The phase-to-version map is now P4r=21, P5=22, P6=17, P7=24, P8=19, P9=20, P10=23, **P11=25**, with 16 and 18 permanent gaps. P12 will need alpha.26. `package-lock.json` is left at its own stale `alpha.12`, as every phase since has left it, rather than being touched by a track that does not own dependency changes. |
+| **Approved by** | P11 implementation agent, per its brief, extending DV-22, DV-23, DV-P9-2, DV-P10-6 and DV-32. |
+| **Date** | 2026-08-13 |
