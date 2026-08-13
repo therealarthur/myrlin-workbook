@@ -566,6 +566,8 @@ class CWMApp {
       // Recency surface 4 (BUILD-CONTRACT 2.13.5).
       workbenchRecent: document.getElementById('workbench-recent'),
       workbenchRecentRow: document.getElementById('workbench-recent-row'),
+      // Topbar breadcrumb (DESIGN-SPEC 4).
+      headerBreadcrumb: document.getElementById('header-breadcrumb'),
 
       // Mobile
       mobileTabBar: document.getElementById('mobile-tab-bar'),
@@ -1920,6 +1922,14 @@ class CWMApp {
     // Notion restyle P4: keyboard activation for the row controls that are
     // divs rather than buttons.
     this.bindRowKeyboardActivation();
+    // Notion restyle P4: the topbar breadcrumb. One delegated listener; the
+    // crumbs are re-rendered on every view change.
+    if (this.els.headerBreadcrumb) {
+      this.els.headerBreadcrumb.addEventListener('click', (e) => {
+        if (e.target.closest('[data-crumb="root"]')) this.setViewMode('terminal');
+      });
+    }
+    this.renderBreadcrumb();
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -11863,6 +11873,9 @@ class CWMApp {
     // the next real scroll re-asserts it within a frame.
     this._updateHeaderScrolled(null);
 
+    // The breadcrumb names the view, so it changes with the view.
+    this.renderBreadcrumb();
+
     // Toggle terminal grid vs session panels vs docs vs resources vs costs vs tasks
     const isTerminal = mode === 'terminal';
     const isDocs = mode === 'docs';
@@ -14581,6 +14594,49 @@ class CWMApp {
           <span class="workbench-recent-meta">${project}${this.providerChipHtml(r.providerId)}${time}</span>
         </button>`;
     }).join('');
+  }
+
+  /**
+   * The topbar breadcrumb (DESIGN-SPEC 4, DECISIONS 11.5 item 9).
+   *
+   * Two crumbs: a root that routes to the workbench, and a leaf naming the
+   * current view. In the workbench the leaf also carries the active tab
+   * group's name, because that is the only place in the shell where "where
+   * am I" has a second level.
+   *
+   * The view tabs say what is AVAILABLE; they do not say what is showing,
+   * because an active pill is a state on a control rather than a statement.
+   * The breadcrumb is that statement, and it is the reason the topbar can be
+   * 44px with no title bar of its own.
+   */
+  renderBreadcrumb() {
+    const host = this.els.headerBreadcrumb;
+    if (!host) return;
+
+    const mode = this.state.viewMode || 'terminal';
+    const labels = {
+      terminal: 'Workbench',
+      workspace: 'Sessions',
+      recent: 'Recent',
+      tasks: 'Agent tasks',
+      costs: 'Costs',
+      docs: 'Docs',
+      resources: 'System resources',
+    };
+    let leaf = labels[mode] || labels.terminal;
+
+    // In the workbench the leaf carries the active tab group, which is the
+    // one place this shell has a genuine second level.
+    if (mode === 'terminal' && Array.isArray(this._tabGroups)) {
+      const active = this._tabGroups.find(t => t && t.id === this._activeGroupId);
+      if (active && active.name) leaf += ' · ' + active.name;
+    }
+
+    const root = this.escapeHtml('Myrlin');
+    host.innerHTML =
+      `<button type="button" class="crumb crumb-root" data-crumb="root">${root}</button>` +
+      '<span class="crumb-sep" aria-hidden="true">/</span>' +
+      `<span class="crumb crumb-leaf" aria-current="page">${this.escapeHtml(leaf)}</span>`;
   }
 
   /**

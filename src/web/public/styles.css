@@ -2006,6 +2006,65 @@ textarea.input {
   z-index: 1;
 }
 
+/*
+ * THE BREADCRUMB (DESIGN-SPEC 4, DECISIONS 11.5 item 9).
+ * 14px secondary ink, crumbs at 3px 6px with the 4px radius and a hover wash,
+ * a literal `/` separator in tertiary, and the leaf in primary ink. It is
+ * `flex: 0 1 auto` with hidden overflow so a long tab-group name gives way to
+ * the account chip rather than pushing it off the bar.
+ */
+.header-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--app-body-size);
+  color: var(--app-text-secondary);
+}
+
+.header-breadcrumb .crumb {
+  padding: 3px 6px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-property-chip);
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.header-breadcrumb .crumb-root {
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.nt-enable-hover .header-breadcrumb .crumb-root:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
+}
+
+.header-breadcrumb .crumb-sep {
+  color: var(--app-text-tertiary);
+  flex-shrink: 0;
+}
+
+.header-breadcrumb .crumb-leaf {
+  color: var(--app-text-primary);
+}
+
+/* Below the tablet breakpoint the brand title and the breadcrumb compete for
+   the same few hundred pixels. The breadcrumb wins, because it changes and
+   the title does not. */
+@media (max-width: 900px) {
+  .header-brand .header-title {
+    display: none;
+  }
+}
+
 .header-logo-icon {
   width: 28px;
   height: 28px;
@@ -7743,8 +7802,11 @@ html.activity-indicators-disabled .terminal-pane-activity {
   color: var(--app-text-secondary);
 }
 
+/* 8px, not 10. The glyph is U+25B6, which switches to EMOJI presentation at
+   larger sizes on Windows and renders as a blue rounded square instead of a
+   caret. Verified in the p4 screenshot run at 10px. */
 .ws-project-group-chevron {
-  font-size: 10px;
+  font-size: 8px;
   transition: transform var(--transition-fast);
   color: var(--app-icon-tertiary);
   flex-shrink: 0;

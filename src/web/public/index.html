@@ -252,6 +252,13 @@
           <img src="logo.png" alt="Myrlin" class="header-logo-img">
           <span class="header-title">Myrlin's Workbook</span>
         </div>
+        <!--
+          BREADCRUMB (DESIGN-SPEC 4, DECISIONS 11.5 item 9). The topbar had no
+          statement of where you are; the view tabs say what is available, not
+          what is showing. Rendered by renderBreadcrumb: a root crumb that
+          routes to the workbench and a leaf crumb naming the current view.
+        -->
+        <nav class="header-breadcrumb" id="header-breadcrumb" aria-label="Breadcrumb"></nav>
         <!-- Claude account switcher (credential switcher design doc, section 6.1).
              Starts hidden; unhidden by app.js only after GET /api/credentials
              succeeds, so old servers without the routes degrade gracefully.
