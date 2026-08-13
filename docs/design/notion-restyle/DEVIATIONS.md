@@ -494,3 +494,54 @@ rows are.
 | **What it costs** | One assertion no longer states its expected value inline, so a reader has to open `mac-host.js` to see what it is. In exchange the test can never again certify a dead address. No assertion was added or removed; the count is unchanged. |
 | **Approved by** | Backend endgame implementation agent, under BUILD-CONTRACT 4.1 item 4 (a fix the phase exists to make cannot be blocked by the assertion that pins the defect). |
 | **Date** | 2026-08-13 |
+
+## P11b, the post-P7 touch and performance mop-up
+
+Four rows. Two are the shape DV-P11-3 and DV-P11-4 already record (another
+track's file, another track's phase); one is a specification written against an
+assumption the implementation never matched; one is the version collision every
+phase on this branch has hit.
+
+### DV-P11b-1. The crossing gesture is driven by the pane engine, not by native scroll
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | MOBILE-EXPERIENCE B.4 rule 2: "History scrolls with **native** overflow scrolling, not the xterm momentum engine. The engine exists only because xterm intercepts touch on `.xterm-viewport`; a DOM surface has no such problem, and native scroll runs on the compositor thread, which is where 60fps lives." |
+| **What shipped** | Every gesture that STARTS inside the surface is native, exactly as the rule requires, and the surface reimplements no scrolling for them: the three listeners it binds are passive, read `clientY`, and never write `scrollTop`. The ONE gesture that crosses the boundary from the live terminal into the surface keeps being applied by the pane's touch engine, to `doc.scrollTop`, until the finger lifts and the momentum tail decays. |
+| **Why** | A touch sequence is delivered to the element that was hit at `touchstart` for its entire life. The browser will not retarget an in-flight gesture onto a layer that appeared underneath the finger halfway through it, and there is no API that asks it to. So the choice is not "engine or native" for the crossing gesture; it is "engine, or the gesture stalls at the boundary and the user learns that flicking is broken". P11.7's own work-package text asks for "momentum carried through the boundary", which cannot mean anything else. |
+| **What it costs** | For the duration of one gesture the scrolling is on the main thread rather than the compositor. Bounded by construction: `stopMomentum()` clears the driving flag on every gesture-end path, and the surface covers the terminal container once open, so the next `touchstart` lands on the layer and is handled natively. The 60fps argument is untouched for the 99 percent case, which is reading. |
+| **Approved by** | P11b implementation agent, under B.4 rule 2 read together with BUILD-CONTRACT P11.7. |
+| **Date** | 2026-08-13 |
+
+### DV-P11b-2. E.3's "200 rows in DOM" is implemented as 200-line blocks, not 200 rows
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | MOBILE-EXPERIENCE E.3, last row: "History surface (future) | Windowed rendering, 200 rows in DOM, recycled | The contract in B.4 rule 2 is native scroll, so the window must be maintained by an `IntersectionObserver` sentinel, not by a scroll handler." |
+| **What shipped** | An IntersectionObserver sentinel maintaining a window of 200-LINE chunk elements over the archive segments. Measured on a 50000-line document in a real Chromium at 390px: 250 chunk elements, 1 holding text, 14599 characters in the DOM against roughly 3.4 million unwindowed, with the document's full 1600012px scroll extent intact and the reader's position unmoved across a collapse. |
+| **Why** | E.3 was written expecting one DOM row per line, which is how xterm's own renderer works. This surface has never done that: P7 renders each segment as one `<pre>` holding one text node, so a 50000-line document was already four ELEMENTS. The element count E.3 is afraid of was not reachable, and a literal "200 rows in DOM" would have meant ADDING 200 elements where there was one. The cost that IS real is the other half of the same problem, one text node of several megabytes in a box hundreds of thousands of pixels tall, and that is what the window removes. |
+| **What it costs** | Two behaviours needed explicit handling rather than falling out for free. Select-all hydrates the whole document and holds it, because a DOM Range cannot select text that is not in the DOM; on a 50000-line document that is a deliberate, momentary return to the unwindowed cost. And a chunk may only be collapsed to a height it was MEASURED at, so a chunk that cannot be measured stays hydrated forever, which costs memory and moves nobody. Below 2000 lines, and on any engine without IntersectionObserver, the P7 renderer is used unchanged. |
+| **Approved by** | P11b implementation agent, under E.3 and PROCEDURE section 4 (the measured truth outranks the assumed one). |
+| **Date** | 2026-08-13 |
+
+### DV-P11b-3. E.4's module splitting is not shipped; only its item 4 is
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | BUILD-CONTRACT P11.8: "lazy loading per E.4". E.4 names seven modules to split (the QR library, the diff viewer, the kanban board, `mirror-view.js`, `schedules.js`, the costs charts, and xterm plus `terminal.js`) plus four non-splitting wins. |
+| **What shipped** | E.4's item 4 in full: background pane flushes fall from 150ms to 500ms when the Terminal tab is not the active surface, read from the `data-view-mode` attribute `setViewMode` already publishes. None of the seven splits. |
+| **Why** | Every one of the seven is a `<script>` injection in `index.html` or a navigation handler in `app.js`. This track owns `terminal.js`, `terminal-history.js` and the touch and history regions of `styles.css`. BUILD-CONTRACT 4.1 item 4 forbids editing another track's file, and E.4's largest single win, deferring xterm plus `terminal.js` until the first Terminal navigation, is a change to the loading contract of the very file this track was editing, which is the worst possible thing to do concurrently. |
+| **What it costs** | Cold start on a phone is unchanged: roughly 1.7MB of uncompressed script still loads on first paint. The item that shipped is the one that affects a session already open, which is where the touch work it accompanies is felt. The seven splits are named here as P12's, alongside E.4's items 1 to 3 (verifying `Content-Encoding`, preloading the two above-the-fold fonts, and the deliberate decision NOT to defer `theme-registry.js`). |
+| **Approved by** | P11b implementation agent, under BUILD-CONTRACT 4.1 item 4. |
+| **Date** | 2026-08-13 |
+
+### DV-P11b-4. The version map, a sixth time: P11b is alpha.26
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | 4.4 assigns P12 `1.3.0-alpha.23`. DV-P11-6 then predicted `alpha.26` for P12. |
+| **What shipped** | `1.3.0-alpha.26` for this phase, which is not P12. |
+| **Why** | This is P11's own mop-up rather than a new phase, so folding it under alpha.25 was the alternative. It was rejected because alpha.25 is already cut and released: three source files, a new test file and 39 assertions landing under a version number that has shipped would make the tag a lie about its own contents, which is the failure the changelog exists to prevent. A phase that produces user-visible behaviour takes a number. |
+| **What it costs** | The map is now P4r=21, P5=22, P6=17, P7=24, P8=19, P9=20, P10=23, P11=25, **P11b=26**, with 16 and 18 permanent gaps, and P12 needs alpha.27. `package-lock.json` is left at its own stale `alpha.12`, as every phase since P5 has left it. |
+| **Approved by** | P11b implementation agent, extending DV-22, DV-23, DV-P9-2, DV-P10-6, DV-32 and DV-P11-6. |
+| **Date** | 2026-08-13 |

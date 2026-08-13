@@ -20,6 +20,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **The protections around your saved accounts are now checked automatically, every test run.** Five of them exist because something went wrong once: a hang that took the account switcher and the usage meter down for a day, accounts being declared dead when a firewall answered oddly, one account's tokens being written onto another account's record after a switch, this computer refreshing a token the Mac was using and quietly logging the Mac out, and a second program being allowed to write to the same account files at the same time. Those fixes arrived through several separate routes, and were verified once, by hand. They are now pinned by tests that fail if any of them is dropped, including one that fails if a new action is added that can change your saved accounts without checking first whether something else owns them. Nothing about how the app behaves changes; what changes is that it can no longer quietly stop behaving that way.
 
+## [1.3.0-alpha.26] - 2026-08-13
+
+Scrolling up on a phone now reaches your history instead of stopping dead at the top of the terminal, and a very long history stops costing what it used to.
+
+### Added
+
+- **Flicking up past the top of a terminal opens its history and keeps going.** Before this, a flick ran out of terminal and simply stopped: the scrollback surface only opened on a mouse wheel or a keyboard shortcut, neither of which a phone has. On a session running an agent it stopped on the very first flick, because those sessions keep nothing in the terminal at all. The gesture now carries straight through into the conversation, and pulling back down past the newest line hands the terminal back.
+- **Two buttons on the history surface: Oldest, and Jump to live.** They are the keyboard shortcuts a phone cannot press. Jump to live appears once you are more than a screen above the bottom; Oldest appears whenever there is something above you.
+- **A long press in the history surface uses your phone's own selection.** The handles, the magnifier and the Copy bar are the platform's, not an imitation of them, and pulling down at the top of your history no longer risks reloading the page.
+
+### Changed
+
+- **A very long history no longer keeps itself in the page.** A fifty thousand line conversation used to sit in the page in full, several megabytes of it, in one piece hundreds of thousands of pixels tall. It is now kept in blocks and only the blocks near what you are reading hold their text: measured on a fifty thousand line document, about fifteen thousand characters in the page instead of three and a half million. Your position never moves, the scrollbar still describes the whole thing, and selecting everything still selects everything: it puts the whole document back first.
+- **Phones keep a smaller terminal buffer.** Two thousand lines instead of ten thousand. The full history is on disk and the history surface reads it from there, so nothing is out of reach; what changes is how much memory each open session costs on a phone.
+- **Terminals you are not looking at do less work.** A session on another tab updates four times a second instead of seven, and one behind two other sessions on a phone updates once a second. Nothing is dropped or delayed in what it shows you when you come back; the sessions simply stop competing with the one on screen.
+- **The full-screen reader is capped at its last 200,000 characters**, with a line saying so, and points at Copy view for the rest. It used to build the entire buffer as one piece of text, twice, which on a wide session is several megabytes on a phone to read the last screen.
+- **Holding your finger down means the same thing everywhere.** The terminal used to carry its own copy of the timing, the movement tolerance and the vibration; it now reads the same three numbers as the rest of the app, so they can never drift apart again.
+
+### Fixed
+
+- **The history surface honours "reduce motion".** It was reading that preference indirectly, through a terminal scrolling setting, which meant turning smooth scrolling off silently removed the animation too, and a page loaded without the terminal script got the animation regardless of the preference. It now asks the system directly.
+- **A terminal no longer claims the shared width while you are looking at another tab.** The rule for when a device may set the width of a shared session was written and tested last release but one line of it could not be connected at the time. It is connected now.
+
 ## [1.3.0-alpha.25] - 2026-08-13
 
 Holding your finger on something now does one predictable thing, and it depends on what you are holding. The Sessions tab grew the parts it was missing: filters, a way to select several sessions at once, and a swipe on a row.

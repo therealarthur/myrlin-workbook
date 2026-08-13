@@ -3189,3 +3189,207 @@ run.
 6. **Three items that need a real device**, not an emulator: P11.7's touch
    polish, P11.8's performance budget, and the G.5 script. All three are named
    in this phase's report as explicitly unshipped rather than quietly skipped.
+
+---
+
+## 18. Phase P11b, the post-P7 touch and performance mop-up
+
+This section is P11b's log. It is the list 17.7 item 4 and 17.4.5 left behind,
+plus BUILD-CONTRACT P11.7 and P11.8, plus MOBILE-EXPERIENCE B.4 in full.
+
+### 18.1 What P11b shipped, and where
+
+| Item | Files | What |
+| --- | --- | --- |
+| DV-P11-3's line | `terminal.js` | The claim gate read inside `_requestActivate`, above the freeze branch, typeof-guarded and try-wrapped. |
+| P11.7 | `terminal.js`, `terminal-history.js`, `styles.css` | The touch boundary in both directions with its momentum carry-through, the two jump pills, native selection and pull-to-refresh suppression as stylesheet contract, reduced motion asked of the platform. |
+| B.4 | `terminal-history.js`, `styles.css` | Rules 1 to 4, with rule 2 read as DV-P11b-1 records. |
+| P11.8 | `terminal.js`, `terminal-history.js`, `app.js` | The 2000-line phone ring, the two-pane phone budget, the three flush cadences, the 200k tail-biased Reader cap, and the windowed renderer. |
+| Item 5 | `terminal.js` | The long press reads its three numbers from `MyrlinMobileViewport.constants`. |
+
+New file: `test/terminal-touch-window.test.js`, 39 assertions, 24 of them
+executed against fakes rather than source greps.
+
+### 18.2 Ambiguities resolved during P11b
+
+#### 18.2.1 The crossing gesture cannot be native, and the specification's own reason says why
+
+B.4 rule 2 argues for native scrolling from compositor-thread performance, and
+it is right about the surface. It does not address the crossing, because when
+it was written the surface did not open on touch at all.
+
+A touch sequence belongs to the element hit at `touchstart` for its whole life.
+When the boundary is crossed mid-gesture the layer appears UNDER a finger that
+is already down, and no API hands the in-flight sequence to it. So the engine
+keeps applying that one gesture, to `doc.scrollTop`, until the finger lifts and
+the tail decays. Recorded as DV-P11b-1. The scope is exactly one gesture: every
+gesture that starts inside the surface is native, and the surface's own three
+touch listeners are passive and never write `scrollTop`, which the suite pins.
+
+The finger path and the momentum path go through ONE router. A boundary that
+only the slow gesture can cross is worse than no boundary, because it teaches
+the user that flicking is broken.
+
+#### 18.2.2 Ctrl+Shift+Home had no touch route at all, and B.4 does not mention it
+
+B.4 rule 4 names a "Jump to live" pill, which is Ctrl+Shift+End. 8.4 gives the
+surface Ctrl+Shift+Home as well, and a phone has neither key. Shipping only the
+named pill would have left one of the two capabilities simply absent on touch.
+
+Both ship, as one group inside the layer, with different visibility rules
+because they answer different questions: "Jump to live" follows B.4 rule 4
+literally (more than one viewport above the bottom), while "Oldest" appears
+whenever anything is above the viewport, INCLUDING at the bottom, which is
+where the reader is when the surface opens and the only position from which
+"go to the oldest" is useful at all.
+
+They are not the floating buttons B.6 bans. B.6's rule is about controls that
+land on the key toolbar and the input row; this group is inside a layer whose
+rect is measured from `.terminal-container` and therefore stops above both. It
+also clears every other test B.6 applies: 44px measured rather than 32, visible
+at rest rather than on a hover a phone never delivers, and present only when it
+has somewhere to go.
+
+#### 18.2.3 E.3's window was specified against a renderer this surface never had
+
+E.3 asks for "200 rows in DOM, recycled". P7 renders each segment as one `<pre>`
+holding one text node, so a 50000-line document was already four ELEMENTS, and a
+literal reading would have meant ADDING 200 elements where there was one. The
+real cost is the other half of the same problem: one text node of several
+megabytes in a box hundreds of thousands of pixels tall. Recorded as DV-P11b-2.
+
+The invariant that makes windowing safe on a surface whose entire promise is
+"the reader's position never moves": a chunk is only ever collapsed AFTER it has
+been rendered and MEASURED, and is pinned to that measured height. The document
+is `pre-wrap`, so `lines x rowHeight` is a guess, and a windowed list that
+guesses heights moves the reader. A chunk that cannot be measured stays
+hydrated forever, which costs memory and moves nobody. Chunk boundaries are cut
+from the END of each segment, because the archive grows at the top, so a
+prepended page reuses every existing chunk byte for byte.
+
+Three things sit outside the window deliberately. The live segment, because it
+is the mirror and is already bounded at 4000 lines. A held selection, which
+freezes collapsing exactly as it freezes the mirror, while still permitting
+hydration, because a drag that auto-scrolls into a collapsed region has to find
+text there or it selects a blank band. And select-all, which hydrates the whole
+document and HOLDS it: a Range cannot select text that is not in the DOM, and
+copying a few visible screens while looking like it copied 50000 lines is the
+silent-wrong-answer class of failure this surface exists to remove.
+
+#### 18.2.4 Dormancy is a READ of the host-ownership model, never a writer to it
+
+E.3's dormancy wants the socket closed, the buffer released and a "tap to
+reconnect" chip. All three live in `app.js`, and the detach itself is the app
+layer's: `detachHostBindings()` is called BY the code that owns which panes are
+hosted, and `terminal-host-ownership.test.js` exists precisely to pin that
+coherence. A pane that detached itself would leave `app.js` believing it was
+mounted, and the wake path would become a second owner of the same state.
+
+So dormancy is a predicate rather than an action. A pane is dormant when
+`_getOwnedContainer()` returns null, which is exactly what a cached tab group
+leaves behind and is the host-ownership model's own definition of detached, or
+when it is past the two-pane phone budget. What dormancy changes is a cadence,
+not a socket: output is still consumed, nothing is dropped, the queue cannot
+grow without bound, and a swipe back shows real output rather than a reconnect.
+The suite asserts that `_isDormantPane` reads `_getOwnedContainer` and never
+calls `detachHostBindings`.
+
+#### 18.2.5 The reduced-motion proxy had two holes, and one of them was silent
+
+P7's `_animateIn` inferred reduced motion from
+`TerminalPane.getSmoothScrollDuration() === 0`. That is also 0 when the user
+merely turned smooth scrolling off, so an accessibility behaviour was being
+driven by an unrelated preference; and it answers nothing at all when the layer
+is loaded without `window.TerminalPane`, so a page in that state animated
+regardless of what the platform asked for. The query is now asked of
+`matchMedia` directly, with the proxy KEPT as a second condition rather than
+replaced, because a user who turned smooth scrolling off has expressed the same
+preference in the same region. `close()` strips its inline transition, so there
+is no exit animation to skip on any path.
+
+#### 18.2.6 A harness that binds `window` as a parameter cannot be reached by `global.window`
+
+`terminal.js` is compiled with `new Function('window', 'document', ...)`, so
+those names are PARAMETERS and shadow the real globals for the whole file. The
+first draft of `terminal-touch-window.test.js` set `global.window` and three
+checks passed while asserting nothing at all. The sandbox now returns its own
+`win` and `doc` and the tests mutate those. Flagged here because the same
+harness shape is used by four other suites and the trap is invisible: a test
+that reaches nothing passes.
+
+The sibling finding, from the browser pass: the first draft of the capture
+harness booted a second layer without destroying the first, so every
+`querySelector` read the stale, closed surface and the pass reported three
+product failures that were entirely its own. Both are the same lesson, which is
+that a measurement harness needs its own teardown as much as the code does.
+
+### 18.3 The numbers
+
+| Counter | Before P11b | After P11b |
+| --- | --- | --- |
+| Suite files | 97 | 99 |
+| Suite assertions | 1792 | 1854 |
+| Suite failures | 0 | 0 |
+| Gates passing | 18/18 | 18/18 |
+| Pinned terminal suites edited | 0 | **0**, verified by blob hash |
+| `terminal.js` lines | 6510 | 7025 |
+| `terminal-history.js` lines | 2096 | 2843 |
+| `styles.css` lines | 16012 | 16103 |
+| DOM characters, 50000-line history | roughly 3,400,000 | **14,599** |
+| Chunk elements, same document | not applicable | 250, of which 1 hydrated |
+
+The before column is measured at commit `412fdff`, which is P11's release. Two
+notes on the arithmetic. First, 17.5 reports 1769 for that same commit; the
+counter used here reads 1792 on it, because 17.5's counter missed
+`mobile-viewport.test.js`'s 23 markers. The DELTA is what is comparable, and
+this track's delta is +1 file and +39 assertions. Second, the run after this
+phase also picked up `credential-protections-gate.test.js` (+1 file, +23
+assertions), which belongs to the concurrent backend track and not to this one.
+
+### 18.4 The p11b capture, and an honest reading of it
+
+Two shots in `screenshots/notion-restyle/p11b/`, plus an 18-observation touch
+pass in a real Chromium at 390x844 with touch emulation on.
+
+**What was measured rather than eyeballed**, which is the point of this
+particular capture: on a real 50000-line document the surface builds 250 chunk
+elements and holds 14599 characters in the DOM against roughly 3.4 million
+unwindowed, while the document's scroll extent stays at its full 1600012px and
+`scrollTop` is bit-identical across a collapse. The pills measure 94x44 and
+64x44. A real touch tap on "Jump to live" closes the surface and pins the
+terminal back to live. A pull past the bottom exits; the same gesture
+mid-document does not. The computed styles are `touch-action: pan-y`,
+`user-select: text` and `overscroll-behavior-y: contain`.
+
+**What the pictures show.** The surface at 390px mid-document, with both pills
+in the lower right, over the history text.
+
+**One artefact worth naming so nobody reads it as a defect.** The harness page
+does not load `theme-registry.js` and does not set `data-theme` on the root, so
+`--term-bg` is undefined and both the surface and the pills fall back to
+`--app-bg-primary`, which is the light default. The picture is therefore white
+where a real pane would be Mocha. That the pills take the SAME ground as the
+surface is the contract, and that is what the picture shows; the value of that
+ground is the harness's, not the product's.
+
+**What emulation cannot prove, unchanged from 15.6 and 17.6.** Momentum feel.
+The platform's own selection handles, magnifier and callout bar: a synthetic
+touch is untrusted and never raises them, so what the pass proves is that the
+text is selectable DOM text and that a held selection freezes the window, not
+that iOS draws its handles over it. Haptics. Real keyboard geometry. Safe-area
+insets. Touch latency under live output. The G.5 seventeen-step device script
+remains the only thing that verifies those, and it has still not been run.
+
+### 18.5 What P12 inherits
+
+1. **Nothing terminal-side except the device script.** Every item on 17.7's
+   mop-up list is closed. What remains is G.5's seventeen-step script, which is
+   the same thing as P11.7's own "manual matrix on a real phone".
+2. **A published window with published numbers.** `windowStats()` returns chunk,
+   hydration and character counts, so "the window is working" stays a claim
+   about measurable numbers rather than an assertion in a commit message.
+3. **E.4's seven module splits**, none of them shipped, recorded as DV-P11b-3
+   with the reason and the ownership. The largest is xterm plus `terminal.js`
+   deferred to the first Terminal navigation.
+4. **`alpha.27` is P12's number**, per DV-P11b-4.
+5. **Two harness traps worth knowing before writing another suite** (18.2.6).

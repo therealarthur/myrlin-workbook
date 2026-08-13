@@ -1,6 +1,6 @@
 {
   "name": "myrlin-workbook",
-  "version": "1.3.0-alpha.25",
+  "version": "1.3.0-alpha.26",
   "description": "Browser-based project manager for AI coding assistants (Claude Code, ChatGPT Codex). Multi-provider session discovery, search, live terminals, docs, kanban, themes.",
   "main": "src/index.js",
   "bin": {
