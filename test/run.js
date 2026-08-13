@@ -949,6 +949,7 @@ const standaloneTests = [
   'codex-paths.test.js',        // P8.3 (Codex parity P0): cwd normalization truth table, the real New project 2 collision, the two proven sha256 project ids
   'codex-state-db.test.js',     // P8.2 (Codex parity P0): read-only discipline, graceful degradation, PRAGMA table_info probing, title cascade, WAL overlay + node:sqlite oracle
   'notion-token-parity.test.js', // Notion restyle P0.4: vendored-bundle integrity, components.css var() resolution, styles.css/bundle token parity (the anti-drift gate risk R9 forces)
+  'do-not-break-gates.test.js',  // Notion restyle P0.6: G1..G13 from BUILD-CONTRACT 5.3 in ratchet mode (ids, JS-coupled classes, data-* keys, drift counters)
 ];
 
 let standaloneFailed = 0;

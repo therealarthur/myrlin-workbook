@@ -1,0 +1,84 @@
+{
+  "_comment": "Recorded baselines for scripts/do-not-break-gates.js. Ratcheted DOWN by the phase that improves a number, never up to make a red gate green. Regenerate with --record only as a deliberate re-baselining act, and say so in the commit message.",
+  "recordedAt": "2026-08-13",
+  "baselineCommit": "7eac21e",
+  "suite": {
+    "files": 77,
+    "assertions": 1158,
+    "recordedAt": "2026-08-13"
+  },
+  "gates": {
+    "G3": {
+      "name": "[hidden] guard rules across the four stylesheets",
+      "baseline": 22,
+      "target": 12,
+      "phase": "always"
+    },
+    "G4": {
+      "name": "Catppuccin var() consumption outside the palette blocks",
+      "baseline": 1259,
+      "target": 0,
+      "phase": "P4"
+    },
+    "G5a": {
+      "name": "hex literals outside a :root block",
+      "baseline": 5,
+      "target": 0,
+      "phase": "P4"
+    },
+    "G5b": {
+      "name": "rgba()/hsla() literals outside a :root block",
+      "baseline": 128,
+      "target": 0,
+      "phase": "P4"
+    },
+    "G6": {
+      "name": "numeric border-radius literals in styles.css",
+      "baseline": 199,
+      "target": 0,
+      "phase": "P2"
+    },
+    "G7": {
+      "name": "text-transform: uppercase rules",
+      "baseline": 56,
+      "target": 1,
+      "phase": "P4"
+    },
+    "G8": {
+      "name": "translateY occurrences in styles.css",
+      "baseline": 21,
+      "target": null,
+      "phase": "P12 review"
+    },
+    "G9a": {
+      "name": "linear-gradient in styles.css",
+      "baseline": 5,
+      "target": 0,
+      "phase": "P4"
+    },
+    "G9b": {
+      "name": "backdrop-filter in styles.css",
+      "baseline": 6,
+      "target": 0,
+      "phase": "P4"
+    },
+    "G11": {
+      "name": "raw colours in semantic-theme.css",
+      "baseline": 0,
+      "target": 0,
+      "phase": "always"
+    },
+    "G12a": {
+      "name": "em dash and horizontal bar occurrences in the scanned trees",
+      "baseline": 147,
+      "target": null,
+      "phase": "P11 copy pass"
+    },
+    "G12b": {
+      "name": "em dashes and prose double hyphens in lines added since the baseline commit",
+      "baseline": 0,
+      "target": 0,
+      "phase": "always"
+    }
+  }
+}

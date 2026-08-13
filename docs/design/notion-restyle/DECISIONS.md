@@ -141,22 +141,30 @@ the program.
 | Hex literals, `focused-shell.css` | 1 | 1 | match |
 | `border-radius:` numeric literals, `styles.css` | 199 | 199 | match |
 | `linear-gradient`, `styles.css` | 5 | 5 | match |
-| `backdrop-filter`, `styles.css` | 5 | 5 | match |
+| `backdrop-filter`, `styles.css` | 5 | 5 lines, 6 occurrences (one line carries the prefixed and unprefixed property) | match |
 | `translateY`, `styles.css` | 21 | 21 | match |
 | JS-coupled classes (DO-NOT-BREAK B.1) | 278 | 278 extracted, 278 present in source | match |
-| Verbatim ID list (DO-NOT-BREAK A.3) | 336 | 340 backticked names in A.3; 346 ids authored in `index.html`; 32 A.3 ids are built by JS rather than authored | see 4.3 |
+| Verbatim ID list (DO-NOT-BREAK A.3) | 336 | 340 backticked names in A.3; 346 ids authored in `index.html`; 32 A.3 ids are built by JS rather than authored | see 5.4 |
 
 Additional counters measured in P0 because a gate needs them and the contract does not state them:
 
 | Counter | Measured on unmodified source |
 | --- | --- |
-| Rules carrying a `[hidden]` guard, four stylesheets | 30 (21 + 6 + 3 + 0) |
-| Catppuccin `var()` consumption outside the 13 palette blocks | 1262 (1176 + 50 + 26 + 10) |
-| `text-transform: uppercase` across `src/web/public/*.css` | 56 (50 + 4 + 2) |
+| Rules carrying a `[hidden]` guard, four stylesheets | 22 after comment stripping (30 raw grep lines) |
+| Catppuccin `var()` consumption outside the 13 palette blocks | 1259 after comment stripping (1262 raw) |
+| `text-transform: uppercase` across the four stylesheets | 56 |
 | Raw colours in `semantic-theme.css` | 0 |
-| Em dashes (U+2014) and horizontal bars (U+2015) in `src/`, `test/`, `scripts/`, `docs/design/notion-restyle/` | 0 |
-| Prose double hyphens in the frontend and the restyle docs | 11 pre-existing sites, see 5.2 |
+| Hex literals outside a `:root` block | 5 (`styles.css` 1 of 313, `styles-mobile.css` 4 of 4, `focused-shell.css` 0 of 0) |
+| `rgba()` and `hsla()` literals outside a `:root` block | 128 |
+| Em dashes (U+2014) and horizontal bars (U+2015) in `src/`, `test/`, `scripts/`, `docs/design/notion-restyle/` | **147 occurrences across 30 files**, see 5.8 |
+| Prose double hyphens in the frontend and the restyle docs | 11 pre-existing sites, see 5.8 |
 | Inline `style="` in `index.html` and `app.js` | not re-measured in P0; the contract's 63 and 182 stand until P4 touches them |
+
+Every number in this second table is recorded in machine-readable form in
+`gate-baseline.json` and is enforced as a ratchet by `scripts/do-not-break-gates.js`.
+Counts taken after CSS comment stripping differ from a raw `grep -c`, which counts lines rather than
+occurrences and counts commented-out code; the gate script's numbers are the authoritative ones
+because they are what the ratchet compares against.
 
 ---
 
@@ -349,19 +357,36 @@ Three of them (`data-td-id`, `data-theme-appearance`, `data-view-mode`) only eve
 `dataset` form today, which is why the gate accepts both. This raises the floor and lowers nothing,
 per authority rule 0.1 item 4.
 
-### 5.8 The scope of the em-dash gate
+### 5.8 The scope of the em-dash gate, and a correction
 
-G12 has two halves because a single repo-wide rule cannot pass today. G12a scans `src/`, `test/`,
-`scripts/` and `docs/design/notion-restyle/` for U+2014 and U+2015 and requires **zero**, which
-passes today and catches every em dash regardless of who wrote it. G12b scans only the lines this
-program **adds** relative to the recorded baseline commit for a prose double hyphen, because 11 such
-sites already exist and predate the restyle.
+**A first measurement of this was wrong and is corrected here.** A `grep -rlP "\x{2014}"` from Git
+Bash returned no hits, which looked like a clean tree. It was a false negative: the same scan in
+Node finds **147 em dashes across 30 files**, including `styles.css`, `app.js`, `schedules.js`,
+`store.js` and `supervisor.js`. Most are in code comments, but not all: `schedules.js:336` builds
+the user-facing string `Skipped ${count} - ${reason}` with a real em dash, and `app.js:13090`
+renders `&mdash;` as the content of the no-cost session badge. Do not trust a `grep -P` for a
+non-ASCII codepoint on this machine.
 
-The 11 pre-existing sites, recorded so nobody re-discovers them: `app.js` lines 7711, 7723, 7776,
-7797, 7948, 16701, 20570, and `index.html` lines 1629, 1630, 1631. Four of those are user-facing
-strings (`index.html` 1629 to 1631 in the agent-teams help text, `app.js` 7711 and 7797 in kanban
-card copy). Cleaning them is a copy change, not a restyle change, and it belongs to P11's copy pass
-under `PROCEDURE.md` step 11 rather than to a gate.
+So G12 has two halves, because a single repo-wide zero rule cannot pass today.
+
+**G12a** counts em dashes and horizontal bars across `src/`, `test/`, `scripts/` and
+`docs/design/notion-restyle/`. Baseline 147, and the number may **never grow**. It carries no phase
+target, because removing the existing 147 is a copy change rather than a restyle change and belongs
+to the copy pass in `PROCEDURE.md` step 11.
+
+**G12b** is the contract's actual gate, "scan changed files: 0". It scans only the lines this
+program **adds** relative to the recorded baseline commit, and fails on an em dash, a horizontal
+bar, or a double hyphen used as prose punctuation. Currently 0.
+
+One implementation note worth keeping: the gate script originally tripped its own scan, because the
+character class in its own regex literal counted as two em dashes in `scripts/`. The regex is
+written with `\u2014` and `\u2015` escapes for that reason. A scanner that matches itself is a
+scanner that can never reach zero.
+
+The 11 pre-existing prose double hyphens, recorded so nobody re-discovers them: `app.js` lines 7711,
+7723, 7776, 7797, 7948, 16701, 20570, and `index.html` lines 1629, 1630, 1631. Four of those are
+user-facing strings (`index.html` 1629 to 1631 in the agent-teams help text, `app.js` 7711 and 7797
+in kanban card copy). Same disposition: the copy pass owns them, not a gate.
 
 ---
 
