@@ -258,3 +258,78 @@ number (DV-23). Recorded as a block, in the shape the P9 rows use.
 | **What it costs** | The pane grid runs to the edge of the main column rather than sitting on a 16px margin, so the frame's left and right hairlines are flush with the region boundary. Applying the padding is two lines in `app.js` (subtract the pad before computing the percentage), and it should ship with them rather than before them. |
 | **Approved by** | P5 implementation agent, under `BUILD-CONTRACT.md` 4.1 item 4 |
 | **Date** | 2026-08-13 |
+
+---
+
+## P10 rows (mobile IA and viewport)
+
+Six departures. Two are from the MOCK rather than from the visual brand, two
+are from the CONTRACT's mechanism where its own done criterion pointed the
+other way, one is a data-model gap, and one is another version collision. They
+are recorded as a block for the same reason the P9 rows are.
+
+### DV-P10-1. The Attention tab badge is wash plus ink, not white on red
+
+| Field | Value |
+| --- | --- |
+| **What the mock says** | A solid `--app-text-red` pill with a `#fff` numeral at 9px/700, 15 x 15. |
+| **What shipped** | The wash-plus-ink form: an `--app-bg-red` ground with `--app-text-red` ink, 16 x 16, 10px/700, capped at "9+". |
+| **Why** | MOBILE-EXPERIENCE D.4 row 1 measured it: white on the Notion red token is about 4.4:1, which fails the 4.5:1 body floor, and 9px is below the legibility floor besides. The wash pairing passes trivially and it makes this badge consistent with the desktop sidebar badge DESIGN-SPEC 14.1 already describes. |
+| **What it costs** | Visibly less loud than the mock draws. On a red-wash ground the badge reads as a quiet count rather than an alarm, which is a real loss on the one control whose whole job is to be noticed. Mitigated by the badge being the ONLY red thing in the bar. |
+| **Approved by** | P10 implementation agent, under D.4 and PROCEDURE 4.2. |
+| **Date** | 2026-08-13 |
+
+### DV-P10-2. The Search tab escalates into the existing palette
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | MOBILE-EXPERIENCE A.2: Search is "a destination, not a modal". A.3.5 routes the quick switcher, the command palette, global transcript search and help behind scope chips on that tab. |
+| **What shipped** | The Search TAB is a real screen: a field, five scope chips, and the recency rows as its empty state. Focusing the field, or tapping a chip, opens the existing full-screen Quick Find overlay (or the global-search overlay for Conversations, or help mode for Help). |
+| **Why** | `renderQuickSwitcherResults` is about 200 lines of scoring across sessions, workspaces, a feature catalogue and settings, with its own result routing and its own highlight model. Re-implementing it for the phone would be a second engine answering the same question, and two engines drift. On a phone the overlay covers the viewport, so the two read as one surface, which is what A.2 is actually asking for. |
+| **What it costs** | The transition is an overlay open rather than an in-place render, so it animates like a modal even though it reads like a screen. A user who dismisses the overlay lands back on the Search tab rather than on the previous tab, which is correct but is one more step than a true in-place search. |
+| **Approved by** | P10 implementation agent, under A.2 and the no-second-engine reading of A.5. |
+| **Date** | 2026-08-13 |
+
+### DV-P10-3. The Home card's second line has no emoji and no activity string
+
+| Field | Value |
+| --- | --- |
+| **What the mock says** | Each active card's second line is `{emoji} {project} . {activity}`, for example a hammer, "Myrlin Features", "Writing tests...". |
+| **What shipped** | `{project} . {attention word}`, for example "token-foundation . Needs input". |
+| **Why** | Neither missing piece exists in this product's data. There is no per-project emoji anywhere in the model: projects are directory paths, and `projectLabelFromPath` returns the folder name. And the live activity string is a pane-scoped value written into `#term-activity-N` by the terminal layer; a session with no open pane has none, which is precisely the case Home's Active now list is for. Inventing an emoji per project would be a data-model change, and showing an empty activity for most rows would be worse than showing the state. |
+| **What it costs** | Home is less scannable than the mock, because the emoji is what makes a project recognisable at a glance in the Notion idiom. The attention word carries real information the mock's activity string also carries, so the second line is not empty, just plainer. If a per-project icon is ever added (Notion page icons are the obvious model), this line is one string concatenation away. |
+| **Approved by** | P10 implementation agent, on the data model. |
+| **Date** | 2026-08-13 |
+
+### DV-P10-4. Two P11 rules shipped early, because the P10 gate found them
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | P11.3 owns "no floating action buttons on phones". P11.4 owns the priority-plus key toolbar. |
+| **What shipped** | `.terminal-pane-schedule` is `display: none` at phone widths, and the Type and camera toolbar keys are hidden, in P10. The toolbar itself is NOT rebuilt. |
+| **Why** | The P10 gate is "the 44px sweep returns zero rows". The schedule FAB measured 32 x 32 on the Terminal tab, so it is a row in that sweep, and it cannot be raised to 44px without making the overlap worse: it is `position: absolute; bottom: 12px` sitting on top of the toolbar and the input row. The only correct answer is B.6's, which is to remove it, and its capability had already moved into the pane overflow sheet in the same phase. The two toolbar keys are the same argument: the Type key's capability is structurally gone once the input row is permanent, and the camera key's moved into that row. |
+| **What it costs** | P11.3's work package is partly already done, and P11.4 inherits a five-key toolbar rather than the seven it expected to reduce. Recorded so the phase that opens those packages does not re-do them or assume they were skipped. Nothing was DELETED: both FAB rules, both toolbar buttons and every handler are retained. |
+| **Approved by** | P10 implementation agent, on BUILD-CONTRACT 5.2's P10 gate. |
+| **Date** | 2026-08-13 |
+
+### DV-P10-5. `styles-mobile.css` carries rules the desktop sheets should own
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | BUILD-CONTRACT 3.2 gives `styles.css` one writer at a time and assigns `styles-mobile.css` to the mobile track. P12 owns consolidation. |
+| **What shipped** | Several rules that logically belong to `styles.css` or `focused-shell.css` live in `styles-mobile.css` instead: the `.app { height }` base, the `.mw-touch-expand` idiom, the phone header title and tile sizes, the 44px floors on the sidebar drawer and the Sessions panel header, the `:root[data-ui-shell] nav.mobile-tab-bar` height, and the `.terminal-pane-schedule` suppression. |
+| **Why** | `styles.css` had exactly one writer for the whole of this phase and it was the concurrent P5 terminal track; `focused-shell.css` belongs to the chrome track. 4.1 item 4 and 4.2 forbid editing another track's file to satisfy a work package, and 4.2 says a collision is recorded rather than fought. Every one of these rules is inside the phone breakpoint, so nothing above 768px is affected by where it lives. |
+| **What it costs** | Two of them are specificity qualifiers that exist ONLY because of load order (`nav.mobile-tab-bar` and `:root[data-ui-shell] .app-header .account-chip`). If P12 moves these rules into the sheets that own the base values, both qualifiers become unnecessary and should be dropped rather than carried. Flagged for the P12 consolidation pass. |
+| **Approved by** | P10 implementation agent, under BUILD-CONTRACT 4.1 item 4 and 4.2. |
+| **Date** | 2026-08-13 |
+
+### DV-P10-6. The version map, again: P10 is alpha.23
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | 4.4 assigns P10 `1.3.0-alpha.21`, P11 `alpha.22` and P12 `alpha.23`. |
+| **What shipped** | P10 ships as **1.3.0-alpha.23**. |
+| **Why** | Both of the numbers ahead of it were consumed by other tracks while this work was in flight, which is the same collision DV-22 and DV-P9-2 record. The P4 remainder took alpha.21 (DV-22) and P5 took alpha.22 for the terminal input and surface work. The brief for this phase says to take the next free alpha and record the map, which is what this row is. |
+| **What it costs** | The phase-to-version map is now fully detached from the contract's table: P10 is alpha.23, and P11 and P12 will need alpha.24 and alpha.25. A reader who assumes the contract's numbering will be wrong for the rest of the program, so the map lives here rather than there. alpha.23 also contains one commit from the Codex track whose own entry is still under Unreleased, because its owner has not cut it; nothing is lost, and this sentence is the pointer for anybody diffing the tags. |
+| **Approved by** | P10 implementation agent, per its brief, extending the DV-22 and DV-P9-2 precedent. |
+| **Date** | 2026-08-13 |

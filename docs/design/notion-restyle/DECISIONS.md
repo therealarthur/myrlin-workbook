@@ -2412,3 +2412,263 @@ it is mauve.
    the phantom-token allow-list asserts CSS consumption in both directions.
 7. **Two live-PTY region shots and a harness that kills its own probes.**
    Adding a history-layer shot is one entry in `REGION_ROUTES`.
+
+---
+
+## 15. Phase P10, mobile IA and viewport
+
+This section is P10's log. It covers work packages P10.1 through P10.7 plus
+the two P9 frontend contracts nobody had picked up.
+
+### 15.1 What P10 shipped, and where
+
+| WP | Commit | Files | What |
+| --- | --- | --- | --- |
+| P10.1, P10.2 | `5a22ded` | `index.html`, `app.js`, `styles-mobile.css`, `test/mobile-ia-contract.test.js`, `test/focused-shell.test.js`, `test/mobile-ux-fixes.test.js`, `test/run.js` | The five-tab bar, the Home screen, the Attention tab, the Search tab, the capability route markers, and sanctioned edits SE-8, SE-9 and SE-10. |
+| P10.3, P10.4, P10.7 | `8d650b8` | `mobile-viewport.js` (new), `app.js`, `index.html`, `styles-mobile.css`, `test/mobile-viewport.test.js`, `test/terminal-select-mode.test.js`, `test/copy-secure-context-fallback.test.js` | The viewport driver, the CSS contract, the safe-area sweep, the toast anchor, and SE-7 for the app.js cachebuster. |
+| P10.5 | `2dff26a` | `app.js`, `styles-mobile.css`, `test/mobile-ia-contract.test.js` | The permanent input row, the microphone, the image button, Raw keys, and the pane overflow sheet. |
+| P10.6 tokens | `b45cd7f` | `styles-mobile.css`, `gate-baseline.json` | The Catppuccin, hex, rgba and uppercase sweep of the phone stylesheet. |
+| P9 consumption | `a44e695` | `app.js` | The `toDocs` flag and the token-usage cost badges. |
+| P10.6 targets | `54113de` | `styles-mobile.css`, `app.js`, `test/browser/notion-shell.spec.js` | The measured 44px sweep, the targets it found, and the mobile capture matrix. |
+
+### 15.2 The A.3 capability map, walked
+
+Every row of MOBILE-EXPERIENCE A.3 and where it now lives.
+`test/mobile-ia-contract.test.js` asserts the marker for each; this table is
+the human-readable form of the same manifest, and it is what "zero orphans"
+means in practice.
+
+| Capability | Route now | Marker |
+| --- | --- | --- |
+| Switch primary view | Five-tab bottom bar | the five `data-mw-route` nav ids |
+| Workspace switch | Home header tile, opens a workspace sheet | `openMobileWorkspaceSheet` |
+| Project list | Workspace sheet, Projects row; the drawer is still reachable | `label: 'Projects'` |
+| Discovered sessions | `showMoreMenu` Discover row, retained | `label: 'Discover sessions'` |
+| Back from a detail surface | Injected header chevron, shown for the five Home destinations | `dataset.mwRoute = 'nav-back'` |
+| Sign out | `showMoreMenu` Account group, retained | `label: 'Sign out'` |
+| Session list | Sessions tab | `case 'sessions-all':` |
+| Session open | Home card or Recent row tap | `data-mw-route="session-open"` |
+| New session | Injected header plus, opens the launcher | `dataset.mwRoute = 'session-new'` |
+| Session manager, bulk | `toggleSessionManager`, retained; Attention overflow "All sessions" | `toggleSessionManager(` |
+| Restart all | `showMoreMenu`, retained | `label: 'Restart all sessions'` |
+| Attention queue and count | Attention tab, badge on the tab | `data-mw-route="attention-queue"`, `#mobile-attention-badge` |
+| Needs input, failed, finished, stale | Attention list groups | the `renderMobileAttention` group table |
+| Held prompts | Declared group, no producer yet (15.4.3) | `{ state: 'held', label: 'Held' }` |
+| File conflicts | Attention list, conditional Conflicts group | `data-conflict-row="true"` |
+| Stop all | Attention header overflow, danger | `label: 'Stop all'` |
+| Quick switcher | Search tab, default scope | `this.openQuickSwitcher()` |
+| Command palette | Search, Commands chip | `scope === 'commands'` |
+| Global transcript search | Search, Conversations chip | `this.openGlobalSearch()` |
+| Help | Search, Help chip | `this.openQuickSwitcher('help')` |
+| Agent tasks | Home > Workspace | `case 'tasks-board':` |
+| Project notes | Home > Workspace | `case 'docs-notes':` |
+| Costs | Home > Workspace | `case 'costs':` |
+| System resources | Home > Workspace | `case 'resources':` |
+| Paired devices | Home > Workspace, with the count | `case 'pair-device':` |
+| Settings | Home > Workspace | `case 'settings':` |
+| Appearance | Inside Settings on a phone; the dialog stays wired for desktop | `openAppearance` retained |
+| Recent activity view | Home > Recent, and the Sessions default sort | `HOME_DESTINATION_MODES` includes `recent` |
+| Account chip, usage meters | Header avatar, existing bottom sheet, unchanged | `id="account-chip"` |
+| The full command list | Home > Workspace, "All commands" | `data-mw-route="more-menu"` on `#mobile-more-tab` |
+| Pane switching | Chip strip, unchanged | `.terminal-tab` |
+| Pane overflow | Pinned chip at the end of the strip | `data-mw-route="pane-overflow"` |
+| Voice input | Input row microphone | `mobile-mic-btn` |
+| Image attach | Input row image button | `mobile-image-btn` |
+| Type and send | Permanent input row | `.terminal-mobile-input-row` always flex |
+| Raw per-keystroke input | Pane overflow, Raw keys | `label: 'Raw keys'` |
+| Reader, Select mode, Copy view | Pane overflow, Text group; toolbar keys retained | `label: 'Reader'`, `'Select mode'`, `'Copy view'` |
+| Paste | Pane overflow, with the insecure-origin branch | `clipboardReadable` |
+| Ctrl+D | Pane overflow, Keys group | `label: 'Send Ctrl+D'` |
+| Send without Enter, Shift+Enter | Pane overflow, Keys group | `_sendMobileInput` |
+| Scheduled messages | Pane overflow, with the count | `'Scheduled messages'` |
+| Pinned notes | Pane overflow | `_showPinnedNotesModal(slot)` |
+| Move to tab group | Pane overflow submenu | `label: 'Move to tab group'` |
+| Fix terminal | Pane overflow, Troubleshoot | `label: 'Fix terminal (reset)'` |
+| Restart session | Pane overflow, Troubleshoot, danger | `label: 'Restart session'` |
+| Pane expand and collapse | Not applicable. One pane is always full height on a phone (A.3.3). | none, by design |
+
+Three rows are deliberately NOT closed by P10 and are named here rather than
+left to be discovered: the Sessions filter pill row and its bulk-select mode
+(A.3.2), the priority-plus key toolbar (B.7), and the long-press zone model
+(B.2). All three are P11 work packages.
+
+### 15.3 The version, and what alpha.23 contains
+
+P10 ships as **1.3.0-alpha.23**. The contract assigns alpha.21 to P10, which
+the P4 remainder took (DV-22), and alpha.22 went to P5 while this work was in
+flight. See DV-P10-6.
+
+### 15.4 Ambiguities resolved during P10
+
+#### 15.4.1 The More tab is dissolved, but `#mobile-more-tab` is not
+
+Gate G1 diffs the element ids in `index.html` against `id-snapshot.txt` and
+permits ADDITIONS ONLY, zero removals. `mobile-more-tab` is in that snapshot.
+SE-8 simultaneously requires the `.mobile-tab` list to be exactly the five new
+ids, and `showMoreMenu` is retained by SE-9 for the classic shell.
+
+All three hold at once: the id moves onto the "All commands" row at the foot of
+Home > Workspace. It is not a `.mobile-tab`, so the SE-8 filter does not see
+it; it is still an id in the markup, so G1 is satisfied; and `showMoreMenu`
+keeps a phone route, which code preservation wants anyway. The row is not the
+canonical home of anything, because every item that sheet carried has its own
+row above it or its own tab.
+
+#### 15.4.2 Search is a destination whose field escalates
+
+A.2 says Search is "a destination, not a modal". The Search tab is a real
+screen: a field, five scope chips, and the recency rows as its empty state.
+Typing escalates into the existing full-screen Quick Find overlay rather than
+into a second search engine written for the phone.
+
+The alternative was re-implementing `renderQuickSwitcherResults`, which is 200
+lines of scoring across sessions, workspaces, a feature catalogue and settings,
+plus its own result routing. Two engines answering the same question is how
+they drift. On a phone the overlay covers the viewport, so the two read as one
+surface. Recorded as DV-P10-2.
+
+#### 15.4.3 The "Held" group has no producer
+
+A.3.4 lists auto-trust held prompts as an Attention group. Reading the source:
+`terminal.js` either auto-accepts a safe prompt when `_autoTrustEnabled` is on,
+or flags it as needs-input when it is not. Nothing is ever HELD.
+
+The group is declared in the grouping table keyed on a `held` state and is not
+drawn while it is empty, so the moment a producer exists the rows appear with
+no further work in the renderer. Building the producer is a behaviour change to
+the auto-trust path, which is not P10's.
+
+#### 15.4.4 The phone screens are view modes, not a second navigation system
+
+`home`, `attention` and `search` are ordinary view modes driven by
+`setViewMode`, hidden by the same `hidden` property idiom as every other panel.
+The alternative, a parallel `_mobileTab` state, would have meant two things
+deciding what is on screen and two places to keep in step.
+
+The cost is that a wider layout can be asked for a mode whose panel is
+`display: none`. That is guarded in `setViewMode` itself, which is the one
+place all four paths (a rotation, a resize, a restored `cwm_viewMode`, a direct
+call) pass through. Measured at 900px: before the guard the main column was
+empty under a breadcrumb reading Home.
+
+#### 15.4.5 The tab bar height needed a specificity qualifier, not `!important`
+
+`focused-shell.css` authors the tab bar at 60px under
+`:root[data-ui-shell="focused"] .mobile-tab-bar` and loads AFTER
+`styles-mobile.css`, so an identical selector loses the tie. `!important` would
+have made the height unoverridable by anything downstream, including P11 and
+P12. One element qualifier, `nav.mobile-tab-bar`, settles it at 64px, which is
+the mock's number and C.7's.
+
+The same fight, with the same resolution, applies to `.account-chip`, whose
+existing 44px rule is inside a `pointer: coarse` block. A narrow desktop window
+gets the phone layout with a mouse attached and that block never fires, so the
+floor is asserted at phone WIDTH instead.
+
+#### 15.4.6 The sweep had to learn two things before it could be trusted
+
+A naive 44px sweep is wrong twice. It under-reports, because the project idiom
+for a small visual with a legal target is a transparent `::before`, so the
+element's own rect is not its hit rect. And it over-reports, because a sticky
+section header legitimately overlaps the rows beneath it and that is z-order
+working, not a dead edge.
+
+Both are handled: the hit rect is the union with the `::before` inset, DISCOUNTED
+when an ancestor clips (which is exactly the chip strip's case, and is why the
+tab-close button's `inset: -13px` has never done anything), and the adjacency
+check skips pairs where either element is deliberately layered.
+
+### 15.5 The numbers
+
+| Counter | Before P10 | After P10 |
+| --- | --- | --- |
+| Suite files | 92 | 94 |
+| Suite assertions | 1591 | 1648 |
+| Gates passing | 18/18 | 18/18 |
+| Gates short of a later target | 5 | 4 |
+| G4 Catppuccin consumption | 747 (mobile 48) | 699 (mobile 0) |
+| G5a hex literals | 5 (mobile 4) | 1 (mobile 0) |
+| G5b rgba literals | 41 (mobile 3) | 38 (mobile 0) |
+| G7 uppercase rules | 3 | 1, at target |
+| G12a em dashes in the scanned trees | 146 | 118 |
+| Touch targets under 44px at 390px | 16 to 19 per screen | 0 |
+| Expanded hit rects intersecting | 7 | 0 |
+| `100vh` in `styles-mobile.css` | 2 | 0 |
+| Phone capabilities with no route | 6 | 0 |
+| `styles-mobile.css` lines | 1315 | 2296 |
+
+The suite figures are this track's own arithmetic. `npm test` reported 90 files
+and 1543 assertions when P10 began and 94 files and 1648 when it finished; two
+of the four new files and 75 of the assertions are the concurrent P5 track's,
+which registered `terminal-surface.test.js` and `paste-input-preparation.test.js`
+between the two runs. P10 contributed `mobile-ia-contract.test.js` (18) and
+`mobile-viewport.test.js` (23), plus three retargeted assertions in the two
+sanctioned mobile-test edits and the new assertions inside them.
+
+### 15.6 The P10 screenshots, and an honest reading of them
+
+Thirty shots, `screenshots/notion-restyle/p10/mobile/`: five tabs at 390x844,
+768x1024 and 900x1200, in both chromes. Every one is dimension-checked before
+it can be read.
+
+**What is right.** Home draws the mock's composition, in order, and the two
+lists carry the semantic BUILD-CONTRACT 2.13.6 asks for: bordered cards for
+live things, borderless rows for history. The attention banner is the wash and
+ink pairing, and its dot is a static RING. The active cards are a static green
+DISC for running and a yellow RING for needs input, with the state repeated as
+a word on the second line, so hue is never the only channel. The badge sits on
+the Attention tab in wash and ink. The Terminal tab shows the chip strip, the
+pinned overflow chip, the key toolbar and the permanent input row with its
+image and microphone buttons, which is the mock's bottom stack exactly.
+
+**What diverges from the mock, and why.**
+
+1. The mock's active-card second line is an emoji, a project name and a live
+   activity string. Ours is the project label and the attention word. There is
+   no per-project emoji in this product's data model and no per-session
+   activity string outside the pane header. Recorded as DV-P10-3.
+2. Both mock dots animate. Ours do not, per DV-21 and gate G14.
+3. The mock's badge is white on solid red. Ours is wash and ink, per D.4 row 1
+   and DV-P10-1.
+4. The key toolbar still scrolls horizontally and shows six keys plus part of a
+   seventh at 390px. B.7's priority-plus layout is P11.4; this phase raised
+   every key to 44px and removed two, which is as far as it goes without
+   rebuilding a toolbar another work package owns.
+
+**What is honestly not finished.** The Sessions tab is still the P4 phone
+floor: the desktop session panel with its table collapsed to cards. A.3.2's
+filter pills, the header overflow, bulk select and the row swipe actions are
+not built. The screenshots show that plainly and it is the largest single item
+P11 inherits.
+
+**What the pictures cannot show.** Everything in G.4: momentum feel, native
+selection handles, real keyboard geometry, IME and autocorrect, safe-area
+insets (`env()` resolves to 0 in the emulator, so C.7's eight surfaces are
+asserted structurally and are unverified visually), haptics, standalone PWA
+chrome, and touch latency under live output. The G.5 seventeen-step device
+script is the only thing that verifies those and it has not been run.
+
+### 15.7 What P11 and P12 inherit
+
+1. **A five-tab IA with zero orphans and a test that proves it.** Adding a
+   capability means adding a manifest row and a marker; forgetting the marker
+   turns the suite red on the commit that adds it.
+2. **One owner of viewport geometry**, with every `MW_*` constant published on
+   `window.MyrlinMobileViewport.constants`. P11's long-press, swipe and edge
+   guards read their numbers from there rather than inventing a second set.
+3. **A settle subscription.** `onSettle` is where P11.6's geometry-claim
+   suppression belongs: it already fires exactly once per settle window.
+4. **A pane overflow sheet with a tappable host.** P11.1 moves the pane action
+   sheet off the pane container and onto a chip long-press; the sheet, its
+   fifteen rows and its first host already exist.
+5. **A measured 44px gate.** `--mobile` on the capture harness reports every
+   target under the floor and every pair of intersecting expanded rects. It is
+   at zero; any P11 control that lands under the floor shows up as a row.
+6. **A tablet answer that is now safe either way.** `setViewMode` redirects a
+   phone-only mode on a wider layout, so H.3 item 6's 900px breakpoint can be
+   adopted or declined without a blank screen either way. The 768 and 900
+   captures are the evidence for that decision.
+7. **The mobile stylesheet at zero drift** on G4, G5a and G5b, and at target on
+   G7. Anything P11 adds to it should keep it there.
+8. **Three named gaps**: the Sessions tab surface (A.3.2), the priority-plus
+   toolbar (B.7), and the long-press zone model (B.2).

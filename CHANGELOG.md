@@ -11,6 +11,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Your Codex plan usage can be read without asking ChatGPT for it.** The app already knew how to fetch your usage from the account switcher, which needs a valid sign-in and a working connection. Codex also writes the same figures into every conversation it records, so the app now reads them from your own disk: the plan you are on, how much of the current window you have used, when it resets, and your credit balance. It works offline and it cannot break because a sign-in expired. The display that uses it is still to come.
 
+## [1.3.0-alpha.23] - 2026-08-13
+
+The phone stopped hiding things from you. The bottom bar has five tabs instead of four, one of which used to be a drawer called More, and the microphone that has been in the code for months is finally on screen.
+
+### Added
+
+- **A Home screen.** It opens on a banner telling you how many sessions want your input, then the sessions running right now as cards, then the ones you were in most recently, then a Workspace list with everything else: agent tasks, project notes, costs, system resources, paired devices and settings. Nothing on it is more than one tap from where you land.
+- **Attention is a tab, with a count on it.** Sessions waiting for you, sessions that failed and sessions that finished, grouped, in one place. The count on the tab is the only thing in the app that will nag you.
+- **Search is a tab.** One field, and chips for what you are looking for: everything, sessions, commands, past conversations, or help.
+- **The microphone works on a phone.** It was written, it was tested for browser support, and it lived on a strip of the terminal panel that phones do not draw, so on a phone it did not exist. It is now in the message row next to the image button, where the design put it.
+- **The terminal's message row is always there.** It used to be behind a Type button that also did something else, which is why typing sometimes fought the terminal for the keyboard. Now you tap the field.
+- **Raw keys.** For the rare command that wants every keystroke as you type it, a password prompt or a single-key menu, there is a Raw keys switch in the terminal's options. It says on screen when it is on, because it turns autocorrect off.
+- **A terminal options sheet.** Reader, select mode, copy view, paste, Ctrl+D, send without Enter, send a newline, scheduled messages, pinned notes, move to another tab, reset, restart. Four of those had no way in from a phone at all.
+
+### Fixed
+
+- **The keyboard no longer breaks menus and dialogs.** When the keyboard opened, the app shifted the whole screen up by a few pixels to compensate. That one line quietly changed where every pop-up, sheet and dialog thought the screen was. It is gone, and the layout now measures the space the keyboard actually leaves.
+- **The keyboard is detected properly.** It used to be a guess based on the physical size of your screen, which is wrong in landscape and wrong in an installed app.
+- **The page no longer loses your scroll position when the keyboard opens.**
+- **Notifications stopped landing on the terminal keys.** A message would appear exactly where the key row is and swallow the tap. It now sits above whatever is actually on screen, measured rather than assumed.
+- **The floating clock button over the terminal is gone on phones.** It sat on top of the key row, it was invisible until you hovered, and a phone has no hover. Scheduled messages moved into the terminal options sheet, count and all.
+- **Everything you can tap is now big enough to tap.** Thirty-seven controls were smaller than the 44-pixel minimum, including the whole project drawer, both header buttons and the close button on every terminal tab.
+- **Nothing in the app blinks.** The pulsing dots the mobile design called for are static shapes instead: a filled dot for running, a ring for needs-input.
+- **Codex sessions show their token usage instead of a dash.** There is no published price for them, so there is no dollar figure to show, and inventing one would be worse than showing nothing. The real number the app does have is now the one you see.
+- **"Summarize to Docs" writes to your docs.** It was calling a route that had been shadowed by another one with the same address, so it reported success and appended nothing.
+
+### Changed
+
+- **The More tab is gone.** It was a sheet of fourteen unrelated things. Every one of them now has its own row on Home or its own tab. The full command list is still one tap away at the bottom of Home if you want it.
+- **The bottom bar is 64 pixels tall**, matching the design, and its labels are readable in dark mode.
+- **The phone stylesheet stopped using the old colour names**, so the phone follows the app's theme exactly like every other screen.
+
 ## [1.3.0-alpha.22] - 2026-08-13
 
 Pasting into a terminal now does what you meant. The terminal itself got the design treatment the rest of the app has had.
