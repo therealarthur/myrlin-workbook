@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Your Codex plan usage can be read without asking ChatGPT for it.** The app already knew how to fetch your usage from the account switcher, which needs a valid sign-in and a working connection. Codex also writes the same figures into every conversation it records, so the app now reads them from your own disk: the plan you are on, how much of the current window you have used, when it resets, and your credit balance. It works offline and it cannot break because a sign-in expired. The display that uses it is still to come.
 
+### Fixed
+
+- **Looking for your Claude sessions no longer freezes the rest of the app.** Every refresh of the session list opened a slice of every transcript on your disk, all of them, in one uninterrupted go, and nothing else in the app could run until it finished: measured here at 130 milliseconds warm and 289 milliseconds cold, with every other request, every terminal and every timer stopped for the whole of it. It now re-reads a transcript only when that transcript has actually changed since the last look, and it hands control back constantly while it works. Same list, same order, same titles: the longest single pause dropped from 289 milliseconds to about 3, and the refresh itself is roughly two to three times quicker.
+
 ## [1.3.0-alpha.24] - 2026-08-13
 
 Scroll up in a terminal and you now reach the whole conversation, not just what the terminal happened to draw. Select across it, from an hour ago down into the line being written right now, and copy the lot.
