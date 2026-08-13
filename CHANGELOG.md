@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.20] - 2026-08-13
+
+Codex sessions stop lying to you. Your transcripts were missing nearly half of what happened in them, your search results were labelled with raw identifiers, a session with 226 million tokens against it was displayed as costing `$0.00`, and new Codex sessions took minutes to appear because the code watching for them could never match a real filename.
+
+### Fixed
+
+- **Codex transcripts were dropping 43 percent of the conversation, silently.** Codex moved to a new way of recording tool calls some months ago and the reader was never taught about it, so every command it ran and every result that came back was thrown away without a warning, a log line or a gap in the page. On one real session the transcript showed 493 entries where there were 3,757. Everything that was being dropped is back: 3,264 recovered entries on that session, and 431 of the 493 that did survive are unchanged, with the other 62 no longer blank.
+- **Tool results that came back as several pieces rendered as nothing at all.** A result that arrived in parts, rather than as one block of text, produced an entry with no text in it. That has been true for the older kind of tool call as well, so this was quietly emptying entries in Claude-era Codex sessions too. Images returned by a tool are now announced as `[image]` rather than being dropped, and their data is never pulled into the page; one of them was 671 KB.
+- **A very long session showed nothing.** The heaviest session on the test machine has a 924 MB record, and reading it whole exceeded a hard limit in the runtime, so the reader gave up and returned an empty transcript with no explanation. Long records are now read from the end, up to a quarter of a gigabyte, and the app says when it has done that. That 924 MB session now shows 39,880 entries.
+- **Codex cost showed `$0.00` instead of saying it does not know.** The cost reader only understands Claude's format, and nothing checked whether the session it was handed was a Claude one, so every Codex session reported zero. Codex is billed against a ChatGPT plan rather than per token, so there is no honest dollar figure to show. The app now says so plainly and shows the real token count instead: for that same session, 226,420,778 tokens, with the cache reads separated out.
+- **Search results were labelled with raw identifiers.** Search looked for a title in one place that turns out to exist in under two percent of session files, and printed a 36-character identifier for the rest. It now uses the same title the sidebar shows. On the test machine that is a real title for all 3,036 sessions.
+- **New Codex sessions took minutes to appear.** The code watching for new session files was checking names against a pattern that no real filename has ever matched, because of a single letter in the timestamp. Every file event was discarded and the app fell back to a five-minute sweep. Sessions now appear within seconds. Archiving a session in the Codex app is noticed too, and so is anything you do in the app itself that never touches a file: renaming a thread, starting one, moving one.
+- **"Summarize to Docs" has never worked.** Two pieces of code were registered to answer the same request and only the first ever ran, so the one that writes a summary into your project notes was unreachable. It is reachable now.
+- **Summarizing a Codex session returned "not found".** It looked for the conversation in Claude's folder and nowhere else.
+
+### Added
+
+- **The app now notices when Codex changes its format.** Every line it does not recognise is counted and reported, with the shapes named. The next time the format moves, the app says "these lines were an unrecognised shape and were dropped", instead of rendering short and saying nothing. Two new record types found during this work are already accounted for, so the counter stays quiet until something genuinely new arrives.
+- **Codex plan and rate-limit information** is now read alongside the token counts, ready for the usage display.
+
+### Known
+
+- **Roughly six percent of Codex sessions are large enough to be read from the end rather than in full.** The app tells you when that happens. The alternative was holding half a gigabyte in memory to display a page.
+- **Codex sessions show tokens where Claude sessions show a cost.** This is deliberate. There is no per-token price for a plan-billed product, and inventing one would be the same mistake as the zero it replaces.
+
+### Testing
+
+- 89 test files and roughly 1,500 assertions, all green. This release adds five files with 71 assertions covering the recovered record types, the drift counter, the token readers, the cost gate, the duplicate-route fix, search titles and the watcher.
+- All 18 mechanical gates pass.
+- Everything was measured against the real Codex data on this machine, read-only. A harness wrapped every write path in the runtime and recorded zero write attempts against the Codex directory over a full pass, with a control window proving the directory changes on its own while the app does nothing.
+
+## [1.3.0-alpha.19] - 2026-08-13
+
+The workbook was showing you 52 of your roughly 125 Codex conversations, and only half of those had a name. This release reads the same place the ChatGPT desktop app reads.
+
+> Version note: alpha.16 and alpha.18 are reserved for two phases of the terminal work that have not shipped yet, so the numbers are not consecutive.
+
+### Added
+
+- **Every Codex conversation the desktop app shows, the workbook now shows.** It reads the app's own thread store rather than reconstructing the list by walking files. 52 sessions became 128, and 27 named became 128 named.
+- **Titles come from a cascade of five sources**, ending in a shortened first message, so a session is never a bare identifier.
+- **Folders match the app's.** Codex groups conversations by their working directory, and two spellings of the same directory used to appear as two folders. They collapse into one, and a Claude folder and a Codex folder for the same directory are one row.
+- **Conversations stored outside the Codex folder are reachable**, including two on a second drive that the old file walk could never have found.
+
+### Changed
+
+- **Discovery went from 3.1 seconds to 22 milliseconds** on a warm cache, and finding one conversation's file went from 993 milliseconds to 19.
+- **The model and effort pickers describe reality.** The saved list of reasoning efforts omitted the three that account for 98 percent of actual use, and silently dropped them.
+
+### Known
+
+- **The file walk is still there and still runs.** It is the only thing that works on a machine where the Codex app has never run, and it fills in anything the store has not recorded.
+
+## [1.3.0-alpha.17] - 2026-08-13
+
+Terminal panes stop redrawing wrong after a long absence, and two people on one session stop fighting over its size.
+
+> Version note: this phase shipped its code earlier and is being recorded now; alpha.16 belongs to a phase that has not shipped.
+
+### Fixed
+
+- **A pane that had been in a full-screen program for hours came back as a few patches painted onto a blank screen.** The server was replaying a log of everything written to the terminal, pruned from the front, and the pruned part contained the instruction that set the screen up. It now replays a description of the screen as it currently is, which has no beginning to lose.
+- **Two devices on one session fought over its width.** A phone and a desktop each claimed the size, every claim made the terminal repaint everything into both streams, and the result was a repaint storm rather than a wobble. Handing a session over is still instant; only an oscillation is throttled.
+- **A pane that had been sitting in a full-screen program did not know it.** The server now tells every client the mode it is in on arrival and whenever it changes, so the keyboard behaves correctly straight away.
+
+### Added
+
+- **Deeper scrollback than the terminal keeps.** The server now retains a paged log of completed lines behind the 5,000 the browser holds.
+
+### Known
+
+- **The new machinery can be turned off** with environment switches if it misbehaves, and the old replay path is retained in full underneath it.
+
 ## [1.3.0-alpha.15] - 2026-08-13
 
 The previous two releases rebuilt the furniture and the controls. This one rebuilds the rooms, and answers the thing you actually asked for: finding your most recent session is now the easiest thing in the app rather than the hardest.

@@ -106,4 +106,77 @@ These are named here so the phase that hits them writes a row rather than quietl
 | Any new z-index rung | P4, P7, P10, P11 | The authored ladder and where the new layer sits in it, per risk R6. Nothing above 10004. |
 | A terminal font other than `--font-code` | P5 | Only if OQ-2 is answered against the default. |
 | Dropping figurative illustration entirely | P12 | Only if OQ-3 is answered against the default. Costs a measurable amount against the three-second test. |
-| The shadowed `POST /api/sessions/:id/summarize` handler at `server.js:2800` | P9 | The dead second registration is recorded rather than deleted, per code preservation and OQ-5. |
+| ~~The shadowed `POST /api/sessions/:id/summarize` handler at `server.js:2800`~~ | ~~P9~~ | **Incurred and closed in P9, see DV-P9-4.** Both registrations are retained; the shadowing was resolved by delegation. |
+
+---
+
+## P9 rows (Codex parity P1)
+
+Six departures, all from `BUILD-CONTRACT.md` P9 rather than from the visual brand, so they are
+recorded here as a block rather than folded into the numbered table above.
+
+### DV-P9-1. `supportsCost` was NOT flipped to true
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | P9.3: "Flip `supportsCost` to true." |
+| **What shipped** | `supportsCost()` still returns `false` for Codex. A new OPTIONAL capability, `supportsTokenUsage()`, returns `true`, and `parseUsage()` backs it. |
+| **Why** | The same work package's done criterion is "Codex cost is real, or honestly absent, **never a false zero**". The frontend gates purely on this flag: `renderSessionItem` draws `$` plus the cached cost when it is true and the em-dash "not tracked" badge when it is false, and nothing downstream consults the cost route's own response to choose. Codex desktop bills against a ChatGPT plan; the rollouts carry `rate_limits.plan_type` and a credits block and no price, and no per-token rate exists that could be applied without inventing one. Flipping the flag with no price model would have replaced a false `$0.00` with a differently-false `$0.00`, which is the outcome the criterion forbids. |
+| **What it costs** | One extra capability flag for every provider to answer, and a frontend that must learn to render a token count where it renders a dollar amount today. `/api/providers` now returns `supportsTokenUsage` so that is a render change, not a data change. |
+| **Approved by** | P9 implementation agent, on the contract's own done criterion, which outranks its mechanism sentence. Flip the flag the moment a price model exists; nothing else changes. |
+| **Date** | 2026-08-13 |
+
+### DV-P9-2. The version map, and why the alpha numbers are not consecutive
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | Each phase carries a version: P5 `alpha.16`, P6 `alpha.17`, P7 `alpha.18`, P8 `alpha.19`, P9 `alpha.20`. |
+| **What shipped** | `package.json` goes from `1.3.0-alpha.15` straight to `1.3.0-alpha.20`. `CHANGELOG.md` gains three entries, `alpha.17` for P6, `alpha.19` for P8 and `alpha.20` for P9. `alpha.16` and `alpha.18` are left unwritten. |
+| **Why** | P6 and P8 both shipped their code with no version bump and no changelog entry, P6 because its files were contended at the time and P8 because it ran before the release ceremony was scheduled. Nothing was ever published, so no version was consumed. Writing each phase under its contract-assigned number keeps the phase-to-version map intact for P10 through P12, which is worth more than consecutive integers on an unpublished prerelease train. P5 and P7 have not shipped, so their numbers stay reserved and will be written out of chronological order when they do. |
+| **What it costs** | Two gaps in the changelog until P5 and P7 land. A reader who assumes prerelease numbers are dense will be briefly confused; each of the two backfilled entries carries a version note saying so. |
+| **Approved by** | P9 implementation agent, per its brief ("write BOTH entries and take the next free alpha; record the version map in DEVIATIONS"), resolved toward the contract's map where the two instructions differ. |
+| **Date** | 2026-08-13 |
+
+### DV-P9-3. The transcript read is bounded at 256 MB
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | Nothing. P9.1 asks for the dropped payload types; the read itself is unspecified. |
+| **What shipped** | `parseTranscriptDetailed` reads asynchronously and stops at 256 MB, preferring the tail, and sets `stats.truncatedFile`. |
+| **Why** | The previous `fs.readFileSync(filePath, 'utf-8')` was unbounded. The heaviest rollout on the reference machine is **924 MB**, above V8's maximum string length, so the read threw and the catch returned an empty transcript: a 924 MB session rendered as "no messages", silently. Chosen from the measured distribution of all 2889 rollouts, 128.8 GB in total: 64 MB would truncate 22.0 percent of them, 256 MB truncates 5.9 percent and can never throw, and no ceiling at all fails outright on the 3 files above 512 MB while asking a server process to hold a half-gigabyte string on the other 380. |
+| **What it costs** | 170 sessions, 5.9 percent, show their last 256 MB rather than all of themselves. Before this change 3 of them showed nothing at all and 380 could allocate half a gigabyte inside the server. The truncation is reported rather than silent, and `opts.maxBytes` lets a caller with a tighter budget lower it. |
+| **Approved by** | P9 implementation agent, on evidence from the read-only proof harness. |
+| **Date** | 2026-08-13 |
+
+### DV-P9-4. The shadowed summarize handler is resolved by delegation, not deletion
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | CODEX-PARITY B12: "Delete the shadowing is NOT permitted under the code-preservation rule; instead make `:2800` dispatch through the provider, or reorder registration deliberately. Flag to the Orchestrator." |
+| **What shipped** | Both registrations survive. The docs summariser moved into a named function, `summarizeSessionToDocsHandler`, registered on its own unshadowed route `POST /api/sessions/:id/summarize-to-docs` and invoked from the live handler on `{toDocs: true}` or `?toDocs=1`. The original second registration is retained, still shadowed, and now points at that same function. The live handler additionally dispatches artifact resolution through the provider registry. |
+| **Why** | The two handlers return DIFFERENT shapes to DIFFERENT live callers: the modal summariser reads `overallTheme` and `recentTasking`, while `summarizeSessionToDocs()` in `app.js` and `summarize()` in the mobile client read `summary`. Reordering the registrations would have fixed the second pair and broken the first. Both bodies are empty and hit the same URL, so the server cannot tell them apart without an opt-in. |
+| **What it costs** | Until the frontend owners send the flag, "Summarize to Docs" and the mobile summarise button keep today's behaviour, which is the wrong response shape. The fix is one line in each, and no further backend change. The append is opt-in rather than automatic on purpose: the modal and the docs action are indistinguishable server-side, and a modal that silently writes into a user's project notes every time it is opened would be a worse bug than the one being fixed. |
+| **Approved by** | P9 implementation agent. **Flagged to the Orchestrator**, as B12 requires. |
+| **Date** | 2026-08-13 |
+
+### DV-P9-5. The emit set gained four payload types the contract did not name
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | P9.1 names exactly two: `custom_tool_call` and `custom_tool_call_output`. |
+| **What shipped** | Those two, plus `response_item.agent_message`, `tool_search_call`, `tool_search_output` and `web_search_call`. Two new ENVELOPE types, `world_state` and `inter_agent_communication_metadata`, were added to `KNOWN_ENVELOPE_TYPES`, to the schema fixture and to the fixture's hardcoded expectation in `test/codex-schema.test.js`. |
+| **Why** | The payload-type histogram taken to design the fix found them. Every one was reaching the silent default branch, which is the exact failure P9.1 exists to close, and the emit table makes each one a row rather than a code path. The two envelope types are metadata and are deliberately skipped, but they are listed as KNOWN so the new drift counter stays a signal rather than a permanent background hum. |
+| **What it costs** | A test file edit (`codex-schema.test.js`, the hardcoded second-opinion list moved from 5 entries to 7) and a fixture edit, both inside the P9 ownership set. `scripts/regen-codex-schema.js` will drop the two additions if it is ever run against a CLI whose own schema has not caught up; the fixture carries a `driftLog` block saying so. |
+| **Approved by** | P9 implementation agent, on measurement. |
+| **Date** | 2026-08-13 |
+
+### DV-P9-6. Two live bugs were fixed outside the P9 work packages
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | Nothing; neither was known. |
+| **What shipped** | (a) The rollout watcher's filename filter, `/rollout-[a-f0-9-]+\.jsonl$/i`, required every character after `rollout-` to be a hex digit or a hyphen, and the `T` in a real filename's ISO timestamp is neither, so it matched NOTHING the desktop app has ever written. Every rollout event was discarded and the sidebar depended entirely on the 5-minute fallback poll. (b) `parse.js` resolved rollout paths with its own walk over `$CODEX_HOME/sessions` while `findArtifactPath` has consulted the store since P8.8, so the transcript view and the artifact lookup disagreed about whether a session existed; the heaviest thread on the machine parsed to zero messages for this reason. |
+| **Why** | Both sit inside P9's own work packages, (a) in P9.5's watcher and (b) in P9.1's transcript, and both were found by exercising the real store rather than by reading the code: (a) by the archived-directory test, (b) by the read-only proof harness. |
+| **What it costs** | Nothing. Both are strict improvements with tests pinning them. |
+| **Approved by** | P9 implementation agent. |
+| **Date** | 2026-08-13 |
