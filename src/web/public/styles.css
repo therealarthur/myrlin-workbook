@@ -1227,122 +1227,233 @@ textarea.input {
 
 /* ─── Status Badges ─────────────────────────────────────────── */
 
+/*
+ * THE TWO CHIP SYSTEMS, Notion restyle phase P3, work package P3.2.
+ * BUILD-CONTRACT.md 2.3, DESIGN-SPEC.md 1.2, 6 and 6.1.
+ *
+ * This is the canonical recipe. It is repeated at each call site rather than
+ * hoisted into one grouped selector on purpose: risk R1 forbids merging a
+ * pinned selector into a grouped list, and .session-badge-cost,
+ * .codex-status-chip and .ws-group-chip are all read by tests that slice on
+ * the selector string. Repetition here is cheaper than a broken anchor.
+ *
+ *   PROPERTY CHIP        status, model, plan, provider, template, count
+ *     fill   --app-chip-<hue>-fill, TRANSLUCENT, so the chip composites
+ *            correctly on the canvas, on a hovered row and inside a coloured
+ *            panel with no extra rule
+ *     ink    --app-chip-<hue>-ink, a deep tinted hue
+ *     radius --radius-property-chip, 4px
+ *     metric 20px tall, padding 0 6px, 14px / 16.8px / 500
+ *
+ *   STATUS CHIP          a property chip with a leading dot
+ *     radius --radius-status-chip, 10px
+ *     metric padding 0 9px 0 7px
+ *
+ *   NAMED BLOCK COLOUR   user-authored tags, callouts, washes
+ *     fill   --app-bg-<hue>, ink --app-text-<hue>, radius --radius-callout
+ *     NEVER used to build a chip, and a chip is never used to build a callout.
+ *
+ * THE CHIP-DOT TRAP (DESIGN-SPEC 6.1). A standalone status dot is a 7px
+ * circle in the BLOCK palette (--app-text-<hue>). A dot inside a chip is an
+ * 8px circle in currentColor, so it inherits the CHIP ink. Two sizes, two
+ * colour systems, and unifying them is a rejection test.
+ *
+ * CONTRAST, measured over both grounds in both chrome themes: every one of
+ * the twenty chip ink-on-fill pairs clears 4.5:1. Light chrome runs 5.98:1
+ * (yellow) to 7.26:1 (gray) on the canvas and 5.78:1 to 6.96:1 on a hovered
+ * table row; dark chrome runs 4.95:1 to 6.17:1 on the canvas and 4.69:1 to
+ * 5.80:1 on the sidebar ground. The translucent fill is what makes that hold
+ * on four different grounds without a single per-surface override.
+ *
+ * The standalone 7px dots are graphics, so their floor is 3:1 rather than
+ * 4.5:1. Nine of the ten clear it on the canvas; yellow measures 2.68:1 and is
+ * recorded in DEVIATIONS.md DV-14 with why darkening it is not the fix.
+ */
+
+/* Standalone status dot. 7px, block palette, and NO glow: the 0 0 5px halo
+   this used to carry is the "hue in the shadow" idiom DESIGN-SPEC 1.5 puts on
+   the rejection list. Live states pulse instead, which is a signal channel
+   that survives greyscale and does not need a shadow. */
 .status-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: var(--radius-avatar);
   flex-shrink: 0;
 }
 
+/* Running and needs-input are the two LIVE states, and they are the only two
+   that pulse. mwPulse is declared inside prefers-reduced-motion: no-preference
+   (P2.5), so under `reduce` the animation name does not exist and the dot is a
+   static full-opacity circle rather than a switched-off animation.
+   These four name the BLOCK PALETTE directly rather than the --status-* role
+   tokens, for two reasons that point the same way. BUILD-CONTRACT 2.3 spells
+   the recipe as `background: var(--app-text-<hue>)`, and phantom-tokens.test.js
+   only reads definitions out of styles.css and styles-mobile.css, so a role
+   token defined in semantic-theme.css counts as a phantom here and the rule
+   would silently paint nothing. The values agree by construction: the roles in
+   semantic-theme.css resolve to exactly these four names, green included after
+   the running-is-green ruling in this same work package. */
 .status-dot-running {
-  background: var(--green);
+  background: var(--app-text-green);
   box-shadow: none;
-  animation: pulse-green 2s ease-in-out infinite;
+  animation: mwPulse 2s ease-in-out infinite;
 }
 
 .status-dot-stopped {
-  background: var(--overlay0);
+  background: var(--app-text-gray);
 }
 
 .status-dot-error {
-  background: var(--red);
+  background: var(--app-text-red);
   box-shadow: none;
 }
 
 .status-dot-idle {
-  background: var(--yellow);
+  background: var(--app-text-yellow);
   box-shadow: none;
+  animation: mwPulse 2s ease-in-out infinite;
 }
 
+/* The chip dot. 8px, currentColor, so it takes the CHIP ink of whatever chip
+   encloses it and never the block palette. New class, per BUILD-CONTRACT 2.3;
+   nothing in the markup carries it yet, and the status chips below draw their
+   own dot through ::before so the two idioms stay identical either way. */
+.nt-chip-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-avatar);
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* Status chip: a property chip at the 10px status radius with a leading dot.
+   The asymmetric 0 9px 0 7px padding is the captured value and it exists
+   because the dot needs less lead-in than the label needs trail-off. */
 .status-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
-  border-radius: var(--radius-pill);
-  font-size: 12px;
+  height: 20px;
+  padding: 0 9px 0 7px;
+  border-radius: var(--radius-status-chip);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
   font-weight: 500;
   text-transform: capitalize;
 }
 
+/* The leading dot is NOT drawn here as a ::before. Both consumers of
+   .status-badge already put something in that position: renderSessionDetail
+   emits `statusIcons[status]` ahead of the label, and the two flag badges in
+   the pane detail carry their own inline styles. A pseudo-element dot would
+   sit next to a glyph on one and next to nothing on the others. The dot ships
+   as .nt-chip-dot above, so adding it is a one-span markup change in the file
+   that owns those templates, which is not this phase's file. */
+
+/* RUNNING IS GREEN. DECISIONS.md 9.2.4 handed this decision forward from P1
+   with the ink on --color-info (blue) and the wash already on --app-bg-green;
+   the orchestrator ruled green, so --status-running now resolves to the green
+   family in semantic-theme.css and ink and wash finally agree. */
 .status-badge-running {
-  background: rgba(166, 227, 161, 0.1);
-  color: var(--green);
+  background: var(--app-chip-green-fill);
+  color: var(--app-chip-green-ink);
 }
 
 .status-badge-stopped {
-  background: rgba(108, 112, 134, 0.15);
-  color: var(--overlay1);
+  background: var(--app-chip-gray-fill);
+  color: var(--app-chip-gray-ink);
 }
 
 .status-badge-error {
-  background: rgba(243, 139, 168, 0.1);
-  color: var(--red);
+  background: var(--app-chip-red-fill);
+  color: var(--app-chip-red-ink);
 }
 
 .status-badge-idle {
-  background: rgba(249, 226, 175, 0.1);
-  color: var(--yellow);
+  background: var(--app-chip-yellow-fill);
+  color: var(--app-chip-yellow-ink);
 }
 
 /* ─── Session List Inline Badges ───────────────────────────── */
 
+/*
+ * The six session badges are property chips. They lose their 10px monospace
+ * treatment: a property chip is UI text, and the mono face here was reading as
+ * a code token rather than as a value. Cost keeps tabular figures, which is
+ * the part of the mono treatment that was actually doing work.
+ */
 .session-badge {
   display: inline-flex;
   align-items: center;
-  padding: 1px 5px;
-  border-radius: var(--radius-row-icon);
-  font-size: 10px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-property-chip);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
   font-weight: 500;
-  font-family: 'JetBrains Mono', monospace;
-  line-height: 1.3;
+  font-family: var(--font-sans);
   margin-left: 4px;
   flex-shrink: 0;
 }
 
 .session-badge-port {
-  background: rgba(137, 180, 250, 0.15);
-  color: var(--blue);
+  background: var(--app-chip-blue-fill);
+  color: var(--app-chip-blue-ink);
 }
 
 .session-badge-warn {
-  background: rgba(249, 226, 175, 0.15);
-  color: var(--yellow);
+  background: var(--app-chip-yellow-fill);
+  color: var(--app-chip-yellow-ink);
 }
 
+/* Model and cost are neutral property values, not signals, so both take the
+   gray chip. Purple is reserved for provider identity and green for the
+   running state; spending either on a model name would make two unrelated
+   things look related. */
 .session-badge-model {
-  background: rgba(203, 166, 247, 0.15);
-  color: var(--mauve);
+  background: var(--app-chip-gray-fill);
+  color: var(--app-chip-gray-ink);
 }
 
 .session-badge-cost {
-  background: rgba(166, 227, 161, 0.1);
-  color: var(--green);
-  font-family: 'JetBrains Mono', monospace;
+  background: var(--app-chip-gray-fill);
+  color: var(--app-chip-gray-ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .session-badge-agents {
-  background: rgba(203, 166, 247, 0.15);
-  color: var(--mauve);
+  background: var(--app-chip-blue-fill);
+  color: var(--app-chip-blue-ink);
 }
 .session-badge-agents::before {
   content: '\1F916 ';
-  font-size: 9px;
+  font-size: 12px;
 }
 
+/* User-authored tags are the one place the NAMED BLOCK palette is correct,
+   because a tag is content the user coloured rather than a property the system
+   computed. renderSessionItem writes the pair inline from _hueBgVar and
+   _hueVar, so this rule owns the shape and the JS owns the hue. */
 .session-badge-tag {
-  font-size: 9px;
-  padding: 0 4px;
-  border-radius: var(--radius-row-icon);
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-property-chip);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: normal;
 }
 
 .session-badge-pr {
-  font-size: 10px;
-  font-weight: 600;
-  border-radius: var(--radius-row-icon);
+  height: 20px;
+  padding: 0 6px;
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  font-weight: 500;
+  border-radius: var(--radius-property-chip);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ─── Task Spinoff Modal ─── */
@@ -2575,9 +2686,12 @@ textarea.input {
   min-width: 0;
 }
 
+/* 9px. This is the side peek's title-row dot and DESIGN-SPEC.md 7 gives it
+   9px explicitly, with its own parenthetical: "note: 9px here, not 7px". The
+   peek title is 22px, so the 7px row dot disappears next to it. */
 .detail-status-dot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: var(--radius-avatar);
   flex-shrink: 0;
 }
@@ -2901,21 +3015,31 @@ textarea.input {
   font-size: 12px;
 }
 
+/* 7px, the one standalone status-dot size (DESIGN-SPEC.md 6.1). A subagent is
+   a session-shaped thing and its dot is read in the same glance as a session
+   dot, so a second size here was a distinction without a meaning. */
 .subagent-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: var(--radius-avatar);
   flex-shrink: 0;
 }
 
+/* subagent-pulse is kept declared below rather than deleted, but this dot now
+   runs the one named pulse, which is authored inside
+   prefers-reduced-motion: no-preference and therefore stops existing rather
+   than being switched off when the user asks for less motion. */
 .subagent-dot-running {
-  background: var(--green);
+  background: var(--app-text-green);
   box-shadow: none;
-  animation: subagent-pulse 2s infinite;
+  animation: mwPulse 2s ease-in-out infinite;
 }
 
+/* Teal, not green. Complete and running are different states and P1.3 already
+   separated them in the role layer; this is the same separation at a call
+   site. */
 .subagent-dot-completed {
-  background: var(--surface2);
+  background: var(--app-text-teal);
 }
 
 .subagent-name {
@@ -2947,28 +3071,34 @@ textarea.input {
 
 /* ─── Session Template Styles ───────────────────────────────── */
 
+/* Property chip. A template is a named thing the user picks, which is exactly
+   what a Notion property chip is for, so it takes the gray chip rather than the
+   bordered card it used to be. The border is gone with the ground: a chip that
+   is both filled and outlined is two affordances doing one job. */
 .template-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  background: var(--surface0);
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  color: var(--subtext1);
+  height: 20px;
+  padding: 0 6px;
+  background: var(--app-chip-gray-fill);
+  border: none;
+  border-radius: var(--radius-property-chip);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  font-weight: 500;
+  color: var(--app-chip-gray-ink);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: var(--motion-hover-reveal);
 }
 
 .template-chip:hover {
-  background: var(--surface1);
-  color: var(--text);
-  border-color: var(--mauve);
+  background: var(--app-chip-blue-fill);
+  color: var(--app-chip-blue-ink);
 }
 
 .template-chip-icon {
-  font-size: 14px;
+  font-size: var(--app-chip-size);
 }
 
 .template-list {
@@ -12627,69 +12757,108 @@ html {
   scrollbar-width: none;
 }
 .codex-pane-status::-webkit-scrollbar { display: none; }
+/* Property chip, gray (BUILD-CONTRACT 2.3). The strip's six chips report
+   Codex's own settings, which are properties rather than states, so they take
+   the neutral chip and the outline goes: a filled chip does not also need a
+   border, and a green border on a Codex chip was spending provider identity on
+   configuration. Label and value stay two ink steps apart inside the chip so
+   the strip is still scannable by key.
+   Contrast: --app-chip-gray-ink on --app-chip-gray-fill measures 7.26:1 over
+   the canvas in light chrome and 5.62:1 in dark. */
 .codex-status-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
-  border-radius: var(--radius-callout);
-  background: var(--surface-1);
-  border: 1px solid color-mix(in srgb, var(--green) 25%, transparent);
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-property-chip);
+  background: var(--app-chip-gray-fill);
+  border: none;
+  color: var(--app-chip-gray-ink);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: var(--motion-hover-reveal);
 }
 .codex-status-chip:hover {
-  background: color-mix(in srgb, var(--green) 12%, var(--surface-1));
-  border-color: var(--green);
+  background: var(--app-chip-blue-fill);
+  color: var(--app-chip-blue-ink);
 }
 .codex-status-chip-label {
-  color: var(--text-muted);
+  color: inherit;
+  opacity: 0.7;
   font-weight: 500;
 }
-.codex-status-chip-value { color: var(--text-base); }
+.codex-status-chip-value { color: inherit; font-weight: 500; }
 .codex-status-chip-value.is-default {
-  color: var(--text-muted);
+  color: inherit;
+  opacity: 0.7;
   font-style: italic;
 }
+/* Sanctioned test edit SE-5 lands with this rule: the ink moves from the
+   Catppuccin --red to the named block palette's --app-text-red, and
+   codex-status-strip.test.js retargets its 400-character window to match.
+   Bypass is the one chip in the strip that reports a RISK rather than a
+   setting, so it keeps a red ink on the red chip fill instead of collapsing
+   into the gray. */
 .codex-status-chip-bypass {
-  background: color-mix(in srgb, var(--red) 18%, var(--surface-1));
-  border-color: var(--red);
-  color: var(--red);
+  background: var(--app-chip-red-fill);
+  color: var(--app-text-red);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: normal;
 }
 .codex-status-chip-bypass:hover {
-  background: color-mix(in srgb, var(--red) 28%, var(--surface-1));
+  background: var(--app-chip-red-fill);
+  color: var(--app-chip-red-ink);
 }
 
-/* Pane header provider label pill (Plan 22-02). Hidden via [hidden]
-   when the pane is empty. Sits left of the title; uses --surface-2 for
-   the background and the matching --provider-*-accent for the dot. */
+/* Pane header provider label pill (Plan 22-02). Hidden via [hidden] when the
+   pane is empty. Sits left of the title.
+   Notion restyle P3.2: this is now a property chip carrying the provider's own
+   hue, purple for Claude and green for Codex, per BUILD-CONTRACT 2.3. The 9px
+   uppercase letterspaced treatment is gone: uppercase micro-type is on the
+   rejection list and it was the reason this pill read as a badge rather than
+   as a value.
+   The ::before dot keeps --provider-*-accent rather than currentColor. That is
+   a deliberate exception to the chip-dot rule and provider-label-pill.test.js
+   pins it: this dot is PROVIDER IDENTITY, not status, so its hue belongs to
+   the provider token that the sidebar rows and the search results also read.
+   Chip ink and dot are the same hue at two depths, which is the intended
+   reading. */
 .pane-provider-pill {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 8px;
+  height: 20px;
+  padding: 0 6px;
   margin-right: 8px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  border-radius: var(--radius-property-chip);
+  background: var(--app-chip-gray-fill);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--app-chip-gray-ink);
   user-select: none;
   flex-shrink: 0;
+}
+.pane-provider-pill[data-provider="claude"] {
+  background: var(--app-chip-purple-fill);
+  color: var(--app-chip-purple-ink);
+}
+.pane-provider-pill[data-provider="codex"] {
+  background: var(--app-chip-green-fill);
+  color: var(--app-chip-green-ink);
 }
 .pane-provider-pill[data-provider="claude"]::before,
 .pane-provider-pill[data-provider="codex"]::before {
   content: '';
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: var(--radius-avatar);
+  flex-shrink: 0;
 }
 .pane-provider-pill[data-provider="claude"]::before {
   background: var(--provider-claude-accent);
@@ -12707,17 +12876,28 @@ html {
 .workspace-item[data-group-id] {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ws-group-color, var(--surface-2)) 35%, transparent);
 }
+/* Property chip driven by the group's own colour. Notion restyle P3.2: the
+   metrics are the chip recipe, the outline is gone (a filled chip is not also
+   an outlined one), and the fill is an 18 percent mix on TRANSPARENT rather
+   than on a surface, which is what makes it composite correctly on a hovered
+   workspace row exactly like a captured --app-chip-<hue>-fill does. The hue
+   itself still arrives through --ws-group-color, which app.js writes inline;
+   re-pointing that value away from the terminal palette is P2.7's unshipped
+   work (DEVIATIONS.md DV-9) and this rule is ready for it either way. */
 .ws-group-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   margin-left: 4px;
-  padding: 1px 6px;
-  border-radius: var(--radius-pane-frame);
-  background: color-mix(in srgb, var(--ws-group-color, var(--surface-1)) 18%, var(--surface-1));
-  border: 1px solid color-mix(in srgb, var(--ws-group-color, transparent) 40%, transparent);
-  font-size: 10px;
-  color: var(--text-muted);
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-property-chip);
+  background: color-mix(in srgb, var(--ws-group-color, var(--app-text-gray)) 18%, transparent);
+  border: none;
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  font-weight: 500;
+  color: var(--app-text-primary);
   white-space: nowrap;
   user-select: none;
   max-width: 110px;
@@ -12730,19 +12910,19 @@ html {
 .ws-group-chip-remove {
   background: transparent;
   border: 0;
-  color: var(--text-muted);
+  color: inherit;
+  opacity: 0;
   cursor: pointer;
   padding: 0 2px;
   line-height: 1;
   font-size: 13px;
-  opacity: 0;
-  transition: opacity 120ms ease, color 120ms ease;
+  transition: var(--motion-hover-opacity), color var(--transition-fast);
 }
 .ws-group-chip:hover .ws-group-chip-remove {
   opacity: 1;
 }
 .ws-group-chip-remove:hover {
-  color: var(--red);
+  color: var(--app-text-red);
 }
 
 
@@ -12763,15 +12943,21 @@ html {
       every search-result header. Color is driven by the parent
       .search-result[data-provider="..."] selector so every theme
       cascades the right accent through the provider token layer. */
+/* The one chip in the system that is deliberately EMPTY rather than gray: a
+   dashed hairline says "no value was recorded", where a gray fill would say
+   "the value is neutral". Notion draws an unset property as blank, and this is
+   the closest the app can get while still carrying its own tooltip. The
+   markup, including the &mdash; entity and the exact title text, is pinned
+   character for character by cost-display.test.js and is untouched. */
 .session-badge-cost-na {
   background: transparent;
-  color: var(--subtext0);
-  border: 1px dashed var(--surface2);
+  color: var(--app-text-tertiary);
+  border: 1px dashed var(--app-border-strong);
   cursor: help;
 }
 
 .cost-cell-na {
-  color: var(--subtext0);
+  color: var(--app-text-tertiary);
   cursor: help;
   font-style: italic;
 }
@@ -13036,24 +13222,35 @@ html {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-property-chip);
+  background: var(--app-chip-gray-fill);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--app-chip-gray-ink);
   user-select: none;
   flex-shrink: 0;
+}
+.mirror-provider-pill[data-provider="claude"] {
+  background: var(--app-chip-purple-fill);
+  color: var(--app-chip-purple-ink);
+}
+.mirror-provider-pill[data-provider="codex"] {
+  background: var(--app-chip-green-fill);
+  color: var(--app-chip-green-ink);
 }
 .mirror-provider-pill::before {
   content: '';
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: var(--radius-avatar);
-  background: var(--overlay0);
+  background: var(--app-text-gray);
+  flex-shrink: 0;
 }
 .mirror-provider-pill[data-provider="claude"]::before {
   background: var(--provider-claude-accent);

@@ -54,7 +54,19 @@
   --color-stale: var(--app-text-brown);
 
   --status-needs-input: var(--color-attention);
-  --status-running: var(--color-info);
+  /* RUNNING IS GREEN. Notion restyle phase P3, work package P3.2.
+     DECISIONS.md 9.2.4 recorded that table E left this state with two hues: the
+     ink on --color-info, which is blue, and the wash already on --app-bg-green.
+     P1 shipped table E verbatim and handed the choice forward because the
+     phase that builds the status system should make it. That is this phase, and
+     the orchestrator ruled green, which is also what contested mapping C5's
+     supporting sentence says and what DESIGN-SPEC 6's status-chip table gives
+     (running renders nt-chip-green). It points at the block-palette green
+     directly rather than at --color-success, because a session that is running
+     has not succeeded at anything yet and collapsing the two roles would make
+     that impossible to say later. --status-running-surface is unchanged: it was
+     already --app-bg-green, and it is the half that was right all along. */
+  --status-running: var(--app-text-green);
   /* See the hue-change note in the file header: complete is teal, not green. */
   --status-complete: var(--app-text-teal);
   --status-failed: var(--color-danger);
@@ -90,9 +102,13 @@
   color: var(--text-primary);
 }
 
+/* The glow is gone. A coloured halo on a status dot is the "any hue in a
+   shadow" idiom DESIGN-SPEC 1.5 and the rejection list both refuse, and it was
+   the last one left in this file. The dot keeps its hue and the live states
+   pulse instead (P3.2), which reads at a glance and survives greyscale. */
 :root[data-ui-shell] .stat-dot-running {
   background: var(--status-running);
-  box-shadow: 0 0 5px color-mix(in srgb, var(--status-running) 52%, transparent);
+  box-shadow: none;
 }
 
 :root[data-ui-shell] .terminal-pane-empty.drag-over .terminal-container {

@@ -38,9 +38,12 @@ check('.codex-status-chip + chip-bypass selectors exist', () => {
   assert.ok(css.includes('.codex-status-chip'), 'expected .codex-status-chip in styles.css');
   assert.ok(css.includes('.codex-status-chip-bypass'), 'expected .codex-status-chip-bypass in styles.css');
 });
-check('bypass chip uses --red palette token', () => {
-  assert.ok(/codex-status-chip-bypass[\s\S]{0,400}var\(--red\)/.test(css),
-    '.codex-status-chip-bypass must reference var(--red)');
+// Sanctioned test edit SE-5 (BUILD-CONTRACT.md 5.4), spent in phase P3, work
+// package P3.2, in the same commit as its source change.
+// Notion restyle: status ink moves to the named block palette.
+check('bypass chip uses the named block-palette red', () => {
+  assert.ok(/codex-status-chip-bypass[\s\S]{0,400}var\(--app-text-red\)/.test(css),
+    '.codex-status-chip-bypass must reference var(--app-text-red)');
 });
 
 check('_renderCodexStatusStrip method exists', () => {
