@@ -73,8 +73,30 @@
   --text-secondary: var(--app-text-secondary);
   --text-tertiary: var(--app-text-tertiary);
   /* Notion has a real disabled ink, so this maps there rather than
-     collapsing onto tertiary and losing a step. */
-  --text-muted: var(--app-text-disabled);
+     collapsing onto tertiary and losing a step.
+
+     REVISED IN P2.6, and the reason is a measurement, not a preference.
+     BUILD-CONTRACT table B specifies --app-text-disabled here. Once P2.1
+     removed the focused-shell re-derivation that had been masking the P1
+     flip, that value became visible at all 29 consumption sites, and every
+     one of them was audited: .login-subtitle, .empty-desc, .qs-result-detail,
+     .account-usage-key, .usage-meter-reset, .codex-status-chip-label,
+     .workbench-empty-hint, the mobile tab bar and the mobile table's column
+     labels among them. NOT ONE is a disabled control. All 29 are meta, hint
+     or label copy on live, interactive surfaces.
+
+     #bcbab6 on #ffffff measures about 1.9:1 against a 4.5:1 floor, so the
+     mapping was making live copy unreadable rather than marking anything as
+     unavailable. PROCEDURE 4.2 is explicit that the response to a bad pairing
+     is to RE-PAIR it, never to darken the captured token, and contract 1.2's
+     own analysis says Notion "collapses this project's four ink steps onto
+     three". That collapse is what ships: muted becomes tertiary, the same ink
+     --text-tertiary already carries. Recorded as DEVIATIONS.md DV-10.
+
+     --app-text-disabled is not orphaned by this: it is the correct token for a
+     genuinely disabled control, and P3.1's disabled-button recipe is where it
+     belongs. */
+  --text-muted: var(--app-text-tertiary);
   /* The cheapest single lever in the restyle: --accent feeds --color-focus
      in semantic-theme.css and both pinned :focus-visible rules, so the
      focus ring becomes the Notion blue with no call-site edit. */
@@ -12669,6 +12691,7 @@ html {
    on SSE events so scroll position is preserved (Pitfall B). */
 .sidebar-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 2px 8px 6px 8px;
   border-bottom: 1px solid var(--app-border-secondary);
@@ -12691,11 +12714,17 @@ html {
    the ink, so an active provider tab still carries its identity hue, now in
    the label rather than as a slab beneath it. */
 .sidebar-tab {
-  flex: 0 1 auto;
-  padding: 4px 10px;
+  flex: 0 0 auto;
+  padding: 4px 8px;
   min-height: 26px;
   border-radius: var(--radius-block-hover);
-  font-size: 13px;
+  /* 12px, one step under the pill recipe's 13px, and each pill keeps its
+     label and count on one line. Three provider labels plus their counts do
+     not fit a 240px rail, so the STRIP wraps instead of the label: a pill
+     that reads "ChatGPT Co..." tells the user less than a pill on a second
+     row, and a two-line label inside a pill is not a pill. */
+  font-size: 12px;
+  white-space: nowrap;
   font-weight: 500;
   font-family: var(--font-sans);
   color: var(--app-text-secondary);
@@ -12727,17 +12756,21 @@ html {
   color: var(--provider-gemini-accent);
 }
 .sidebar-tab.active[data-provider="all"] {
-  border-bottom-color: var(--accent, var(--mauve));
+  border-bottom-color: transparent;
 }
+
+/* The count next to a tab label is meta, not a badge: 11px tertiary, no fill,
+   no bubble. The filled pill was the last remaining chip-shaped element in
+   the sidebar and it competed with the tab it belonged to. */
 .sidebar-tab-badge {
   display: inline-block;
-  min-width: 16px;
-  padding: 0 4px;
-  margin-left: 6px;
-  font-size: 10px;
-  color: var(--text-tertiary);
-  background: var(--surface0);
-  border-radius: var(--radius-pane-frame);
+  min-width: 12px;
+  padding: 0 2px;
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--app-text-tertiary);
+  background: transparent;
+  border-radius: var(--radius-property-chip);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }

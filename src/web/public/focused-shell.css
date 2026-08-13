@@ -47,8 +47,12 @@
   --focused-control-height: var(--app-icon-button-size);
   --focused-content-max: 1100px;
 
-  /* Small text must remain readable in both dark and light families. */
-  --text-muted: var(--app-text-disabled);
+  /* Small text must remain readable in both dark and light families.
+     Kept at the same value :root now carries, so this declaration agrees with
+     the base layer instead of shadowing it. See the long note at the
+     --text-muted definition in styles.css and DEVIATIONS.md DV-10 for why the
+     value is tertiary rather than the disabled ink table B names. */
+  --text-muted: var(--app-text-tertiary);
   --border-subtle: var(--app-border-secondary);
 }
 
@@ -1237,11 +1241,14 @@ body.appearance-open {
     flex: 1;
     min-width: 0;
     min-height: 48px;
-    color: var(--text-muted);
+    color: var(--app-text-tertiary);
   }
 
+  /* The mock marks the active mobile tab with INK ALONE, no colour
+     (BUILD-CONTRACT 1.2, the --green row). The five-tab bar itself is P10.1's;
+     this is only the two inks the bar draws with today. */
   :root[data-ui-shell="focused"] .mobile-tab.active {
-    color: var(--accent);
+    color: var(--app-text-primary);
   }
 
   :root[data-ui-shell="focused"] .app-body {
