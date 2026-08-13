@@ -476,13 +476,16 @@
   display: none;
 }
 
+/* The radial glow behind the empty state was two rejection-list items at once,
+   a gradient and a glow, and it is the faint purple halo visible in the P1
+   workbench screenshots. The ground underneath it was var(--base), the
+   Catppuccin canvas, rather than the chrome canvas. Both go; the empty state
+   sits on the same flat canvas as everything else. */
 :root[data-ui-shell="focused"] .terminal-pane-empty .terminal-container {
   margin: 0;
   border: 0;
   border-radius: var(--radius-cover);
-  background:
-    radial-gradient(circle at 50% 34%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 38%),
-    var(--base);
+  background: var(--app-bg-primary);
 }
 
 :root[data-ui-shell="focused"] .terminal-pane-empty .terminal-container::after {

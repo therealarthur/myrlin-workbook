@@ -1267,24 +1267,24 @@ textarea.input {
   width: 420px;
   height: auto;
   object-fit: contain;
-  filter: drop-shadow(0 0 20px rgba(203, 166, 247, 0.3)) drop-shadow(0 0 60px rgba(203, 166, 247, 0.1));
-  animation: logo-float 4s ease-in-out infinite, logo-glow 3s ease-in-out infinite alternate;
-  transition: transform 0.3s ease, filter 0.3s ease;
+  filter: none;
+  animation: none;
+  transition: none;
 }
 
 .login-logo-img:hover {
-  transform: scale(1.05) translateY(-2px);
-  filter: drop-shadow(0 0 30px rgba(203, 166, 247, 0.5)) drop-shadow(0 0 80px rgba(203, 166, 247, 0.2));
+  transform: none;
+  filter: none;
 }
 
 @keyframes logo-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
+  0%, 100% { transform: none; }
+  50% { transform: none; }
 }
 
 @keyframes logo-glow {
-  0% { filter: drop-shadow(0 0 15px rgba(203, 166, 247, 0.2)) drop-shadow(0 0 50px rgba(203, 166, 247, 0.05)); }
-  100% { filter: drop-shadow(0 0 25px rgba(203, 166, 247, 0.4)) drop-shadow(0 0 70px rgba(203, 166, 247, 0.15)); }
+  0% { filter: none; }
+  100% { filter: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2687,8 +2687,8 @@ textarea.input {
 }
 
 @keyframes subagent-pulse {
-  0%, 100% { box-shadow: 0 0 4px rgba(166, 227, 161, 0.3); }
-  50% { box-shadow: 0 0 10px rgba(166, 227, 161, 0.6); }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
 /* ─── Session Template Styles ───────────────────────────────── */
@@ -3607,11 +3607,11 @@ textarea.input {
 @keyframes login-enter {
   0% {
     opacity: 0;
-    transform: translateY(16px) scale(0.97);
+    transform: translateY(-4px);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
 
@@ -3628,35 +3628,35 @@ textarea.input {
 @keyframes modal-in {
   0% {
     opacity: 0;
-    transform: translateY(-8px) scale(0.96);
+    transform: translateY(-4px);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
 
 @keyframes toast-in {
   0% {
     opacity: 0;
-    transform: translateX(24px) scale(0.95);
+    transform: translateX(24px);
   }
   100% {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: none;
   }
 }
 
 @keyframes toast-out {
   to {
     opacity: 0;
-    transform: translateX(24px) scale(0.95);
+    transform: translateX(24px);
   }
 }
 
 @keyframes pulse-green {
-  0%, 100% { box-shadow: 0 0 4px rgba(166, 227, 161, 0.3); }
-  50% { box-shadow: 0 0 10px rgba(166, 227, 161, 0.6); }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
 @keyframes spin {
@@ -3666,6 +3666,42 @@ textarea.input {
 @keyframes skeleton-pulse {
   0%, 100% { opacity: 0.06; }
   50% { opacity: 0.12; }
+}
+
+/*
+ * THE TWO NAMED MOTION PATTERNS, Notion restyle phase P2, work package P2.5.
+ * DESIGN-SPEC.md 1.6: "The mock defines two local keyframes and uses nothing
+ * else." Authoring them here gives every later phase one entrance and one
+ * pulse to reach for instead of inventing a third.
+ *
+ * mwFadein is FUNCTIONAL: it is the entrance for every overlay, at 150ms with
+ * --ease-out. It animates opacity and a 4px drop and nothing else. The 4px
+ * limit is not aesthetic: app.js:18568 unhides the context menu and reads
+ * getBoundingClientRect() immediately to clamp it against the viewport, and a
+ * scale() or a larger offset returns a rect the clamp cannot use
+ * (DO-NOT-BREAK D.7). It stays outside the reduced-motion gate because the
+ * existing reduce blocks zero it along with every other entrance.
+ *
+ * mwPulse is authored INSIDE prefers-reduced-motion: no-preference, which is
+ * the direction PROCEDURE step 10 requires: decorative motion is written so
+ * that reduced motion never has to switch it off, it simply never exists. A
+ * live status dot under `reduce` is then a static full-opacity dot, which is
+ * the accessibility floor's A6 and A7.
+ *
+ * Both become load-bearing in P3.2 (the chip and status-dot systems) and P4.1
+ * (menus and popovers). They are declared here because P2 owns the motion base
+ * layer, not because P2 consumes them.
+ */
+@keyframes mwFadein {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes mwPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
 }
 
 /* Skeleton loader */
@@ -4331,8 +4367,8 @@ body.cwm-dragging .sidebar-backdrop {
 }
 
 @keyframes ctx-in {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
 }
 
 .context-menu[hidden] {
@@ -6217,8 +6253,8 @@ html:not(.pane-colors-enabled) .instance-indicator-row {
 
 /* Pane pulse — short flash when navigating from a sidebar pip */
 @keyframes pane-nav-pulse {
-  0%   { background-color: rgba(205, 214, 244, 0.05); box-shadow: inset 0 0 0 3px var(--text), 0 0 16px rgba(205, 214, 244, 0.4); }
-  100% { background-color: transparent; box-shadow: inset 0 0 0 0 transparent, 0 0 0 transparent; }
+  0%   { background-color: var(--app-bg-blue); box-shadow: inset 0 0 0 2px var(--app-ui-blue); }
+  100% { background-color: transparent; box-shadow: none; }
 }
 .pane-nav-pulse::after {
   content: "";
@@ -6436,7 +6472,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 @keyframes rename-flash {
-  0% { background: rgba(166, 227, 161, 0.2); }
+  0% { background: var(--app-bg-green); }
   100% { background: transparent; }
 }
 
@@ -7309,7 +7345,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 .kanban-card:hover {
   border-color: var(--surface1);
   box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
+  transform: none;
 }
 
 /* Preserve left border color on hover */
@@ -8817,10 +8853,10 @@ html.activity-indicators-disabled .terminal-pane-activity {
 /* ═══════════════════════════════════════════════════════════ */
 
 @keyframes rgb-border-glow {
-  0%   { border-color: var(--mauve); box-shadow: inset 0 0 0 1px var(--mauve), 0 0 8px rgba(203, 166, 247, 0.15); }
-  33%  { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue), 0 0 8px rgba(137, 180, 250, 0.15); }
-  66%  { border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal), 0 0 8px rgba(148, 226, 213, 0.15); }
-  100% { border-color: var(--mauve); box-shadow: inset 0 0 0 1px var(--mauve), 0 0 8px rgba(203, 166, 247, 0.15); }
+  0%   { border-color: var(--app-border-primary); box-shadow: none; }
+  33%  { border-color: var(--app-border-primary); box-shadow: none; }
+  66%  { border-color: var(--app-border-primary); box-shadow: none; }
+  100% { border-color: var(--app-border-primary); box-shadow: none; }
 }
 
 .terminal-pane-loading {
@@ -8840,9 +8876,9 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 @keyframes loading-dot-pulse {
-  0%, 100% { background: var(--mauve); }
-  33% { background: var(--blue); }
-  66% { background: var(--teal); }
+  0%, 100% { background: var(--app-text-tertiary); opacity: 1; }
+  33% { background: var(--app-text-tertiary); opacity: 0.45; }
+  66% { background: var(--app-text-tertiary); opacity: 1; }
 }
 
 .terminal-pane-loading .terminal-pane-title::after {
@@ -8857,7 +8893,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 
 /* Terminal pane done - green flash when Claude finishes working */
 @keyframes pane-done-flash {
-  0% { box-shadow: inset 0 0 0 2px var(--green), 0 0 12px rgba(166, 227, 161, 0.3); }
+  0% { box-shadow: inset 0 0 0 2px var(--app-text-green); }
   100% { box-shadow: none; }
 }
 
@@ -8883,7 +8919,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 
 /* Respect reduced motion for completion notifications */
 @media (prefers-reduced-motion: reduce) {
-  .terminal-pane-done { animation: none; box-shadow: inset 0 0 0 2px var(--green); }
+  .terminal-pane-done { animation: none; box-shadow: inset 0 0 0 2px var(--app-text-green); }
   .terminal-group-tab.tab-notify::after { animation: none; }
 }
 
@@ -8904,8 +8940,8 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 @keyframes drag-merge-pulse {
-  0%, 100% { box-shadow: 0 0 4px var(--mauve), inset 0 0 0 1px var(--mauve); }
-  50% { box-shadow: 0 0 12px var(--mauve), inset 0 0 0 1px var(--mauve); }
+  0%, 100% { box-shadow: inset 0 0 0 2px var(--app-ui-blue); }
+  50% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--app-ui-blue) 45%, transparent); }
 }
 
 /* ═══════════════════════════════════════════════════════════ */
@@ -10633,7 +10669,7 @@ html {
 }
 
 @keyframes sm-slide-in {
-  from { opacity: 0; transform: translateY(-8px); }
+  from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -12677,12 +12713,12 @@ html {
 }
 @keyframes session-live-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 55%, transparent);
+    box-shadow: none;
     opacity: 1;
   }
   50% {
-    box-shadow: 0 0 0 4px transparent;
-    opacity: 0.65;
+    box-shadow: none;
+    opacity: 0.45;
   }
 }
 @media (prefers-reduced-motion: reduce) {
