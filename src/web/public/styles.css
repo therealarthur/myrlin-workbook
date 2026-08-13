@@ -4859,26 +4859,52 @@ body.cwm-dragging .sidebar-backdrop {
 
 /* ─── Context Menu ─────────────────────────────────────────── */
 
+/*
+ * THE MENU RECIPE, Notion restyle phase P4, work package P4.1.
+ * BUILD-CONTRACT 2.4 and DESIGN-SPEC 8.2: one shadow token, one radius, one
+ * entrance, across every menu and popover in the app.
+ *
+ * The 240px width is written as a literal rather than as a token on purpose.
+ * The capture's own --app-menu-width is 320px and DESIGN-SPEC 8.2 narrows it
+ * with an INLINE override on the menu element ("the design system's .nt-menu
+ * with three inline overrides ... width:240px"), so 240 is a mock-local
+ * instance value, not a system token. Inventing --app-menu-width-workbook to
+ * hold it would add a token the capture does not have (INVENTIONS.md friction)
+ * for a number used exactly once.
+ *
+ * It is a min-width, not a width: the label is a single text node emitted by
+ * _renderContextItems and the "Move to" section rows carry arbitrary project
+ * names. .ctx-label (added in the same work package) ellipsises inside the
+ * 240px, so a long name truncates rather than widening the menu; min-width
+ * keeps a pathological zero-item menu from collapsing.
+ *
+ * The entrance is mwFadein, not the local ctx-in: app.js unhides the menu and
+ * reads getBoundingClientRect() immediately to clamp against the viewport
+ * (DO-NOT-BREAK D.7), so the entrance must not change the layout rect.
+ * DECISIONS 10.2.4 records the scale() that made the clamp wrong.
+ */
 .context-menu {
   position: fixed;
   z-index: 10000;
-  min-width: 180px;
+  min-width: 240px;
+  max-width: 240px;
   /* overflow must be visible so submenus (position: absolute, left: 100%)
      aren't clipped - scrolling is on the inner .context-menu-items instead */
   overflow: visible;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pane-frame);
-  padding: 4px;
-  box-shadow: var(--shadow-lg);
-  animation: ctx-in 0.12s ease-out;
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-app-button);
+  padding: var(--app-menu-pad);
+  box-shadow: var(--app-shadow-menu);
+  font-size: var(--app-body-size);
+  animation: mwFadein var(--duration-150) var(--ease-out);
 }
 
 .context-menu > .context-menu-items {
   max-height: calc(100vh - 24px);
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--surface2) transparent;
+  scrollbar-color: var(--app-border-strong) transparent;
 }
 
 .context-menu > .context-menu-items::-webkit-scrollbar {
@@ -4890,7 +4916,7 @@ body.cwm-dragging .sidebar-backdrop {
 }
 
 .context-menu > .context-menu-items::-webkit-scrollbar-thumb {
-  background: var(--surface2);
+  background: var(--app-border-strong);
   border-radius: var(--radius-row-icon);
 }
 
@@ -4903,89 +4929,127 @@ body.cwm-dragging .sidebar-backdrop {
   display: none !important;
 }
 
+/*
+ * Menu row: 28px minimum height, 0 10px padding, 4px radius, per
+ * BUILD-CONTRACT 2.4. min-height rather than height so a wrapped or
+ * icon-taller row still grows; the row is a flex line, so the intrinsic
+ * height of a 15px glyph never fights the box.
+ */
 .context-menu-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 8px;
+  min-height: var(--app-menu-row-height);
+  padding: var(--app-menu-row-pad);
   border: none;
   background: none;
-  color: var(--text-primary);
-  font-size: 13px;
+  color: var(--app-text-primary);
+  font-size: var(--app-body-size);
+  line-height: var(--app-chip-line);
   font-family: inherit;
   cursor: pointer;
-  border-radius: var(--radius-app-button);
+  border-radius: var(--radius-property-chip);
   width: 100%;
   text-align: left;
   white-space: nowrap;
 }
 
-.context-menu-item:hover {
-  background: var(--bg-hover);
+.nt-enable-hover .context-menu-item:hover {
+  background: var(--app-wash-hover);
+}
+
+/*
+ * The label is the flexible middle of the row. _renderContextItems used to
+ * emit it as a bare text node, which cannot be ellipsised: an anonymous flex
+ * item has no box of its own. The same work package wraps it in this span so
+ * the 240px menu truncates a long project name instead of overflowing it.
+ */
+.context-menu-item .ctx-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .context-menu-item .ctx-icon {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  opacity: 0.7;
+  color: var(--app-icon-secondary);
+}
+
+.context-menu-item .ctx-icon svg,
+.context-menu-item .ctx-icon img {
+  width: 15px;
+  height: 15px;
 }
 
 .context-menu-item .ctx-check {
   margin-left: auto;
-  opacity: 0.4;
-  font-size: 12px;
+  font-size: var(--app-small-body-size);
+  color: var(--app-icon-tertiary);
 }
 
-/* Checked items get bright green checkmark and slightly highlighted text */
+/*
+ * The selected row in a radio-style group is marked with a CHECK in the icon
+ * slot, never with a highlight and never with a radio (DESIGN-SPEC 8.2). The
+ * check is therefore the row's only state signal, so it takes primary ink
+ * rather than a hue: a green tick would read as "succeeded" next to a menu of
+ * models, which is a different meaning.
+ */
 .context-menu-item.ctx-checked .ctx-check {
-  color: var(--green);
-  opacity: 1;
-  font-weight: 700;
+  color: var(--app-icon-primary);
+  font-weight: 600;
 }
 
 .context-menu-item.ctx-checked {
-  color: var(--text);
+  color: var(--app-text-primary);
+  font-weight: 500;
 }
 
-/* Danger items (e.g. bypass permissions when active) - red text and bright red check */
+/* Danger items (e.g. bypass permissions when active) - red ink, no fill. */
 .context-menu-item.ctx-danger {
-  color: var(--red);
+  color: var(--app-text-red);
 }
 
 .context-menu-item.ctx-danger.ctx-checked {
-  color: var(--red);
-  background: rgba(243, 139, 168, 0.08);
+  color: var(--app-text-red);
+  background: var(--app-bg-red);
 }
 
 .context-menu-item.ctx-danger.ctx-checked .ctx-check {
-  color: var(--red);
-  opacity: 1;
-  font-weight: 700;
+  color: var(--app-text-red);
+  font-weight: 600;
 }
 
-.context-menu-item.ctx-danger:hover {
-  background: rgba(243, 139, 168, 0.15);
+.nt-enable-hover .context-menu-item.ctx-danger:hover {
+  background: var(--app-bg-red);
 }
 
 .context-menu-sep {
   height: 1px;
-  background: var(--border);
-  margin: 4px 8px;
+  background: var(--app-divider);
+  margin: 4px 0;
 }
 
-/* Section label on separator (e.g. "Environment") */
+/*
+ * A labelled separator is the menu SECTION header (DESIGN-SPEC 8.2
+ * .nt-menu-section): 12px/500 tertiary, sentence case. The 10px tracked-out
+ * uppercase treatment it carried is the idiom the restyle removes everywhere
+ * except the single Quick Find group header (BUILD-CONTRACT 2.13.2).
+ * The rule keeps `height: auto` behaviour by growing the label's own box; the
+ * focused-shell.css pin on .context-menu-sep-labeled is untouched.
+ */
 .context-menu-sep .ctx-sep-label {
   display: block;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
-  padding: 4px 4px 0;
+  font-size: var(--app-small-body-size);
+  font-weight: 500;
+  color: var(--app-text-tertiary);
+  padding: 8px 10px 4px;
   margin-top: -2px;
 }
 
@@ -5014,15 +5078,15 @@ body.cwm-dragging .sidebar-backdrop {
 
 .ctx-hint {
   margin-left: auto;
-  font-size: 11px;
-  color: var(--text-secondary);
-  opacity: 0.6;
+  font-size: var(--app-small-body-size);
+  color: var(--app-text-tertiary);
   padding-right: 4px;
+  flex-shrink: 0;
 }
 
 .ctx-arrow {
-  font-size: 10px;
-  opacity: 0.5;
+  font-size: var(--app-small-body-size);
+  color: var(--app-icon-tertiary);
   flex-shrink: 0;
 }
 
@@ -5031,18 +5095,26 @@ body.cwm-dragging .sidebar-backdrop {
   /* Use fixed positioning so submenus escape all ancestor overflow contexts.
      Actual top/left values are computed in JS when submenu opens. */
   position: fixed;
-  min-width: 160px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pane-frame);
-  padding: 4px;
-  box-shadow: var(--shadow-lg);
+  min-width: 200px;
+  max-width: 240px;
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-app-button);
+  padding: var(--app-menu-pad);
+  box-shadow: var(--app-shadow-menu);
   z-index: 10001;
 }
 
+/*
+ * The submenu must be MEASURABLE the moment this class lands: app.js parks it
+ * at left:-9999px, adds the class and reads getBoundingClientRect() to decide
+ * which side to flip to (DO-NOT-BREAK D.7). display:block plus an
+ * opacity-only entrance keeps that read correct; visibility:hidden or a
+ * height animation would not.
+ */
 .ctx-submenu.ctx-submenu-visible {
   display: block;
-  animation: ctx-in 0.1s ease-out;
+  animation: mwFadein var(--duration-100) var(--ease-out);
 }
 
 /* ─── Discover Sessions ───────────────────────────────────── */
@@ -9594,18 +9666,26 @@ html {
   position: relative;
 }
 
+/*
+ * THE POPOVER RECIPE, Notion restyle P4.1 (BUILD-CONTRACT 2.4 row 2,
+ * DESIGN-SPEC 8.1). Elevated ground, one hairline, the 10px callout radius,
+ * the menu shadow, and mwFadein. Five surfaces share it: the theme dropdown,
+ * the account panel, the session manager, the conflict centre and the
+ * schedule popover. They differ in width and anchor and in nothing else.
+ */
 .theme-dropdown {
   position: absolute;
   top: 100%;
   right: 0;
   margin-top: 4px;
-  background: var(--mantle);
-  border: 1px solid var(--surface0);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-callout);
+  box-shadow: var(--app-shadow-menu);
   z-index: 100;
-  min-width: 140px;
-  padding: 4px;
+  min-width: 160px;
+  padding: var(--app-menu-pad);
+  animation: mwFadein var(--duration-150) var(--ease-out);
 }
 
 .theme-option {
@@ -9613,24 +9693,26 @@ html {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 10px;
+  min-height: var(--app-menu-row-height);
+  padding: var(--app-menu-row-pad);
   border: none;
   background: none;
-  color: var(--subtext1);
-  font-size: 12px;
+  color: var(--app-text-primary);
+  font-size: var(--app-body-size);
   font-family: inherit;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-property-chip);
   cursor: pointer;
   text-align: left;
 }
 
-.theme-option:hover {
-  background: var(--surface0);
-  color: var(--text);
+.nt-enable-hover .theme-option:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
 }
 
+/* Selected rows are marked by weight, never by a hue (DESIGN-SPEC 8.2). */
 .theme-option.active {
-  color: var(--mauve);
+  color: var(--app-text-primary);
   font-weight: 600;
 }
 
@@ -9815,12 +9897,16 @@ html {
   width: 380px;
   max-height: 70vh;
   overflow-y: auto;
-  background: var(--mantle);
-  border: 1px solid var(--surface0);
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-primary);
   border-radius: var(--radius-callout);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--app-shadow-menu);
   z-index: 100;
-  animation: account-panel-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* One entrance for every overlay (BUILD-CONTRACT 2.4). account-panel-in is
+     retained below because it is the same shape at the opposite sign, and
+     deleting a keyframe another surface may still reach for is not this
+     work package's call. */
+  animation: mwFadein var(--duration-150) var(--ease-out);
 }
 
 /* The author display rules above would beat the UA [hidden] rule. */
@@ -11270,15 +11356,15 @@ html {
   right: 120px;
   width: 420px;
   max-height: 70vh;
-  background: var(--mantle);
-  border: 1px solid var(--surface0);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-callout);
+  box-shadow: var(--app-shadow-menu);
   z-index: 1000;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: sm-slide-in 0.15s ease-out;
+  animation: mwFadein var(--duration-150) var(--ease-out);
 }
 
 @keyframes sm-slide-in {
@@ -11536,15 +11622,15 @@ html {
   right: 160px;
   width: 440px;
   max-height: 70vh;
-  background: var(--mantle);
-  border: 1px solid var(--surface0);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-callout);
+  box-shadow: var(--app-shadow-menu);
   z-index: 1000;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: sm-slide-in 0.15s ease-out;
+  animation: mwFadein var(--duration-150) var(--ease-out);
 }
 
 .conflict-center-header {
@@ -12813,15 +12899,16 @@ html {
   position: absolute;
   z-index: 10004;
   width: 360px; max-width: calc(100vw - 16px);
-  background: var(--surface0);
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-callout);
+  box-shadow: var(--app-shadow-menu);
   font-family: var(--font-sans, "Plus Jakarta Sans"), sans-serif;
-  font-size: 13px;
-  color: var(--text);
+  font-size: var(--app-small-title-size);
+  color: var(--app-text-primary);
   display: flex; flex-direction: column;
   overflow: hidden;
+  animation: mwFadein var(--duration-150) var(--ease-out);
 }
 .schedule-popover-tabs {
   display: flex; border-bottom: 1px solid var(--surface1);

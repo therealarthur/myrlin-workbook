@@ -1981,6 +1981,17 @@ class CWMApp {
     if (!shell || this._hoverGateEnabled === enabled) return;
     this._hoverGateEnabled = enabled;
     shell.classList.toggle('nt-enable-hover', enabled);
+    // The overlay layer is NOT inside #app. index.html closes #app at line
+    // 1531 and then opens every modal, the quick switcher, the toast stack,
+    // the action sheet and #context-menu as SIBLINGS of it. A hover rule
+    // written as `.nt-enable-hover .context-menu-item:hover`, which is the
+    // form BUILD-CONTRACT 2.1 and DESIGN-SPEC 1.7 prescribe, therefore never
+    // matches inside an overlay: the ancestor carrying the class is not on
+    // that branch of the tree. Mirroring the class onto <body> makes one
+    // selector reach both branches, so P4's hover sweep can be uniform
+    // instead of having two spellings for the same idiom. #app keeps the
+    // class as well, so anything already keyed to the shell is unaffected.
+    if (document.body) document.body.classList.toggle('nt-enable-hover', enabled);
   }
 
   /** Strip the gate for the duration of a scroll, then restore after idle. */
@@ -18853,8 +18864,11 @@ class CWMApp {
             if (sub.check) sCls.push('ctx-checked');
             if (sub.danger) sCls.push('ctx-danger');
             const sCheck = sub.check !== undefined ? `<span class="ctx-check">${sub.check ? '&#10003;' : ''}</span>` : '';
+            // Notion restyle P4.1: the label is wrapped so it can ellipsise
+            // inside the 240px menu. A bare text node is an anonymous flex
+            // item and text-overflow has no box to act on.
             return `<button class="${sCls.join(' ')}" data-sub-idx="${si}" role="menuitem">
-              ${this.escapeHtml(String(sub.label || ''))}${sCheck}
+              <span class="ctx-label">${this.escapeHtml(String(sub.label || ''))}</span>${sCheck}
             </button>`;
           }).join('') + '</div>';
       }
@@ -18865,7 +18879,7 @@ class CWMApp {
         ? ` data-attention-state="${item.attentionState}"`
         : '';
       return `<div class="ctx-item-wrapper" data-idx="${idx}" role="none"><button class="${cls.join(' ')}"${disabledAttr}${attentionAttr} data-action="${safeLabel}" role="menuitem"${submenuAttrs}>
-        <span class="ctx-icon">${item.icon || ''}</span>${safeLabel}${hint}${checkMark}${arrow}
+        <span class="ctx-icon">${item.icon || ''}</span><span class="ctx-label">${safeLabel}</span>${hint}${checkMark}${arrow}
       </button>${submenuHtml}</div>`;
     }).join('');
 
