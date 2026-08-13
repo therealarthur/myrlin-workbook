@@ -614,8 +614,11 @@ as `DEVIATIONS.md` DV-6, with the phase each edit moves to.
 | Measure | Before P1 | After P1 |
 | --- | --- | --- |
 | Bundle-family tokens compared by `notion-token-parity.test.js` | **0** (trivially passing) | **319** |
-| `styles.css` lines | 12202 | 12784 |
+| `styles.css` lines | 12202 | 12773 |
 | `semantic-theme.css` lines | 93 | 137 |
+| `index.html` lines | 2006 | 2102 |
+| `terminal.js` lines | 5275 | 5286 |
+| `app.js` lines | 25695 | 25771 |
 | Gate G4, Catppuccin `var()` in chrome | 1259 | **1229** |
 | Gate G10b, stale browser-lane pins | 1 (WARN) | **0** (PASS) |
 | G3, G5a, G5b, G6, G7, G8, G9a, G9b, G11, G12a, G12b | unchanged | unchanged |
@@ -636,6 +639,11 @@ Measured against the P1 gate additions in contract 5.2:
 | Body ink `#f0efed` dark | yes, `rgb(240, 239, 237)`, was `rgb(205, 214, 244)` |
 | Never `#000000` | yes |
 | Toggling `data-chrome` leaves no orphaned surface | see 9.5 |
+| **Reverting this phase alone restores the previous appearance completely** | **verified by reverting, not assumed.** On a scratch branch, `git revert --no-commit` of all six P1 commits produced a tree whose `src/web/public/` is **byte-identical** to `fe06712`, the commit P1 branched from: `git diff fe06712 -- src/web/public/` returns nothing. Since appearance is a pure function of those files, the restoration is exact rather than approximate. The scratch branch was deleted and the working tree restored; the two concurrent tracks' uncommitted work was untouched throughout. |
+
+Every file P1 touched grew. No file shrank, in line with the code-preservation rule: the three
+removed `<link>` tags in `index.html` are recorded in a comment rather than dropped, and
+`--radius-xl` and `--shadow-md` are RETIRED-with-alias rather than deleted.
 
 ### 9.5 The P1 screenshots, and an honest reading of them
 
