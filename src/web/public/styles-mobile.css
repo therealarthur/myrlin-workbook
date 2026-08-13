@@ -348,7 +348,7 @@
   position: fixed;
   inset: 0;
   z-index: 10001;
-  background: rgba(17, 17, 27, 0.5);
+  background: var(--app-scrim);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   animation: overlay-in 0.15s ease;
@@ -374,18 +374,29 @@
 .action-sheet-handle {
   width: 36px;
   height: 4px;
-  background: var(--surface2);
+  background: var(--app-border-strong);
   border-radius: 2px;
   margin: 0 auto 12px;
 }
 
+/*
+  Notion restyle P10.6, gate G7. Nothing in this product shouts except the
+  one sanctioned label, the Quick Find group header. These two mobile
+  labels were the survivors DEVIATIONS DV-19 recorded, and DV-19 named
+  this phase as the one that would reach them, because the phone action
+  sheet is a surface P10 rebuilds anyway.
+
+  Sentence case with the tracking removed. Tracking is negative above 16px
+  and positive only at 12px in this system, so a positive 0.5px on a 13px
+  label was wrong on both counts.
+*/
 .action-sheet-header {
   padding: 4px 4px 12px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .action-sheet-header:empty {
@@ -452,22 +463,22 @@
 
 /* Checked items - bright green checkmark */
 .action-sheet-item.as-checked .as-check {
-  color: var(--green);
+  color: var(--app-text-green);
   opacity: 1;
   font-weight: 700;
 }
 
 .action-sheet-item.as-danger {
-  color: var(--red);
+  color: var(--app-text-red);
 }
 
 .action-sheet-item.as-danger.as-checked {
-  color: var(--red);
-  background: rgba(243, 139, 168, 0.08);
+  color: var(--app-text-red);
+  background: var(--app-bg-red);
 }
 
 .action-sheet-item.as-danger.as-checked .as-check {
-  color: var(--red);
+  color: var(--app-text-red);
   opacity: 1;
   font-weight: 700;
 }
@@ -491,14 +502,17 @@
   border-top: 1px solid var(--border);
 }
 
+/* The second G7 survivor, same ruling. A group heading inside a sheet is
+   read before the rows under it, so it takes the section-label recipe the
+   rest of the phone IA uses rather than a tracked-out shout. */
 .action-sheet-sep-labeled .as-sep-label {
   display: block;
   color: var(--text-tertiary);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
   line-height: 16px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .action-sheet-cancel {
@@ -506,7 +520,7 @@
   width: 100%;
   padding: 14px;
   margin-top: 8px;
-  background: var(--surface0);
+  background: var(--app-bg-tertiary);
   border: none;
   border-radius: 10px;
   color: var(--text-primary);
@@ -518,7 +532,7 @@
 }
 
 .action-sheet-cancel:active {
-  background: var(--surface1);
+  background: var(--app-wash-press);
 }
 
 @keyframes sheet-up {
@@ -537,8 +551,8 @@
   .terminal-tab-strip {
     display: flex;
     gap: 0;
-    background: var(--crust);
-    border-bottom: 1px solid var(--surface0);
+    background: var(--app-bg-secondary);
+    border-bottom: 1px solid var(--app-border-secondary);
     overflow-x: auto;
     flex-shrink: 0;
     -webkit-overflow-scrolling: touch;
@@ -577,7 +591,7 @@
     font-family: inherit;
     border: none;
     border-bottom: 2px solid transparent;
-    color: var(--overlay0);
+    color: var(--app-text-secondary);
     background: none;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
@@ -585,16 +599,16 @@
   }
 
   .terminal-tab.active {
-    color: var(--green);
-    border-bottom-color: var(--green);
+    color: var(--app-text-primary);
+    border-bottom-color: var(--app-text-primary);
   }
 
   .terminal-tab:active {
-    background: var(--surface0);
+    background: var(--app-wash-press);
   }
 
   .terminal-tab-add {
-    color: var(--overlay1);
+    color: var(--app-text-secondary);
     font-size: 16px;
     padding: 10px 14px;
   }
@@ -608,7 +622,7 @@
     border-radius: 4px;
     background: none;
     border: none;
-    color: var(--overlay0);
+    color: var(--app-text-tertiary);
     font-size: 12px;
     cursor: pointer;
     padding: 0;
@@ -621,7 +635,7 @@
   }
 
   .terminal-tab-close:active {
-    background: var(--surface1);
+    background: var(--app-wash-press);
     opacity: 1;
   }
 
@@ -812,7 +826,7 @@
     justify-content: center;
     gap: 6px;
     padding: 4px 0;
-    background: var(--crust);
+    background: var(--app-bg-secondary);
     flex-shrink: 0;
   }
 
@@ -820,12 +834,12 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--surface2);
+    background: var(--app-border-strong);
     transition: background 150ms ease, transform 150ms ease;
   }
 
   .terminal-pane-indicator .indicator-dot.active {
-    background: var(--green);
+    background: var(--app-text-green);
     transform: scale(1.3);
   }
 }
@@ -843,8 +857,8 @@
     gap: 4px;
     padding: 6px 8px;
     /* No safe-area padding here - .app-body already accounts for bottom tab bar */
-    background: var(--mantle);
-    border-top: 1px solid var(--surface0);
+    background: var(--app-bg-secondary);
+    border-top: 1px solid var(--app-border-secondary);
     flex-shrink: 0;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -863,8 +877,8 @@
     min-height: 38px;
     padding: 6px 12px;
     border-radius: 8px;
-    background: var(--surface0);
-    border: 1px solid var(--surface1);
+    background: var(--app-bg-tertiary);
+    border: 1px solid var(--app-border-primary);
     color: var(--text-secondary);
     font-size: 13px;
     font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
@@ -874,14 +888,14 @@
   }
 
   .terminal-mobile-toolbar button:active {
-    background: var(--surface1);
+    background: var(--app-wash-press);
     color: var(--text-primary);
   }
 
   .terminal-mobile-toolbar .toolbar-keyboard {
-    background: var(--surface1);
-    color: var(--blue);
-    border-color: var(--surface2);
+    background: var(--app-bg-tertiary);
+    color: var(--app-text-blue);
+    border-color: var(--app-border-strong);
     font-weight: 600;
     font-family: inherit;
     min-width: 72px;
@@ -889,9 +903,9 @@
   }
 
   .terminal-mobile-toolbar .toolbar-keyboard.toolbar-active {
-    background: var(--blue);
-    color: var(--crust);
-    border-color: var(--blue);
+    background: var(--app-accent-blue);
+    color: var(--app-on-accent);
+    border-color: var(--app-accent-blue);
   }
 
   .terminal-mobile-toolbar .toolbar-keyboard:active {
@@ -899,9 +913,9 @@
   }
 
   .terminal-mobile-toolbar .toolbar-send {
-    background: var(--green);
-    color: var(--crust);
-    border-color: var(--green);
+    background: var(--app-accent-blue);
+    color: var(--app-on-accent);
+    border-color: var(--app-accent-blue);
     font-weight: 600;
     font-family: inherit;
     min-width: 56px;
@@ -947,8 +961,8 @@
     display: none;
     gap: 6px;
     padding: 8px 10px 10px;
-    background: var(--mantle);
-    border-top: 1px solid var(--surface0);
+    background: var(--app-bg-secondary);
+    border-top: 1px solid var(--app-border-secondary);
     flex-shrink: 0;
     align-items: center;
   }
@@ -977,9 +991,9 @@
     height: 44px;
     padding: 6px 12px;
     border-radius: 8px;
-    background: var(--surface0);
-    border: 1px solid var(--surface1);
-    color: var(--text-primary);
+    background: var(--app-bg-primary);
+    border: 1px solid var(--app-border-primary);
+    color: var(--app-text-primary);
     font-size: 16px;
     /* The composer is prose, not code: it takes the app UI stack so
        autocorrect suggestions and emoji render as the platform draws
@@ -991,8 +1005,8 @@
   }
 
   .terminal-mobile-input-row input:focus {
-    border-color: var(--blue);
-    box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.2);
+    border-color: var(--app-accent-blue);
+    box-shadow: var(--app-input-focus-ring);
   }
 
   /* The image and microphone buttons the mock draws at 36px. The floor
@@ -1046,8 +1060,8 @@
     height: 44px;
     padding: 6px 14px;
     border-radius: 8px;
-    background: var(--green);
-    color: var(--crust);
+    background: var(--app-accent-blue);
+    color: var(--app-on-accent);
     border: none;
     font-weight: 600;
     font-size: 13px;
@@ -1119,7 +1133,7 @@
     flex-shrink: 0;
     position: sticky;
     right: 0;
-    background: var(--mantle);
+    background: var(--app-bg-secondary);
     color: var(--app-text-secondary);
   }
 }
@@ -1159,7 +1173,7 @@
     gap: 4px;
     font-size: 10px;
     font-weight: 500;
-    color: var(--crust);
+    color: var(--app-on-accent);
     border: none;
     cursor: pointer;
   }
@@ -1170,11 +1184,11 @@
   }
 
   .swipe-action-terminal {
-    background: var(--green);
+    background: var(--app-text-green);
   }
 
   .swipe-action-hide {
-    background: var(--red);
+    background: var(--app-text-red);
   }
 }
 
@@ -1352,7 +1366,7 @@
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     border-right: 0;
-    border-bottom: 1px solid var(--border-subtle, var(--surface0));
+    border-bottom: 1px solid var(--app-border-secondary);
     scrollbar-width: none;
   }
 
@@ -1399,8 +1413,8 @@
      gradient uses opaque-black to transparent purely as an alpha mask (it is
      theme-independent, not a visible color). */
   .terminal-groups-tabs {
-    -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent);
-    mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent);
+    -webkit-mask-image: linear-gradient(90deg, black 0, black calc(100% - 24px), transparent);
+    mask-image: linear-gradient(90deg, black 0, black calc(100% - 24px), transparent);
     scroll-snap-type: x proximity;
   }
 
@@ -1446,7 +1460,7 @@
     position: fixed;
     inset: 0;
     z-index: 10000;
-    background: color-mix(in srgb, var(--crust) 60%, transparent);
+    background: var(--app-scrim);
     animation: overlay-in 0.15s ease;
   }
 
@@ -1485,7 +1499,7 @@
     display: block;
     width: 36px;
     height: 4px;
-    background: var(--surface2);
+    background: var(--app-border-strong);
     border-radius: 2px;
     margin: 8px auto 4px;
   }
@@ -1563,7 +1577,7 @@
     flex-direction: column;
     gap: 5px;
     padding: 8px 16px 10px;
-    border-bottom: 1px solid var(--surface0);
+    border-bottom: 1px solid var(--app-border-secondary);
   }
 
   /* Roomier grid than the header widget: the track flexes to the sheet
@@ -1583,7 +1597,7 @@
      distinction is spelled out inline. */
   .account-panel-meter-note {
     font-size: 10px;
-    color: var(--overlay0);
+    color: var(--app-text-tertiary);
     margin-top: 2px;
   }
 
