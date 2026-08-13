@@ -403,7 +403,7 @@
   padding: 4px 4px 12px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   text-transform: none;
   letter-spacing: 0;
 }
@@ -516,7 +516,7 @@
    rest of the phone IA uses rather than a tracked-out shout. */
 .action-sheet-sep-labeled .as-sep-label {
   display: block;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0;
@@ -631,7 +631,7 @@
     border-radius: 4px;
     background: none;
     border: none;
-    color: var(--app-text-tertiary);
+    color: var(--ink-meta);
     font-size: 12px;
     cursor: pointer;
     padding: 0;
@@ -1606,7 +1606,7 @@
      distinction is spelled out inline. */
   .account-panel-meter-note {
     font-size: 10px;
-    color: var(--app-text-tertiary);
+    color: var(--ink-meta);
     margin-top: 2px;
   }
 
@@ -1838,7 +1838,7 @@
     flex-shrink: 0;
     font-size: 15px;
     line-height: 1;
-    color: var(--app-text-tertiary);
+    color: var(--ink-meta);
   }
 
   .mobile-home-banner .mobile-home-banner-chevron {
@@ -1949,7 +1949,7 @@
   .mobile-recent-row .recent-row-time {
     flex-shrink: 0;
     font-size: 12px;
-    color: var(--app-text-tertiary);
+    color: var(--ink-meta);
   }
 
   .mobile-home-seeall {
@@ -1962,7 +1962,7 @@
     border: none;
     border-radius: var(--radius-block-hover);
     background: transparent;
-    color: var(--app-text-tertiary);
+    color: var(--ink-meta);
     font-family: inherit;
     font-size: 13px;
     text-align: left;
@@ -2012,19 +2012,19 @@
   .mobile-home-row-detail {
     flex-shrink: 0;
     font-size: 12px;
-    color: var(--app-text-tertiary);
+    color: var(--ink-meta);
   }
 
   .mobile-home-meta {
     margin: 16px 2px 0;
     font-size: 11px;
-    color: var(--app-text-tertiary);
+    color: var(--ink-meta);
   }
 
   .mobile-home-empty {
     margin: 8px 2px;
     font-size: 13px;
-    color: var(--app-text-tertiary);
+    color: var(--ink-meta);
   }
 
   /* ─── Attention rows ────────────────────────────────────────

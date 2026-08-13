@@ -95,8 +95,49 @@
 
      --app-text-disabled is not orphaned by this: it is the correct token for a
      genuinely disabled control, and P3.1's disabled-button recipe is where it
-     belongs. */
-  --text-muted: var(--app-text-tertiary);
+     belongs.
+
+     REVISED AGAIN IN P12, and again the reason is a measurement. The P2.6
+     re-pairing fixed the wrong half of the problem: it moved 29 sites off an
+     ink that means "unavailable", but it moved them onto an ink that measures
+     2.67:1 on the light canvas, so live label copy stayed under both the 4.5:1
+     body floor AND the 3:1 large-text floor. P12's ruling introduces
+     --ink-meta, the role token below, and points --text-muted at it. Every one
+     of the 29 sites is now at 4.27:1 light and 7.52:1 dark. DECISIONS 19 has
+     the full table and DEVIATIONS DV-10 is closed by it. */
+  --text-muted: var(--ink-meta);
+
+  /*
+   * P12 CONTRAST RECONCILIATION, the two role tokens. DECISIONS 19.
+   *
+   * --ink-meta is the ink for meta, hint and label copy: text that is
+   * subordinate to the body but is still text a person has to read. It is NOT
+   * an invented colour and it is NOT a darkened capture, both of which
+   * PROCEDURE 4.2 forbids. It is a RE-PAIRING onto --app-text-secondary, which
+   * is the only captured ink that clears 3:1 against every ground this
+   * application paints in BOTH chromes:
+   *
+   *   light  #7d7a75 on #ffffff 4.27:1, on #f9f8f7 4.03:1, on #f0efed 3.72:1
+   *   dark   #ada9a3 on #191919 7.52:1, on #202020 6.97:1, on #383836 5.03:1
+   *
+   * The ink it replaces, --app-text-tertiary, measures 2.67:1 / 2.52:1 / 2.32:1
+   * light and 4.11:1 / 3.81:1 / 2.75:1 dark on the same three grounds, so it
+   * failed the 3:1 floor in five of those six pairings. Tertiary is NOT
+   * removed: it remains correct for genuinely decorative marks, which in this
+   * sheet means every non-`color:` use of it (washes, fills, tracks, rules).
+   *
+   * --edge-control is the same reasoning applied to a boundary rather than to
+   * text. It is used ONLY where a 1px line is the thing that identifies a
+   * control, which after the P12 audit is two places: the application field's
+   * hairline and the switch's off-state track. --app-border-primary measures
+   * 1.26:1 there and --app-border-strong 1.50:1, so neither clears the 3:1
+   * non-text floor and neither can be darkened. The two tokens carry the same
+   * value today because one captured ink satisfies both roles; they are
+   * separate names because a text ink and a boundary ink are separate
+   * decisions and a later phase must be able to move one without the other.
+   */
+  --ink-meta: var(--app-text-secondary);
+  --edge-control: var(--app-text-secondary);
   /* The cheapest single lever in the restyle: --accent feeds --color-focus
      in semantic-theme.css and both pinned :focus-visible rules, so the
      focus ring becomes the Notion blue with no call-site edit. */
@@ -1272,18 +1313,35 @@ h4 {
  * DEVIATIONS.md DV-8 records why: an outline is what every other control gets,
  * and a field is the one control whose ring the capture actually specifies.
  *
- * CONTRAST: value ink 13.98:1 light and 14.18:1 dark. The placeholder is
- * --app-text-tertiary at 2.67:1 light and 4.11:1 dark, and the hairline is
- * 1.26:1 against the ground. Both are captured values and both are under
- * their floors; DEVIATIONS.md DV-15 records them together with the reason
- * darkening is not the available move.
+ * CONTRAST, as measured in P3: value ink 13.98:1 light and 14.18:1 dark. The
+ * placeholder was --app-text-tertiary at 2.67:1 light and 4.11:1 dark, and the
+ * hairline --app-border-primary at 1.26:1 against the ground. Both were
+ * captured values and both were under their floors; DEVIATIONS.md DV-15
+ * recorded them together with the reason darkening is not the available move.
+ *
+ * P12 RECONCILIATION. Darkening is still not the available move, and neither
+ * is inventing a colour, so both go to their role tokens instead:
+ *
+ *   placeholder  --ink-meta      2.67 -> 4.27:1 light, 4.11 -> 7.52:1 dark
+ *   hairline     --edge-control  1.26 -> 4.27:1 light, 1.50 -> 6.97:1 dark
+ *
+ * The hairline is in scope because a field with a transparent-to-the-canvas
+ * ground has NOTHING else that says where it starts: the boundary IS the
+ * control, which is exactly what the 3:1 non-text floor is written for. The
+ * hover keeps a step above the rest state by moving to
+ * --app-text-accent-primary, which is darker in light chrome and lighter in
+ * dark, so "more prominent" means the same thing in both.
+ *
+ * The visible cost is real and is recorded as DEVIATIONS.md DV-P12-1: the
+ * capture's field boundary is a whisper and this one is a line. The floor is
+ * not negotiable and the whisper is.
  */
 .input {
   width: 100%;
   height: var(--app-input-height);
   padding: 0 8px;
   background: var(--app-bg-primary);
-  border: 1px solid var(--app-border-primary);
+  border: 1px solid var(--edge-control);
   border-radius: var(--radius-app-button);
   color: var(--app-text-primary);
   font-family: var(--font-sans);
@@ -1293,11 +1351,11 @@ h4 {
 }
 
 .input::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .input:hover {
-  border-color: var(--app-border-strong);
+  border-color: var(--app-text-accent-primary);
 }
 
 .input:focus {
@@ -2109,7 +2167,7 @@ textarea.input {
 }
 
 .header-breadcrumb .crumb-sep {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   flex-shrink: 0;
 }
 
@@ -2545,7 +2603,7 @@ textarea.input {
 
 .sidebar-meta {
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* Workspace Item
@@ -2688,7 +2746,7 @@ textarea.input {
   font-size: 12px;
   font-weight: 400;
   line-height: 1;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   background: transparent;
   border-radius: var(--radius-property-chip);
   padding: 1px 2px;
@@ -2820,7 +2878,7 @@ textarea.input {
 
 .ws-session-size {
   font-size: 11px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   white-space: nowrap;
   margin-left: auto;
   padding: 0 4px;
@@ -2828,7 +2886,7 @@ textarea.input {
 
 .ws-session-time {
   font-size: 11px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   white-space: nowrap;
   flex-shrink: 0;
   margin-left: auto;
@@ -2837,7 +2895,7 @@ textarea.input {
 .ws-session-empty {
   padding: 4px 8px 4px 30px;
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* The discovered tree's own empty line, which used to be an inline style
@@ -2846,7 +2904,7 @@ textarea.input {
 .project-session-empty {
   padding: 6px 12px 6px 28px;
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -2949,7 +3007,7 @@ textarea.input {
   padding: 4px 8px;
   border: none;
   background: none;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   font-family: inherit;
   font-size: 12px;
   text-align: left;
@@ -3186,7 +3244,7 @@ textarea.input {
 
 .session-table thead th.sort-active::after {
   content: ' \2193';
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .session-table thead th.sort-active.sort-asc::after {
@@ -3264,7 +3322,7 @@ textarea.input {
  */
 .session-topic {
   font-size: 13px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3287,7 +3345,7 @@ textarea.input {
 
 .session-time {
   font-size: 13px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -3387,7 +3445,7 @@ textarea.input {
   padding: 0 8px;
   border: none;
   background: none;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   font-family: inherit;
   font-size: var(--app-body-size);
   border-radius: var(--radius-property-chip);
@@ -3591,7 +3649,7 @@ textarea.input {
   min-height: 30px;
   font-size: 13px;
   font-weight: 400;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   white-space: nowrap;
 }
 
@@ -3655,7 +3713,7 @@ textarea.input {
 }
 
 .detail-notes-editor::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .detail-notes-editor:focus-visible {
@@ -3716,7 +3774,7 @@ textarea.input {
 }
 
 .log-time {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   flex-shrink: 0;
   font-size: 11px;
 }
@@ -3730,7 +3788,7 @@ textarea.input {
   text-align: center;
   padding: 20px;
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* ─── Workspace Analytics ─────────────────────────────────── */
@@ -3881,7 +3939,7 @@ textarea.input {
   align-items: center;
   min-height: 24px;
   font-size: 13px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   padding: 0;
   background: transparent;
 }
@@ -4012,7 +4070,7 @@ textarea.input {
 
 .subagent-status {
   font-size: 11px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 @keyframes subagent-pulse {
@@ -4175,7 +4233,7 @@ textarea.input {
   left: 32px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   pointer-events: none;
 }
 
@@ -4191,7 +4249,7 @@ textarea.input {
 }
 
 .settings-search-input::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .settings-body {
@@ -4367,8 +4425,17 @@ textarea.input {
  * knob against the on-state 3.88:1, so the state is legible. The off track
  * against the card it sits on is 1.15:1 in light chrome and 1.50:1 in dark,
  * which is under the 3:1 boundary floor. That is the capture's own switch;
- * the --app-border-strong hairline below is the strongest mitigation available
- * inside the token set and DEVIATIONS.md DV-15 records the measurement.
+ * P3 mitigated it with an --app-border-strong hairline, which was the
+ * strongest thing reachable inside the token set at the time and still only
+ * reached about 1.50:1. DEVIATIONS.md DV-15 recorded the measurement.
+ *
+ * P12 RECONCILIATION. The hairline moves to --edge-control, which puts the
+ * off-state boundary at 4.27:1 against the light card and 6.97:1 against the
+ * dark one, and at 3.72:1 / 5.03:1 against the track it encloses. An OFF
+ * switch is a control whose only remaining signal is its outline, so this is
+ * the same case as the field hairline and takes the same token. The ON state
+ * is unchanged: it drops the hairline because a filled blue track needs no
+ * outline to be found.
  */
 .settings-toggle {
   position: relative;
@@ -4389,7 +4456,7 @@ textarea.input {
   position: absolute;
   inset: 0;
   background: var(--app-bg-tertiary);
-  box-shadow: inset 0 0 0 1px var(--app-border-strong);
+  box-shadow: inset 0 0 0 1px var(--edge-control);
   border-radius: var(--radius-pill);
   transition: background var(--duration-200) var(--ease-out);
 }
@@ -4502,13 +4569,13 @@ textarea.input {
 }
 
 .settings-number-input::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .settings-empty {
   padding: 24px;
   text-align: center;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   font-size: 13px;
 }
 
@@ -4628,7 +4695,7 @@ textarea.input {
 }
 
 .qs-icon {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   flex-shrink: 0;
 }
 
@@ -4643,7 +4710,7 @@ textarea.input {
 }
 
 .qs-search-input::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /*
@@ -4658,7 +4725,7 @@ textarea.input {
   background: none;
   border: 1px solid var(--app-border-primary);
   border-radius: var(--radius-property-chip);
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* Global search palette card + input (#search-panel / #search-input). These
@@ -4693,7 +4760,7 @@ textarea.input {
 }
 
 .qs-input::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .qs-results {
@@ -4774,7 +4841,7 @@ textarea.input {
 
 .qs-result-detail {
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4819,7 +4886,7 @@ textarea.input {
   background: none;
   border: 1px solid var(--app-border-primary);
   border-radius: var(--radius-property-chip);
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   margin-left: auto;
   flex-shrink: 0;
 }
@@ -4828,7 +4895,7 @@ textarea.input {
   padding: 24px;
   text-align: center;
   font-size: 13px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /*
@@ -4838,7 +4905,7 @@ textarea.input {
  */
 .qs-result-time {
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -4862,7 +4929,7 @@ textarea.input {
 
 .recent-row-project {
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4880,7 +4947,7 @@ textarea.input {
 
 .recent-row-time {
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -4897,7 +4964,7 @@ textarea.input {
   border-top: 1px solid var(--app-border-secondary);
   flex-shrink: 0;
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .qs-hint {
@@ -6200,7 +6267,7 @@ body.cwm-dragging .sidebar-backdrop {
   display: block;
   font-size: var(--app-small-body-size);
   font-weight: 500;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   padding: 8px 10px 4px;
   margin-top: -2px;
 }
@@ -6231,7 +6298,7 @@ body.cwm-dragging .sidebar-backdrop {
 .ctx-hint {
   margin-left: auto;
   font-size: var(--app-small-body-size);
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   padding-right: 4px;
   flex-shrink: 0;
 }
@@ -6316,7 +6383,7 @@ body.cwm-dragging .sidebar-backdrop {
 
 .discover-path {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   font-family: var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
@@ -6339,7 +6406,7 @@ body.cwm-dragging .sidebar-backdrop {
 
 .discover-time {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
 }
 
 .discover-badge {
@@ -6427,7 +6494,7 @@ body.cwm-dragging .sidebar-backdrop {
   box-shadow: var(--app-input-focus-ring);
 }
 .projects-search-input::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* Find a Conversation button */
@@ -6489,7 +6556,7 @@ body.cwm-dragging .sidebar-backdrop {
   box-shadow: var(--app-input-focus-ring);
 }
 .find-convo-input::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 .find-convo-search-btn {
   width: 38px;
@@ -6703,9 +6770,9 @@ body.cwm-dragging .sidebar-backdrop {
 }
 .nt-enable-hover .project-accordion-header:hover { background: var(--app-wash-hover); color: var(--app-text-primary); }
 .project-accordion-header .project-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
-.project-accordion-header .project-size { font-size: 11px; color: var(--app-text-tertiary); font-family: var(--font-mono); }
+.project-accordion-header .project-size { font-size: 11px; color: var(--ink-meta); font-family: var(--font-mono); }
 .project-accordion-header .project-session-count {
-  font-size: 12px; color: var(--app-text-tertiary); background: transparent;
+  font-size: 12px; color: var(--ink-meta); background: transparent;
   padding: 1px 2px; border-radius: var(--radius-property-chip); font-family: inherit;
 }
 .project-accordion-chevron {
@@ -6726,8 +6793,8 @@ body.cwm-dragging .sidebar-backdrop {
 }
 .nt-enable-hover .project-session-item:hover { background: var(--app-wash-hover); color: var(--app-text-primary); }
 .project-session-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.project-session-size { font-size: 11px; color: var(--app-text-tertiary); font-family: var(--font-mono); }
-.project-session-time { font-size: 11px; color: var(--app-text-tertiary); }
+.project-session-size { font-size: 11px; color: var(--ink-meta); font-family: var(--font-mono); }
+.project-session-time { font-size: 11px; color: var(--ink-meta); }
 /* Archived thread badge (e.g. Codex archived_sessions/): muted pill so ended threads stay visible but distinct */
 .project-session-archived { font-size: 9px; color: var(--overlay0); border: 1px solid var(--surface1); border-radius: var(--radius-property-chip); padding: 0 4px; text-transform: none; letter-spacing: normal; flex-shrink: 0; }
 .project-session-item.dragging { opacity: 0.4; }
@@ -7208,12 +7275,12 @@ body.cwm-dragging .sidebar-backdrop {
 
 .docs-item-done .docs-item-text {
   text-decoration: line-through;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .docs-note-time {
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   white-space: nowrap;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
@@ -7259,7 +7326,7 @@ body.cwm-dragging .sidebar-backdrop {
   flex-shrink: 0;
   font-size: 12px;
   padding: 2px 4px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   line-height: var(--app-body-line);
 }
 
@@ -7424,7 +7491,7 @@ body.cwm-dragging .sidebar-backdrop {
 
 .docs-empty {
   font-size: 13px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   padding: var(--app-block-pad);
   font-style: normal;
 }
@@ -7723,7 +7790,7 @@ body.cwm-dragging .sidebar-backdrop {
 }
 
 .docs-raw-editor::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* ─── Feature Board (Kanban) ────────────────────────────── */
@@ -7850,7 +7917,7 @@ body.cwm-dragging .sidebar-backdrop {
 .board-column-count {
   font-size: var(--app-body-size);
   font-family: inherit;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   background: none;
   padding: 0;
 }
@@ -7896,7 +7963,7 @@ body.cwm-dragging .sidebar-backdrop {
 
 .board-card-desc {
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7932,7 +7999,7 @@ body.cwm-dragging .sidebar-backdrop {
 
 .board-card-sessions {
   font-size: 11px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   font-family: var(--font-mono);
 }
 
@@ -8593,7 +8660,7 @@ body.cwm-dragging .sidebar-backdrop {
 .terminal-pane-empty .terminal-container {
   display: flex; align-items: center; justify-content: center;
   border: 1.5px dashed var(--app-border-strong); margin: 8px;
-  border-radius: var(--radius-pane-frame); color: var(--app-text-tertiary);
+  border-radius: var(--radius-pane-frame); color: var(--ink-meta);
   min-height: 120px;
   font-size: 13px;
   /* P5.5: the base .terminal-container rule now carries the TERMINAL ground,
@@ -9249,7 +9316,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 .terminal-group-tab-count {
   font-size: 12px;
   font-weight: 400;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   background: none;
   padding: 0;
 }
@@ -9454,7 +9521,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 .notes-editor-textarea::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .notes-editor-footer {
@@ -9869,7 +9936,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 .tasks-search-input::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .tasks-layout-toggle {
@@ -10342,7 +10409,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 .form-input::placeholder, .form-textarea::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* A real ring, not just a border tint. outline: none above removes the
@@ -10867,7 +10934,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 
 .costs-loading {
   text-align: center;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   padding: 48px 0;
   font-size: 13px;
 }
@@ -10927,7 +10994,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 
 .costs-card-sub {
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   margin-top: 2px;
 }
 
@@ -11007,7 +11074,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   align-items: center;
   justify-content: center;
   height: 180px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   font-size: 13px;
 }
 
@@ -11035,7 +11102,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 .costs-chart-tooltip-date {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   font-size: 11px;
 }
 
@@ -11113,14 +11180,14 @@ html.activity-indicators-disabled .terminal-pane-activity {
 .costs-breakdown-value {
   font-size: 12px;
   font-weight: 400;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   font-variant-numeric: tabular-nums;
   min-width: 50px;
   text-align: right;
 }
 
 .costs-breakdown-empty {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   font-size: 13px;
   padding: 8px 0;
 }
@@ -11168,7 +11235,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 .costs-sessions-search::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .costs-sessions-search:focus {
@@ -11191,7 +11258,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   height: var(--app-table-header-height);
   font-size: 13px;
   font-weight: 400;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   text-transform: none;
   letter-spacing: normal;
   padding: 0 8px;
@@ -11265,7 +11332,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 
 .costs-sessions-empty {
   text-align: center;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   padding: 24px;
   font-size: 13px;
 }
@@ -11994,7 +12061,7 @@ html {
    the same call the session badges and the analytics cards took. */
 .account-chip-meta {
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -12007,7 +12074,7 @@ html {
 .account-chip-meta::before {
   content: '\00B7';
   margin-right: 4px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* Usage cache older than the 10 min TTL: countdown dims (design 6.4) */
@@ -12226,7 +12293,7 @@ html {
    API-key notice), one step quieter than the headline paragraph. */
 .account-empty-hint {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* Codex-accented selection marks, scoped to the Codex tab via the
@@ -12307,7 +12374,7 @@ html {
 .machine-pill-mac.is-offline .machine-pill-val,
 .machine-pill-mac.is-unknown .machine-pill-val,
 .machine-pill-mac.is-none .machine-pill-val {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   font-weight: 400;
 }
 
@@ -12316,7 +12383,7 @@ html {
 }
 
 .machine-pill-mac.is-checking .machine-pill-val {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   font-weight: 400;
 }
 
@@ -14536,7 +14603,7 @@ html {
 }
 
 .launcher-form-input::placeholder {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
 }
 
 .launcher-form-input:focus {
@@ -15554,7 +15621,7 @@ html {
  */
 .session-badge-cost-na {
   background: transparent;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   border: none;
   padding: 0 2px;
   cursor: help;
@@ -15565,7 +15632,7 @@ html {
    VALUE (the italic mono project row P4 shipped), and an absent value is not a
    provisional one. */
 .cost-cell-na {
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   cursor: help;
   font-style: normal;
 }
@@ -15685,7 +15752,7 @@ html {
   padding: 0 2px;
   margin-left: 4px;
   font-size: 11px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   background: transparent;
   border-radius: var(--radius-property-chip);
   text-align: center;

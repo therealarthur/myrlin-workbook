@@ -176,8 +176,15 @@ check('.meta-row is display: contents, which is what aligns every pair with zero
   'restoring flex here silently breaks the column alignment of every property');
 check('the grid is a bare label/value pair list, with no card fill left on the group',
   !/background: var\(--border-subtle\)/.test(metaGrid) && !/overflow: hidden;/.test(metaGrid));
-check('label cells are tertiary ink at the 30px property row height',
-  /color: var\(--app-text-tertiary\);/.test(ruleBlock(CSS, '.meta-label')) &&
+/* RETARGETED IN P12 (sanctioned edit SE-18). The point of this check is that a
+   property LABEL is subordinate ink at a fixed row height, never body ink and
+   never a free-floating line. That is unchanged. What changed is which token
+   carries subordinate ink: --app-text-tertiary measured 2.67:1 on the light
+   canvas, which is under the 3:1 floor for a label a person actually reads, so
+   P12's reconciliation swept every `color:` use of the tertiary inks onto
+   --ink-meta at 4.27:1 light and 7.52:1 dark. DECISIONS 19 carries the table. */
+check('label cells are meta ink at the 30px property row height',
+  /color: var\(--ink-meta\);/.test(ruleBlock(CSS, '.meta-label')) &&
   /min-height: 30px;/.test(ruleBlock(CSS, '.meta-label')));
 check('value cells lift the grid item automatic minimum, so a long path ellipsises',
   /min-width: 0;/.test(ruleBlock(CSS, '.meta-value')),

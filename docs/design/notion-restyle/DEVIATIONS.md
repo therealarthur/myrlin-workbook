@@ -545,3 +545,29 @@ phase on this branch has hit.
 | **What it costs** | The map is now P4r=21, P5=22, P6=17, P7=24, P8=19, P9=20, P10=23, P11=25, **P11b=26**, with 16 and 18 permanent gaps, and P12 needs alpha.27. `package-lock.json` is left at its own stale `alpha.12`, as every phase since P5 has left it. |
 | **Approved by** | P11b implementation agent, extending DV-22, DV-23, DV-P9-2, DV-P10-6, DV-32 and DV-P11-6. |
 | **Date** | 2026-08-13 |
+
+---
+
+## P12 rows (contrast reconciliation, art direction, PWA, acceptance)
+
+### DV-P12-1. The field hairline and the switch off-track leave the captured border ramp
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | `BUILD-CONTRACT.md` 2.9 gives the application field a `1px solid var(--app-border-primary)` hairline and the switch off-state a `--app-bg-tertiary` track. DV-15 shipped both verbatim plus an `--app-border-strong` inset on the switch. |
+| **What shipped** | Both boundaries move to `--edge-control`, a role token resolving to the captured `--app-text-secondary`. The field also takes `--app-text-accent-primary` on hover so the hover keeps a step above a rest state that is now much stronger than it was. |
+| **Why** | `BUILD-CONTRACT.md` 5.5.4 hands P12 the contrast reckoning and the orchestrator's P12 ruling sets the floor at 3:1 in BOTH chromes wherever a line is what identifies a control. A field whose ground is the canvas and a switch whose off-state is a near-canvas track have nothing else that says where they start. `--app-border-primary` measures 1.26:1 and `--app-border-strong` 1.50:1 on the light canvas, so neither clears it, and `PROCEDURE.md` 4.2 forbids darkening either. Re-pairing onto the darkest captured ink that clears both chromes is the prescribed move and `--app-text-secondary` is the only ink that does: 4.27:1 light and 7.52:1 dark on the primary ground. |
+| **What it costs** | Real, and visible in the p12 capture: the capture's field boundary is a whisper and this one is a line. Notion draws a `#e6e5e3` hairline that all but disappears on white; this draws `#7d7a75`. The switch off-state gains a mid-grey ring where the capture has none. This is the largest single visual departure in the whole restyle, and it is taken deliberately, because the alternative is a control whose boundary is invisible to a low-vision user. Scoped hard: `--edge-control` has exactly two consumers and no third is authorised without its own row. |
+| **Approved by** | P12 implementation agent, under the orchestrator's P12 contrast ruling and `BUILD-CONTRACT.md` 5.5.4. |
+| **Date** | 2026-08-13 |
+
+### DV-P12-2. DV-12's primary label stays at 3.90:1, and the pressed blue is why
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | The orchestrator's P12 ruling: move the primary button to the 4.5-clearing pressed blue ONLY if it does not muddy the pressed state, else record. |
+| **What shipped** | No move. `.btn-primary` keeps `--app-accent-blue` `#2783de` at rest with a white label at 3.90:1. |
+| **Why** | The condition fails, and it fails on a measurement rather than on taste. `--app-ui-blue-pressed` is not one colour: it is `#105fad` in light chrome and `#4fa7ff` in dark, because a pressed state darkens on a light ground and lightens on a dark one. White on `#105fad` measures 6.44:1, which is the number the ruling was reaching for, but white on `#4fa7ff` measures **2.53:1**, which is worse than the 3.90:1 it would replace and is under even the 3:1 UI floor. Taking the light half alone would need the rest fill to become chrome-dependent for the first time in the system, and would still leave the pressed state with nowhere to go. DV-12's original analysis is therefore confirmed by a number it did not have. |
+| **What it costs** | Unchanged from DV-12: the one accent-filled control in the application carries a 14px/500 label that clears the 3:1 UI floor and misses the 4.5:1 body floor by 0.6. Mitigations unchanged: the button is never the only route to its action, the label is always a verb phrase rather than an icon, and the disabled state uses opacity rather than colour. |
+| **Approved by** | P12 implementation agent, under the orchestrator's own "else record" branch. |
+| **Date** | 2026-08-13 |

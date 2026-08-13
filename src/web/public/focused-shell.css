@@ -51,8 +51,17 @@
      Kept at the same value :root now carries, so this declaration agrees with
      the base layer instead of shadowing it. See the long note at the
      --text-muted definition in styles.css and DEVIATIONS.md DV-10 for why the
-     value is tertiary rather than the disabled ink table B names. */
-  --text-muted: var(--app-text-tertiary);
+     value is tertiary rather than the disabled ink table B names.
+
+     P12: the base layer moved to the --ink-meta role token and this shadow
+     follows it, because the whole point of this declaration is to agree with
+     the base rather than to shadow it. The two role tokens are re-declared
+     here for the same reason the P1 flip needed re-declaring: data-ui-shell is
+     always set, so a value that exists only at :root is reachable but a value
+     this block is expected to own is not. 4.27:1 light, 7.52:1 dark. */
+  --ink-meta: var(--app-text-secondary);
+  --edge-control: var(--app-text-secondary);
+  --text-muted: var(--ink-meta);
   --border-subtle: var(--app-border-secondary);
 }
 
@@ -301,7 +310,7 @@
   .sidebar-section-divider-label
 ),
 :root[data-ui-shell="focused"] .sidebar-list [style*="color: var(--overlay0)"] {
-  color: var(--text-tertiary) !important;
+  color: var(--ink-meta) !important;
 }
 
 /* On a genuine zero-data first run, keep the one useful Projects create
@@ -554,7 +563,7 @@
 :root[data-ui-shell="focused"] .workbench-empty-state p {
   max-width: 490px;
   margin-top: 9px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -677,7 +686,7 @@
   width: 100%;
   min-width: 0;
   font-size: 12px;
-  color: var(--app-text-tertiary);
+  color: var(--ink-meta);
   /* One line. The project name is the only part allowed to shrink; the chip
      and the timestamp are already at their minimum and wrapping either one
      turns a 3-line card into a 4-line card and breaks the row's rhythm. */
@@ -743,7 +752,7 @@
 
 :root[data-ui-shell="focused"] .empty-state,
 :root[data-ui-shell="focused"] .session-empty {
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* Accordion actions are siblings of the semantic disclosure button. This
@@ -999,7 +1008,7 @@
   align-content: center;
   min-height: 300px;
   padding: 44px 24px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   text-align: center;
 }
 
@@ -1075,7 +1084,7 @@ body.appearance-open {
 .appearance-header p,
 .appearance-section-heading p {
   margin-top: 4px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -1131,7 +1140,7 @@ body.appearance-open {
 
 .density-choice-description {
   grid-column: 1 / -1;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -1269,7 +1278,7 @@ body.appearance-open {
 .resource-value-muted,
 .resource-workspace-cell,
 .resource-message-count {
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
 }
 
 .resource-session-status {
@@ -1297,7 +1306,7 @@ body.appearance-open {
 :root[data-ui-shell="focused"] .context-menu-sep-labeled .ctx-sep-label {
   margin: 0;
   padding: 0 4px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   line-height: 14px;
 }
 
@@ -1415,7 +1424,7 @@ body.appearance-open {
     flex: 1;
     min-width: 0;
     min-height: 48px;
-    color: var(--app-text-tertiary);
+    color: var(--ink-meta);
   }
 
   /* The mock marks the active mobile tab with INK ALONE, no colour

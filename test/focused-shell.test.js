@@ -372,14 +372,26 @@ check('focused settings omit obsolete header controls while classic keeps them',
   assert.ok(focusedKeys.includes('uiScale'), 'focused settings must retain useful controls');
 });
 
-check('focused sidebar supporting text uses the semantic tertiary token', () => {
+/*
+ * RETARGETED IN P12 (sanctioned edit SE-18), and the reason is a measurement,
+ * not a rename. What this check has always been for is that the sidebar's
+ * supporting copy resolves through a SEMANTIC token rather than through a raw
+ * palette value or an inline style, which is why it names the token and not a
+ * colour. The token it named, --text-tertiary, measures 2.67:1 on the light
+ * canvas, so the rule it was protecting was protecting unreadable text.
+ * P12's contrast reconciliation introduced --ink-meta for exactly this class of
+ * copy (4.27:1 light, 7.52:1 dark) and swept every `color:` use of the tertiary
+ * inks onto it. The assertion follows the sweep: same intent, same two rules,
+ * same !important, one token later. DECISIONS 19 carries the table.
+ */
+check('focused sidebar supporting text uses the semantic meta-ink token', () => {
   assert.match(
     focusedCss,
-    /\.sidebar :is\([\s\S]*?\.sidebar-meta,[\s\S]*?\.workspace-group-empty,[\s\S]*?\.ws-session-empty,[\s\S]*?\.project-session-time,[\s\S]*?\.sidebar-section-divider-label[\s\S]*?\)[\s\S]*?color:\s*var\(--text-tertiary\)\s*!important\s*;/
+    /\.sidebar :is\([\s\S]*?\.sidebar-meta,[\s\S]*?\.workspace-group-empty,[\s\S]*?\.ws-session-empty,[\s\S]*?\.project-session-time,[\s\S]*?\.sidebar-section-divider-label[\s\S]*?\)[\s\S]*?color:\s*var\(--ink-meta\)\s*!important\s*;/
   );
   assert.match(
     focusedCss,
-    /\.sidebar-list \[style\*="color: var\(--overlay0\)"\][\s\S]*?color:\s*var\(--text-tertiary\)\s*!important\s*;/
+    /\.sidebar-list \[style\*="color: var\(--overlay0\)"\][\s\S]*?color:\s*var\(--ink-meta\)\s*!important\s*;/
   );
 });
 
