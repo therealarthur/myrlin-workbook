@@ -345,6 +345,99 @@ function seedMobilePresentationState(page) {
   });
 }
 
+/**
+ * Synthesize a real long press and report what the app did about it.
+ *
+ * NOTION RESTYLE P11.1. BUILD-CONTRACT's done criterion for the three-zone
+ * model is "synthesize a 450ms hold on a member of each zone: Text produces a
+ * selection and no sheet, Affordance produces a sheet, Chrome produces
+ * neither". That is a BEHAVIOUR, so it is measured here rather than asserted
+ * about the source: the events are constructed as genuine `TouchEvent`s with
+ * real `Touch` points, dispatched at the element, held past the published
+ * duration, and released.
+ *
+ * The result is recorded in the manifest, so a later phase can diff it.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @param {string} selector - The element to hold.
+ * @param {number} holdMs - How long to hold, in milliseconds.
+ * @returns {Promise<object>} { found, sheetOpen, zone }.
+ */
+async function probeLongPress(page, selector, holdMs) {
+  const armed = await page.evaluate(({ sel }) => {
+    const el = document.querySelector(sel);
+    if (!el) return { found: false };
+    const rect = el.getBoundingClientRect();
+    const x = Math.round(rect.left + Math.min(rect.width / 2, 40));
+    const y = Math.round(rect.top + Math.min(rect.height / 2, 20));
+    const touch = new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
+    el.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [touch], targetTouches: [touch], changedTouches: [touch],
+    }));
+    return {
+      found: true,
+      zone: window.cwm && typeof window.cwm._mwZoneOf === 'function'
+        ? window.cwm._mwZoneOf(el)
+        : null,
+      x,
+      y,
+    };
+  }, { sel: selector });
+  if (!armed.found) return { found: false, sheetOpen: false, zone: null };
+  await page.waitForTimeout(holdMs);
+  const sheetOpen = await page.evaluate(() => {
+    const overlay = document.getElementById('action-sheet-overlay');
+    return !!overlay && !overlay.hidden;
+  });
+  await page.evaluate(({ sel }) => {
+    const el = document.querySelector(sel);
+    if (!el) return;
+    const touch = new Touch({ identifier: 1, target: el, clientX: 0, clientY: 0 });
+    el.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [touch],
+    }));
+  }, { sel: selector });
+  return { found: true, sheetOpen, zone: armed.zone };
+}
+
+/**
+ * Show a toast and check whether it swallows any control underneath it.
+ *
+ * NOTION RESTYLE P11.2. BUILD-CONTRACT's done criterion is verbatim:
+ * "`elementFromPoint` at the centre of every key-toolbar button and the input
+ * field returns NO toast node while a toast is visible". Placement alone
+ * cannot satisfy that, which is why the root cause (a notice is
+ * `pointer-events: none`) is the other half.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @returns {Promise<object>} { shown, probes, swallowed }.
+ */
+function probeToastOcclusion(page) {
+  return page.evaluate(() => {
+    if (!window.cwm || typeof window.cwm.showToast !== 'function') {
+      return { shown: false, probes: 0, swallowed: [] };
+    }
+    window.cwm.showToast('Occlusion probe, phase P11', 'info');
+    const pane = document.querySelector('.terminal-pane.mobile-active');
+    const targets = pane
+      ? Array.from(pane.querySelectorAll('.terminal-mobile-toolbar button, .mobile-type-input, .mobile-send-btn'))
+      : [];
+    const swallowed = [];
+    for (const el of targets) {
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const hit = document.elementFromPoint(
+        Math.round(rect.left + rect.width / 2),
+        Math.round(rect.top + rect.height / 2)
+      );
+      if (hit && hit.closest && hit.closest('.toast')) {
+        swallowed.push((el.className || el.tagName) + '');
+      }
+    }
+    return { shown: true, probes: targets.length, swallowed };
+  });
+}
+
 // Anything a finger can land on. Deliberately broad: the point of the sweep
 // is to find the control nobody remembered was interactive.
 const TOUCH_TARGET_SELECTOR = [
@@ -1496,6 +1589,171 @@ async function run() {
               }
             }
           }
+        }
+      }
+
+      // ── P11 SUB-PASS: the two states a matrix shot cannot reach ──
+      //
+      // The five-tab matrix above photographs surfaces at rest. Two of the
+      // things P11 built only exist while a gesture or a sheet is open, and
+      // "we shipped it" is not evidence that it draws correctly. Both are
+      // captured at 390px in both chromes, into the same mobile/ directory.
+      //
+      // The long-press probe is also the phase's DONE CRITERION, measured:
+      // an affordance must produce a sheet, a text zone must not, and chrome
+      // must not. The three results are recorded in the manifest.
+      manifest.mobileLongPress = [];
+      await page.setViewportSize({ width: 390, height: 844 });
+      for (const chrome of CHROMES) {
+        await applyChrome(page, chrome);
+
+        // (1) The key toolbar's overflow sheet, open.
+        await page.evaluate(() => window.cwm.setViewMode('terminal'));
+        await page.waitForTimeout(300);
+        const toolbarFit = await page.evaluate(() => {
+          const out = window.cwm.layoutMobileToolbars();
+          window.cwm.showMobileToolbarOverflow();
+          const strip = document.querySelector('.terminal-pane.mobile-active .terminal-mobile-toolbar');
+          return {
+            fitted: out ? out.fitted : [],
+            overflowed: out ? out.overflowed : [],
+            scrolls: strip ? strip.scrollWidth > strip.clientWidth + 1 : null,
+            width: strip ? strip.clientWidth : 0,
+          };
+        });
+        await page.waitForTimeout(250);
+        const overflowShot = path.join(mobileDir, 'phone-' + chrome.id + '-toolbar-overflow.png');
+        await page.screenshot({ path: overflowShot, fullPage: false });
+        const overflowDims = pngDimensions(overflowShot);
+        assert.ok(
+          overflowDims.width <= ABSOLUTE_MAX_DIM && overflowDims.height <= ABSOLUTE_MAX_DIM,
+          'captured PNG exceeds ' + ABSOLUTE_MAX_DIM + 'px: ' + overflowShot
+        );
+        manifest.mobileShots.push({
+          name: 'phone-' + chrome.id + '-toolbar-overflow.png',
+          viewport: 'phone',
+          width: 390,
+          chrome: chrome.id,
+          route: 'toolbar-overflow',
+          pngWidth: overflowDims.width,
+          pngHeight: overflowDims.height,
+          bytes: overflowDims.bytes,
+          toolbar: toolbarFit,
+        });
+        console.log('  captured mobile/phone-' + chrome.id + '-toolbar-overflow.png' +
+          '  fitted=' + toolbarFit.fitted.length +
+          '  overflowed=' + toolbarFit.overflowed.length +
+          '  scrolls=' + toolbarFit.scrolls);
+        await page.evaluate(() => window.cwm.hideActionSheet({ restoreFocus: false }));
+
+        // (2) The long-press state, on a real hold against each zone.
+        await page.evaluate(() => window.cwm.setViewMode('workspace'));
+        await page.waitForTimeout(300);
+        const holdMs = 450;
+        const affordance = await probeLongPress(page, '.session-item[data-id]', holdMs);
+        const sheetShot = path.join(mobileDir, 'phone-' + chrome.id + '-longpress.png');
+        await page.waitForTimeout(200);
+        await page.screenshot({ path: sheetShot, fullPage: false });
+        const sheetDims = pngDimensions(sheetShot);
+        assert.ok(
+          sheetDims.width <= ABSOLUTE_MAX_DIM && sheetDims.height <= ABSOLUTE_MAX_DIM,
+          'captured PNG exceeds ' + ABSOLUTE_MAX_DIM + 'px: ' + sheetShot
+        );
+        manifest.mobileShots.push({
+          name: 'phone-' + chrome.id + '-longpress.png',
+          viewport: 'phone',
+          width: 390,
+          chrome: chrome.id,
+          route: 'longpress',
+          pngWidth: sheetDims.width,
+          pngHeight: sheetDims.height,
+          bytes: sheetDims.bytes,
+        });
+        await page.evaluate(() => window.cwm.hideActionSheet({ restoreFocus: false }));
+
+        await page.evaluate(() => window.cwm.setViewMode('terminal'));
+        await page.waitForTimeout(250);
+        const textZone = await probeLongPress(page, '.terminal-pane.mobile-active .xterm-screen', holdMs);
+        await page.evaluate(() => window.cwm.hideActionSheet({ restoreFocus: false }));
+        const chromeZone = await probeLongPress(
+          page, '.terminal-pane.mobile-active .terminal-mobile-toolbar', holdMs
+        );
+        await page.evaluate(() => window.cwm.hideActionSheet({ restoreFocus: false }));
+
+        // (3) P11.2's done criterion: a visible toast must not answer
+        //     elementFromPoint over any control in the bottom stack.
+        const toastProbe = await probeToastOcclusion(page);
+        console.log('  toast occlusion (' + chrome.id + '): ' + toastProbe.probes +
+          ' controls probed, ' + toastProbe.swallowed.length + ' swallowed');
+
+        manifest.mobileLongPress.push({
+          chrome: chrome.id,
+          affordance,
+          text: textZone,
+          chromeZone,
+          toast: toastProbe,
+        });
+        console.log('  long-press probe (' + chrome.id + '): ' +
+          'affordance zone=' + affordance.zone + ' sheet=' + affordance.sheetOpen + ', ' +
+          'text zone=' + textZone.zone + ' sheet=' + textZone.sheetOpen + ', ' +
+          'chrome zone=' + chromeZone.zone + ' sheet=' + chromeZone.sheetOpen);
+      }
+
+      // ── DV-26: the desktop pane input row, photographed ──
+      //
+      // The standard desktop shots are taken with an EMPTY workbench, where
+      // the row is deliberately hidden, so the deviation this phase closes
+      // would have shipped without anybody seeing it. The probe pane is still
+      // live at this point, which is the only moment in the run where a
+      // desktop-width pane with a real terminal exists.
+      if (mobilePaneOpened) {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        for (const chrome of CHROMES) {
+          await applyChrome(page, chrome);
+          await page.evaluate(() => {
+            // The occlusion probe above leaves its notices on screen for
+            // three and a half seconds. They are a harness artifact, not a
+            // product state, and a reader of this shot should not have to
+            // know that.
+            document.querySelectorAll('.toast').forEach(t => t.remove());
+            window.cwm.setViewMode('terminal');
+          });
+          await page.waitForTimeout(350);
+          const rowShot = path.join(mobileDir, 'dv26-desktop-input-row-' + chrome.id + '.png');
+          await page.screenshot({ path: rowShot, fullPage: false });
+          const rowDims = pngDimensions(rowShot);
+          assert.ok(
+            rowDims.width <= ABSOLUTE_MAX_DIM && rowDims.height <= ABSOLUTE_MAX_DIM,
+            'captured PNG exceeds ' + ABSOLUTE_MAX_DIM + 'px: ' + rowShot
+          );
+          const rowMetrics = await page.evaluate(() => {
+            const row = document.querySelector('.terminal-pane:not(.terminal-pane-empty) .terminal-mobile-input-row');
+            if (!row) return { present: false };
+            const style = getComputedStyle(row);
+            return {
+              present: true,
+              display: style.display,
+              height: Math.round(row.getBoundingClientRect().height),
+              hasField: !!row.querySelector('.mobile-type-input'),
+              hasSend: !!row.querySelector('.mobile-send-btn'),
+              hasImage: !!row.querySelector('.mobile-image-btn'),
+              hasMic: !!row.querySelector('.mobile-mic-btn'),
+            };
+          });
+          manifest.mobileShots.push({
+            name: 'dv26-desktop-input-row-' + chrome.id + '.png',
+            viewport: 'desktop',
+            width: 1280,
+            chrome: chrome.id,
+            route: 'dv26-input-row',
+            pngWidth: rowDims.width,
+            pngHeight: rowDims.height,
+            bytes: rowDims.bytes,
+            inputRow: rowMetrics,
+          });
+          console.log('  captured mobile/dv26-desktop-input-row-' + chrome.id + '.png  ' +
+            'display=' + rowMetrics.display + ' height=' + rowMetrics.height +
+            ' mic=' + rowMetrics.hasMic + ' image=' + rowMetrics.hasImage);
         }
       }
 
