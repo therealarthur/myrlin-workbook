@@ -386,9 +386,13 @@ async function main() {
     // app.js is untouched by P5 and keeps -p4r, which is the independent
     // versioning this comment block describes doing its job: a terminal-only
     // change does not force a full SPA refetch.
+    // SANCTIONED EDIT SE-7 again, phase P10: app.js moves to -p10 with the
+    // five-tab mobile IA and the permanent input row. terminal.js stays at
+    // -p5, which is the same independent versioning the paragraph above
+    // describes, now demonstrated in the other direction.
     assert.ok(
       /terminal\.js\?v=20260813-notion-p5/.test(indexSrc) &&
-        /app\.js\?v=20260813-notion-p4r/.test(indexSrc),
+        /app\.js\?v=20260813-notion-p10/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
   });

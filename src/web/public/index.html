@@ -21,7 +21,21 @@
 <html lang="en" data-ui-shell="focused" data-surface="app" data-chrome="light">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!--
+    NOTION RESTYLE P10.4 (MOBILE-EXPERIENCE C.3).
+
+    `interactive-widget=resizes-content` makes Chromium shrink the LAYOUT
+    viewport for the soft keyboard, so on Android the CSS path alone is
+    correct and mobile-viewport.js is a no-op refinement. iOS Safari ignores
+    the token today, so the driver carries iOS. Both write the same custom
+    property, which is the clean two-path story.
+
+    `user-scalable=no` and `maximum-scale=1` remain FORBIDDEN: they break
+    pinch zoom, which is an accessibility affordance. The iOS focus-zoom
+    problem is solved instead by the 16px minimum font size on every input,
+    which styles-mobile.css enforces.
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <!--
     Notion restyle P1.4. This was a single static <meta name="theme-color"
     content="#1e1e2e">, the Catppuccin Mocha canvas, which tinted the mobile
@@ -83,7 +97,7 @@
     than a theoretical one. See BUILD-CONTRACT risk R7.
   -->
   <link rel="stylesheet" href="styles.css?v=20260813-notion-p5">
-  <link rel="stylesheet" href="styles-mobile.css?v=20260813-notion-p5">
+  <link rel="stylesheet" href="styles-mobile.css?v=20260813-notion-p10">
   <link rel="stylesheet" href="semantic-theme.css?v=20260813-notion-p5">
   <link rel="stylesheet" href="focused-shell.css?v=20260813-notion-p5">
   <script src="theme-registry.js?v=20260813-notion-p5"></script>
@@ -2310,7 +2324,13 @@
        MUST load before app.js so window.MirrorPaneView exists when
        _renderMirrorInPane mounts a mirror pane. -->
   <script src="mirror-view.js?v=20260727-copy-native8"></script>
-  <script src="app.js?v=20260813-notion-p4r"></script>
+  <!-- Notion restyle P10.3: the single owner of viewport geometry on a phone.
+       MUST load before app.js, because app.js subscribes to its settle event
+       during bindEvents. Loaded in the BODY rather than the head for the same
+       reason terminal-surface.js is: the four head assets keep their relative
+       order, which test/experience-ux-contract.test.js pins. -->
+  <script src="mobile-viewport.js?v=20260813-notion-p10"></script>
+  <script src="app.js?v=20260813-notion-p10"></script>
   <script src="schedules.js"></script>
   <script>
     if ('serviceWorker' in navigator) {

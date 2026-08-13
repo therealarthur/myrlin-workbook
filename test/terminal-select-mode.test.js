@@ -188,7 +188,12 @@ check('index.html cache-busts the app pane-focus/host fix', () => {
   // SANCTIONED EDIT SE-7 (BUILD-CONTRACT.md 5.4, phase P1.6): Notion restyle
   // phase P1: assets changed, cachebuster bumped atomically across index.html
   // and three tests.
-  assert.ok(/app\.js\?v=20260813-notion-p4r/.test(indexSrc),
+  // SANCTIONED EDIT SE-7 again, phase P10: app.js gained the five-tab mobile
+  // IA, the three phone screens and the permanent input row, so a phone
+  // holding a cached copy would show the old four-tab bar against the new
+  // stylesheet. terminal.js keeps -p5, which is the independent versioning
+  // working as intended.
+  assert.ok(/app\.js\?v=20260813-notion-p10/.test(indexSrc),
     'expected the current app.js cache token');
 });
 

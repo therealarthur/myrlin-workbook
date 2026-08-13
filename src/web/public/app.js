@@ -1710,42 +1710,61 @@ class CWMApp {
       this.initTouchGestures();
     }
 
-    // ─── Mobile: VisualViewport resize (soft keyboard) ───────
-    // When the mobile keyboard opens/closes, the visual viewport shrinks/grows.
-    // Adjust layout height + refit terminal panes.
-    if (window.visualViewport) {
+    // ─── Mobile: VisualViewport geometry (soft keyboard) ─────
+    //
+    // NOTION RESTYLE P10.3. This block used to own three mechanisms and
+    // MOBILE-EXPERIENCE C.1 names each one as a defect:
+    //
+    //   1. It compared the visual height against `window.screen.height * 0.75`
+    //      to detect the keyboard. `screen.height` is the PHYSICAL screen and
+    //      does not rotate consistently across browsers, so in landscape or in
+    //      an installed PWA the class toggled at the wrong times.
+    //   2. `body.keyboard-open { position: fixed }` lost the scroll position.
+    //   3. It wrote `#app.style.transform = translateY(offset)` to compensate
+    //      the iOS scroll. A transform on an ancestor CREATES A CONTAINING
+    //      BLOCK for every `position: fixed` descendant, which in this app is
+    //      the action sheet, the account sheet and its backdrop, every modal
+    //      and the toast container.
+    //
+    // All three are gone. mobile-viewport.js owns the geometry, writes the
+    // custom properties, and never writes a transform. This block now does
+    // exactly one thing the driver cannot do for itself: fit the terminal,
+    // ONCE per settle window rather than once per event, because every
+    // applied resize is a full ConPTY repaint on every attached client (C.6).
+    if (window.MyrlinMobileViewport) {
+      window.MyrlinMobileViewport.start();
+      window.MyrlinMobileViewport.onSettle(() => {
+        if (this.state.viewMode !== 'terminal') return;
+        // Fit only the pane the user can see. safeFit already bails on a
+        // zero-rect container, so the others are cheap no-ops, but skipping
+        // them entirely avoids the guard cost during a keyboard animation.
+        const slot = this._activeTerminalSlot;
+        const active = (slot !== null && slot !== undefined)
+          ? this.terminalPanes[slot]
+          : this.terminalPanes.find(tp => tp !== null);
+        if (active && typeof active.safeFit === 'function') active.safeFit();
+      });
+    } else if (window.visualViewport) {
+      // Degradation path for a shell served without mobile-viewport.js. It
+      // keeps the ONE mechanism that was never a defect (the debounced fit)
+      // and deliberately does not restore the transform or the screen.height
+      // ratio.
       let vpResizeTimer = null;
-      window.visualViewport.addEventListener('resize', () => {
+      const onLegacyViewport = () => {
         clearTimeout(vpResizeTimer);
         vpResizeTimer = setTimeout(() => {
-          // Set --vh CSS variable to actual visible height (keyboard-aware)
-          const vh = window.visualViewport.height;
+          const vh = Math.floor(window.visualViewport.height);
           document.documentElement.style.setProperty('--vh', vh + 'px');
-
-          // Detect keyboard open/close on mobile
-          if (window.innerWidth <= 768) {
-            const isKeyboardOpen = vh < window.screen.height * 0.75;
-            document.body.classList.toggle('keyboard-open', isKeyboardOpen);
-          }
-
-          // Refit terminal panes
+          document.documentElement.style.setProperty('--mw-vh', vh + 'px');
           if (this.state.viewMode === 'terminal') {
             this.terminalPanes.forEach(tp => {
               if (tp) tp.safeFit();
             });
           }
         }, 150);
-      });
-
-      // Compensate for iOS Safari viewport scroll when keyboard opens
-      window.visualViewport.addEventListener('scroll', () => {
-        if (window.innerWidth > 768) return;
-        const offset = window.visualViewport.offsetTop;
-        const app = document.getElementById('app');
-        if (app) {
-          app.style.transform = offset > 0 ? `translateY(${offset}px)` : '';
-        }
-      });
+      };
+      window.visualViewport.addEventListener('resize', onLegacyViewport);
+      window.visualViewport.addEventListener('scroll', onLegacyViewport);
     }
 
     // ─── P2: Re-render tab strips when crossing the mobile breakpoint ───
@@ -3173,7 +3192,7 @@ class CWMApp {
         return;
       }
 
-      // Pip click — navigate to that instance (handled BEFORE session-item click).
+      // Pip click: navigate to that instance (handled BEFORE session-item click).
       const pip = e.target.closest('.instance-indicator');
       if (pip && pip.dataset.tabId) {
         e.stopPropagation();
@@ -3598,7 +3617,7 @@ class CWMApp {
           e.preventDefault(); e.stopPropagation();
           const accordion = header.closest('.project-accordion');
           // Forward the project's provider so "New Session Here" spawns the
-          // right CLI (was always Claude before — see showProjectContextMenu).
+          // right CLI (was always Claude before; see showProjectContextMenu).
           const accProvider = (accordion && accordion.dataset.provider) || 'claude'; /* gsd:provider-literal-allowed (back-compat default) */
           this.showProjectContextMenu(accordion.dataset.encoded, header.querySelector('.project-name').textContent, accordion.dataset.path, e.clientX, e.clientY, accProvider);
         }
@@ -4611,7 +4630,7 @@ class CWMApp {
         this.state.selectedSession = updated;
         this.renderSessionDetail();
       }
-      // Sync terminal pane titles — if this session is open in a terminal,
+      // Sync terminal pane titles. If this session is open in a terminal,
       // update the TerminalPane instance and the DOM tab header.
       if (result.name) {
         for (let i = 0; i < this.terminalPanes.length; i++) {
@@ -4974,7 +4993,7 @@ class CWMApp {
 
     items.push({ type: 'sep' });
 
-    // Naming submenu — rename and auto-title grouped together
+    // Naming submenu: rename and auto-title grouped together
     items.push({
       label: 'Naming', icon: '&#9998;',
       submenu: [
@@ -5004,7 +5023,7 @@ class CWMApp {
       }
     });
 
-    // Insights submenu — session analysis and export
+    // Insights submenu: session analysis and export
     items.push({
       label: 'Insights', icon: '&#128220;',
       submenu: [
@@ -5017,13 +5036,13 @@ class CWMApp {
       ],
     });
 
-    // Spinoff Tasks — AI-extract tasks from conversation and create worktree branches
+    // Spinoff Tasks: AI-extract tasks from conversation and create worktree branches
     items.push({
       label: 'Create agent tasks', icon: '&#10547;',
       action: () => this.openSpinoffDialog(sessionId),
     });
 
-    // Advanced submenu — templates, context, refocus, worktrees
+    // Advanced submenu: templates, context, refocus, worktrees
     const advancedItems = [
       { label: 'Start with Context', action: () => this.startSessionWithContext(sessionId) },
       { label: 'Save as Template', action: () => this.saveSessionAsTemplate(session) },
@@ -6730,7 +6749,7 @@ class CWMApp {
     return window.InstanceColors.getSessionInstances(sessionId, this._tabGroups || []);
   }
 
-  /** Return the (positional) colour for a tab — global index across all tabs. */
+  /** Return the (positional) colour for a tab, global index across all tabs. */
   getTabColor(tabId) {
     return window.InstanceColors.getTabColor(tabId, this._tabGroups || []);
   }
@@ -7153,7 +7172,7 @@ class CWMApp {
         this.els.settingsBody.querySelectorAll('input[data-provider-toggle]').forEach(input => {
           input.addEventListener('change', (e) => this._handleProviderToggleChange(e));
         });
-        // alpha.9: providers section landed — append it to the rail and
+        // alpha.9: providers section landed, so append it to the rail and
         // mark the section element with the slug id so click/spy work.
         const section = this.els.settingsBody.querySelector('.settings-category[data-section="providers"]');
         if (section) {
@@ -8051,7 +8070,7 @@ class CWMApp {
     } catch (err) {
       const msg = err.message || 'unknown error';
       if (msg.includes('not initialized')) {
-        // td isn't initialized — show a helpful prompt rather than a raw error
+        // td isn't initialized: show a helpful prompt rather than a raw error
         panel.textContent = '';
         const toolbar = document.createElement('div');
         toolbar.className = 'tasks-td-toolbar';
@@ -14645,10 +14664,10 @@ class CWMApp {
           }
         }
 
-        // Three-layer indicator — one per place this session is open across all tab groups
+        // Three-layer indicator: one per place this session is open across all tab groups
         const pip = this.renderInstanceIndicatorRow(s.id);
 
-        // Build meta row (badges + size + time) — only if there's something to show
+        // Build meta row (badges + size + time), only if there's something to show
         const metaParts = [badges, sizeStr ? `<span class="ws-session-size">${sizeStr}</span>` : ''].filter(Boolean).join('');
         const metaRow = metaParts ? `<div class="ws-session-meta-row">${metaParts}</div>` : '';
         const timeEl = timeStr ? `<span class="ws-session-time">${timeStr}</span>` : '';
@@ -15046,7 +15065,7 @@ class CWMApp {
       const data = await r.json();
       this._scheduleCounts = (data && data.counts) || {};
       this.applyScheduleIndicators();
-    } catch (_) { /* network blip — try again next tick */ }
+    } catch (_) { /* network blip, try again next tick */ }
   }
 
   applyScheduleIndicators() {
@@ -17341,7 +17360,7 @@ class CWMApp {
 
           // Terminal pane swap/reposition - drag a pane header onto another pane.
           // Use truthy check: native DataTransfer.getData returns '' for missing
-          // keys, but the touch polyfill returns undefined — both must skip.
+          // keys, but the touch polyfill returns undefined; both must skip.
           const swapSource = e.dataTransfer.getData('cwm/terminal-swap');
           if (swapSource) {
             const srcSlot = parseInt(swapSource, 10);
@@ -17518,7 +17537,7 @@ class CWMApp {
           });
         }
 
-        // Pinned notes (bookmark) button — shows modal of all pinned notes for this pane's session
+        // Pinned notes (bookmark) button: shows modal of all pinned notes for this pane's session
         const pinDocBtn = pane.querySelector('.terminal-pane-pinnedoc');
         if (pinDocBtn) {
           pinDocBtn.addEventListener('click', (e) => {
@@ -17527,7 +17546,7 @@ class CWMApp {
           });
         }
 
-        // Schedule clock button — opens the schedule popover for this pane's session
+        // Schedule clock button: opens the schedule popover for this pane's session
         const scheduleBtn = pane.querySelector('.terminal-pane-schedule');
         if (scheduleBtn) {
           scheduleBtn.addEventListener('click', (e) => {
@@ -17538,7 +17557,7 @@ class CWMApp {
           });
         }
 
-        // Pane view back button — restores terminal after a non-terminal view (E003)
+        // Pane view back button: restores terminal after a non-terminal view (E003)
         const backBtn = pane.querySelector('.pane-view-back');
         if (backBtn) {
           backBtn.addEventListener('click', (e) => {
@@ -17865,7 +17884,7 @@ class CWMApp {
       pillEl.hidden = !pid;
     }
     // Plan 22-01: render the Codex bottom status strip on Codex panes.
-    // No-op on Claude panes. Idempotent — re-render on subsequent attach.
+    // No-op on Claude panes. Idempotent, so it re-renders on subsequent attach.
     if (typeof this._renderCodexStatusStrip === 'function') {
       this._renderCodexStatusStrip(slotIdx);
     }
@@ -18771,7 +18790,7 @@ class CWMApp {
    * Idempotent: safe to call multiple times on the same pane; the
    * function replaces innerHTML on the existing strip if one exists.
    * Bails (and removes any existing strip) on empty panes or non-Codex
-   * panes — the CSS selector restricts visibility too, but cleaning the
+   * panes. The CSS selector restricts visibility too, but cleaning the
    * DOM avoids leftover nodes after pane provider swaps.
    *
    * @param {number} slotIdx
@@ -20391,7 +20410,7 @@ class CWMApp {
     grid.addEventListener('touchmove', (e) => {
       // Only intercept when terminal is the active view on mobile
       if (!document.body.classList.contains('terminal-active')) return;
-      // Scope this to the xterm viewport only — otherwise we eat touchmoves on
+      // Scope this to the xterm viewport only, or we eat touchmoves on
       // pane headers / resize handles and break things like the
       // DragDropTouch polyfill (which listens on document in bubble phase).
       // We don't stop propagation here anymore to allow index.html's hack 
@@ -20499,7 +20518,7 @@ class CWMApp {
         move(e.touches[0].clientX, e.touches[0].clientY);
       };
       // Capture phase, because the terminal-grid has a bubble-phase touchmove
-      // listener that calls stopPropagation() — would otherwise eat our event.
+      // listener that calls stopPropagation(), which would otherwise eat our event.
       const touchOpts = { passive: false, capture: true };
       const onEnd = () => {
         handle.classList.remove('active');
@@ -21561,7 +21580,7 @@ class CWMApp {
     if (this.els.docsRoadmapCount) this.els.docsRoadmapCount.textContent = docsCounts.roadmap;
     if (this.els.docsRulesCount) this.els.docsRulesCount.textContent = docsCounts.rules;
 
-    // Notes — built with DOM APIs to support pin buttons safely (no user HTML injected)
+    // Notes: built with DOM APIs to support pin buttons safely (no user HTML injected)
     if (this.els.docsNotesList) {
       const notes = docs.notes || [];
       while (this.els.docsNotesList.firstChild) {
@@ -21843,7 +21862,7 @@ class CWMApp {
 
 
   /* ═══════════════════════════════════════════════════════════
-     TD ISSUES — docs panel integration
+     TD ISSUES: docs panel integration
      github.com/marcus/td
      ═══════════════════════════════════════════════════════════ */
 
@@ -21894,7 +21913,7 @@ class CWMApp {
         return;
       }
 
-      // td is ready — hide setup bar and load issues
+      // td is ready: hide setup bar and load issues
       if (this.els.docsTdSetupBar) this.els.docsTdSetupBar.hidden = true;
       await this._fetchAndRenderTdIssues(ws.id, requestSequence);
 
@@ -22039,7 +22058,7 @@ class CWMApp {
 
   /**
    * Wire one-time click events for the td section header buttons.
-   * Safe to call multiple times — guards with a flag.
+   * Safe to call multiple times; guards with a flag.
    */
   _wireTdEvents() {
     if (this._tdEventsWired) return;
@@ -23220,7 +23239,7 @@ class CWMApp {
         // restore time (e.g., Codex toggled off between save and restore).
         // Without this, openTerminalInPane would fall back to the allSessions
         // lookup which is empty, and the pane would be re-tagged with the
-        // v1.1 default — visually mis-rendering Codex panes as Claude.
+        // v1.1 default, visually mis-rendering Codex panes as Claude.
         const paneProvider = (paneEl && paneEl.dataset && paneEl.dataset.provider) || 'claude'; // gsd:provider-literal-allowed (Phase 18 default)
         group.panes.push({
           slot: i,
@@ -23833,7 +23852,7 @@ class CWMApp {
    */
   saveTerminalLayout() {
     // Flush live pane state into _tabGroups[*].panes synchronously so the
-    // sidebar indicator (which reads from _tabGroups) is fresh — the
+    // sidebar indicator (which reads from _tabGroups) is fresh, so the
     // server PUT below stays debounced.
     this.saveCurrentGroupPanes();
     if (typeof this.renderWorkspaces === 'function') {
@@ -26195,7 +26214,7 @@ class CWMApp {
         try {
           await this.api('DELETE', `/api/refocus-cleanup?filePath=${encodeURIComponent(filePath)}`);
         } catch (_) {
-          // Non-critical — file may already be gone
+          // Non-critical: the file may already be gone
         }
       }, cleanupDelay);
 

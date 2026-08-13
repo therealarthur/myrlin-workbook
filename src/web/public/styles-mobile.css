@@ -282,9 +282,62 @@
     display: block !important;
   }
 
-  /* Toast above bottom tab bar */
+  /*
+    Toast anchor, computed from MEASURED chrome rather than from a magic
+    constant (MOBILE-EXPERIENCE B.5 rule 2).
+
+    The old value was 72px. On the Terminal tab the bottom stack is the tab
+    bar plus the input row plus the key toolbar, which is 160px or more, so
+    a toast at 72px landed DIRECTLY ON TOP OF THE KEY TOOLBAR. Since
+    `.toast` sets `pointer-events: auto`, it also swallowed the tap. That is
+    the reported defect, exactly.
+
+    The two chrome heights are written by the same layout pass that sizes
+    the terminal, so they can never drift from reality, and they are 0px
+    whenever no pane is active.
+
+    P11.2 owns the ROOT CAUSE that sits underneath this: a toast with no
+    action button must be `pointer-events: none`, because a notice is not a
+    control. Placement alone does not fix that, and this comment is here so
+    the next reader does not think it did.
+  */
   .toast-container {
-    bottom: calc(72px + env(safe-area-inset-bottom, 0px)) !important;
+    left: 12px;
+    right: 12px;
+    bottom: calc(
+      var(--mw-tabbar-h) + var(--mw-toolbar-h) + var(--mw-inputrow-h) + var(--mw-toast-gap)
+    ) !important;
+  }
+
+  /*
+    SAFE-AREA INSETS, the eight surfaces of MOBILE-EXPERIENCE C.7.
+
+    1. `.app` left and right          -> the terminal block above
+    2. header top, standalone only    -> here
+    3. bottom tab bar                 -> --mw-tabbar-h
+    4. input row, keyboard closed     -> nothing; the tab bar carries it
+    5. input row, keyboard open       -> the terminal block below
+    6. sheets, modals, action sheets  -> already correct; preserved
+    7. toast anchor                   -> --mw-tabbar-h, above
+    8. scroll bodies                  -> scroll-padding-bottom, here
+
+    The header inset is scoped to standalone ON PURPOSE. In a browser tab
+    the OS chrome already covers the inset, and adding it there produces a
+    47px dead band across the top of the app.
+  */
+  .session-list,
+  .sidebar-list,
+  .docs-structured,
+  .main-content {
+    scroll-padding-bottom: var(--mw-tabbar-h);
+  }
+}
+
+@media (max-width: 768px) and (display-mode: standalone) {
+  .app-header {
+    padding-top: env(safe-area-inset-top, 0px);
+    height: calc(50px + env(safe-area-inset-top, 0px)) !important;
+    max-height: calc(50px + env(safe-area-inset-top, 0px));
   }
 }
 
@@ -598,9 +651,34 @@
     -webkit-overflow-scrolling: auto;
   }
 
+  /*
+    NOTION RESTYLE P10.4 (MOBILE-EXPERIENCE C.3), the CSS contract.
+
+    Base first, so the shell is correct BEFORE any script runs and on an
+    engine with no visualViewport at all: `100dvh` is the dynamic
+    small-to-large unit and it handles browser chrome. It does NOT handle
+    the soft keyboard on iOS, which is what the driver is for.
+
+    Then refined: `--mw-vh` is the visual viewport in pixels, written by
+    mobile-viewport.js. `--vh` is retained as the inner fallback because
+    rules elsewhere in this app predate the restyle and still name it
+    (DO-NOT-BREAK D.10), and the driver keeps writing both.
+
+    `100vh` appears NOWHERE in this stylesheet. It is the LARGE viewport
+    and overflows under the browser chrome by design.
+  */
+  .app {
+    height: 100dvh;
+    height: var(--mw-vh, var(--vh, 100dvh));
+    /* Landscape notch. Previously unhandled: on a notched phone in
+       landscape the leftmost terminal column sat under the cutout (C.7). */
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
   body.terminal-active .app {
-    height: var(--vh, 100vh);
-    height: var(--vh, 100dvh);
+    height: 100dvh;
+    height: var(--mw-vh, var(--vh, 100dvh));
   }
 
   /* Main content must not scroll when terminal is active */
@@ -650,19 +728,19 @@
     min-height: 0;
     overflow: hidden;
     overscroll-behavior: contain;
-    /* Allow native vertical scrolling — compositor-thread smooth */
+    /* Allow native vertical scrolling: compositor-thread smooth */
     touch-action: pan-y;
   }
 
   /* xterm viewport (the actual scrollable area inside xterm.js).
-     Native touch scroll is enabled via pan-y — the browser handles momentum,
+     Native touch scroll is enabled via pan-y, so the browser handles momentum,
      deceleration, and overscroll on the compositor thread for 60fps smoothness.
      -webkit-overflow-scrolling: touch enables iOS inertial scroll. */
   .terminal-pane.mobile-active .xterm-viewport {
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
-    /* Hide scrollbar on mobile — touch scrolling replaces it,
+    /* Hide scrollbar on mobile: touch scrolling replaces it,
        and the thin bar conflicts with Chrome's edge gestures */
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -672,7 +750,7 @@
     display: none;
   }
 
-  /* xterm screen layer (canvas) — pointer-events toggled by JS:
+  /* xterm screen layer (canvas), pointer-events toggled by JS:
      Scroll mode: pointer-events: none → touches pass through to viewport for native scroll
      Type mode:   pointer-events: auto → xterm.js handles touch for cursor/selection */
   .terminal-pane.mobile-active .xterm-screen {
@@ -689,17 +767,35 @@
     display: none;
   }
 
-  /* Keyboard open: lock page, hide tab bar, reclaim space */
-  body.keyboard-open {
-    position: fixed;
-    width: 100%;
-    overflow: hidden;
+  /*
+    NOTION RESTYLE P10.4 (MOBILE-EXPERIENCE C.5). Keep the intent, fix the
+    mechanics.
+
+    `body.keyboard-open { position: fixed; width: 100%; overflow: hidden }`
+    is DELETED. Setting `position: fixed` on `body` loses the scroll
+    position and is a well-known source of iOS scroll jumps; with `.app`
+    sized to `--mw-vh` there is nothing to scroll, so the hack was pure
+    cost. The CLASS is still set by the driver, because setViewMode clears
+    it and other code may read it; only this rule body is gone.
+
+    The tab bar retracts when the keyboard is up, because the input row
+    takes its place at the bottom of the visual viewport. TRANSFORM, not
+    `display`, so there is no layout jump and no reflow of the terminal.
+    Transforming the BAR is safe; the bug C.1 names was transforming
+    `#app`, an ancestor of every `position: fixed` overlay in the shell.
+  */
+  .mobile-tab-bar {
+    transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform;
   }
 
+  body.mw-keyboard .mobile-tab-bar,
   body.keyboard-open .mobile-tab-bar {
-    display: none !important;
+    transform: translateY(100%);
+    pointer-events: none;
   }
 
+  body.mw-keyboard .app-body,
   body.keyboard-open .app-body {
     padding-bottom: 0 !important;
   }
@@ -932,13 +1028,18 @@
 /* ─── Phase 6: Quick Switcher + Docs Polish ────────────────── */
 
 @media (max-width: 768px) {
-  /* Quick switcher: full-screen on mobile */
+  /* Quick switcher: full-screen on mobile.
+     P10.4: `100vh` is the LARGE viewport, so with browser chrome showing
+     the palette's footer sat below the fold. The visual viewport is the
+     honest measure and is what every other full-height surface in this
+     sheet now reads. */
   .quick-switcher {
     max-width: 100% !important;
     margin: 0 !important;
     border-radius: 0;
     height: 100%;
-    max-height: 100vh;
+    max-height: 100dvh;
+    max-height: var(--mw-vh, 100dvh);
     display: flex;
     flex-direction: column;
   }
