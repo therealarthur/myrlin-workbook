@@ -719,25 +719,74 @@
   --app-wash-table-row-hover: rgba(255, 255, 255, 0.055);
 }
 
+/*
+ * GLOBAL BASE, Notion restyle phase P2, work package P2.6.
+ * DESIGN-SPEC.md 1.3 and 1.5.
+ *
+ * Ground and ink are already correct: :root above carries
+ * color: var(--text-primary) and background: var(--bg-primary), and both
+ * aliases point at the chrome layer after the P1 flip. What P2.6 owns is the
+ * four things that sit on top of that ground everywhere at once: the selection
+ * wash, the focus ring, the scrollbar and the type scale.
+ */
 html, body {
   height: 100%;
   overflow: hidden;
 }
 
+/* Selection outside the terminal is the Notion blue wash. The terminal's own
+   selection is xterm's and is set from the terminal palette, never from here,
+   which is the boundary DESIGN-SPEC 10.4 draws. */
 ::selection {
-  background: rgba(203, 166, 247, 0.25);
-  color: var(--text);
+  background: var(--app-selection-token);
+  color: var(--app-text-primary);
 }
 
+/*
+ * ONE RING IDIOM, APPLIED UNIVERSALLY.
+ *
+ * An outline rather than a box-shadow ring, deliberately, for three reasons.
+ * It is what the two PINNED focus rules already use
+ * (focused-shell.test.js line 154 on .focused-more-btn:focus-visible and
+ * mobile-ux-fixes.test.js line 410 on .terminal-group-tab-close:focus-visible),
+ * so the app has one idiom rather than two. It cannot be clobbered by a
+ * component's own box-shadow, which a ring token would be on every card,
+ * menu and pane that already carries one. And it reaches EVERY focusable
+ * element in one rule, which is what the P2.6 done criterion asks for.
+ *
+ * --accent resolves to --app-ui-blue after the P1 flip, so the colour is the
+ * captured focus blue with no call-site edit. The offset comes in from 2px to
+ * 1px so the ring hugs a 26 or 28px control the way the mock's does.
+ * --app-focus-shadow, --app-input-focus-ring and --app-input-error-ring are
+ * used per component where the ring must sit inside a clipping ancestor; the
+ * input ring already landed in P2.4. Recorded as DEVIATIONS.md DV-8.
+ */
 :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
-/* Scrollbar */
+/*
+ * COVERAGE, not decoration. Seventeen controls in this sheet carry a bare
+ * `outline: none`, several of them on the RESTING rule rather than on :focus,
+ * so those elements had no keyboard ring at all. :is() takes the specificity
+ * of its most specific argument, so this rule scores (0,1,1) and outranks a
+ * single-class `outline: none` while still losing to a control that declares
+ * its own focus treatment, for example `.input:focus` at (0,2,0), which keeps
+ * --app-input-focus-ring. Both PINNED focus rules outrank it too.
+ */
+:is(a[href], button, input, select, summary, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Scrollbar, verbatim from the mock (DESIGN-SPEC.md 1.5): 7px, a transparent
+   track, and a thumb that is a hairline colour rather than a fill, inset by a
+   1px transparent border clipped to the padding box so it reads as a thin
+   floating bar instead of a groove. */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
@@ -745,20 +794,80 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--surface1);
-  border-radius: var(--radius-row-icon);
+  background: var(--app-border-strong);
+  border-radius: var(--radius-property-chip);
+  border: 1px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--surface2);
+  background: var(--app-text-tertiary);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/*
+ * The mock writes a bare `* { scrollbar-width: thin }` alongside the WebKit
+ * pseudo-elements. Shipping that verbatim would be a REGRESSION on this app's
+ * primary engine: Chromium ignores every ::-webkit-scrollbar rule as soon as
+ * scrollbar-width or scrollbar-color is set to anything but auto, so the 7px
+ * thumb above would silently stop applying and Chrome would fall back to its
+ * own thin scrollbar. Gating on the pseudo-element's existence gives Firefox
+ * the thin scrollbar and leaves Chromium on the styled one. Recorded as
+ * DEVIATIONS.md DV-7.
+ */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+  }
 }
 
 
 /* ─── Typography ────────────────────────────────────────────── */
 
+/*
+ * The APPLICATION type scale (DESIGN-SPEC.md 1.3), not the editor document
+ * scale. This is chrome, so the sizes are compressed: 30 / 22 / 16 / 14
+ * against the editor's 40 / 30 / 24 / 20.
+ *
+ * Tracking is negative only above 16px, which is the single most commonly
+ * missed detail in this system (PROCEDURE 7). h3 and h4 therefore reset to
+ * normal rather than inheriting the old blanket -0.01em.
+ *
+ * These are element selectors, so every heading that already carries a class
+ * with a font-size keeps it; this only reaches the handful of bare headings.
+ */
 h1, h2, h3, h4 {
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: 30px;
+  line-height: var(--app-ratio-title);
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 22px;
+  line-height: var(--app-ratio-title);
+  font-weight: 700;
+}
+
+h3 {
+  font-size: 16px;
+  line-height: var(--app-ratio-heading);
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+h4 {
+  font-size: 14px;
+  line-height: var(--app-ratio-body);
+  font-weight: 600;
+  letter-spacing: normal;
 }
 
 .mono {
