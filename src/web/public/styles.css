@@ -802,6 +802,66 @@ html, body {
   outline-offset: 1px;
 }
 
+/*
+ * P3.4: THE RING THAT CANNOT BE CLIPPED.
+ *
+ * An outline drawn at a POSITIVE offset is painted outside the element's border
+ * box, so any ancestor that clips gets to cut it. Five containers in this sheet
+ * clip, measured rather than assumed:
+ *
+ *   .sidebar             overflow: hidden
+ *   .settings-nav        overflow-y: auto
+ *   .qs-results          overflow-y: auto
+ *   .kanban-column-body  overflow-y: auto
+ *   .codex-pane-status   overflow-x: auto
+ *
+ * A sidebar row spans the full width of a container with overflow: hidden, so
+ * at +1px its ring loses both vertical edges: the keyboard user sees two
+ * horizontal lines and no control. Every control inside one of those five
+ * therefore draws its ring at -2px, INSIDE its own border box, where nothing
+ * upstream can reach it. Outline follows border-radius, so an inset ring on a
+ * 6px pill is still a 6px pill.
+ *
+ * These are all (0,2,0), so they outrank the universal (0,1,1) rule above and
+ * are outranked by nothing else in the sheet; the five PINNED :focus-visible
+ * rules are in other regions and other files and are untouched.
+ *
+ * The ring measures 3.88:1 against the light canvas and 4.53:1 against the dark
+ * one, both clearing the 3:1 non-text floor, in both chrome themes.
+ *
+ * FINDING, not fixable from a stylesheet: .sidebar-tab, .ws-session-item,
+ * .workspace-item, .project-session-item, .session-item, .qs-result,
+ * .search-result, .context-menu-item, .kanban-card, .task-item and
+ * .codex-status-chip are rendered as div or span with no tabindex, so today
+ * they cannot take focus at all and these rules never fire. The rules ship
+ * anyway, because the fix is one attribute in the template and the ring should
+ * already be waiting when it lands. The templates live in index.html and
+ * app.js, which this phase does not own; recorded in DECISIONS.md 11.
+ */
+.sidebar-launch-btn:focus-visible,
+.sidebar-view-btn:focus-visible,
+.sidebar-tab:focus-visible,
+.sidebar-collapse-btn:focus-visible,
+.toggle-hidden-btn:focus-visible,
+.workspace-item:focus-visible,
+.ws-session-item:focus-visible,
+.project-accordion:focus-visible,
+.project-session-item:focus-visible,
+.session-item:focus-visible,
+.settings-nav-item:focus-visible,
+.qs-result:focus-visible,
+.kanban-card:focus-visible,
+.board-card:focus-visible,
+.task-item:focus-visible,
+.codex-status-chip:focus-visible,
+.template-chip:focus-visible,
+.context-menu-item:focus-visible,
+.search-result:focus-visible,
+.attention-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* Scrollbar, verbatim from the mock (DESIGN-SPEC.md 1.5): 7px, a transparent
    track, and a thumb that is a hairline colour rather than a fill, inset by a
    1px transparent border clipped to the padding box so it reads as a thin
@@ -6154,10 +6214,13 @@ body.cwm-dragging .sidebar-backdrop {
  * not like a form field. This is the strongest Notion idiom in the whole app."
  *
  * The raw editor keeps a monospace face because it edits markdown source, but
- * it loses the card it was sitting in. A focus ring would put the box straight
- * back, so focus is signalled by the caret alone, which is what a document
- * surface does; the field fills its own region and there is nowhere for focus
- * to have arrived FROM inside it.
+ * it loses the card it was sitting in.
+ *
+ * `outline: none` here removes the RESTING outline only; it scores (0,1,0) and
+ * the universal :is(...):focus-visible rule scores (0,1,1), so a keyboard user
+ * still gets the ring and a mouse user still gets the clean document surface.
+ * That asymmetry is the point of :focus-visible and it is why the borderless
+ * editors do not need an exception to accessibility floor A3.
  */
 .docs-raw-editor {
   flex: 1;

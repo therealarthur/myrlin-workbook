@@ -139,12 +139,132 @@
   --attention-color: var(--status-stale);
 }
 
+/*
+ * FORCED COLOURS, Notion restyle phase P3, work package P3.5.
+ * Accessibility floor A9: "forced colours keeps every boundary."
+ *
+ * Windows High Contrast and the forced-colors media feature throw away every
+ * author colour and substitute a system palette. Anything this design draws
+ * with a FILL rather than a border therefore disappears: a property chip
+ * becomes invisible text on Canvas, a status dot becomes nothing at all, a
+ * switch becomes an empty rectangle and the primary button becomes
+ * indistinguishable from the secondary one. Every component P3 shipped is a
+ * fill, so every one of them needs a boundary here.
+ *
+ * The four original rows are kept exactly as they were: experience-ux-contract
+ * .test.js requires .resource-row-menu-btn to appear inside this block, and
+ * the other three are P1 and P2 components whose boundaries are still correct.
+ *
+ * System colour keywords only. Author colours are ignored inside this block,
+ * and gate G11 forbids raw colour anywhere in this file regardless.
+ */
 @media (forced-colors: active) {
   .attention-state,
   .theme-gallery-card,
   .density-choice,
   .resource-row-menu-btn {
     border: 1px solid ButtonText;
+  }
+
+  /* Buttons. The two CTA weights are one hue apart and nothing else, so under
+     forced colours they collapse into each other. The primary is re-drawn as
+     the system's own accent pair, which is the only way to keep "this is the
+     confirming action" legible without a colour of our own. */
+  .btn-primary {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    border: 1px solid Highlight;
+  }
+
+  .btn-ghost,
+  .btn-danger,
+  .btn-icon {
+    border: 1px solid ButtonText;
+  }
+
+  .btn:disabled {
+    color: GrayText;
+    border-color: GrayText;
+  }
+
+  /* Chips. The translucent fill is gone, so the boundary has to come back as a
+     border or a status chip is just floating text. */
+  .status-badge,
+  .session-badge,
+  .template-chip,
+  .pane-provider-pill,
+  .mirror-provider-pill,
+  .codex-status-chip,
+  .ws-group-chip {
+    border: 1px solid CanvasText;
+  }
+
+  /* Dots. A filled circle with no border is erased entirely, which would take
+     the only live-state signal in the sidebar with it. */
+  .status-dot,
+  .nt-chip-dot,
+  .stat-dot,
+  .ws-session-dot,
+  .detail-status-dot,
+  .subagent-dot {
+    forced-color-adjust: none;
+    background: CanvasText;
+    border: 1px solid CanvasText;
+  }
+
+  /* Fields. The hairline is an author colour and disappears with the rest. */
+  .input,
+  .form-input,
+  .form-select,
+  .form-textarea,
+  .settings-number-input,
+  .projects-search-input,
+  .find-convo-input,
+  .tasks-search-input,
+  .launcher-form-input {
+    border: 1px solid CanvasText;
+  }
+
+  /* Borderless editors are the one deliberate exception: they are page
+     content, not controls, and a border here would contradict the idiom on the
+     one surface where forced colours already supplies a readable ink. */
+
+  /* Switch. Off and on are a background swap, which forced colours flattens
+     into one shape, so the state moves onto the system's accent pair and the
+     track keeps a boundary either way. */
+  .settings-toggle-track {
+    border: 1px solid CanvasText;
+  }
+
+  .settings-toggle input:checked + .settings-toggle-track {
+    forced-color-adjust: none;
+    background: Highlight;
+    border-color: Highlight;
+  }
+
+  .settings-toggle-thumb {
+    forced-color-adjust: none;
+    background: CanvasText;
+    border: 1px solid Canvas;
+  }
+
+  /* Meters. A progress bar that is a coloured fill inside a coloured track is
+     two rectangles of the same system colour. The track keeps its outline and
+     every fill takes the accent, so the ratio is still readable as a length. */
+  .usage-meter-bar,
+  .account-usage-bar,
+  .token-bar,
+  .resource-bar {
+    border: 1px solid CanvasText;
+  }
+
+  .usage-meter-fill,
+  .account-usage-fill,
+  .token-bar-fill,
+  .resource-bar-fill {
+    forced-color-adjust: none;
+    background: Highlight;
   }
 
   :focus-visible {
