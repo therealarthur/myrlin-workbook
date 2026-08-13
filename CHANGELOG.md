@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Your Codex plan usage can be read without asking ChatGPT for it.** The app already knew how to fetch your usage from the account switcher, which needs a valid sign-in and a working connection. Codex also writes the same figures into every conversation it records, so the app now reads them from your own disk: the plan you are on, how much of the current window you have used, when it resets, and your credit balance. It works offline and it cannot break because a sign-in expired. The display that uses it is still to come.
 
+## [1.3.0-alpha.24] - 2026-08-13
+
+Scroll up in a terminal and you now reach the whole conversation, not just what the terminal happened to draw. Select across it, from an hour ago down into the line being written right now, and copy the lot.
+
+### Added
+
+- **Scrolling up in a terminal reaches the whole session.** Wheel up at the top of what a pane has drawn and it keeps going, into the conversation the assistant recorded. It is the same surface: the same background, the same typeface, the same line spacing, no panel, no banner and nothing to turn on. Hold Shift and the wheel always goes there, whatever is running, which is what every other terminal does too.
+- **You can drag up and copy history.** One drag from the current screen up into last hour's output selects a single continuous stretch, and Ctrl+C copies it. There is no boundary in the middle to get stuck on, because what is on screen is part of the same document as what came before it.
+- **Ctrl+Shift+A now selects everything, including the history.** It used to select what the terminal had in memory, which for a coding assistant is one screen.
+- **Shift+PageUp and Shift+PageDown page through it**, Escape leaves, and typing anything at all leaves and types. That last one is the point: there is no mode to be in and nothing to remember.
+- **A quiet scrollbar shows how much there is.** Six pixels on the right edge, only while you are moving, fading out after a moment. Its size is the only thing telling you there is history above, which is why nothing else has to.
+- **Output keeps flowing while you read.** Selecting text used to pause the terminal, and it no longer does: what pauses is the copy of the screen you are selecting on, so your selection stays put while the session underneath carries on. Nothing is queued and nothing catches up in a rush afterwards.
+
+### Changed
+
+- **The Select mode hint stopped standing on the screen.** It appears once, the first time you drag on a session that has taken over the mouse, and then never again. Select mode itself is unchanged.
+- **Shells and build logs remember much further back.** A pane running a shell reaches its own scrollback first, exactly as before, and then keeps going into a deeper log the server keeps for it. That deeper log needs the `CWM_VT_SIDECAR=1` setting, and without it nothing changes.
+
+### Notes for the next release
+
+History on a phone works, but the touch polish (momentum through the boundary, the selection handles, the toolbar) is the next piece.
+
 ## [1.3.0-alpha.23] - 2026-08-13
 
 The phone stopped hiding things from you. The bottom bar has five tabs instead of four, one of which used to be a drawer called More, and the microphone that has been in the code for months is finally on screen.

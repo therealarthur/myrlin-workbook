@@ -2672,3 +2672,243 @@ script is the only thing that verifies those and it has not been run.
    G7. Anything P11 adds to it should keep it there.
 8. **Three named gaps**: the Sessions tab surface (A.3.2), the priority-plus
    toolbar (B.7), and the long-press zone model (B.2).
+
+## 16. Phase P7, the Unified Scrollback Surface
+
+This section is P7's log. The phase is `TERMINAL-ARCHITECTURE.md` stages 3 and
+4 shipped together, because stage 3 without stage 4 is a surface with nothing
+in it for the pane the whole architecture exists for.
+
+### 16.1 What shipped, and where
+
+| WP | Files | What |
+| --- | --- | --- |
+| P7.1 | `terminal-history.js` (new), `terminal.js` | The layer DOM, open and close by scroll boundary in both directions, `Shift`+wheel, `Shift+PageUp`/`PageDown`, `Ctrl+Shift+Home`/`End`, `Escape`, printable-key dismissal, and the wheel escalation of 8.2 behind `settings.terminalWheelEscalation`. |
+| P7.2 | `terminal-history.js` | Typography and geometry derived from the LIVE instance at open time: family and size read off `.xterm-screen`, row height MEASURED from a rendered row, letter spacing, the ground and ink from `terminalSurface()`, the horizontal padding measured from the live screen's offset, and the rect measured from `.terminal-container`. |
+| P7.3 | `terminal-history.js`, `terminal.js` | The mirror freeze: a non-collapsed selection inside the layer pauses the live segment's `textContent` swap and nothing else. `_enqueueWrite` and `_flushWriteBuffer` gained one notification call each and no gate. |
+| P7.4 | `styles.css`, `terminal-history.js` | The 6px overlay scrollbar at 40 percent `--app-border-secondary`, fading after 900ms, sized to the whole document, hidden when there is nothing above the current screen, with a 2px indeterminate shimmer while paging. |
+| P7.5 | `server.js`, `terminal.js`, `terminal-history.js` | `GET /api/sessions/:id/history`, the transcript segment paged by `beforeOffset`, the deep segment paged by `beforeLine`, the source router re-evaluated on `onBufferChange` and on every mode frame, and the one-turn overlap seam. |
+| P7.6 | `terminal.js` | `Ctrl+Shift+A` upgraded to the whole document, the Select-mode strip demoted to the first plain drag under mouse tracking, and every v1/v2/v3 identifier preserved verbatim. |
+
+New files: `src/web/public/terminal-history.js` (2096 lines),
+`test/terminal-history.test.js` (46 assertions),
+`test/browser/terminal-history-e2e.test.js` (14 checks),
+`test/browser/fake-agent-cli.js` (the alternate-screen fixture).
+
+### 16.2 Ambiguities resolved during P7
+
+#### 16.2.1 The live segment is not "the screen", it is "everything since the layer opened"
+
+7.4's table says the `screen` segment is "the current visible screen, refreshed
+on a rAF throttle". Taken literally on a NORMAL-buffer pane that is wrong in a
+way that only shows up while the user is reading: output arriving while the
+layer is open pushes lines out of the viewport into the client ring, so a
+literal `screen` segment would silently lose them, and re-reading the ring on
+every refresh would grow the document ABOVE the reader and yank the viewport on
+every frame.
+
+The segment is therefore anchored: at open, `buffer.baseY` is captured, and the
+live segment is everything from that row to the end of the buffer. New output
+extends the BOTTOM of the document, so nothing above the reader ever moves, and
+nothing is lost. On the alternate buffer the anchor is 0 and the segment is the
+frame, which is the literal reading, because there the two are the same thing.
+
+The segment is bounded at `HISTORY_LIVE_SEGMENT_MAX_LINES` (4000) and rebalances
+its overflow into the segment above it. That move is invisible by construction:
+the same lines in the same order, in a different text node.
+
+One bound is worth stating because it is reachable rather than theoretical: if
+xterm trims its 10000-line ring while the layer is open, every index shifts and
+the anchor no longer means what it meant. That is detected (the buffer length
+falls) and the anchor is reset, which costs one visible discontinuity after
+10000 lines of output during a single reading session.
+
+#### 16.2.2 The deep segment's alignment is an assumption, and it is the honest one
+
+The client's ring and the server's line log are two records of the same byte
+stream, and nothing links them: the log has absolute indices, the ring has none.
+The first deep page therefore probes for `total` and pages backwards from
+`total - <lines the client already holds>`, which is `deepStartCursor`.
+
+That is an assumption, and it can be wrong by a bounded amount when the client
+was reset by a resync or the server reflowed. It fails toward a VISIBLE
+DUPLICATE at the seam and never toward a deletion, which is the same trade 7.4
+makes for the transcript seam and the same one `vt-sidecar.js` makes for its own
+resize seams. The dedupe that trims it is bounded by the sidecar's OWN reflow
+counter, published by the new route: at zero reflows the window is zero, so a
+monotonic log is never deduped at all and a genuinely repeated prompt or build
+warning cannot be eaten.
+
+#### 16.2.3 The transcript is a snapshot, and "live-appending" means the live segment
+
+The brief asks for a live-appending transcript segment. Section 12's robustness
+matrix rules the other way for a reason that outranks it: the mirror service
+allows ten concurrent watchers, and a pane the user is merely READING must not
+consume one. So the transcript is snapshotted on open and paged backwards on
+demand, exactly as the Copy view's own snapshot does, and what stays live is the
+LIVE segment, which is the only part of the document that can change while the
+user is looking at it.
+
+The consequence is precise and small: a turn that completes while the surface is
+open appears in the live segment (it is on screen) and not in the transcript
+segment until the surface is next opened. Nothing is missing and nothing is
+stale; the newest turn is simply on the live side of the seam, which is where
+the overlap ruling already puts it.
+
+#### 16.2.4 Ctrl+C over a history selection needed its own branch, and its spelling is load bearing
+
+Plain `Ctrl+C` deliberately does nothing but `return false`, leaving the copy to
+Chromium's trusted `copy` event, which xterm answers on the terminal element
+with ITS OWN selection. There is one reachable case where that is wrong:
+`Ctrl+Shift+A` selects the history document while keyboard focus is still on the
+terminal, so the trusted copy would answer with an empty xterm selection and the
+user would get nothing.
+
+The new branch sits ABOVE the plain one and is spelled
+`if (this._historyOwnsSelection() && mod && !e.shiftKey && shortcutKey === 'c')`.
+Both facts are load bearing: three suites locate the plain branch by an
+`indexOf` of its exact if-header text, so a branch beginning with those same
+characters would be extracted as part of it. **The first draft of this phase put
+that header literal in a COMMENT above the branch and broke all three suites;
+the P7 suite caught it before it left the working tree.** The comment now
+describes the anchor without quoting it.
+
+#### 16.2.5 ConPTY consumes the mouse-tracking DECSETs, which changes which routing case a Windows pane is in
+
+Measured while building the browser fixture, and it was not predicted by section
+2. Under ConPTY on this machine, conhost CONSUMES DECSET 1000, 1002, 1003 and
+1006 and does not forward them to the terminal, with or without raw mode on the
+child and with or without win32 input mode. It forwards 1049, 2004, 1004 and
+9001 unchanged.
+
+So a child that enters the alternate buffer and asks for the mouse can arrive at
+the client as an alternate-buffer pane with `mouseTrackingMode === 'none'`. That
+is 8.1's THIRD row rather than its fourth, and the routing degrades in the right
+direction: plain wheel up opens the surface immediately, which is correct,
+because xterm will not be forwarding the wheel to an application that never
+asked for mouse reports.
+
+Two consequences worth recording. The client-side fallback and the P6 mode frame
+AGREE here rather than disagreeing, because the sidecar parses the same bytes
+the client does, so nothing is inconsistent. And section 2.2's measurement of
+real sessions did observe the mouse sequences in the byte ring, so the real CLI
+reaches the client differently from this fixture; the difference is not
+understood and is recorded rather than guessed at. Nothing in P7 depends on the
+answer, because the routing is by buffer mode and the wheel decision has a
+guaranteed Shift path underneath it.
+
+#### 16.2.6 The metrics gate compares against the rendered ROW, not against `.xterm-screen`
+
+P7.2's done criterion is that the layer's computed `font-size`, `line-height`
+and `background-color` EQUAL the live `.xterm-screen` values. Two of those three
+are read literally. The third cannot be: xterm's own CSS sets `line-height:
+normal` on the screen element and puts the real metric on the rendered row
+divs, and `.xterm-screen` paints no background at all (the ground belongs to
+`.terminal-container`, which is what P5.5 made paint `--term-bg`).
+
+So the executed gate compares font size and family against `.xterm-screen`, the
+line height against the measured height of a rendered row, and the ground
+against `.terminal-container`. Measured in the browser proof: identical family,
+identical size, row height within 0.5px, identical ground, and a layer rect
+within 0.5px of the container rect on both axes.
+
+### 16.3 Scope decisions, and what was deliberately left alone
+
+1. **`app.js` was not touched at all.** The surface is reachable from the pane
+   (`openHistory`, `closeHistory`, `toggleHistory`, `isHistoryOpen`,
+   `selectAllHistory`) and announces itself on the EXISTING
+   `cwm:select-chrome` event with a new `historyOpen` field, so the app shell's
+   single delegated listener picks it up with no new wiring. The mobile track
+   was editing `app.js` throughout this phase.
+2. **The Copy view is untouched and still reachable.** It remains the explicit
+   "terminal bytes" fallback and the phone-friendly full-screen reader, exactly
+   as 13.2 asks. Its `_loadTranscriptSnapshot`, `_loadEarlierTranscript` and
+   `_renderTranscriptIntoOverlay` are byte-identical; the surface reuses
+   `_copyViewIdentity`, `_copyViewApi` and `_copyViewDeviceId` instead.
+3. **Select mode v1, v2 and v3 are preserved verbatim.** Not one identifier was
+   renamed, moved or reformatted; the suite asserts a list of 45 of them. The
+   only behavioural change is WHEN the strip is shown, gated at the call site
+   (`DEVIATIONS` DV-31).
+4. **No closed-state affordance.** `DEVIATIONS` DV-30.
+5. **Touch is not preclued but not polished.** The layer scrolls natively with
+   `-webkit-overflow-scrolling: touch` and `overscroll-behavior: contain`, the
+   mobile touch engine gained the same exemption the Copy view has, and the
+   chrome event carries the state the phone toolbar needs. The momentum
+   carry-through, the selection handles and the toolbar mirror are P11's.
+6. **The sidecar stays off by default.** The deep segment is empty without
+   `CWM_VT_SIDECAR=1`, and everything else works exactly the same, which is
+   what "nothing may hard-depend on the mode frame" requires.
+
+### 16.4 The numbers
+
+| Measure | After P5 | After P7 |
+| --- | --- | --- |
+| `terminal.js` lines | 5928 | **6510** |
+| `terminal-history.js` lines | did not exist | **2096** |
+| `styles.css` lines | 15877 | **16012** |
+| `server.js` lines | 9388 | **9513** |
+| Gate G4, Catppuccin `var()` in chrome | 747 | **699** (unchanged by P7; the new rules use `--app-*` fallbacks) |
+| Gate G14, animated status marks | 0 | **0** |
+| Test files / assertions | 94 / 1642 | **95 / 1693** |
+| Gates | 18/18 | **18/18** |
+
+P7's own assertion delta is **+46**, all in the new
+`test/terminal-history.test.js`, plus 14 browser checks in
+`test/browser/terminal-history-e2e.test.js` and three new region screenshots.
+One test file was edited (`test/phantom-tokens.test.js`, one allow-list row for
+`--term-dim`, which P5.4's own comment reserved for "the phase that first writes
+`var(--term-dim)` into a stylesheet").
+
+### 16.5 The p7 screenshots, and an honest reading of them
+
+`screenshots/notion-restyle/p7/`, the frozen eight plus sixteen region shots,
+three of which are new and all three spawn a REAL PTY running an
+alternate-screen child with a REAL transcript on the sandbox disk.
+
+**What the pictures show.** `desktop-dark-history` and `desktop-light-history`
+are the surface mid-scroll at the seam: conversation above, a hairline, the
+frame the CLI is painting below, in one document, on one ground, in the
+terminal's own face and rhythm. `desktop-*-history-selection` is the money
+shot: one selection highlight that starts inside "Turn 14 reply" and runs down
+across the hairline into `LIVE-SCREEN-ROW-1` through `-6`. There is no seam in
+the highlight because there is no boundary in the document.
+
+**Measured rather than eyeballed**, which matters because a viewer can lie about
+this file: `desktop-light-history` samples `#eff1f5` in the pane body, which is
+Latte's ground and the same value the live terminal paints in
+`desktop-light-terminal`. `desktop-light-history-mocha-on-light` samples
+`#1e1e2e` in the pane body against a `#f1f0ef` sidebar, which is the two-axis
+proof holding on the history surface as well as on the terminal.
+
+**What is inherited rather than new.** In the mocha-on-light shot the pane
+HEADER samples `#2a253b`, a dark band under light chrome. The identical value
+appears in P5's own `desktop-light-terminal-mocha-on-light`, so it is the
+provider tint following the terminal palette rather than the chrome, and it is
+P12's to reconcile.
+
+**What the pictures do not show.** The quiet scrollbar has faded in two of the
+three history shots, because it fades after 900ms and the harness settles for
+longer than that before it captures. It is visible in
+`desktop-light-history-mocha-on-light`. That is the affordance behaving as
+specified rather than a capture defect, and it is the same thing P5 recorded
+about xterm's own scrollbar.
+
+### 16.6 What P11 and P12 inherit
+
+1. **A surface that is already a text zone.** `.terminal-history` scrolls
+   natively, contains its overscroll, and is exempt from the pane's touch
+   engine. P11 owns momentum through the boundary, the platform selection
+   handles and pull-to-refresh suppression at the top.
+2. **`historyOpen` on `cwm:select-chrome`.** The phone chrome can mirror the
+   third state with no new event and no per-pane hook.
+3. **A shipped wheel-escalation heuristic** with an off switch and VG-6 still
+   open (`DEVIATIONS` DV-29).
+4. **A closed-state affordance decision** (`DEVIATIONS` DV-30).
+5. **`GET /api/sessions/:id/history`**, bounded, authenticated, never throwing,
+   publishing `reflows`, `lostLines` and the mode alongside the page.
+6. **A fixture that reproduces an agent CLI's terminal behaviour**
+   (`test/browser/fake-agent-cli.js`) and a sandbox recipe that seeds a real
+   transcript, so any later phase can test against an alternate-screen pane
+   without credentials or a network.
+7. **One measured Windows finding** that changes which routing case a pane is
+   in (16.2.5).

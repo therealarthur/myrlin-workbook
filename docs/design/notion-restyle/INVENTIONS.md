@@ -44,8 +44,11 @@ typo.
 
 ## Components
 
-No component inventions yet. P2 onward will add rows here for every Workbook surface that has no
-counterpart in a document editor. The list to expect, from `DESIGN-SPEC.md`: the terminal pane
-header, the pane grid gutter, the session status dot system, the provider identity pill, the
-attention queue, the cost meter, the usage meter, the kanban board card, the worktree review banner,
-the mobile tab bar and the Select-mode strip.
+The list to expect, from `DESIGN-SPEC.md`: the terminal pane header, the pane grid gutter, the
+session status dot system, the provider identity pill, the attention queue, the cost meter, the
+usage meter, the kanban board card, the worktree review banner, the mobile tab bar and the
+Select-mode strip. One is recorded so far.
+
+| Component | Nearest relative | Inherited | Invented | Where | Phase |
+| --- | --- | --- | --- | --- | --- |
+| **The history surface** (`.terminal-history`, the Unified Scrollback Surface) | Two, and neither is close. Inside this application, the Copy view overlay: a `<pre>` of terminal text, parented on the pane, selectable as ordinary DOM. Outside it, a terminal emulator's own scrollback. | From the Copy view: the pane as the positioned host, `white-space: pre-wrap` with `overflow-wrap: anywhere`, native DOM selection as the copy mechanism, and the mirror API as the transcript source. From a terminal: the gesture (wheel up), the keys (`Shift+PageUp`, `Escape`), and the rule that typing returns you to live. From the terminal region itself (P5.4): the ground, the ink, the rule colour and the face, so it is the same surface rather than a panel over it. | That it is NOT a panel. The Copy view announces itself with a bar, a title, a border and a `--mantle` ground, because it is a tool you open. This announces nothing: no border, no shadow, no backdrop, no header, no toggle, and its typography is measured off the live xterm instance at open time rather than authored, so the boundary between it and the terminal is invisible. What had to be invented from nothing is the SEAM: a single hairline in the palette's own rule colour with no label, marking a deliberate one-turn overlap between the transcript and the live frame, chosen over a heuristic join because a wrong join deletes real conversation silently (`TERMINAL-ARCHITECTURE.md` 7.4). The document also had to be given an order that serves two different data sources with one layout: deep, ring, transcript, live, oldest first, with the CURRENT SCREEN as the last segment, which is what makes a drag from history into the live screen one contiguous selection instead of a boundary case. | `terminal-history.js`, `styles.css` | P7 |

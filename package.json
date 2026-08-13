@@ -1,6 +1,6 @@
 {
   "name": "myrlin-workbook",
-  "version": "1.3.0-alpha.23",
+  "version": "1.3.0-alpha.24",
   "description": "Browser-based project manager for AI coding assistants (Claude Code, ChatGPT Codex). Multi-provider session discovery, search, live terminals, docs, kanban, themes.",
   "main": "src/index.js",
   "bin": {
@@ -26,10 +26,11 @@
     "gui:bare": "node src/gui.js",
     "gui:demo": "node src/supervisor.js --demo",
     "test": "node test/run.js",
-    "test:browser": "npm run test:terminal-browser && npm run test:workbook-shell && npm run test:notion-shell",
+    "test:browser": "npm run test:terminal-browser && npm run test:workbook-shell && npm run test:notion-shell && npm run test:history-e2e",
     "test:terminal-browser": "node test/browser/terminal-interaction.test.js",
     "test:workbook-shell": "node test/browser/workbook-shell.test.js",
     "test:notion-shell": "node test/browser/notion-shell.spec.js",
+    "test:history-e2e": "node test/browser/terminal-history-e2e.test.js",
     "gates": "node scripts/do-not-break-gates.js",
     "mcp:visual-qa": "node src/mcp/visual-qa.js",
     "gui:cdp": "node src/supervisor.js --cdp",

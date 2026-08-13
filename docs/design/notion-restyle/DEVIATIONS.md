@@ -333,3 +333,66 @@ are recorded as a block for the same reason the P9 rows are.
 | **What it costs** | The phase-to-version map is now fully detached from the contract's table: P10 is alpha.23, and P11 and P12 will need alpha.24 and alpha.25. A reader who assumes the contract's numbering will be wrong for the rest of the program, so the map lives here rather than there. alpha.23 also contains one commit from the Codex track whose own entry is still under Unreleased, because its owner has not cut it; nothing is lost, and this sentence is the pointer for anybody diffing the tags. |
 | **Approved by** | P10 implementation agent, per its brief, extending the DV-22 and DV-P9-2 precedent. |
 | **Date** | 2026-08-13 |
+
+---
+
+## P7 rows (the Unified Scrollback Surface)
+
+Five departures. Two are scope (one thing pulled forward, one thing left where
+another phase owns it), two are places a rule and a mechanism disagree, and one
+is a version number. None is a preference.
+
+### DV-28. `terminal.js` keeps its P5 cachebuster, and the new file carries its own
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | Gate G10 treats a cachebuster bump as "a five-file atomic change": `index.html` plus the three pinning tests. The house convention, followed by P5 and P10, is that a phase editing an asset bumps that asset's `?v=`. |
+| **What shipped** | `terminal-history.js` is served with a new `?v=20260813-notion-p7`. `terminal.js?v=20260813-notion-p5` is unchanged, although P7 adds 582 lines to it. |
+| **Why** | Bumping it means editing `test/terminal-select-mode.test.js` and `test/copy-secure-context-fallback.test.js`, which are two of the three suites this phase is required to leave BYTE-IDENTICAL: they are 3199 lines of source-text assertions over the Select mode machinery, and `TERMINAL-ARCHITECTURE.md` 13.2 plus this phase's brief pin them as unedited. The query string is also not load bearing for correctness here: `server.js` serves this tree through `express.static` with the default `maxAge: 0` and an ETag, so every reload revalidates and a changed `terminal.js` is re-fetched on its own. And the degradation is safe by construction rather than by luck: every P7 entry point in `terminal.js` is gated on `window.TerminalHistory` existing, so a browser holding a stale `terminal.js` next to a fresh `terminal-history.js` is a P6 pane, not a broken one. |
+| **What it costs** | G10's five-file rule is satisfied vacuously rather than exercised for this phase, and the next phase that bumps `terminal.js` inherits a slightly larger diff. Recorded here so that phase does not conclude the convention lapsed. |
+| **Approved by** | P7 implementation agent, under the brief's "the select-mode pinned suites pass UNEDITED" instruction, which outranks the convention. |
+| **Date** | 2026-08-13 |
+
+### DV-29. The wheel-escalation heuristic is pulled forward from stage 5 into P7
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | `TERMINAL-ARCHITECTURE.md` 8.2 specifies the convenience path (a plain wheel notch under mouse tracking is forwarded to the application, and if no output follows within `WHEEL_EXHAUSTION_MS` the next notch opens the history layer instead) and assigns it to **stage 5**, which is P11. P7 is stages 3 and 4. |
+| **What shipped** | It is implemented in P7, behind `settings.terminalWheelEscalation`, defaulting on, exactly as 8.2 specifies it including the 140ms window. |
+| **Why** | Without it, the pane the whole phase exists for (an agent CLI that has claimed the mouse) has no PLAIN wheel path into history at all: the notch goes to the application, the application does nothing with it, and the surface is reachable only by holding Shift. The brief's interaction model opens with "wheel up through ALL history", and shipping stages 3 and 4 without this would have shipped a feature whose primary gesture works on shells and not on agents. It is layered on the guaranteed Shift path rather than replacing it, so the risk 8.2 names (a CLI update changing the behaviour the heuristic reads) costs a convenience and never the feature. |
+| **What it costs** | P11 inherits a shipped heuristic to tune rather than a blank line item, and it inherits the open question 8.2 flags as VG-6: whether the probe misfires when a CLI is merely SLOW rather than exhausted. The off switch is the escape hatch, and the unit suite executes both directions (a verdict opens the surface; any output cancels it). |
+| **Approved by** | P7 implementation agent, on the brief's interaction model. |
+| **Date** | 2026-08-13 |
+
+### DV-30. The affordance exists only while the surface is open
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | 8.3: the scrollbar "represents the **whole** logical extent, live layer plus history layer... This is the only persistent affordance that history is reachable, and it is the reason no strip or toggle is needed." |
+| **What shipped** | The 6px overlay bar, the 40 percent `--app-border-secondary` thumb, the 900ms fade and the 2px paging shimmer, all inside the history surface. While the surface is CLOSED there is no Workbook affordance; a normal-buffer pane shows xterm's own scrollbar (restyled in P5.5) and an alternate-buffer pane shows nothing. |
+| **Why** | A persistent affordance over the LIVE terminal is a new element painted over the xterm canvas on every pane at all times, with its own hit area, its own hover state and its own interaction with the Select-mode wheel guard and the mobile touch engine. That is a second surface, not a scrollbar, and its extent would have to be computed from a history source that has not been fetched yet: an alternate pane's transcript is deliberately not read until the surface opens, so that reading a pane never consumes one of the ten mirror watchers. Shipping the affordance where the extent is REAL is honest; shipping it where the extent is a guess is the "affordance for history that does not exist" failure the P7.4 done criterion names from the other direction. |
+| **What it costs** | Discoverability. A user who has never wheeled up on an agent pane has nothing telling them the history is there. Two things bound it: the gesture is the one every terminal already teaches, and the first plain drag under mouse tracking still raises the Select-mode strip once (DV-31), which names the copy paths. A closed-state affordance belongs with P11's touch polish or P12's review, where the pane chrome is being looked at as a whole. |
+| **Approved by** | P7 implementation agent, flagged to the orchestrator for P11 or P12. |
+| **Date** | 2026-08-13 |
+
+### DV-31. The Select-mode strip is demoted at its call site, not inside its method
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | P7.6: "Select mode **demoted, not retired**: its strip appears only on the first plain drag under mouse tracking." 13.2 adds: "Gate first display on a new first plain drag under mouse tracking condition instead of on the toggle." |
+| **What shipped** | `_showSelectModeStrip`, `_applySelectStripPlacement`, `_selectStripBottomPx`, `_hideSelectModeStrip`, `_showSelectModeNotice` and `SELECT_STRIP_TEXT` are byte-identical. The gate is a new predicate, `_shouldShowSelectModeStrip()`, at the ONE call site in `_updateSelectModeUI` that used to show the strip unconditionally. |
+| **Why** | `terminal-select-v2.test.js` asserts against the BODY of `_showSelectModeStrip` (that it re-asserts `SELECT_STRIP_TEXT`, that it measures placement on both the cached and the create path, that it does not carry `z-index:20`), so a condition inside the method would have had to be written around three source-text assertions. The call site carries no such pins, and the demotion is a policy about WHEN rather than about what the strip is. The predicate also degrades correctly: with `terminal-history.js` absent it returns true unconditionally, which is exactly the pre-P7 behaviour. |
+| **What it costs** | The condition lives one level up from the thing it governs, so a future reader of `_showSelectModeStrip` alone will not see it. The method's own comment is unchanged, which is why this row exists. |
+| **Approved by** | P7 implementation agent, under `TERMINAL-ARCHITECTURE.md` 13.2's preservation strategy. |
+| **Date** | 2026-08-13 |
+
+### DV-32. The version map, a fourth time: P7 is alpha.24
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | 4.4 assigns P7 `1.3.0-alpha.18`, and DV-P9-2 reserved that number on the reasoning that "P5 and P7 have not shipped, so their numbers stay reserved". |
+| **What shipped** | `1.3.0-alpha.24`. `alpha.18` is left unwritten, permanently, exactly as `alpha.16` was for P5. |
+| **Why** | The same reason DV-23 and DV-P10-6 give: a version number cannot go backwards, and by the time this phase shipped, alphas 19 through 23 had been cut by P8, P9, the P4 remainder, P5 and P10. P10 took alpha.23 hours before this landed, which is the collision DV-22 first recorded. |
+| **What it costs** | The phase-to-version map is now: P4r=21, P5=22, P6=17, P7=**24**, P8=19, P9=20, P10=23, with 16 and 18 permanent gaps. It lives in this file and not in the contract. P11 and P12 will need alpha.25 and alpha.26. |
+| **Approved by** | P7 implementation agent, per its brief, extending DV-22, DV-23, DV-P9-2 and DV-P10-6. |
+| **Date** | 2026-08-13 |
