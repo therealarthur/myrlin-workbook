@@ -946,6 +946,7 @@ const standaloneTests = [
   'terminal-host-ownership.test.js', // 2026-07-25 copy regression: moved/cached xterm owner + fixed-host listener/control/resize lifecycle
   'pty-degrade.test.js',             // issue #68: node-pty load-failure containment (probe, health field, degraded attach close, coded spawn throw, remediation text)
   'terminal-select-v2.test.js', // 2026-08-05 Select mode v2: freeze-while-selecting write gate, wheel guard, Copy view snapshot overlay, host-lifecycle teardown
+  'codex-paths.test.js',        // P8.3 (Codex parity P0): cwd normalization truth table, the real New project 2 collision, the two proven sha256 project ids
 ];
 
 let standaloneFailed = 0;
