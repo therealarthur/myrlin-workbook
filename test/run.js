@@ -947,6 +947,7 @@ const standaloneTests = [
   'pty-degrade.test.js',             // issue #68: node-pty load-failure containment (probe, health field, degraded attach close, coded spawn throw, remediation text)
   'terminal-select-v2.test.js', // 2026-08-05 Select mode v2: freeze-while-selecting write gate, wheel guard, Copy view snapshot overlay, host-lifecycle teardown
   'codex-paths.test.js',        // P8.3 (Codex parity P0): cwd normalization truth table, the real New project 2 collision, the two proven sha256 project ids
+  'codex-state-db.test.js',     // P8.2 (Codex parity P0): read-only discipline, graceful degradation, PRAGMA table_info probing, title cascade, WAL overlay + node:sqlite oracle
   'notion-token-parity.test.js', // Notion restyle P0.4: vendored-bundle integrity, components.css var() resolution, styles.css/bundle token parity (the anti-drift gate risk R9 forces)
 ];
 
