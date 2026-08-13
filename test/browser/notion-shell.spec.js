@@ -203,6 +203,63 @@ const REGION_ROUTES = [
       await page.evaluate(() => window.cwm.setTheme('myrlin-light'));
     },
   },
+  {
+    // THE HISTORY SURFACE, mid-scroll at the seam (Notion restyle P7).
+    //
+    // This region needs MORE than a live PTY: it needs an ALTERNATE-screen
+    // application, because that is the pane the Unified Scrollback Surface
+    // exists for (an alternate viewport never scrolls, so the terminal layer
+    // holds no history at all), and it needs a transcript on disk, because
+    // that is where the history actually comes from. Both are provided by the
+    // sandbox: test/browser/fake-agent-cli.js reproduces the measured startup
+    // sequence of a real agent CLI, and seedHistoryTranscript writes a real
+    // Claude transcript into the sandbox profile where the mirror API finds it.
+    //
+    // What the picture has to show is the SEAM: transcript above, a hairline,
+    // the current screen below, in the terminal's own metrics and on the
+    // terminal's own ground. If the surface is off by a pixel or a shade, this
+    // is the shot where it is visible.
+    id: 'history',
+    apply: async (page) => {
+      await openHistoryProbe(page);
+      await centreOnSeam(page);
+    },
+    cleanup: killProbePane,
+  },
+  {
+    // THE MONEY SHOT: one selection that starts in last hour's conversation and
+    // ends inside the frame the CLI is painting right now. The user's sentence
+    // is "you cannot drag up and copy history"; this is the picture of that
+    // sentence being false.
+    id: 'history-selection',
+    apply: async (page) => {
+      await openHistoryProbe(page);
+      await centreOnSeam(page);
+      await dragAcrossSeam(page);
+    },
+    cleanup: killProbePane,
+  },
+  {
+    // The two axes again (DESIGN-SPEC 10.1), on the history surface this time:
+    // Notion LIGHT chrome around a Mocha terminal AND a Mocha history document.
+    // If the surface took its ground from the chrome rather than from the
+    // terminal projection, this shot would show a light document on a dark
+    // pane, which is exactly the seam 10.1 calls the highest risk item.
+    id: 'history-mocha-on-light',
+    chromeOnly: 'light',
+    apply: async (page) => {
+      await page.evaluate(() => {
+        window.cwm.setChrome('light');
+        window.cwm.setTheme('mocha');
+      });
+      await openHistoryProbe(page);
+      await centreOnSeam(page);
+    },
+    cleanup: async (page) => {
+      await killProbePane(page);
+      await page.evaluate(() => window.cwm.setTheme('myrlin-light'));
+    },
+  },
   { id: 'docs', apply: async (page) => page.evaluate(() => window.cwm.setViewMode('docs')) },
   { id: 'costs', apply: async (page) => page.evaluate(() => window.cwm.setViewMode('costs')) },
   {
@@ -498,6 +555,157 @@ async function waitForPaintedTerminal(page, timeoutMs) {
   ).catch(() => { /* captured empty rather than not at all */ });
   // One extra frame so a half-drawn first paint is not what gets photographed.
   await page.waitForTimeout(600);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   P7 HISTORY-SURFACE PROBE
+   Three region shots need the same three things: an alternate
+   screen application on a real PTY, a real transcript on the
+   sandbox disk, and the surface open at the seam. These helpers
+   are that setup, factored out so the three entries differ only
+   in what they do once it is standing.
+   ═══════════════════════════════════════════════════════════════ */
+
+// The seeded session. A real UUID shape: findJsonlFile matches the file name
+// and the pane validates the id before it ever reaches the mirror API.
+const P7_HISTORY_SESSION_ID = '7f3d21b8-4c6e-4a19-9f2b-11d0a7e5c400';
+
+// Forward slashes, deliberately: the spawn path is validated by
+// isSafeCommand in pty-server.js, whose rejection set includes the backslash.
+const P7_FAKE_CLI = path.join(__dirname, 'fake-agent-cli.js').replace(/\\/g, '/');
+
+// Set once the sandbox exists, so a region apply (which only receives `page`)
+// can still reach the profile the child server is reading.
+let ACTIVE_PROFILE_DIR = null;
+
+/**
+ * Write a Claude transcript into the sandbox profile.
+ *
+ * The Claude provider resolves an artifact by scanning
+ * <home>/.claude/projects/<any>/<sessionId>.jsonl and the child server runs
+ * with USERPROFILE inside the sandbox, so this is the real lookup path rather
+ * than a stub. Fixed text and fixed timestamps, so two phases produce
+ * comparable pictures.
+ *
+ * @param {string} profileDir - Sandbox profile root.
+ * @param {number} turns - Conversation turns to write.
+ * @returns {string} The transcript path.
+ */
+function seedHistoryTranscript(profileDir, turns) {
+  const projectDir = path.join(profileDir, '.claude', 'projects', 'C--p7-history-probe');
+  fs.mkdirSync(projectDir, { recursive: true });
+  const lines = [];
+  for (let i = 1; i <= turns; i++) {
+    lines.push(JSON.stringify({
+      type: 'user',
+      timestamp: new Date(Date.UTC(2026, 7, 13, 9, i, 0)).toISOString(),
+      message: {
+        role: 'user',
+        content: 'Turn ' + i + ': can you summarise what we changed in the terminal region?',
+      },
+    }));
+    lines.push(JSON.stringify({
+      type: 'assistant',
+      timestamp: new Date(Date.UTC(2026, 7, 13, 9, i, 30)).toISOString(),
+      message: {
+        role: 'assistant',
+        model: 'claude-opus-4',
+        content: [{
+          type: 'text',
+          text: 'Turn ' + i + ' reply: the pane took the palette, the padding and the frame, '
+            + 'and the history you are reading now comes from the session transcript rather '
+            + 'than from terminal scrollback, because an alternate screen never scrolls.',
+        }],
+      },
+    }));
+  }
+  const file = path.join(projectDir, P7_HISTORY_SESSION_ID + '.jsonl');
+  fs.writeFileSync(file, lines.join('\n') + '\n', 'utf8');
+  return file;
+}
+
+/**
+ * Open a pane on the alternate-screen fixture and raise the history surface.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @returns {Promise<void>} Resolves once the transcript has landed.
+ */
+async function openHistoryProbe(page) {
+  await page.evaluate(({ sessionId, command }) => {
+    window.cwm.setViewMode('terminal');
+    window.cwm.openTerminalInPane(0, sessionId, 'History probe', {
+      command,
+      resumeSessionId: sessionId,
+    });
+  }, { sessionId: P7_HISTORY_SESSION_ID, command: 'node ' + P7_FAKE_CLI });
+
+  await page.waitForFunction(
+    () => {
+      const screen = document.querySelector('#term-pane-0 .xterm-screen');
+      return !!screen && screen.textContent.indexOf('LIVE-SCREEN-ROW-1') !== -1;
+    },
+    { timeout: 45000 }
+  ).catch(() => { /* an empty surface is still a picture of the surface */ });
+
+  await page.evaluate(() => {
+    const pane = window.cwm.terminalPanes && window.cwm.terminalPanes[0];
+    if (pane && typeof pane.openHistory === 'function') pane.openHistory('capture');
+  });
+
+  // Wait for the transcript page rather than sleeping: the shot is about the
+  // seam, and a seam with nothing above it is not the picture.
+  await page.waitForFunction(
+    () => {
+      const seg = document.querySelector('#term-pane-0 .terminal-history-seg[data-seg="transcript"]');
+      return !!seg && seg.textContent.length > 0;
+    },
+    { timeout: 20000 }
+  ).catch(() => { /* captured without history rather than not at all */ });
+  await page.waitForTimeout(400);
+}
+
+/**
+ * Scroll the history document so the seam sits in the middle of the pane.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @returns {Promise<void>} Resolves once positioned.
+ */
+async function centreOnSeam(page) {
+  await page.evaluate(() => {
+    const doc = document.querySelector('#term-pane-0 .terminal-history-doc');
+    const rule = doc && doc.querySelector('.terminal-history-rule');
+    if (!doc || !rule) return;
+    doc.scrollTop = Math.max(0, rule.offsetTop - Math.round(doc.clientHeight / 2));
+  });
+  await page.waitForTimeout(350);
+}
+
+/**
+ * Drag one selection from the transcript, across the seam, into the live screen.
+ *
+ * @param {import('@playwright/test').Page} page - Live page.
+ * @returns {Promise<void>} Resolves once the selection is held.
+ */
+async function dragAcrossSeam(page) {
+  const points = await page.evaluate(() => {
+    const doc = document.querySelector('#term-pane-0 .terminal-history-doc');
+    const rule = doc && doc.querySelector('.terminal-history-rule');
+    if (!doc || !rule) return null;
+    const docRect = doc.getBoundingClientRect();
+    const ruleRect = rule.getBoundingClientRect();
+    return {
+      startX: docRect.left + 24,
+      startY: Math.max(docRect.top + 10, ruleRect.top - 70),
+      endX: docRect.left + 320,
+      endY: Math.min(docRect.bottom - 10, ruleRect.bottom + 70),
+    };
+  });
+  if (!points) return;
+  await page.mouse.move(points.startX, points.startY);
+  await page.mouse.down({ button: 'left' });
+  await page.mouse.move(points.endX, points.endY, { steps: 12 });
+  await page.mouse.up({ button: 'left' });
+  await page.waitForTimeout(250);
 }
 
 /**
@@ -1009,6 +1217,13 @@ async function run() {
   try {
     const started = await startWorkbook(sandbox);
     child = started.child;
+    // P7: the history region shots read a real transcript through the real
+    // mirror API, so one has to exist on the sandbox disk before any pane
+    // opens. Written here rather than inside a region apply because the
+    // region only receives `page`, and because seeding after the server is up
+    // is exactly how a session that has just started writing behaves.
+    ACTIVE_PROFILE_DIR = path.join(sandbox, 'profile');
+    seedHistoryTranscript(ACTIVE_PROFILE_DIR, 14);
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
       viewport: { width: VIEWPORTS[0].width, height: VIEWPORTS[0].height },
