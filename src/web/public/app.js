@@ -2787,7 +2787,10 @@ class CWMApp {
       });
     }
     if (items.length === 0) return [];
-    items.unshift({ type: 'sep', label: 'Keys' });
+    // "More keys" rather than "Keys": the pane sheet below this one already
+    // has a Keys group, and the p11 capture showed the two headings reading
+    // as a repeat rather than as two different things.
+    items.unshift({ type: 'sep', label: 'More keys' });
     return items;
   }
 

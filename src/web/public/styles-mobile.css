@@ -1693,6 +1693,21 @@
   display: none;
 }
 
+/* P11: the same trap, caught the same way. The Sessions surface's phone
+   chrome is INJECTED by renderMobileSessionChrome whenever the panel
+   renders, at any width, because the panel is shared with the desktop.
+   Without these base rules the filter pills and the overflow button
+   render as bare unstyled buttons in the desktop Sessions header, which
+   is exactly what the 900px shot in the first p11 capture showed. The
+   phone block turns each of them back on. */
+.mobile-session-filters,
+.mobile-sessions-overflow,
+.mobile-select-bar,
+.mw-row-check,
+.mw-swipe-actions {
+  display: none;
+}
+
 @media (max-width: 768px) {
 
   .mobile-screen:not([hidden]) {
@@ -2680,6 +2695,9 @@
   }
 
   .mw-swipe-actions {
+    /* `display: flex` here is paired with the base `display: none` above,
+       which stops the layer from rendering as a stray flex row in the
+       desktop Sessions list. */
     position: absolute;
     left: 0;
     right: 0;
