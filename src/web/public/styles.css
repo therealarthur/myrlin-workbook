@@ -45,18 +45,40 @@
   --rosewater: #f5e0dc;
   --sapphire: #74c7ec;
 
-  /* Semantic tokens */
-  --bg-primary: var(--base);
-  --bg-secondary: var(--mantle);
-  --bg-tertiary: var(--crust);
-  --bg-elevated: var(--surface0);
-  --border-subtle: rgba(69, 71, 90, 0.5);
-  --border-default: var(--surface1);
-  --text-primary: var(--text);
-  --text-secondary: var(--subtext1);
-  --text-tertiary: var(--subtext0);
-  --text-muted: var(--overlay1);
-  --accent: var(--mauve);
+  /* ─── Semantic tokens ────────────────────────────────────────
+     THE ALIAS FLIP (Notion restyle P1.1, BUILD-CONTRACT table B).
+
+     Every name here is unchanged and every call site is untouched; only
+     the right-hand sides moved, from the Catppuccin palette above to the
+     Notion chrome tokens below. That single indirection is what redirects
+     the largest share of this stylesheet's var() consumption without
+     editing a single rule body, and it is what makes the whole phase
+     revertable by restoring this one span of lines.
+
+     The palette names those values used to point at are NOT deleted and
+     NOT changed. They still carry their Mocha values, the 13 theme blocks
+     still override them, and terminal.js still reads them. Chrome simply
+     stops consuming them. See BUILD-CONTRACT 1.1. */
+  --bg-primary: var(--app-bg-primary);
+  --bg-secondary: var(--app-bg-secondary);
+  --bg-tertiary: var(--app-bg-tertiary);
+  --bg-elevated: var(--app-bg-elevated);
+  /* Was a literal rgba() at :root; becomes a var() like its neighbours.
+     focused-shell.css re-derives this one from the palette for the focused
+     shell and is re-pointed in P2, so the focused shell keeps the old
+     derivation until then. */
+  --border-subtle: var(--app-border-secondary);
+  --border-default: var(--app-border-primary);
+  --text-primary: var(--app-text-primary);
+  --text-secondary: var(--app-text-secondary);
+  --text-tertiary: var(--app-text-tertiary);
+  /* Notion has a real disabled ink, so this maps there rather than
+     collapsing onto tertiary and losing a step. */
+  --text-muted: var(--app-text-disabled);
+  /* The cheapest single lever in the restyle: --accent feeds --color-focus
+     in semantic-theme.css and both pinned :focus-visible rules, so the
+     focus ring becomes the Notion blue with no call-site edit. */
+  --accent: var(--app-ui-blue);
 
   /* ─── Compatibility aliases ──────────────────────────────────
      These tokens were consumed across the stylesheet (context menus,
@@ -74,43 +96,80 @@
        - --surface-2  -> --surface1 (second elevation; pill bg + dividers)
        - --text-base  -> --text (primary text on hover/active states)
      Because each alias references a palette/semantic var that every theme
-     block re-declares, the alias automatically follows theme switches. */
-  --bg-hover: var(--surface0);
-  --border: var(--border-default);
-  --surface-1: var(--surface0);
-  --surface-2: var(--surface1);
-  --text-base: var(--text);
+     block re-declares, the alias automatically follows theme switches.
+
+     Re-pointed at the Notion chrome layer in P1.1, table B. Each stays a
+     var() alias rather than a literal, which phantom-tokens.test.js
+     assertion 3 requires and which keeps the theme cascade intact. */
+  --bg-hover: var(--app-wash-hover);
+  --border: var(--app-border-primary);
+  --surface-1: var(--app-bg-tertiary);
+  --surface-2: var(--app-border-secondary);
+  --text-base: var(--app-text-primary);
 
   /* UI Scale (overridden by localStorage-based inline style) */
   --ui-scale: 1;
 
-  /* Dimensions */
-  --sidebar-width: 280px;
-  --header-height: 80px;
+  /* Dimensions. Re-pointed in P1.1, table C. These two govern the classic
+     shell; the focused shell reads --focused-sidebar-width and
+     --focused-header-height from focused-shell.css, which P2 re-points.
+     The JS sidebar drag, its 180..600 clamp and cwm_sidebarWidth
+     persistence are untouched (DO-NOT-BREAK D.4), and styles.css still
+     resets --sidebar-width to 100% on mobile. */
+  --sidebar-width: var(--app-sidebar-width);
+  --header-height: var(--app-topbar-height);
   /* --radius-xs completes the radius scale below --radius-sm. It was consumed
      at a couple of chip/tab sites via the ad-hoc fallback var(--radius-xs, 3px)
      but never defined, so it silently fell back. Defined here as 4px so the
-     scale (4/6/10/14/18) is contiguous and themeable. */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 18px;
+     scale (4/6/10/14/18) is contiguous and themeable.
 
-  /* Transitions */
-  --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
-  --transition-normal: 200ms cubic-bezier(0.16, 1, 0.3, 1);
-  --transition-slow: 300ms cubic-bezier(0.16, 1, 0.3, 1);
+     Re-pointed onto the Notion editor radius set in P1.1, table C. The
+     five names and all their call sites are unchanged; P2.3 replaces the
+     199 remaining literal border-radius values with these.
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.15);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.2);
-  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.25);
-  --shadow-xl: 0 16px 50px rgba(0, 0, 0, 0.45), 0 8px 20px rgba(0, 0, 0, 0.3);
+     --radius-lg carries a literal 12px rather than var(--radius-popover),
+     which is what the capture's popover token resolves to. The capture
+     expresses it as var(--radius-12), and its numeric radius ramp is
+     zeroed by the .mkt-theme-academic and .mkt-theme-serif section themes,
+     so the ramp is not authored into this file at all. See DEVIATIONS.md
+     DV-4 and the NOT AUTHORED note on the token block below.
 
-  /* Typography */
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+     --radius-xl is RETIRED-with-alias: PROCEDURE step 4 says delete it and
+     the code-preservation rule says never delete a token, so its
+     definition stays, its value becomes the callout radius, and P2.3 takes
+     its consumption to zero. */
+  --radius-xs: var(--radius-property-chip);
+  --radius-sm: var(--radius-app-button);
+  --radius-md: var(--radius-callout);
+  --radius-lg: 12px;
+  --radius-xl: var(--radius-callout);
+
+  /* Transitions. Re-pointed in P1.1, table C. The asymmetry is deliberate
+     and comes from the capture: 150ms in, 200ms out, so a surface arrives
+     faster than it leaves. --transition-slow, which had no consumer,
+     becomes the transform duration. */
+  --transition-fast: var(--duration-150) var(--ease-out);
+  --transition-normal: var(--duration-200) var(--ease-in);
+  --transition-slow: var(--duration-300) var(--ease-in-out-quint);
+
+  /* Shadows. Re-pointed in P1.1, table C. The canvas carries no depth in
+     this system and only overlays lift, so P2.4 removes most of the
+     remaining box-shadow declarations outright. --shadow-md had no
+     consumer and is RETIRED-with-alias onto the small outlined shadow. */
+  --shadow-sm: var(--app-shadow-outlined-sm);
+  --shadow-md: var(--app-shadow-outlined-sm);
+  --shadow-lg: var(--app-shadow-menu);
+  --shadow-xl: var(--app-shadow-scrim);
+
+  /* Typography. Re-pointed in P1.2, table C.
+     --font-sans becomes the OS UI stack verbatim and in source order: this
+     system ships no webfont on the app surface, which is why the Google
+     Fonts link is gone from index.html.
+     --font-mono is the capture's own mono stack and is for code blocks,
+     ids, branch names and diff hunks. It is NOT the terminal font; the
+     terminal reads --font-code, per DECISIONS.md 3.3. */
+  --font-sans: var(--font-app-ui);
+  --font-mono: "iA Writer Mono", Nitti, Menlo, Courier, monospace;
 
   /* ─── Provider accent tokens ──────────────────────────────────
      Per-provider visual identity, layered on top of the Catppuccin
@@ -123,13 +182,22 @@
      than hardcoded rgba. Pitfall 7 forbids hardcoded rgba here.
 
      Gemini is reserved for v1.3; the token exists so future CSS
-     selectors do not need a theme cascade rewrite when wired. */
-  --provider-claude-accent: var(--mauve);
-  --provider-codex-accent:  var(--green);
-  --provider-gemini-accent: var(--blue);
-  --provider-claude-tint:   color-mix(in srgb, var(--mauve) 10%, transparent);
-  --provider-codex-tint:    color-mix(in srgb, var(--green) 10%, transparent);
-  --provider-gemini-tint:   color-mix(in srgb, var(--blue) 10%, transparent);
+     selectors do not need a theme cascade rewrite when wired.
+
+     Re-pointed onto the Notion named block palette in P1.1, table D.
+     Provider identity is a CONTENT LABEL, not the application's brand, so
+     it uses the named block hues rather than the UI blue. Mapping Claude
+     to blue would collide with the focus ring and the drag affordance;
+     see BUILD-CONTRACT 1.9 C1. The color-mix(in srgb, var(--X) N%,
+     transparent) shape is mandatory and unchanged, and only the token
+     inside it moved; css-tokens.test.js was updated in the same commit
+     (sanctioned edit SE-1) because it pinned the old palette names. */
+  --provider-claude-accent: var(--app-text-purple);
+  --provider-codex-accent:  var(--app-text-green);
+  --provider-gemini-accent: var(--app-text-blue);
+  --provider-claude-tint:   color-mix(in srgb, var(--app-text-purple) 10%, transparent);
+  --provider-codex-tint:    color-mix(in srgb, var(--app-text-green) 10%, transparent);
+  --provider-gemini-tint:   color-mix(in srgb, var(--app-text-blue) 10%, transparent);
 
   font-family: var(--font-sans);
   font-size: 14px;
@@ -138,6 +206,509 @@
   background: var(--bg-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NOTION CHROME TOKENS
+   Notion restyle phase P1, work package P1.1. BUILD-CONTRACT.md 1.1.1.
+
+   Every value below is copied verbatim from the vendored capture at
+   src/web/public/design/notion/tokens/*.css. The capture is NOT linked:
+   test/phantom-tokens.test.js treats styles.css and styles-mobile.css as
+   both the consumption scan and the definition scan, so a token defined
+   only in a vendored file and consumed here would be a phantom and the
+   rule using it would silently do nothing (risk R9).
+
+   The duplication that creates is guarded by test/notion-token-parity.js,
+   which diffs these declarations against the capture per chrome theme and
+   fails on any drift. Do not hand-edit a value here. Change the design
+   source of record, re-vendor, and let the parity gate confirm the two
+   copies still agree.
+
+   THREE FAMILIES, KEPT APART (BUILD-CONTRACT 1.1):
+     chrome    --app-*, --radius-*, --duration-*, --ease-*, --motion-*,
+               --font-*. Light here, dark in the [data-chrome="dark"]
+               block below. This is what every chrome rule consumes.
+     terminal  the 24 Catppuccin names, unchanged, in the :root block
+               above and in the 13 :root[data-theme="<id>"] blocks. They
+               belong to the terminal surface and never enter chrome.
+     semantic  the role tokens in semantic-theme.css, which point here.
+
+   NOT AUTHORED, DELIBERATELY: the capture's numeric radius ramp
+   (--radius-4 through --radius-16 and --radius-round) and the twelve
+   aliases built on it. The capture's own .mkt-theme-academic and
+   .mkt-theme-serif section themes zero all ten, so the ramp has no single
+   value to copy. This project consumes the semantic radius tokens below,
+   which carry real literals. See DEVIATIONS.md DV-4.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* from design/notion/tokens/colors.css (121) */
+  --app-accent-blue: #2783de;
+  --app-accent-brown: #b68965;
+  --app-accent-gray: #8e8b86;
+  --app-accent-green: #46a171;
+  --app-accent-orange: #d5803b;
+  --app-accent-pink: #db6999;
+  --app-accent-purple: #b577d6;
+  --app-accent-red: #e56458;
+  --app-accent-teal: #37a4b4;
+  --app-accent-yellow: #d8a32f;
+  --app-bg-accent-primary: #2c2c2b;
+  --app-bg-accent-secondary: #a19e99;
+  --app-bg-blue: #e5f2fc;
+  --app-bg-brown: #f5ede9;
+  --app-bg-default-block: #f9f8f7;
+  --app-bg-elevated: #ffffff;
+  --app-bg-gray: #f0efed;
+  --app-bg-green: #e8f1ec;
+  --app-bg-interactive: #f4f3f3;
+  --app-bg-orange: #fbebde;
+  --app-bg-pink: #fae9f1;
+  --app-bg-primary: #ffffff;
+  --app-bg-purple: #f3ebf9;
+  --app-bg-red: #fce9e7;
+  --app-bg-secondary: #f9f8f7;
+  --app-bg-teal: #e0f3f7;
+  --app-bg-tertiary: #f0efed;
+  --app-bg-yellow: #f9f3dc;
+  --app-border-accent-primary: #8e8b86;
+  --app-border-primary: #e6e5e3;
+  --app-border-secondary: #f0efed;
+  --app-border-strong: #d4d3cf;
+  --app-chip-blue-fill: rgba(0, 118, 217, 0.204);
+  --app-chip-blue-ink: #264a72;
+  --app-chip-brown-fill: rgba(127, 51, 0, 0.157);
+  --app-chip-brown-ink: #584437;
+  --app-chip-gray-fill: rgba(28, 19, 1, 0.11);
+  --app-chip-gray-ink: #494846;
+  --app-chip-green-fill: rgba(0, 96, 38, 0.157);
+  --app-chip-green-ink: #2a533c;
+  --app-chip-orange-fill: rgba(196, 88, 0, 0.204);
+  --app-chip-orange-ink: #6a4222;
+  --app-chip-pink-fill: rgba(183, 0, 78, 0.153);
+  --app-chip-pink-ink: #68354e;
+  --app-chip-purple-fill: rgba(92, 0, 163, 0.14);
+  --app-chip-purple-ink: #553b69;
+  --app-chip-red-fill: rgba(206, 24, 0, 0.165);
+  --app-chip-red-ink: #6d3531;
+  --app-chip-teal-fill: rgba(0, 149, 183, 0.208);
+  --app-chip-teal-ink: #18505b;
+  --app-chip-yellow-fill: rgba(209, 156, 0, 0.282);
+  --app-chip-yellow-ink: #655121;
+  --app-code-block-bg: #f5f2f0;
+  --app-code-sticky-header-bg: #f7f6f3;
+  --app-divider: rgba(28, 19, 1, 0.11);
+  --app-glass-page: rgba(255, 255, 255, 0.8);
+  --app-icon-disabled: #bcbab6;
+  --app-icon-primary: #383836;
+  --app-icon-secondary: #8e8b86;
+  --app-icon-tertiary: #ada9a3;
+  --app-image-overlay: rgba(0, 0, 0, 0.3);
+  --app-legacy-blue-bg: #e7f3f8;
+  --app-legacy-blue-text: #337ea9;
+  --app-legacy-brown-bg: #f4eeee;
+  --app-legacy-brown-text: #9f6b53;
+  --app-legacy-gray-bg: rgba(84, 72, 49, 0.08);
+  --app-legacy-green-bg: #edf3ec;
+  --app-legacy-green-text: #448361;
+  --app-legacy-orange-bg: #fbecdd;
+  --app-legacy-orange-text: #d9730d;
+  --app-legacy-pink-bg: #fcf1f6;
+  --app-legacy-pink-text: #c14c8a;
+  --app-legacy-purple-bg: #f8f3fc;
+  --app-legacy-purple-text: #9065b0;
+  --app-legacy-red-bg: #fdebec;
+  --app-legacy-red-text: #cd3c3a;
+  --app-legacy-yellow-bg: #fbf3db;
+  --app-legacy-yellow-text: #cb912f;
+  --app-link-underline: rgba(55, 53, 47, 0.25);
+  --app-link-underline-opaque: rgba(55, 53, 47, 0.4);
+  --app-mention-hover: rgba(148, 148, 148, 0.15);
+  --app-page-blue: #f3f9fd;
+  --app-page-brown: #faf8f6;
+  --app-page-gray: #f9f8f7;
+  --app-page-green: #f6f9f7;
+  --app-page-orange: #fcf7f4;
+  --app-page-pink: #fcf7f9;
+  --app-page-purple: #faf7fc;
+  --app-page-red: #fdf6f6;
+  --app-page-teal: #f3fafb;
+  --app-page-yellow: #fcfaef;
+  --app-selection-token: rgba(35, 131, 226, 0.14);
+  --app-sidebar-item-selected: rgba(0, 0, 0, 0.03);
+  --app-sidebar-section-band: rgba(0, 0, 0, 0.024);
+  --app-sidebar-section-label: #91918e;
+  --app-table-cell-border: rgba(42, 28, 0, 0.07);
+  --app-text-accent-primary: #5f5e59;
+  --app-text-blue: #387dc9;
+  --app-text-brown: #9f765a;
+  --app-text-disabled: #bcbab6;
+  --app-text-gray: #7d7a75;
+  --app-text-green: #50946e;
+  --app-text-inverse-primary: #f0efed;
+  --app-text-inverse-secondary: #ada9a3;
+  --app-text-orange: #d27b2d;
+  --app-text-pink: #c14c8a;
+  --app-text-primary: #2c2c2b;
+  --app-text-purple: #9a6bb4;
+  --app-text-red: #cf5148;
+  --app-text-secondary: #7d7a75;
+  --app-text-teal: #2c8b9e;
+  --app-text-tertiary: #a19e99;
+  --app-text-yellow: #cb9434;
+  --app-title-placeholder: rgba(55, 53, 47, 0.15);
+  --app-ui-blue: #2383e2;
+  --app-ui-blue-pressed: #105fad;
+  --app-wash-button-hover: rgba(55, 53, 47, 0.06);
+  --app-wash-button-press: rgba(55, 53, 47, 0.16);
+  --app-wash-hover: rgba(55, 53, 47, 0.04);
+  --app-wash-press: rgba(55, 53, 47, 0.1);
+  --app-wash-table-row-hover: rgba(55, 53, 47, 0.024);
+
+  /* from design/notion/tokens/typography.css (39) */
+  --app-body-line: 24px;
+  --app-body-size: 16px;
+  --app-body-weight: 400;
+  --app-chip-line: 16.8px;
+  --app-chip-size: 14px;
+  --app-chip-weight: 500;
+  --app-h1-line: 39px;
+  --app-h1-size: 30px;
+  --app-h2-line: 31.2px;
+  --app-h2-size: 24px;
+  --app-h3-line: 26px;
+  --app-h3-size: 20px;
+  --app-h4-line: 23.4px;
+  --app-h4-size: 18px;
+  --app-heading-weight: 600;
+  --app-property-line: 21px;
+  --app-property-size: 14px;
+  --app-property-weight: 400;
+  --app-ratio-body: 1.5;
+  --app-ratio-heading: 1.3;
+  --app-ratio-title: 1.2;
+  --app-small-body-line: 21px;
+  --app-small-body-size: 14px;
+  --app-small-title-line: 38.4px;
+  --app-small-title-size: 32px;
+  --app-title-line: 48px;
+  --app-title-size: 40px;
+  --app-title-weight: 700;
+  --font-app-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Helvetica, "Apple Color Emoji", "Noto Sans Arabic", "Noto Sans Hebrew", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+  --font-body: var(--font-app-ui);
+  --font-code: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  --font-display: var(--font-app-ui);
+  --font-emoji: "Apple Color Emoji", "Segoe UI Emoji", NotoColorEmoji, "Noto Color Emoji", "Segoe UI Symbol", "Android Emoji", EmojiSymbols;
+  --font-feature-mono: "lnum" 1, "locl" 0;
+  --font-feature-sans: "lnum" 1, "locl" 0;
+  --font-feature-serif: "lnum" 1, "locl" 0, "liga" 1;
+  --font-features: normal;
+  --font-handwriting: "Permanent Marker", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif;
+  --font-serif: "Lyon Text", Georgia, YuMincho, "Yu Mincho", "Hiragino Mincho ProN", "Hiragino Mincho Pro", "Songti TC", "Songti SC", SimSun, "Nanum Myeongjo", NanumMyeongjo, Batang, serif;
+
+  /* from design/notion/tokens/spacing.css (94) */
+  --app-avatar-lg: 32px;
+  --app-avatar-md: 24px;
+  --app-avatar-sm: 20px;
+  --app-block-height-1line: 40px;
+  --app-block-height-1line-small: 37px;
+  --app-block-inner-pad: 12px;
+  --app-block-pad: 6px;
+  --app-block-pad-collapsed: 1px;
+  --app-block-pad-media: 8px;
+  --app-board-card-gap: 8px;
+  --app-board-column-width: 260px;
+  --app-board-gap: 16px;
+  --app-calendar-header-height: 24px;
+  --app-callout-icon-offset: 7.5px;
+  --app-callout-icon-width: 24px;
+  --app-chip-height: 20px;
+  --app-chip-pad: 0 6px;
+  --app-code-header-height: 32px;
+  --app-code-pad: 12px 16px 16px;
+  --app-column-block-pad: 12px;
+  --app-column-gutter: 22px;
+  --app-comments-margin: 468px;
+  --app-content-width: 720px;
+  --app-controls-height: 12px;
+  --app-cover-height: min(30vh, 280px);
+  --app-divider-block-height: 13px;
+  --app-divider-inset: 8px;
+  --app-gallery-card-width: 296px;
+  --app-gallery-gap: 16px;
+  --app-gallery-pad: 104px;
+  --app-gallery-preview-height: 118px;
+  --app-h1-pad-top: 30px;
+  --app-h2-pad-top: 26px;
+  --app-h3-pad-top: 22px;
+  --app-h4-pad-top: 18px;
+  --app-handle-gap: 1px;
+  --app-handle-height: 24px;
+  --app-handle-offset: 4px;
+  --app-handle-width: 18px;
+  --app-icon-button-size: 28px;
+  --app-icon-button-size-lg: 32px;
+  --app-icon-button-size-sm: 24px;
+  --app-indent-callout: 21px;
+  --app-indent-step: 24px;
+  --app-input-height: 28px;
+  --app-input-height-lg: 32px;
+  --app-input-pad: 0 8px;
+  --app-leaf-pad: 2px;
+  --app-list-marker-width: 24px;
+  --app-margin-center-peek: 126px;
+  --app-margin-form: 40px;
+  --app-margin-phone: 18px;
+  --app-margin-side-peek: 76px;
+  --app-margin-width: 96px;
+  --app-menu-pad: 4px;
+  --app-menu-row-height: 28px;
+  --app-menu-row-pad: 0 10px;
+  --app-menu-width: 320px;
+  --app-modal-width: 480px;
+  --app-page-bottom-dead-zone: 270px;
+  --app-page-icon-inset: 8px;
+  --app-page-icon-offset-cover: -42px;
+  --app-page-icon-offset-plain: 96px;
+  --app-page-icon-size: 78px;
+  --app-peek-width: calc(var(--app-content-width) + var(--app-margin-side-peek) * 2);
+  --app-quote-pad: 14px;
+  --app-quote-rule-width: 3px;
+  --app-row-icon-size: 18px;
+  --app-sidebar-item-height: 27px;
+  --app-sidebar-peek: 20px;
+  --app-sidebar-width: 240px;
+  --app-status-chip-pad: 0 9px 0 7px;
+  --app-switch-height: 16px;
+  --app-switch-knob: 12px;
+  --app-switch-width: 26px;
+  --app-table-header-height: 36px;
+  --app-table-row-height: 32px;
+  --app-toast-width: 300px;
+  --app-todo-box-size: 16px;
+  --app-toggle-caret-size: 18px;
+  --app-toolbar-height: 33px;
+  --app-topbar-height: 44px;
+  --app-view-tab-height: 40px;
+  --radius-app-button: 6px;
+  --radius-avatar: 100%;
+  --radius-block-hover: 6px;
+  --radius-bookmark: 10px;
+  --radius-callout: 10px;
+  --radius-collection-card: 10px;
+  --radius-cover: 0;
+  --radius-page-icon: 4px;
+  --radius-property-chip: 4px;
+  --radius-row-icon: 3.5px;
+  --radius-status-chip: 10px;
+
+  /* from design/notion/tokens/effects.css (26) */
+  --app-button-focus-ring: 0px 0px 0px 2px #f8f8f7, 0px 0px 0px 4px #2383e2, 0px 0px 0px 6px rgba(255, 255, 255, 0.25);
+  --app-calendar-header-shadow: rgb(230, 229, 227) 0 1px 0 0;
+  --app-focus-shadow: rgba(35, 131, 226, 0.57) 0px 0px 0px 1px inset, rgba(35, 131, 226, 0.35) 0px 0px 0px 2px;
+  --app-input-error-ring: 0px 0px 0px 1px #cd3c3a inset, 0px 0px 0px 1px #cd3c3a;
+  --app-input-focus-ring: 0px 0px 0px 1px #2383e2 inset, 0px 0px 0px 1px #2383e2;
+  --app-mention-hover-ring: 0 0 0 3px rgba(148, 148, 148, 0.15);
+  --app-shadow-avatar: 0 2px 4px rgba(15, 15, 15, 0.1);
+  --app-shadow-bottom-bar: 0 -1px 0 1px rgba(15, 15, 15, 0.05), 0 -3px 6px rgba(15, 15, 15, 0.1);
+  --app-shadow-button: inset 0 0 0 1px rgba(15, 15, 15, 0.1), 0 1px 2px rgba(15, 15, 15, 0.1);
+  --app-shadow-diffuse: 0px 12px 32px 0px rgba(25, 25, 25, 0.027);
+  --app-shadow-lg: 0px 20px 24px 0px rgba(25, 25, 25, 0.05), 0px 5px 8px 0px rgba(25, 25, 25, 0.027);
+  --app-shadow-md: 0px 8px 12px 0px rgba(25, 25, 25, 0.027), 0px 2px 6px 0px rgba(25, 25, 25, 0.027);
+  --app-shadow-menu: 0px 14px 28px -6px rgba(0, 0, 0, 0.1), 0px 2px 4px -1px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(28, 19, 1, 0.11);
+  --app-shadow-menu-thick: 0px 14px 28px -6px rgba(0, 0, 0, 0.1), 0px 2px 4px -1px rgba(0, 0, 0, 0.06), 0 0 0 2px rgba(84, 72, 49, 0.08);
+  --app-shadow-outlined-diffuse: 0px 12px 32px 0px rgba(25, 25, 25, 0.027), 0px 0px 0px 1px rgba(42, 28, 0, 0.07);
+  --app-shadow-outlined-lg: 0px 20px 24px 0px rgba(25, 25, 25, 0.05), 0px 5px 8px 0px rgba(25, 25, 25, 0.027), 0px 0px 0px 1px rgba(42, 28, 0, 0.07);
+  --app-shadow-outlined-md: 0px 8px 12px 0px rgba(25, 25, 25, 0.027), 0px 2px 6px 0px rgba(25, 25, 25, 0.027), 0px 0px 0px 1px rgba(42, 28, 0, 0.07);
+  --app-shadow-outlined-scrim: 0px 24px 48px 0px rgba(25, 25, 25, 0.24), 0px 4px 12px 0px rgba(25, 25, 25, 0.14), 0px 0px 0px 1px rgba(42, 28, 0, 0.07);
+  --app-shadow-outlined-sm: 0px 2px 4px 0px rgba(0, 0, 0, 0.04), 0px 0px 0px 1px rgba(42, 28, 0, 0.07);
+  --app-shadow-scrim: 0px 24px 48px 0px rgba(25, 25, 25, 0.24), 0px 4px 12px 0px rgba(25, 25, 25, 0.14);
+  --app-shadow-sm: 0px 4px 12px 0px rgba(25, 25, 25, 0.027), 0px 1px 2px 0px rgba(25, 25, 25, 0.02);
+  --app-shadow-small-thick: 0px 4px 12px -2px rgba(0, 0, 0, 0.08), 0 0 0 2px rgba(84, 72, 49, 0.08);
+  --app-shadow-topbar: rgba(15, 15, 15, 0.1) 0px 2px 4px, rgba(15, 15, 15, 0.15) 0px 2px 8px;
+  --app-shadow-topbar-rest: rgba(15, 15, 15, 0.1) 0px 1px 0px, transparent 0px 0px 0px;
+  --app-sidebar-edge: rgb(240, 239, 237) -1px 0 0 0 inset;
+  --app-table-header-shadow: rgb(255, 255, 255) -3px 0 0 0, rgba(42, 28, 0, 0.07) 0 -1px 0 0;
+
+  /* from design/notion/tokens/motion.css (39) */
+  --duration-100: 100ms;
+  --duration-150: 150ms;
+  --duration-200: 200ms;
+  --duration-250: 250ms;
+  --duration-300: 300ms;
+  --duration-500: 500ms;
+  --duration-illustration: 600ms;
+  --duration-instant: 20ms;
+  --duration-marquee: 60s;
+  --duration-topbar: 700ms;
+  --ease-in: cubic-bezier(0.42, 0, 1, 1);
+  --ease-in-out-cubic: cubic-bezier(0.645, 0.045, 0.355, 1);
+  --ease-in-out-linear: cubic-bezier(0.5, 0, 0.5, 1);
+  --ease-in-out-quad: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  --ease-in-out-quint: cubic-bezier(0.86, 0, 0.07, 1);
+  --ease-linear: cubic-bezier(0, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --ease-overshoot: cubic-bezier(0.02, 1.2, 0.2, 0.92);
+  --ease-slow-start: cubic-bezier(0.11, 0, 0.5, 0);
+  --ease-strong-out: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-card-hover: background-color var(--duration-150) var(--ease-out), border-color var(--duration-150) var(--ease-out), filter var(--duration-150) var(--ease-out);
+  --motion-default: all var(--duration-100) ease-in;
+  --motion-drag: transform var(--duration-200) var(--ease-out);
+  --motion-fade-in: var(--duration-150) var(--ease-out);
+  --motion-fade-out: var(--duration-200) var(--ease-in);
+  --motion-focus: box-shadow var(--duration-150) var(--ease-out);
+  --motion-frame-reflow: width var(--duration-200), transform var(--duration-200);
+  --motion-hover-opacity: opacity var(--duration-100);
+  --motion-hover-reveal: background var(--duration-instant) ease-in;
+  --motion-illustration-enter: var(--duration-illustration) ease-in-out;
+  --motion-layout-grid: grid-template-columns var(--duration-200) ease-in-out;
+  --motion-long-fade: opacity var(--duration-500) var(--ease-strong-out);
+  --motion-marquee: var(--duration-marquee) linear infinite;
+  --motion-menu-open: var(--duration-150) ease-in nt-fadein;
+  --motion-progress: stroke-dashoffset var(--duration-500) var(--ease-out);
+  --motion-sidebar: width var(--duration-200);
+  --motion-topbar: opacity var(--duration-topbar), color var(--duration-topbar);
+  --motion-transform: var(--duration-300) var(--ease-in-out-quint);
+
+  /* Three invented tokens. Each has a row in INVENTIONS.md giving its
+     nearest captured relative, what was inherited and what was decided
+     from nothing. The parity gate reads that table and refuses any
+     bundle-family token that is neither in the capture nor documented
+     there, so an invention cannot be smuggled in as a typo. */
+  --app-on-accent: #ffffff;
+  --app-scrim: rgba(15, 15, 15, 0.55);
+  --app-terminal-gutter: var(--app-bg-primary);
+}
+
+/* The capture re-declares these four inside prefers-reduced-motion, and so
+   does this block, verbatim. Written as a reduce override rather than as a
+   flattened value because PROCEDURE step 10 requires decorative motion to
+   be authored so that reduced motion removes it, and because the parity
+   diff reads the last definition in source order: flattening would ship a
+   dead animation token to every user who has not asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-card-hover: none;
+    --motion-illustration-enter: 0s linear;
+    --motion-marquee: 0s linear infinite;
+    --motion-long-fade: none;
+  }
+}
+
+/* Dark chrome. Only the names whose captured value actually differs are
+   re-declared; everything else inherits from the block above, which is
+   what the capture does too.
+
+   TWO SELECTORS ON PURPOSE (BUILD-CONTRACT 1.1.2, open question OQ-1).
+   data-theme is already occupied by 13 persisted terminal palette ids, is
+   read pre-paint from localStorage.cwm_theme, and is pinned by three test
+   files, so chrome appearance cannot overload it. Chrome rides its own
+   data-chrome attribute, persisted as cwm_chrome and defaulted from
+   prefers-color-scheme. The [data-theme="dark"] half is the captured
+   bundle's own convention and is kept so bundle-derived CSS behaves the
+   same here; no shipped palette id is spelled "dark", so it is inert
+   today and costs nothing.
+
+   A dark value authored anywhere other than a selector carrying one of
+   these two attributes is read as a LIGHT value by the parity diff and
+   fails it. See DECISIONS.md 8.3 trap 1. */
+:root[data-chrome="dark"],
+:root[data-theme="dark"] {
+  --app-bg-accent-primary: #f0efed;
+  --app-bg-accent-secondary: #7d7a75;
+  --app-bg-blue: #233850;
+  --app-bg-brown: #45362d;
+  --app-bg-default-block: #202020;
+  --app-bg-elevated: #202020;
+  --app-bg-gray: #383836;
+  --app-bg-green: #263d30;
+  --app-bg-interactive: #262626;
+  --app-bg-orange: #53361f;
+  --app-bg-pink: #4e2b3c;
+  --app-bg-primary: #191919;
+  --app-bg-purple: #3c2d47;
+  --app-bg-red: #502c29;
+  --app-bg-secondary: #202020;
+  --app-bg-teal: #143d45;
+  --app-bg-tertiary: #383836;
+  --app-bg-yellow: #504425;
+  --app-border-accent-primary: #5f5e59;
+  --app-border-primary: #383836;
+  --app-border-secondary: #2c2c2b;
+  --app-border-strong: #5f5e59;
+  --app-button-focus-ring: 0px 0px 0px 2px #191919, 0px 0px 0px 4px #2383e2, 0px 0px 0px 6px #191919;
+  --app-chip-blue-fill: rgba(81, 166, 255, 0.494);
+  --app-chip-blue-ink: #e5f2fc;
+  --app-chip-brown-fill: rgba(255, 184, 132, 0.365);
+  --app-chip-brown-ink: #f5ede9;
+  --app-chip-gray-fill: rgba(255, 252, 235, 0.306);
+  --app-chip-gray-ink: #f0efed;
+  --app-chip-green-fill: rgba(113, 255, 175, 0.337);
+  --app-chip-green-ink: #e8f1ec;
+  --app-chip-orange-fill: rgba(255, 143, 71, 0.482);
+  --app-chip-orange-ink: #fbebde;
+  --app-chip-pink-fill: rgba(255, 133, 192, 0.427);
+  --app-chip-pink-ink: #fae9f1;
+  --app-chip-purple-fill: rgba(208, 147, 255, 0.427);
+  --app-chip-purple-ink: #f3ebf9;
+  --app-chip-red-fill: rgba(255, 116, 105, 0.525);
+  --app-chip-red-ink: #fce9e7;
+  --app-chip-teal-fill: rgba(49, 221, 255, 0.38);
+  --app-chip-teal-ink: #e0f3f7;
+  --app-chip-yellow-fill: rgba(255, 188, 53, 0.46);
+  --app-chip-yellow-ink: #f9f3dc;
+  --app-glass-page: rgba(25, 25, 25, 0.8);
+  --app-icon-disabled: #5f5e59;
+  --app-icon-primary: #e6e5e3;
+  --app-icon-secondary: #ada9a3;
+  --app-icon-tertiary: #7d7a75;
+  --app-legacy-gray-bg: #1c1c1c;
+  --app-link-underline: #373737;
+  --app-link-underline-opaque: rgba(255, 255, 255, 0.282);
+  --app-page-blue: #1a2027;
+  --app-page-brown: #25201d;
+  --app-page-gray: #202020;
+  --app-page-green: #1b211d;
+  --app-page-orange: #231e1b;
+  --app-page-pink: #261c20;
+  --app-page-purple: #221d25;
+  --app-page-red: #241d1d;
+  --app-page-teal: #172124;
+  --app-page-yellow: #23221a;
+  --app-shadow-avatar: 0 2px 4px rgba(15, 15, 15, 0.2);
+  --app-shadow-button: inset 0 0 0 1px rgba(15, 15, 15, 0.2), 0 1px 2px rgba(15, 15, 15, 0.1);
+  --app-shadow-diffuse: 0px 12px 32px 0px rgba(25, 25, 25, 0.4);
+  --app-shadow-lg: 0px 14px 28px -6px rgba(25, 25, 25, 0.2), 0px 2px 4px -1px rgba(25, 25, 25, 0.118);
+  --app-shadow-md: 0px 4px 12px -2px rgba(25, 25, 25, 0.08);
+  --app-shadow-menu: inset 0 0 0 1px rgba(255, 255, 235, 0.1), 0px 14px 28px -6px rgba(0, 0, 0, 0.2), 0px 2px 4px -1px rgba(0, 0, 0, 0.12);
+  --app-shadow-menu-thick: 0 0 0 2px #383836, 0px 14px 28px -6px rgba(0, 0, 0, 0.2), 0px 2px 4px -1px rgba(0, 0, 0, 0.12);
+  --app-shadow-outlined-diffuse: 0px 0px 0px 1px #383836, 0px 12px 32px 0px rgba(25, 25, 25, 0.4);
+  --app-shadow-outlined-lg: 0px 0px 0px 1px #383836, 0px 14px 28px -6px rgba(25, 25, 25, 0.2), 0px 2px 4px -1px rgba(25, 25, 25, 0.118);
+  --app-shadow-outlined-md: 0px 0px 0px 1px #383836, 0px 4px 12px -2px rgba(25, 25, 25, 0.08);
+  --app-shadow-outlined-scrim: 0px 0px 0px 1px #383836, 0px 24px 48px 0px rgba(25, 25, 25, 0.64), 0px 4px 12px 0px rgba(25, 25, 25, 0.56);
+  --app-shadow-outlined-sm: 0px 0px 0px 1px #383836, 0px 2px 4px 0px rgba(25, 25, 25, 0.08);
+  --app-shadow-scrim: 0px 24px 48px 0px rgba(25, 25, 25, 0.64), 0px 4px 12px 0px rgba(25, 25, 25, 0.56);
+  --app-shadow-sm: 0px 2px 4px 0px rgba(25, 25, 25, 0.08);
+  --app-shadow-small-thick: 0 0 0 2px #383836, 0px 4px 12px -2px rgba(0, 0, 0, 0.16);
+  --app-sidebar-edge: #2c2c2b -1px 0 0 0 inset;
+  --app-sidebar-item-selected: rgba(255, 255, 255, 0.055);
+  --app-sidebar-section-label: #9b9b9b;
+  --app-text-accent-primary: #bcbab6;
+  --app-text-disabled: #5f5e59;
+  --app-text-inverse-primary: #191919;
+  --app-text-inverse-secondary: #5f5e59;
+  --app-text-primary: #f0efed;
+  --app-text-secondary: #ada9a3;
+  --app-text-tertiary: #7d7a75;
+  --app-title-placeholder: #373737;
+  --app-ui-blue-pressed: #4fa7ff;
+  --app-wash-button-hover: rgba(255, 255, 255, 0.055);
+  --app-wash-button-press: rgba(255, 255, 255, 0.03);
+  --app-wash-hover: rgba(255, 255, 255, 0.055);
+  --app-wash-press: rgba(255, 255, 255, 0.13);
+  --app-wash-table-row-hover: rgba(255, 255, 255, 0.055);
 }
 
 html, body {

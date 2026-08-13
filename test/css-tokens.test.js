@@ -51,25 +51,28 @@ function check(name, fn) {
 console.log('\n  \x1b[1mPlan 18-01: CSS provider tokens\x1b[0m');
 console.log('  ' + '─'.repeat(42));
 
-// (1) Accent tokens reference Catppuccin palette tokens, not hex.
-check('--provider-claude-accent references var(--mauve)', () => {
+// (1) Accent tokens reference theme tokens, not hex.
+// SANCTIONED EDIT SE-1 (BUILD-CONTRACT.md 5.4, phase P1.1): Notion restyle:
+// provider identity is a named block-palette hue, not the app brand. Token
+// names unchanged.
+check('--provider-claude-accent references var(--app-text-purple)', () => {
   assert.ok(
-    /--provider-claude-accent:\s*var\(--mauve\)/.test(css),
-    '--provider-claude-accent must be defined at :root as "var(--mauve)"'
+    /--provider-claude-accent:\s*var\(--app-text-purple\)/.test(css),
+    '--provider-claude-accent must be defined at :root as "var(--app-text-purple)"'
   );
 });
 
-check('--provider-codex-accent references var(--green)', () => {
+check('--provider-codex-accent references var(--app-text-green)', () => {
   assert.ok(
-    /--provider-codex-accent:\s*var\(--green\)/.test(css),
-    '--provider-codex-accent must be defined at :root as "var(--green)"'
+    /--provider-codex-accent:\s*var\(--app-text-green\)/.test(css),
+    '--provider-codex-accent must be defined at :root as "var(--app-text-green)"'
   );
 });
 
-check('--provider-gemini-accent references var(--blue)', () => {
+check('--provider-gemini-accent references var(--app-text-blue)', () => {
   assert.ok(
-    /--provider-gemini-accent:\s*var\(--blue\)/.test(css),
-    '--provider-gemini-accent must be defined at :root as "var(--blue)" (Gemini reserved for v1.3)'
+    /--provider-gemini-accent:\s*var\(--app-text-blue\)/.test(css),
+    '--provider-gemini-accent must be defined at :root as "var(--app-text-blue)" (Gemini reserved for v1.3)'
   );
 });
 
@@ -77,24 +80,28 @@ check('--provider-gemini-accent references var(--blue)', () => {
 // from 6% to 10%; the Pitfall 7 guard below still enforces var()-only
 // references, so the percentage is allowed to drift in [1..99] as long
 // as the color-mix shape and palette token are intact.
-check('--provider-claude-tint uses color-mix(in srgb, var(--mauve) <pct>%, transparent)', () => {
+// SANCTIONED EDIT SE-1 (BUILD-CONTRACT.md 5.4, phase P1.1): Notion restyle:
+// provider identity is a named block-palette hue, not the app brand. Token
+// names unchanged. The color-mix shape and the no-hex rule are unchanged too;
+// only the token inside the mix moved.
+check('--provider-claude-tint uses color-mix(in srgb, var(--app-text-purple) <pct>%, transparent)', () => {
   assert.ok(
-    /--provider-claude-tint:\s*color-mix\(in srgb, var\(--mauve\) \d{1,2}%, transparent\)/.test(css),
-    '--provider-claude-tint must use color-mix(in srgb, var(--mauve) N%, transparent)'
+    /--provider-claude-tint:\s*color-mix\(in srgb, var\(--app-text-purple\) \d{1,2}%, transparent\)/.test(css),
+    '--provider-claude-tint must use color-mix(in srgb, var(--app-text-purple) N%, transparent)'
   );
 });
 
-check('--provider-codex-tint uses color-mix(in srgb, var(--green) <pct>%, transparent)', () => {
+check('--provider-codex-tint uses color-mix(in srgb, var(--app-text-green) <pct>%, transparent)', () => {
   assert.ok(
-    /--provider-codex-tint:\s*color-mix\(in srgb, var\(--green\) \d{1,2}%, transparent\)/.test(css),
-    '--provider-codex-tint must use color-mix(in srgb, var(--green) N%, transparent)'
+    /--provider-codex-tint:\s*color-mix\(in srgb, var\(--app-text-green\) \d{1,2}%, transparent\)/.test(css),
+    '--provider-codex-tint must use color-mix(in srgb, var(--app-text-green) N%, transparent)'
   );
 });
 
-check('--provider-gemini-tint uses color-mix(in srgb, var(--blue) <pct>%, transparent)', () => {
+check('--provider-gemini-tint uses color-mix(in srgb, var(--app-text-blue) <pct>%, transparent)', () => {
   assert.ok(
-    /--provider-gemini-tint:\s*color-mix\(in srgb, var\(--blue\) \d{1,2}%, transparent\)/.test(css),
-    '--provider-gemini-tint must use color-mix(in srgb, var(--blue) N%, transparent)'
+    /--provider-gemini-tint:\s*color-mix\(in srgb, var\(--app-text-blue\) \d{1,2}%, transparent\)/.test(css),
+    '--provider-gemini-tint must use color-mix(in srgb, var(--app-text-blue) N%, transparent)'
   );
 });
 
