@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.21] - 2026-08-13
+
+Nothing in the app blinks at you any more. The four screens the restyle had not reached yet, the session panel, project notes, costs and settings, now look like the rest of it.
+
+### Changed
+
+- **Status dots have stopped pulsing, blinking and fading.** Every dot, chip and badge that reports what something is doing is now a still shape. A running session is a filled dot; a session waiting on you is an outlined one, which is a difference you can see without relying on the colour, and which does not move. The `Needs input` label on a pane, the file-conflict count and the machine pill all sit still too. The one thing that still moves is a spinner on a button you just pressed, which is telling you about an action rather than about a state.
+- **The session panel is a proper side panel.** It used to take half the height of the page and push the session list into whatever was left; on a stopped session it took the whole thing. It is now a 420px column down the right-hand side, so the list you opened it from is still there and still clickable. Its properties are laid out on one aligned column instead of inside a striped box, the title is a real page title, and the two facts it never showed, which assistant the session belongs to and which model, now have rows of their own.
+- **The session panel has a notes field.** A plain, borderless place to write something about a session, kept per session in this browser. It is not synced anywhere and it does not appear in search.
+- **Opening the panel drops two columns from the Sessions table** rather than squeezing seven into the space left over, which was cutting `Claude` down to `Claud`. Project and Model step aside; both are in the panel you just opened.
+- **Project Notes reads like a document.** A 720px column with generous empty margins, headings that look like headings, and notes, goals and checklist items on a rhythm where a run of items sits closer together than a run of paragraphs. Highlighting an item no longer paints a bar across the whole row.
+- **Costs is a page instead of eight boxes.** The four figures at the top keep a hairline around them; the chart, the two breakdowns and the session table lost theirs and became sections with labels. The four headline numbers stopped being four different colours, because a total spend is not more green than a token count. The session table is the same table the Sessions view uses.
+- **Settings is a list, not a stack of buttons.** Each setting is a row separated by a hairline, with the switch on the right; the rows no longer light up when you pass the pointer over them, because there is nothing to click except the switch. The category rail on the left is wider, in normal sentence case rather than forced lower case, and its selected item no longer changes colour with your terminal theme.
+- **The account button shows how much of your session allowance is used** rather than when it resets. The reset time is still in the panel underneath it.
+
+### Fixed
+
+- **A session with no cost tracking showed an em dash inside a dashed box**, which read as an empty field waiting to be filled in. It is now just a quiet dash, with the explanation on hover. Nothing about a session that cannot report a cost should look like a control.
+- **The carets beside each Project Notes section rendered as blue rounded squares** on Windows, because the arrow character is treated as an emoji by default.
+- **The Costs title did not line up with anything underneath it**, sitting 32 pixels to the left of the first card.
+- **The conflict badge printed near-black text on yellow** in light mode, which was the wrong way round.
+
+### Notes for the next release
+
+The four screens above are desktop work. On a phone they still use the old layout, which is the next piece of this. The terminal itself is also untouched so far.
+
 ## [1.3.0-alpha.20] - 2026-08-13
 
 Codex sessions stop lying to you. Your transcripts were missing nearly half of what happened in them, your search results were labelled with raw identifiers, a session with 226 million tokens against it was displayed as costing `$0.00`, and new Codex sessions took minutes to appear because the code watching for them could never match a real filename.

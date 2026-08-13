@@ -7329,8 +7329,15 @@ body.cwm-dragging .sidebar-backdrop {
   padding: 0;
 }
 
+/* The icon takes the PRIMARY ink, not the callout's own hue. Measured, the
+   yellow-on-yellow pairing is 2.41:1 in light chrome against a 3:1 graphic
+   floor, and it is the pairing DV-13 already recorded as the counterexample to
+   re-pairing: a light wash raises the ground without darkening the ink, so ink
+   and ground converge. The GROUND is what carries the hue in a callout, which
+   is also what PROCEDURE 6.3's recipe says; the icon only has to be visible.
+   Primary ink on the yellow wash measures 12.57 light and 8.33 dark. */
 .docs-rule-icon {
-  color: var(--app-text-yellow);
+  color: var(--app-text-primary);
   flex-shrink: 0;
   font-size: 14px;
   width: var(--app-callout-icon-width);

@@ -45,6 +45,13 @@
       "failures": 0,
       "recordedAt": "2026-08-13",
       "note": "P4 added ONE file, recency-surfaces.test.js with 28 assertions, eleven of which execute the merge against fixtures rather than reading source. It retargeted three existing assertions: the tag-chip pair in instance-colors.test.js under the orchestrator ruling, plus sanctioned edits SE-2 (provider-label-pill.test.js) and SE-3 (css-tokens.test.js), each in the same commit as its source change. instance-colors.test.js also gained 5 assertions for the new chip projection. The +1 against that arithmetic is the concurrent P6 track: vt-sidecar.test.js went 34 to 35."
+    },
+    "postP4Remainder": {
+      "files": 85,
+      "assertions": 1465,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "The P4 remainder added TWO files, side-peek.test.js with 35 assertions and docs-document-surface.test.js with 27, plus 1 from gate G14 joining the do-not-break-gates.test.js loop, for +63 of its own. It retargeted ONE existing assertion, sanctioned edit SE-12 in settings-nav-rail.test.js, in the same commit as its source change. The final npm test on this branch reports 90 files because the concurrent P6, P8 and P9 tracks registered five more between runs; 85 is this track own arithmetic against the postP4 floor of 83."
     }
   },
   "gates": {
@@ -56,7 +63,7 @@
     },
     "G4": {
       "name": "Catppuccin var() consumption outside the palette blocks",
-      "baseline": 902,
+      "baseline": 751,
       "target": 0,
       "phase": "P4"
     },
@@ -68,7 +75,7 @@
     },
     "G5b": {
       "name": "rgba()/hsla() literals outside a :root block",
-      "baseline": 46,
+      "baseline": 41,
       "target": 0,
       "phase": "P4"
     },
@@ -128,5 +135,5 @@
       "note": "Opened by the P4 remainder at ZERO rather than at its pre-sweep count of 17, because the ban that created it is a standing rule and not a phase target. The sweep that empties it ships in the same commit, so the gate has never had a non-zero baseline to ratchet down from."
     }
   },
-  "_ratchetNote": "P4 ratcheted G3 (up, 22 to 25), G4 (1021 to 902), G5b (71 to 46), G7 (49 to 3), G9a (5 to 1) and G9b (6 to 0). Four are short of their P4 target and each is short for a stated reason, recorded in DECISIONS 12: G4 and G5b by the regions P4 did not reach (side peek, docs, costs, settings) plus the terminal surface that belongs to P5 and the mobile sheet that belongs to P10; G7 by the two mobile action-sheet rules in styles-mobile.css, another track\u2019s file; G9a by the loading shimmer, which is the one documented exception the gate allows because a shimmer IS a moving gradient."
+  "_ratchetNote": "The P4 remainder ratcheted G4 (902 to 751, the largest single-phase fall the counter has recorded), G5b (46 to 41) and opened G14 at 0. G3, G6, G7, G8, G9a, G9b, G11, G12a and G12b are unchanged. Four are still short of their P4 target and each is short for a stated reason, recorded in DECISIONS 12.4 and 13.5: G4 and G5b by the terminal surface that belongs to P5 and the mobile sheet that belongs to P10, plus the app.js inline census 12.3.3 leaves with its regions; G7 by the two mobile action-sheet rules in styles-mobile.css, another track file; G9a by the loading shimmer, which is the one documented exception the gate allows because a shimmer IS a moving gradient."
 }

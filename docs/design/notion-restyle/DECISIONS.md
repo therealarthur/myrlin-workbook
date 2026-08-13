@@ -1737,3 +1737,316 @@ because the rule that created it is standing rather than a phase target and the
 sweep that empties it ships in the same commit. Both prongs were verified
 non-vacuous before the commit: a probe rule (a circle consuming `mwPulse`) and a
 probe inline style each turned it red, and removing them turned it green.
+
+### 13.3 What the P4 remainder shipped, and where
+
+| WP | Commit | Files | What |
+| --- | --- | --- | --- |
+| A, the static-status sweep | `e7fff57` | `styles.css`, `index.html`, `focused-shell.css`, `semantic-theme.css`, `scripts/do-not-break-gates.js`, `gate-baseline.json` | Seventeen sites re-encoded from motion to shape. Gate G14. DV-21 and the DV-14 resolution note. |
+| B1, the side peek | `bc81ca3` | `styles.css`, `app.js`, `index.html`, `test/side-peek.test.js` | The fixed-measure peek, the `display: contents` property grid, the two properties it gained, the borderless notes editor. |
+| P4.6, the docs panel | `5cf5d65` | `styles.css`, `index.html`, `test/docs-document-surface.test.js` | `.nt-layout`, the block box model, the list collapse, the callout. |
+| B2, Costs and Settings | `4977054` | `styles.css`, `app.js`, `index.html`, five test files | The Costs interiors, the Settings shell, the account chip, the unset cost, SE-12, the cachebuster. |
+| Visual QA | `7fdaa2d` | `styles.css`, `app.js`, `index.html`, `test/browser/notion-shell.spec.js`, `test/side-peek.test.js` | Five defects the p4r capture caught, including the peek's own layout regression. |
+
+Five commits, each revertable on its own, and the order is deliberate: the
+sweep and the gate ship first because everything after them is measured against
+G14; the peek and the docs panel ship before the two interiors because both are
+structural and the interiors are colour and metric work on top; and the visual
+QA commit ships last because it can only be written after the pictures exist.
+
+### 13.4 Ambiguities resolved during the P4 remainder
+
+#### 13.4.1 The peek was never beside anything, and a fixed width is what exposed it
+
+`.main-content` is `flex-direction: column`. The detail panel was a sibling of
+the session list INSIDE it, so the two split the column's HEIGHT at `flex: 1`
+each and the panel had never once been beside the list. That was survivable
+while both were elastic and it is not survivable with a measure: a `width` on a
+vertically stacked flex item applies while the list's `flex: 1` shrinks to zero,
+and the first p4r capture showed a peek alone on the page with 620px of void
+next to it.
+
+`DESIGN-SPEC` 7 opens with "a flex sibling of the main column" and `.app-body`
+is the only flex ROW in this shell, so the panel moved there in `index.html`.
+Every id, handler and query in the subtree is unchanged; only the parent moved.
+This is the one markup move in the phase and it is the one the whole region
+depended on.
+
+#### 13.4.2 `display: contents` is right here and was wrong for the table
+
+`DECISIONS` 12.2.3 rejected `display: contents` for the sessions table because
+it destroys the row's own box, and with it the hover wash, the selected fill and
+the drag image. The peek's property rows are the mirror image of that argument:
+no handler resolves through `.meta-row`, it carries no hover wash and is not
+draggable, and its box existed only to paint the striped card this work package
+removes. So the same mechanism that would have broken the table is what lets
+twelve label and value pairs align on one column with zero markup change.
+
+#### 13.4.3 The table has to give up columns under a peek, not squeeze them
+
+Opening the peek takes 420px off the main column. Seven fixed percentage columns
+in the remainder resolve small enough at a 1280 viewport to CLIP the property
+chips: the capture shows `Claude` cut to `Claud` and `Stopped` to `Stop`.
+Notion's answer to a narrowed page is to drop columns, so Project and Model
+collapse while the peek is open and the remaining five percentages are re-cut.
+Project is the one column the sidebar tree already answers and Model is empty on
+most rows; both are IN the peek that caused the narrowing.
+
+The hook is a `cwm-peek-open` class on `<body>`, set by `_setPeekOpen`, rather
+than a `:has(#session-detail-panel:not([hidden]))` selector. Two reasons: the
+peek is a LATER sibling of the main column so no combinator reaches backwards
+from it to the table, and four `[hidden]` occurrences in a selector would
+inflate gate G3, which counts guards paired with display rules and would then be
+describing a rule that is not one.
+
+#### 13.4.4 The account chip's percentage would have been eaten by a timer
+
+`DESIGN-SPEC` 4 draws the chip as `{name} · {n}%`; it showed a reset countdown.
+Swapping the text is a one-line change and it hides a real bug:
+`_tickAccountCountdowns` rewrites the `textContent` of every `[data-reset-at]`
+element inside `.account-switcher` once a minute. Leaving the attribute on a
+percentage would have silently replaced `42%` with `Resets in 2 hr 14 min` after
+sixty seconds, on a timer, with no user action to correlate it with. The
+attribute is removed in the percentage branch and stays where the countdown
+actually lives, in the panel rows and the usage meter.
+
+#### 13.4.5 The unset cost is blank, not outlined
+
+`DECISIONS` 12.6 item 4 left this open and `CODEX-PARITY` B10 answers it: the
+state is "no value was recorded", not "the value is zero" and not "a control is
+disabled". Notion draws an unset property as blank. The dashed bordered box was
+an honest attempt at "deliberately empty" that read as its exact opposite, a
+form field nobody has typed in, offering an affordance on a row where there is
+nothing to click. The dash keeps the tertiary ink, `cursor: help` and the title;
+the box goes. CSS only, so the markup `cost-display.test.js` pins character for
+character is untouched.
+
+#### 13.4.6 Sanctioned edit SE-12, and why it was taken rather than avoided
+
+`settings-nav-rail.test.js` pinned `--mauve` inside the active rail item's rule.
+Three contract rules pull against that pin and none of them is taste: `--mauve`
+is a Catppuccin token, so the rail's selected state changed hue with the
+TERMINAL theme, which `DESIGN-SPEC` 10.4 forbids and gate G4 counts; mauve is
+the brand primary P3.1 retired; and the same rule carried a 2px left accent bar,
+which is the rejection-list item that took the sidebar's bars in P2.2 and the
+tab underlines in P4.4. The assertion's INTENT, that the active rail item is
+visibly distinguished by a rule of its own, is preserved and retargeted to
+`--app-sidebar-item-selected`, with a new negative assertion that the bar does
+not come back. Shipped in the same commit as its source change, per 5.4.
+
+It is recorded as SE-12 rather than smuggled in, because it is not on the
+contract's SE-1 to SE-11 list and the orchestrator can revert it alone.
+
+#### 13.4.7 The 720px column's gutters are a container measurement, not a viewport one
+
+`BUILD-CONTRACT` P4.6's done criterion says "at 1440 the docs text column
+measures exactly 720px with 375px gutters". Gutters resolve against the
+CONTAINER, and in this shell the docs panel sits inside `.main-content` beside a
+240px sidebar. At a 1440 viewport with the sidebar open the column measures 720
+with about 239px gutters; 375px arrives at a 1911px container, or at 1440 with
+the sidebar collapsed. The grid is the capture's grid verbatim either way. What
+the criterion is protecting is the 720px column and the untinted, unbordered
+gutter, and both hold; reproducing the literal 375 would mean hiding the
+sidebar, which is not what it is asking for.
+
+### 13.5 Scope decisions, and what was deliberately left alone
+
+1. **The peek has no drag-resize and no `Open in Workbench` button.**
+   `DESIGN-SPEC` 7 gives both. The resize handle needs a drag controller and a
+   persisted width, and the button needs the pane-spawn path, which belongs to
+   the terminal region P5 owns. The peek's measure is a token change away from
+   being draggable when somebody wants it.
+2. **The peek has no `Last output` block** (spec item 6). It needs a transcript
+   read per selection, which is a data path rather than a style, and the mirror
+   pane already renders exactly that content one click away.
+3. **The Costs breakdown keeps its eight-hue categorical ramp.**
+   `DESIGN-SPEC` 9.2 gives the Share meter a single `--app-text-blue` fill, and
+   this app's breakdown is categorical (by project, by model) rather than a
+   single share. P2.7 deliberately shipped that ramp through the chrome hue
+   projection as the sixth colour map. Overriding it here would undo another
+   work package to satisfy a spec line written for a different chart.
+4. **`.terminal-pane-loading`'s `rgb-border-glow` survives**, and 13.1 records
+   why: it is the pane FRAME rather than a mark, and its four keyframe stops are
+   byte-identical, so it animates nothing. Deleting a dead animation from the
+   pane frame is P5's call in the phase that owns that region.
+5. **`styles-mobile.css` was not touched, for the third phase running.** G7 sits
+   at 3 for the reason DV-19 records.
+6. **The `app.js` inline palette census is still not finished.** 12.3.3 counted
+   about 68; this phase moved the Costs card hues, the analytics running count
+   and the three spinoff dots, and the rest still belong to their regions.
+
+### 13.6 The numbers
+
+| Measure | After P4 | After the P4 remainder |
+| --- | --- | --- |
+| `styles.css` lines | 14788 | **15565** |
+| `focused-shell.css` lines | 1626 | **1651** |
+| `semantic-theme.css` lines | 273 | **291** |
+| Gate G3, `[hidden]` guards (up is better) | 25 | **25** |
+| Gate G4, Catppuccin `var()` in chrome | 902 | **751** |
+| Gate G5b, raw `rgba()` outside `:root` | 46 | **41** |
+| Gate G7, uppercase labels | 3 | **3** |
+| Gate G9a, `linear-gradient` | 1 | **1** |
+| **Gate G14, animated status marks (new)** | 17 before the sweep | **0** |
+| Test files / assertions | 83 / 1402 | **85 / 1465** for this track's own runs |
+
+The assertion delta this track owns is **+63**: 35 in the new
+`side-peek.test.js`, 27 in the new `docs-document-surface.test.js`, and 1 from
+gate G14 joining the `do-not-break-gates.test.js` loop. One existing assertion
+was retargeted, SE-12, in the same commit as its source change. Concurrent
+tracks (P6, P8, P9) added further files and assertions to the same suite between
+runs; the final `npm test` on this branch reports **90 files and 1536 assertions,
+zero failures**, which is why the totals in this row are stated as "for this
+track's own runs".
+
+G4's 151-point drop is the largest single-phase fall the counter has recorded,
+and none of it was a sweep: every one came out of a rule this phase was
+rewriting for another reason. That is the pattern 12.3.3 asked for, colour
+moving with its region rather than as a separate pass.
+
+### 13.7 The p4r screenshots, and an honest reading of them
+
+`screenshots/notion-restyle/p4r/`, the same frozen eight-shot matrix as P0
+through P4, plus a new opt-in `regions/` set of eight.
+
+**The region set exists because of a hole this phase fell into.** Four of the
+regions the restyle changes are not reachable from either of the two standard
+routes: the side peek needs a selected session, and Docs, Costs and Settings are
+their own views. They were being shipped without anybody looking at them, which
+is exactly how the peek's layout regression got as far as a commit.
+`--regions` captures them at desktop in both chromes into their own directory
+under their own manifest key, so the standard matrix stays frozen and any two
+phases remain comparable.
+
+**All sixteen were looked at, and five shipped fixes came out of looking.** They
+are listed in the `7fdaa2d` commit message: the peek stacking below the list
+rather than beside it, the table clipping its chips under the peek, five blue
+emoji squares where the docs section carets should be, the Costs title lining up
+with nothing, and the Sessions section label inset 16px from its neighbours.
+
+**What changed, and it is what the phase existed for.** Nothing in the
+application blinks. The peek is a Notion peek: a 44px band mirroring the topbar,
+a 22px page title, and twelve properties on one aligned column with no card
+around them. The docs panel is a document: a 720px measure in a 1040px panel,
+headings at the captured H3, list items on a 40px rhythm that collapses to 1px
+inside a run. Costs is a page of sections rather than eight raised tiles.
+Settings is a list on hairlines rather than a list of buttons.
+
+**What still reads as the old design**, top deltas first, each with its owner:
+
+1. **The phone is still the old IA.** Every region this phase touched has a
+   desktop-scoped ladder and a phone floor, and none of them has a phone
+   DESIGN. **P10.**
+2. **The terminal surface inside the pane frame is untouched.** No xterm
+   internals, no Select machinery and no part of the write pipeline was read or
+   modified. **P5.**
+3. **The settings search field's focus ring spans the full row.** It is the
+   universal `:focus-visible` outline (DV-8) on a borderless 100 percent wide
+   input, so it reads as a blue slab across the dialog on open. Correct and
+   accessible; heavy. **P12's 5.5.4 focus and contrast reckoning.**
+4. **The Costs timeline's empty state is 180px of nothing** under a section
+   label, which is the largest void on any page in the app. It is an empty-state
+   copy problem rather than a layout one. **P12.**
+5. **Two uppercase rules survive in `styles-mobile.css`**, DV-19. **P10.**
+6. **The two contrast families from P3 are unchanged**, DV-10 and DV-12 through
+   DV-15. **P12's 5.5.4.**
+
+### 13.8 Contrast, measured for every surface this phase drew
+
+Fifty-four pairings, computed from the shipped token values in both chromes,
+with translucent grounds composited over their page ground before the ink is
+composited over them. `PROCEDURE.md` 4.2's floors: 4.5:1 for text, 3:1 for a
+boundary or a graphic.
+
+**Every ink this phase put on a ground clears its floor, or fails only in a
+family already recorded.** No new deviation row is incurred for contrast, and
+one pairing was re-cut rather than recorded, which is the difference between
+this table and P4's.
+
+| Composite | Light | Dark |
+| --- | --- | --- |
+| Peek page title and property values | 13.98 | 15.30 |
+| Peek notes ink on its focus wash | 13.04 | 13.23 |
+| Docs section title and item text | 13.98 | 15.30 |
+| Docs item text on the hover box | 13.04 | 13.23 |
+| Docs callout ink on the yellow ground | 12.57 | 8.33 |
+| Docs callout ICON on the yellow ground, after the re-cut | 12.57 | 8.33 |
+| Roadmap active chip, yellow pair | 5.98 | 4.95 |
+| Roadmap done chip, green pair | 6.77 | 5.72 |
+| Subagent count chip, gray pair | 7.26 | 5.62 |
+| Costs card value | 13.98 | 15.30 |
+| Costs table cell ink | 13.98 | 15.30 |
+| Costs table cell on a hovered row | 13.41 | 13.23 |
+| Costs chart series against the canvas | 4.25 | 4.14 |
+| Costs tooltip ink on the elevated ground | 13.98 | 14.18 |
+| Settings row title on the modal card | 13.98 | 14.18 |
+| Settings rail active item ink | 12.34 | 12.11 |
+| Settings rail item on the rail ground | 4.03 | 6.97 |
+| Account chip avatar, purple chip pair | 7.17 | 6.17 |
+| Needs-input badge, yellow chip pair | 5.98 | 4.95 |
+| Conflict badge, yellow chip pair | 5.98 | 4.95 |
+| Running DISC on the canvas | 3.62 | 4.86 |
+| Waiting RING stroke, orange | 3.18 | 5.54 |
+| Activity dot, purple | 4.09 | 4.30 |
+
+**One pairing was re-cut rather than recorded.** The docs callout ICON was
+`--app-text-yellow` on `--app-bg-yellow` and measured **2.41:1** in light chrome
+against a 3:1 graphic floor. This is DV-13's counterexample repeating itself: a
+light wash raises the ground without darkening the ink, so re-pairing hue onto
+its own wash makes a pairing WORSE rather than better. The GROUND is what
+carries the hue in a callout, which is also what `PROCEDURE` 6.3's recipe says,
+so the icon took the primary ink and the pairing went from 2.41 to 12.57.
+
+**Twenty-eight pairings sit below their floor and every one is a consumption of
+a family already recorded.** Four families, no more:
+
+- `--app-text-tertiary` at **2.67:1** light and **4.11:1** dark, DV-10's
+  recorded number exactly. It is the ink for the peek's property labels and
+  placeholder, the docs timestamps, the Costs table header and percentages, the
+  account chip's usage figure and the unset-cost dash. On the transcript's
+  raised ground it falls further, to **2.32:1** light, because the ground rises
+  and the ink does not.
+- `--app-text-secondary` at **4.27:1** light, DV-10's "same family one step up
+  and misses by 0.23". It is the ink for every section label this phase drew.
+- The boundary family at **1.15 to 1.50**: the peek's left hairline, the
+  Costs card hairline, the Settings row separator and the chart grid line. DV-15
+  verbatim, whose own note says the capture's neutral ramp is compressed at both
+  ends.
+- The yellow and orange block hues at **2.36 to 3.18** light: the needs-input
+  RING on the canvas and on a hovered sidebar row, and the Costs share meter
+  against its dark track. DV-14 verbatim. **The ring measures 2.68 on the canvas,
+  which is the DISC's own recorded number**, and that is the point 13.1 makes:
+  the shape channel is added at no contrast cost, because a 2px stroke and a
+  filled circle are the same pixels at the same ratio.
+
+All four point at the same owner and the same decision, `BUILD-CONTRACT.md`
+5.5.4's full contrast reckoning at P12, which is where this product decides once
+whether it keeps the capture's neutral ramp or ships an accessible delta.
+
+### 13.9 What P5, P10 and P12 inherit
+
+1. **A standing rule and a gate that enforces it.** G14 is a permanent gate with
+   a zero target and no phase, and it measures consumption structurally rather
+   than grepping for one keyframe name. Any new dot, pill or badge that animates
+   turns the suite red on the commit that adds it. Rotation is the one exemption
+   and it is exempt by construction.
+2. **A peek that is a real layout sibling.** `#session-detail-panel` is now a
+   child of `.app-body`. Anything P10 does to the phone shell has to keep it
+   `position: fixed` under 768px, which `styles-mobile.css` already does, and
+   the desktop ladder is scoped to `min-width: 769px` so the two never fight.
+3. **`.nt-layout`, authored and ready for four more surfaces.** `PROCEDURE`
+   step 6 item 3 names modal bodies, settings panes and empty states alongside
+   the docs panel. Only the docs panel takes it today; the other three are one
+   class each, and the four modifiers are already in the sheet.
+4. **A `cwm-peek-open` body class**, which is the first responsive hook in this
+   app that is driven by application state rather than by viewport width. The
+   phone IA will want the same idiom.
+5. **A screenshot harness that can reach four more regions.** `--regions` is
+   opt-in and its route list is a four-line array; adding the mirror pane, the
+   agent board or the attention popover is one entry each.
+6. **A contrast reckoning that is now four families wide**, with every number
+   measured and every family owned by 5.5.4. Nothing in the P4 remainder needs a
+   per-composite decision; it needs one decision about the neutral ramp.
+7. **Sanctioned edit SE-12**, taken but revertable alone, and the precedent that
+   an implementation agent records a new SE number rather than editing a pin
+   quietly.
