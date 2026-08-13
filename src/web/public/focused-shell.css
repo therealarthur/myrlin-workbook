@@ -127,7 +127,7 @@
   padding: 0;
   gap: 2px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-cover);
   background: transparent;
 }
 
@@ -479,7 +479,7 @@
 :root[data-ui-shell="focused"] .terminal-pane-empty .terminal-container {
   margin: 0;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-cover);
   background:
     radial-gradient(circle at 50% 34%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 38%),
     var(--base);
@@ -517,7 +517,7 @@
   height: 54px;
   margin-bottom: 18px;
   border: 1px solid var(--border-default);
-  border-radius: 15px;
+  border-radius: var(--radius-lg);
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--surface0) 58%, transparent);
   box-shadow: var(--shadow-sm);
@@ -612,7 +612,7 @@
 }
 
 .docs-section-heading > .docs-section-header:focus-visible {
-  border-radius: 6px;
+  border-radius: var(--radius-app-button);
   outline: 2px solid var(--color-focus, var(--accent));
   outline-offset: 2px;
 }
@@ -688,7 +688,7 @@
   gap: 7px;
   padding: 5px 9px;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-pane-frame);
   color: var(--text-secondary);
   background: transparent;
   font: 600 11px var(--font-sans);
@@ -722,7 +722,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text-primary);
   background: var(--surface-raised);
   font-size: 10px;
@@ -737,7 +737,7 @@
   width: 7px;
   height: 7px;
   margin-right: 1px;
-  border-radius: 50%;
+  border-radius: var(--radius-avatar);
   background: var(--attention-color, var(--status-running));
   flex: 0 0 auto;
 }
@@ -796,7 +796,7 @@
   min-height: 32px;
   padding: 5px 28px 5px 9px;
   border: 1px solid var(--border-subtle);
-  border-radius: 7px;
+  border-radius: var(--radius-pill);
   color: var(--text-primary);
   background: var(--surface-canvas);
   font: 500 12px var(--font-sans);
@@ -833,7 +833,7 @@
   height: 48px;
   margin-bottom: 13px;
   border: 1px solid var(--border-subtle);
-  border-radius: 13px;
+  border-radius: var(--radius-lg);
   color: var(--color-focus);
   background: var(--surface-raised);
   font-size: 20px;
@@ -867,7 +867,7 @@ body.appearance-open {
   max-height: min(820px, calc(100vh - 48px));
   overflow: auto;
   border: 1px solid var(--border-subtle);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   color: var(--text-primary);
   background: var(--surface-canvas);
   box-shadow: var(--shadow-xl);
@@ -926,7 +926,7 @@ body.appearance-open {
   min-height: 76px;
   padding: 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-callout);
   color: var(--text-primary);
   background: transparent;
   text-align: left;
@@ -998,7 +998,7 @@ body.appearance-open {
   gap: 9px;
   padding: 9px 10px;
   border: 1px solid var(--border-subtle);
-  border-radius: 9px;
+  border-radius: var(--radius-pill);
   color: var(--text-primary);
   background: transparent;
   font: 550 11px var(--font-sans);
@@ -1020,7 +1020,7 @@ body.appearance-open {
   width: 28px;
   height: 28px;
   border: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius-pane-frame);
   background: var(--surface-raised);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, white 8%, transparent);
 }
@@ -1033,7 +1033,7 @@ body.appearance-open {
 .theme-gallery-more > summary {
   min-height: 38px;
   padding: 9px 4px;
-  border-radius: 7px;
+  border-radius: var(--radius-pill);
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 650;
@@ -1061,7 +1061,7 @@ body.appearance-open {
   height: 34px;
   margin-left: auto;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-pill);
   color: var(--text-secondary);
   background: transparent;
   font: 700 16px/1 var(--font-sans);
@@ -1346,7 +1346,7 @@ body.appearance-open {
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
-    border-radius: 18px 18px 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) var(--radius-cover) var(--radius-cover);
   }
 
   .appearance-header,
@@ -1390,7 +1390,7 @@ body.appearance-open {
     margin-bottom: 10px;
     padding: 12px 48px 12px 12px;
     border: 1px solid var(--border-subtle);
-    border-radius: 10px;
+    border-radius: var(--radius-callout);
     background: color-mix(in srgb, var(--surface-raised) 38%, transparent);
   }
 
