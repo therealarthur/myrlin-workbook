@@ -150,6 +150,12 @@ class CWMApp {
   /** The block ground that pairs with FALLBACK_HUE_VAR. */
   static FALLBACK_HUE_BG_VAR = 'var(--app-bg-gray)';
 
+  // ── Topbar scroll state (BUILD-CONTRACT 2.12, DESIGN-SPEC 4) ──
+  /** Scroll depth at which the topbar earns its shadow. Two pixels rather
+   *  than zero so a sub-pixel rubber-band or a fractional device-pixel offset
+   *  cannot toggle the class; the 700ms transition damps the rest. */
+  static HEADER_SCROLLED_AT_PX = 2;
+
   constructor() {
     // ─── State ─────────────────────────────────────────────────
     this.state = {
@@ -1855,6 +1861,95 @@ class CWMApp {
     window.addEventListener('focus', () => {
       this._activateActiveTerminalPane();
     });
+
+    // Notion restyle: one delegated scroll observer for the whole shell.
+    this._bindShellScrollObserver();
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     SHELL SCROLL OBSERVER (Notion restyle, DEVIATIONS DV-9)
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Bind the single scroll listener the shell chrome reads.
+   *
+   * `scroll` does not bubble, but it DOES reach a capture-phase listener on
+   * the document from any scroller in the tree. That is why this is one
+   * capture listener rather than a listener per container: this shell scrolls
+   * content INSIDE .main-content (which is itself `overflow: hidden`), the
+   * scrolling element differs per view, and half of those containers are
+   * rendered long after boot. Binding per container would silently miss
+   * every one of them.
+   *
+   * Passive, because nothing here can cancel a scroll and a non-passive
+   * document-level scroll listener costs scrolling performance on touch.
+   */
+  _bindShellScrollObserver() {
+    if (this._shellScrollObserverBound) return;
+    this._shellScrollObserverBound = true;
+    document.addEventListener('scroll', (e) => this._onShellScroll(e), {
+      capture: true,
+      passive: true,
+    });
+  }
+
+  /**
+   * Fan a scroll event out to the chrome surfaces that care about it,
+   * throttled to one animation frame so a fast wheel cannot queue work.
+   *
+   * @param {Event} e - The captured scroll event.
+   */
+  _onShellScroll(e) {
+    const scroller = (e && e.target && e.target.nodeType === 1) ? e.target : null;
+    this._lastScroller = scroller;
+    if (this._shellScrollTicking) return;
+    this._shellScrollTicking = true;
+    requestAnimationFrame(() => {
+      this._shellScrollTicking = false;
+      this._updateHeaderScrolled(this._lastScroller);
+    });
+  }
+
+  /**
+   * Toggle the topbar's scrolled state.
+   *
+   * DESIGN-SPEC 4 and BUILD-CONTRACT 2.12: the bar has no shadow at rest and
+   * earns one only while content is scrolled beneath it, over a deliberately
+   * slow --duration-topbar (700ms) so a breadcrumb sitting near the boundary
+   * cannot flicker the shadow on and off. styles.css authored .app-header
+   * and .app-header.is-scrolled in P2.1; nothing toggled the class, because
+   * that half is app.js work (DEVIATIONS DV-9 gap 1). This is that half.
+   *
+   * Only scrollers inside the main column count. A scrolling sidebar, menu,
+   * modal body or terminal transcript is not "content under the topbar", and
+   * a terminal viewport in particular scrolls constantly while a session
+   * runs. With no scroller (a view switch) the state resets, because the
+   * incoming panel is shown at its own scroll position and any real scroll
+   * re-asserts within one frame.
+   *
+   * @param {HTMLElement|null} scroller - The element that scrolled, if any.
+   */
+  _updateHeaderScrolled(scroller) {
+    const header = document.querySelector('.app-header');
+    if (!header) return;
+
+    let scrolled = false;
+    if (scroller && typeof scroller.closest === 'function') {
+      const main = this._mainContentEl ||
+        (this._mainContentEl = document.getElementById('main-content'));
+      const insideMain = !!main && main.contains(scroller);
+      const insideTerminal = !!scroller.closest('.terminal-pane');
+      if (insideMain && !insideTerminal) {
+        scrolled = (scroller.scrollTop || 0) > CWMApp.HEADER_SCROLLED_AT_PX;
+      } else {
+        // Not a main-column scroller: leave the current state alone rather
+        // than clearing it, so scrolling a menu open over a scrolled page
+        // does not drop the bar's shadow out from under it.
+        return;
+      }
+    }
+
+    header.classList.toggle('is-scrolled', scrolled);
   }
 
   /**
@@ -11571,6 +11666,12 @@ class CWMApp {
       clearInterval(this._resourcesInterval);
       this._resourcesInterval = null;
     }
+
+    // The topbar's scrolled shadow belongs to the view that was scrolled, not
+    // to the shell. Switching views swaps the scroller out from under it, and
+    // no scroll event is fired by the swap, so the state is reset here and
+    // the next real scroll re-asserts it within a frame.
+    this._updateHeaderScrolled(null);
 
     // Toggle terminal grid vs session panels vs docs vs resources vs costs vs tasks
     const isTerminal = mode === 'terminal';
