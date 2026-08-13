@@ -4,41 +4,85 @@
  * Legacy palettes continue to define their raw color ramps in styles.css.
  * Product components consume the roles below, keeping appearance, focus,
  * provider identity, and session status independent from palette names.
+ *
+ * ---------------------------------------------------------------------------
+ * Notion restyle phase P1, work package P1.3. BUILD-CONTRACT.md 1.6, table E.
+ *
+ * Every right-hand side below moved from the Catppuccin palette to the Notion
+ * chrome tokens authored in the styles.css :root block. Not one name changed
+ * and not one call site was touched, which is the point: this 93-line file is
+ * the single choke point for the colour contract and therefore the cheapest
+ * rollback lever in the whole programme. Reverting this file plus the two root
+ * attributes returns the application to Catppuccin even if every other phase
+ * has landed (BUILD-CONTRACT section 8).
+ *
+ * TWO HARD CONSTRAINTS, both pinned by test/experience-ux-contract.test.js and
+ * re-checked by gate G11:
+ *
+ *   1. All 15 named role tokens stay defined, spelled exactly as they are.
+ *   2. ZERO raw colours. The regex #[0-9a-f]{3,8}\b|rgba?\s*\(|hsla?\s*\( must
+ *      not match anywhere in this file. Every right-hand side is a var() or a
+ *      color-mix() over var()s. That is why the raw Notion values live in the
+ *      styles.css :root block and this file only ever points at them.
+ *
+ * ONE DELIBERATE HUE CHANGE: --status-complete moves from green to teal, per
+ * DESIGN-SPEC 6 and contested mapping C5. Running is the green state and
+ * complete is the teal one; collapsing both onto green would destroy a
+ * distinction that experience-model.js models and that the sidebar dots, the
+ * table chips and the attention list all read. The count of attention states
+ * is unchanged at five, which experience-model.test.js pins.
+ * ---------------------------------------------------------------------------
  */
 
 :root {
-  --surface-canvas: var(--base);
-  --surface-sidebar: var(--mantle);
-  --surface-raised: var(--surface0);
-  --surface-interactive: color-mix(in srgb, var(--surface1) 42%, transparent);
-  --surface-selected: color-mix(in srgb, var(--accent) 12%, var(--base));
+  --surface-canvas: var(--app-bg-primary);
+  --surface-sidebar: var(--app-bg-secondary);
+  --surface-raised: var(--app-bg-elevated);
+  /* Was a 42 percent mix of a palette border colour. Notion has a real hover
+     wash token, so this points at it rather than deriving one. */
+  --surface-interactive: var(--app-wash-hover);
+  --surface-selected: var(--app-sidebar-item-selected);
 
+  /* Text unchanged: --color-focus follows --accent, which styles.css re-points
+     to var(--app-ui-blue) in P1.1. Both pinned :focus-visible rules therefore
+     pick up the Notion blue with no edit here and no edit at the call site. */
   --color-focus: var(--accent);
-  --color-info: var(--blue);
-  --color-attention: var(--yellow);
-  --color-success: var(--green);
-  --color-danger: var(--red);
-  --color-stale: var(--overlay1);
+  --color-info: var(--app-text-blue);
+  --color-attention: var(--app-text-yellow);
+  --color-success: var(--app-text-green);
+  --color-danger: var(--app-text-red);
+  --color-stale: var(--app-text-brown);
 
   --status-needs-input: var(--color-attention);
   --status-running: var(--color-info);
-  --status-complete: var(--color-success);
+  /* See the hue-change note in the file header: complete is teal, not green. */
+  --status-complete: var(--app-text-teal);
   --status-failed: var(--color-danger);
   --status-stale: var(--color-stale);
-  --status-needs-input-surface: color-mix(in srgb, var(--status-needs-input) 12%, transparent);
-  --status-running-surface: color-mix(in srgb, var(--status-running) 10%, transparent);
-  --status-complete-surface: color-mix(in srgb, var(--status-complete) 10%, transparent);
-  --status-failed-surface: color-mix(in srgb, var(--status-failed) 10%, transparent);
-  --status-stale-surface: color-mix(in srgb, var(--status-stale) 10%, transparent);
+  /* The five state washes become the captured tinted surfaces rather than
+     ad-hoc 10 to 12 percent mixes, so a status ink always sits on the wash it
+     was contrast-tested against. Only --status-needs-input-surface has a
+     consumer today (focused-shell.css). */
+  --status-needs-input-surface: var(--app-bg-yellow);
+  --status-running-surface: var(--app-bg-green);
+  --status-complete-surface: var(--app-bg-teal);
+  --status-failed-surface: var(--app-bg-red);
+  --status-stale-surface: var(--app-bg-brown);
 
-  --action-warning: var(--color-attention);
-  --action-success: var(--color-success);
-  --action-danger: var(--color-danger);
+  /* Action roles. Warning becomes the captured orange rather than reusing the
+     attention yellow, so a warning action and an attention state stop being
+     the same colour. All three have zero consumers today. */
+  --action-warning: var(--app-text-orange);
+  --action-success: var(--app-text-green);
+  --action-danger: var(--app-text-red);
 
-  --selection-bg: color-mix(in srgb, var(--color-focus) 25%, transparent);
-  --drop-target-bg: color-mix(in srgb, var(--color-focus) 6%, var(--surface-canvas));
-  --resize-handle-hover: color-mix(in srgb, var(--color-focus) 44%, transparent);
-  --focus-ring: 0 0 0 2px var(--surface-canvas), 0 0 0 4px var(--color-focus);
+  --selection-bg: var(--app-selection-token);
+  --drop-target-bg: var(--app-bg-blue);
+  /* Kept as a mix rather than a flat token: the resize handle has to read as a
+     translucent overlay on whatever it is dragged across. 28 percent is the
+     DESIGN-SPEC 3.7 value, down from 44. */
+  --resize-handle-hover: color-mix(in srgb, var(--app-ui-blue) 28%, transparent);
+  --focus-ring: var(--app-focus-shadow);
 }
 
 ::selection {
