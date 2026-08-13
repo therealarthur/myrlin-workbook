@@ -1142,42 +1142,77 @@ h4 {
   gap: 6px;
 }
 
+/*
+ * FIELDS, Notion restyle phase P3, work package P3.3.
+ * BUILD-CONTRACT.md 2.9 and DESIGN-SPEC.md 8.3 "Field group".
+ *
+ * The field label is sentence case at 12px/500 in secondary ink. The uppercase
+ * letterspaced treatment is on the rejection list and it is also gate G7's
+ * count: a form label is a label, not a section heading.
+ */
 .input-label {
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--app-text-secondary);
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .input-wrapper {
   position: relative;
 }
 
+/*
+ * The 28px application input. Height, padding, hairline, radius and ground are
+ * all captured values; the focus treatment is the captured LAYERED ring
+ * (--app-input-focus-ring), which draws 1px inside and 1px outside the box so
+ * it hugs the 6px corner rather than boxing it. That is the one place this
+ * project uses a box-shadow ring instead of the universal outline, and
+ * DEVIATIONS.md DV-8 records why: an outline is what every other control gets,
+ * and a field is the one control whose ring the capture actually specifies.
+ *
+ * CONTRAST: value ink 13.98:1 light and 14.18:1 dark. The placeholder is
+ * --app-text-tertiary at 2.67:1 light and 4.11:1 dark, and the hairline is
+ * 1.26:1 against the ground. Both are captured values and both are under
+ * their floors; DEVIATIONS.md DV-15 records them together with the reason
+ * darkening is not the available move.
+ */
 .input {
   width: 100%;
-  padding: 10px 14px;
-  background: var(--surface0);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
+  height: var(--app-input-height);
+  padding: 0 8px;
+  background: var(--app-bg-primary);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-app-button);
+  color: var(--app-text-primary);
   font-family: var(--font-sans);
-  font-size: 14px;
-  transition: all var(--transition-fast);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  transition: var(--motion-focus), border-color var(--transition-fast);
 }
 
 .input::placeholder {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 
 .input:hover {
-  border-color: var(--surface2);
+  border-color: var(--app-border-strong);
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--app-ui-blue);
   box-shadow: var(--app-input-focus-ring);
+}
+
+/* The captured error ring, which no call site reaches yet. It ships now
+   because a field that can be invalid and has no invalid state is a field that
+   grows one ad hoc later; aria-invalid is the accessible half and the ring is
+   the visible one. */
+.input[aria-invalid="true"],
+.input.is-invalid {
+  border-color: var(--app-text-red);
+  box-shadow: var(--app-input-error-ring);
 }
 
 /* Password input with toggle - extra padding-right for the eye icon */
@@ -1219,9 +1254,14 @@ h4 {
   background: var(--app-wash-press);
 }
 
+/* A textarea grows, so it takes the field's chrome and gives back the fixed
+   28px height. The 8px block padding restores the vertical rhythm the shared
+   `padding: 0 8px` removes. */
 textarea.input {
-  resize: vertical;
+  height: auto;
   min-height: 72px;
+  padding: 8px;
+  resize: vertical;
 }
 
 
@@ -1505,10 +1545,14 @@ textarea.input {
   padding: 2px 4px;
   border-radius: var(--radius-property-chip);
 }
+/* Borderless at rest, a real field on focus. Both spinoff editors are inline
+   edits of a card's own text, so the chrome only appears when it is needed;
+   the ring is the captured layered one rather than a bare border tint. */
 .spinoff-task-title input:focus {
-  border-color: var(--lavender);
+  border-color: var(--app-ui-blue);
   outline: none;
-  background: var(--surface0);
+  background: var(--app-bg-primary);
+  box-shadow: var(--app-input-focus-ring);
 }
 .spinoff-task-branch {
   font-size: 11px;
@@ -1539,9 +1583,10 @@ textarea.input {
   font-family: inherit;
 }
 .spinoff-task-desc textarea:focus {
-  border-color: var(--lavender);
+  border-color: var(--app-ui-blue);
   outline: none;
-  background: var(--surface0);
+  background: var(--app-bg-primary);
+  box-shadow: var(--app-input-focus-ring);
 }
 .spinoff-task-files {
   display: flex;
@@ -2958,10 +3003,13 @@ textarea.input {
   font-weight: 500;
 }
 
+/* The same 5px meter (BUILD-CONTRACT 2.11). This one is a composition rather
+   than a threshold, so its three segments take three named block hues that are
+   far apart in the wheel rather than the green/yellow/red ramp. */
 .token-bar {
-  height: 4px;
+  height: 5px;
   border-radius: var(--radius-row-icon);
-  background: var(--surface1);
+  background: var(--app-bg-tertiary);
   overflow: hidden;
   margin-top: 4px;
 }
@@ -2972,9 +3020,9 @@ textarea.input {
   transition: width 0.3s ease;
 }
 
-.token-bar-input { background: var(--blue); }
-.token-bar-output { background: var(--peach); }
-.token-bar-cache { background: var(--green); }
+.token-bar-input { background: var(--app-text-blue); }
+.token-bar-output { background: var(--app-text-orange); }
+.token-bar-cache { background: var(--app-text-teal); }
 
 /* ─── Subagent Tracking ───────────────────────────────── */
 
@@ -3197,7 +3245,7 @@ textarea.input {
 }
 
 .settings-search-input::placeholder {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 
 .settings-body {
@@ -3317,11 +3365,28 @@ textarea.input {
   margin-top: 1px;
 }
 
-/* Toggle switch — Linear-style */
+/*
+ * SWITCH, Notion restyle phase P3, work package P3.3.
+ * BUILD-CONTRACT.md 2.9 and DESIGN-SPEC.md 12 "Switch".
+ *
+ * 26 by 16 with a 12px knob. Off is --app-bg-tertiary, on is --app-ui-blue,
+ * the knob is white with --app-shadow-avatar, and the knob is the ONLY thing
+ * that moves: the track does not resize, recolour its border or scale. The
+ * travel is calc(width - height), which is the captured expression rather than
+ * a hardcoded offset, so changing either dimension keeps the knob centred at
+ * both ends by construction.
+ *
+ * CONTRAST: on-state against the off-state track measures 3.37:1 and the white
+ * knob against the on-state 3.88:1, so the state is legible. The off track
+ * against the card it sits on is 1.15:1 in light chrome and 1.50:1 in dark,
+ * which is under the 3:1 boundary floor. That is the capture's own switch;
+ * the --app-border-strong hairline below is the strongest mitigation available
+ * inside the token set and DEVIATIONS.md DV-15 records the measurement.
+ */
 .settings-toggle {
   position: relative;
-  width: 36px;
-  height: 20px;
+  width: var(--app-switch-width);
+  height: var(--app-switch-height);
   flex-shrink: 0;
   cursor: pointer;
 }
@@ -3336,29 +3401,40 @@ textarea.input {
 .settings-toggle-track {
   position: absolute;
   inset: 0;
-  background: var(--surface1);
-  border-radius: var(--radius-callout);
-  transition: background 0.15s ease;
+  background: var(--app-bg-tertiary);
+  box-shadow: inset 0 0 0 1px var(--app-border-strong);
+  border-radius: var(--radius-pill);
+  transition: background var(--duration-200) var(--ease-out);
 }
 
 .settings-toggle input:checked + .settings-toggle-track {
-  background: var(--mauve);
+  background: var(--app-ui-blue);
+  box-shadow: none;
 }
 
 .settings-toggle-thumb {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  background: var(--text);
+  top: calc((var(--app-switch-height) - var(--app-switch-knob)) / 2);
+  left: calc((var(--app-switch-height) - var(--app-switch-knob)) / 2);
+  width: var(--app-switch-knob);
+  height: var(--app-switch-knob);
+  background: var(--app-on-accent);
+  box-shadow: var(--app-shadow-avatar);
   border-radius: var(--radius-avatar);
-  transition: transform 0.15s ease;
+  transition: transform var(--duration-200) var(--ease-out);
   pointer-events: none;
 }
 
 .settings-toggle input:checked ~ .settings-toggle-thumb {
-  transform: translateX(16px);
+  transform: translateX(calc(var(--app-switch-width) - var(--app-switch-height)));
+}
+
+/* The switch is a real control and takes a real ring. The input is visually
+   hidden rather than display: none, so it still receives focus and
+   :focus-visible fires on it; the ring is drawn on the track because the input
+   itself is zero-sized. */
+.settings-toggle input:focus-visible + .settings-toggle-track {
+  box-shadow: var(--app-focus-shadow);
 }
 
 .settings-scale-control {
@@ -3399,20 +3475,23 @@ textarea.input {
 }
 
 /* Number input for settings (e.g., quota limits) */
+/* P3.3: the numeric field on the shared 28px recipe. It keeps its right
+   alignment and its tabular figures, which is the whole point of a numeric
+   field, and moves off the literal mono stack onto --font-code. */
 .settings-number-input {
   width: 72px;
-  height: 30px;
+  height: var(--app-input-height);
   padding: 0 8px;
-  background: var(--surface0);
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  background: var(--app-bg-primary);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-app-button);
+  color: var(--app-text-primary);
+  font-size: 13px;
+  font-family: var(--font-code);
   font-variant-numeric: tabular-nums;
   text-align: right;
   flex-shrink: 0;
-  transition: border-color var(--transition-fast);
+  transition: var(--motion-focus), border-color var(--transition-fast);
   -moz-appearance: textfield;
 }
 
@@ -3424,7 +3503,12 @@ textarea.input {
 
 .settings-number-input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--app-ui-blue);
+  box-shadow: var(--app-input-focus-ring);
+}
+
+.settings-number-input::placeholder {
+  color: var(--app-text-tertiary);
 }
 
 .settings-empty {
@@ -3550,7 +3634,7 @@ textarea.input {
 }
 
 .qs-search-input::placeholder {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 
 .qs-shortcut {
@@ -3591,7 +3675,7 @@ textarea.input {
 }
 
 .qs-input::placeholder {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 
 .qs-results {
@@ -4922,10 +5006,13 @@ body.cwm-dragging .sidebar-backdrop {
   flex-shrink: 0;
 }
 
+/* P3.3: every checkbox in the application is a native control tinted
+   --app-ui-blue at --app-todo-box-size, so the three that exist can never
+   drift into three different checkboxes. */
 .discover-cb {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--mauve);
+  width: var(--app-todo-box-size);
+  height: var(--app-todo-box-size);
+  accent-color: var(--app-ui-blue);
   cursor: pointer;
 }
 
@@ -5035,23 +5122,28 @@ body.cwm-dragging .sidebar-backdrop {
 .projects-search-bar {
   padding: 4px 8px;
 }
+/* P3.3: the shared field recipe. The monospace face is gone: a search box is
+   UI, not code, and the mono face was the reason this field read as a terminal
+   prompt inside a sidebar. */
 .projects-search-input {
   width: 100%;
-  padding: 5px 8px;
-  font-size: 12px;
-  font-family: var(--font-mono);
-  background: var(--surface0);
-  color: var(--text-primary);
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-sm);
+  height: var(--app-input-height);
+  padding: 0 8px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-app-button);
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: var(--motion-focus), border-color var(--transition-fast);
 }
 .projects-search-input:focus {
-  border-color: var(--accent);
+  border-color: var(--app-ui-blue);
+  box-shadow: var(--app-input-focus-ring);
 }
 .projects-search-input::placeholder {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 
 /* Find a Conversation button */
@@ -5093,23 +5185,27 @@ body.cwm-dragging .sidebar-backdrop {
   gap: 6px;
   align-items: stretch;
 }
+/* P3.3: the 32px search variant BUILD-CONTRACT 2.9 allows, because this field
+   is the primary control of its own dialog rather than one row of a form. */
 .find-convo-input {
   flex: 1;
-  padding: 10px 12px;
-  font-size: 14px;
-  font-family: var(--font-mono);
-  background: var(--surface0);
-  color: var(--text-primary);
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-md);
+  height: var(--app-input-height-lg);
+  padding: 0 10px;
+  font-size: var(--app-chip-size);
+  font-family: var(--font-sans);
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-app-button);
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: var(--motion-focus), border-color var(--transition-fast);
 }
 .find-convo-input:focus {
-  border-color: var(--accent);
+  border-color: var(--app-ui-blue);
+  box-shadow: var(--app-input-focus-ring);
 }
 .find-convo-input::placeholder {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 .find-convo-search-btn {
   width: 38px;
@@ -5640,9 +5736,9 @@ body.cwm-dragging .sidebar-backdrop {
 }
 
 .docs-checkbox input[type="checkbox"] {
-  accent-color: var(--mauve);
-  width: 14px;
-  height: 14px;
+  accent-color: var(--app-ui-blue);
+  width: var(--app-todo-box-size);
+  height: var(--app-todo-box-size);
   cursor: pointer;
 }
 
@@ -6051,22 +6147,34 @@ body.cwm-dragging .sidebar-backdrop {
   min-height: 0;
 }
 
+/*
+ * BORDERLESS EDITOR, Notion restyle phase P3, work package P3.3.
+ * BUILD-CONTRACT.md 2.9: "peek Notes and the docs raw editor are borderless
+ * and groundless: no border, no background. The note looks like page content,
+ * not like a form field. This is the strongest Notion idiom in the whole app."
+ *
+ * The raw editor keeps a monospace face because it edits markdown source, but
+ * it loses the card it was sitting in. A focus ring would put the box straight
+ * back, so focus is signalled by the caret alone, which is what a document
+ * surface does; the field fills its own region and there is nowhere for focus
+ * to have arrived FROM inside it.
+ */
 .docs-raw-editor {
   flex: 1;
-  background: var(--mantle);
-  color: var(--text);
-  border: 1px solid var(--surface0);
+  background: transparent;
+  color: var(--app-text-primary);
+  border: none;
   border-radius: var(--radius-pane-frame);
-  padding: 16px;
-  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  padding: 6px 2px;
+  font-family: var(--font-code);
   font-size: 13px;
   line-height: 1.6;
   resize: none;
   outline: none;
 }
 
-.docs-raw-editor:focus {
-  border-color: var(--mauve);
+.docs-raw-editor::placeholder {
+  color: var(--app-text-tertiary);
 }
 
 /* ─── Feature Board (Kanban) ────────────────────────────── */
@@ -6837,10 +6945,13 @@ html.activity-indicators-disabled .terminal-pane-activity {
 /* PHASE 3: Inline Session Rename                             */
 /* ═══════════════════════════════════════════════════════════ */
 
+/* The inline rename field. DESIGN-SPEC 1.2 names --app-ui-blue as the
+   "inline-rename input border" explicitly, which is why this control borrows
+   the focus blue at rest: it only exists while it has focus. */
 .inline-rename-input {
-  background: var(--surface0);
-  border: 1px solid var(--mauve);
-  color: var(--text);
+  background: var(--app-bg-primary);
+  border: 1px solid var(--app-ui-blue);
+  color: var(--app-text-primary);
   font-size: inherit;
   font-family: inherit;
   padding: 1px 4px;
@@ -7169,21 +7280,24 @@ html.activity-indicators-disabled .terminal-pane-activity {
   min-width: 28px;
 }
 
+/* The other borderless editor. Notes are prose, so this one also drops the
+   monospace face and takes the application UI stack at 14px/1.5, which is the
+   exact treatment DESIGN-SPEC 7 item 5 gives the peek's Notes textarea. */
 .notes-editor-textarea {
   flex: 1;
-  padding: 16px;
-  background: var(--mantle);
+  padding: 6px 2px;
+  background: transparent;
   border: none;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
+  color: var(--app-text-primary);
+  font-family: var(--font-app-ui, var(--font-sans));
+  font-size: var(--app-chip-size);
+  line-height: 1.5;
   resize: none;
   outline: none;
 }
 
 .notes-editor-textarea::placeholder {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 
 .notes-editor-footer {
@@ -7578,23 +7692,24 @@ html.activity-indicators-disabled .terminal-pane-activity {
 
 .tasks-search-input {
   width: 160px;
-  height: 28px;
+  height: var(--app-input-height);
   padding: 0 8px;
-  font-size: 12px;
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-sm);
-  background: var(--surface0);
-  color: var(--text-primary);
+  font-size: 13px;
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-app-button);
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: var(--motion-focus), border-color var(--transition-fast);
 }
 
 .tasks-search-input:focus {
-  border-color: var(--blue);
+  border-color: var(--app-ui-blue);
+  box-shadow: var(--app-input-focus-ring);
 }
 
 .tasks-search-input::placeholder {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 
 .tasks-layout-toggle {
@@ -8009,16 +8124,17 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 .tasks-td-project-select {
   flex: 1;
-  font-size: 12px;
-  background: var(--surface0);
-  color: var(--text);
-  border: 1px solid var(--surface2);
-  border-radius: var(--radius-property-chip);
-  padding: 2px 6px;
+  height: var(--app-icon-button-size-sm);
+  font-size: 13px;
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-app-button);
+  padding: 0 6px;
   min-width: 0;
   cursor: pointer;
 }
-.tasks-td-project-select:focus { outline: none; border-color: var(--mauve); }
+.tasks-td-project-select:focus { outline: none; border-color: var(--app-ui-blue); box-shadow: var(--app-input-focus-ring); }
 .tasks-td-refresh {
   font-size: 14px;
   padding: 2px 6px;
@@ -8038,26 +8154,45 @@ html.activity-indicators-disabled .terminal-pane-activity {
   margin-bottom: 4px;
 }
 
+/* The dialog field group, on the same recipe as .input (P3.3). A select is a
+   button wearing input clothes in this system, so all three share one rule and
+   only their behaviour differs. */
 .form-input, .form-select, .form-textarea {
   width: 100%;
-  padding: 8px 10px;
-  font-size: 13px;
+  height: var(--app-input-height);
+  padding: 0 8px;
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
   font-family: inherit;
-  background: var(--surface0);
-  color: var(--text-primary);
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-sm);
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-app-button);
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: var(--motion-focus), border-color var(--transition-fast);
 }
 
+.form-input::placeholder, .form-textarea::placeholder {
+  color: var(--app-text-tertiary);
+}
+
+/* A real ring, not just a border tint. outline: none above removes the
+   universal :focus-visible ring from these three, so without this the whole
+   dialog would be keyboard-invisible; accessibility floor A3. */
 .form-input:focus, .form-select:focus, .form-textarea:focus {
-  border-color: var(--mauve);
+  border-color: var(--app-ui-blue);
+  box-shadow: var(--app-input-focus-ring);
 }
 
 .form-textarea {
-  resize: vertical;
+  height: auto;
   min-height: 60px;
+  padding: 8px;
+  resize: vertical;
+}
+
+.form-select {
+  cursor: pointer;
 }
 
 .form-hint {
@@ -8077,14 +8212,22 @@ html.activity-indicators-disabled .terminal-pane-activity {
 .form-checkbox {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
+  gap: 8px;
+  font-size: var(--app-chip-size);
+  line-height: var(--app-property-line);
+  color: var(--app-text-primary);
   cursor: pointer;
 }
 
+/* accent-color is the minimum the contract accepts (BUILD-CONTRACT 2.9) and it
+   is also what the mock itself does: a native checkbox tinted --app-ui-blue,
+   rather than a custom box that has to re-implement focus, indeterminate and
+   forced-colors behaviour. 16px is --app-todo-box-size. */
 .form-checkbox input[type="checkbox"] {
-  accent-color: var(--mauve);
+  width: var(--app-todo-box-size);
+  height: var(--app-todo-box-size);
+  accent-color: var(--app-ui-blue);
+  cursor: pointer;
 }
 
 /* ─── Workspace hover button for new task ────────────── */
@@ -8939,8 +9082,8 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 .resource-bar {
-  height: 6px;
-  background: var(--surface1);
+  height: 5px;
+  background: var(--app-bg-tertiary);
   border-radius: var(--radius-row-icon);
   overflow: hidden;
 }
@@ -10017,9 +10160,9 @@ html {
 }
 
 .account-usage-bar {
-  height: 4px;
+  height: 5px;
   border-radius: var(--radius-row-icon);
-  background: var(--surface0);
+  background: var(--app-bg-tertiary);
   overflow: hidden;
 }
 
@@ -10030,10 +10173,13 @@ html {
   transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Fill thresholds (design 6.3): green below 60, yellow 60 to 85, red above */
-.account-usage-fill.u-low { background: var(--green); }
-.account-usage-fill.u-mid { background: var(--yellow); }
-.account-usage-fill.u-high { background: var(--red); }
+/* Fill thresholds (design 6.3): green below 60, yellow 60 to 85, red above.
+   Same three block-palette inks as .usage-meter-fill, because _usageFillClass
+   feeds both surfaces and two different greens would be a bug the user sees
+   before anyone reads the code. */
+.account-usage-fill.u-low { background: var(--app-text-green); }
+.account-usage-fill.u-mid { background: var(--app-text-yellow); }
+.account-usage-fill.u-high { background: var(--app-text-red); }
 
 .account-usage-pct {
   text-align: right;
@@ -10383,10 +10529,26 @@ html {
   white-space: nowrap;
 }
 
+/*
+ * THE ONE METER, Notion restyle phase P3, work package P3.3.
+ * BUILD-CONTRACT.md 2.11: one component, five consumers. 5px track,
+ * --app-bg-tertiary ground, --radius-row-icon (3.5px, the nearest authored
+ * token to the mock's 3px; DEVIATIONS.md DV-4 records why the numeric radius
+ * ramp cannot be authored at all).
+ *
+ * CONTRAST, fill against its own track, 3:1 non-text floor:
+ *   green  3.15:1 light, 3.25:1 dark
+ *   yellow 2.34:1 light, 4.38:1 dark
+ *   red    3.71:1 light, 2.76:1 dark
+ * Two of the six are under the floor. Neither the fill nor the track may be
+ * darkened (PROCEDURE 4.2), and the meter never carries its value in colour
+ * alone: every consumer prints the percentage next to the bar. DEVIATIONS.md
+ * DV-14 records the measurements.
+ */
 .usage-meter-bar {
-  height: 4px;
+  height: 5px;
   border-radius: var(--radius-row-icon);
-  background: var(--surface0);
+  background: var(--app-bg-tertiary);
   overflow: hidden;
 }
 
@@ -10399,10 +10561,14 @@ html {
 
 /* Same semantic thresholds as .account-usage-fill (design 6.3): green
    below 60, amber 60 to 85, red above 85. Classes come from
-   _usageFillClass so the two surfaces can never drift. */
-.usage-meter-fill.u-low { background: var(--green); }
-.usage-meter-fill.u-mid { background: var(--yellow); }
-.usage-meter-fill.u-high { background: var(--red); }
+   _usageFillClass so the two surfaces can never drift.
+   Sanctioned test edit SE-6 (BUILD-CONTRACT 5.4) lands with these three lines:
+   the token names move to the named block palette and usage-meter.test.js
+   retargets. The three rules stay single-line and whitespace-exact because the
+   test matches them as literal strings, not as parsed rules. */
+.usage-meter-fill.u-low { background: var(--app-text-green); }
+.usage-meter-fill.u-mid { background: var(--app-text-yellow); }
+.usage-meter-fill.u-high { background: var(--app-text-red); }
 
 .usage-meter-pct {
   text-align: right;
@@ -11985,20 +12151,26 @@ html {
 
 .launcher-form-input {
   width: 100%;
-  padding: 6px 10px;
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-sm);
-  background: var(--surface0);
-  color: var(--text);
+  height: var(--app-input-height);
+  padding: 0 8px;
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-app-button);
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
   font-size: 13px;
   font-family: inherit;
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: var(--motion-focus), border-color var(--transition-fast);
   box-sizing: border-box;
 }
 
+.launcher-form-input::placeholder {
+  color: var(--app-text-tertiary);
+}
+
 .launcher-form-input:focus {
-  border-color: var(--lavender);
+  border-color: var(--app-ui-blue);
+  box-shadow: var(--app-input-focus-ring);
 }
 
 .launcher-form-submit {
@@ -12620,10 +12792,15 @@ html {
 .schedule-form input[type="time"],
 .schedule-form input[type="datetime-local"],
 .schedule-form select {
-  width: 100%; padding: 6px 8px;
-  background: var(--base); color: var(--text);
-  border: 1px solid var(--surface1); border-radius: var(--radius-sm);
-  font: inherit;
+  width: 100%; height: var(--app-input-height); padding: 0 8px;
+  background: var(--app-bg-primary); color: var(--app-text-primary);
+  border: 1px solid var(--app-border-primary); border-radius: var(--radius-app-button);
+  font: inherit; cursor: pointer;
+}
+.schedule-form select:focus {
+  outline: none;
+  border-color: var(--app-ui-blue);
+  box-shadow: var(--app-input-focus-ring);
 }
 .schedule-form .row { display: flex; gap: 6px; align-items: center; }
 .schedule-form .row > * { flex: 0 0 auto; }
