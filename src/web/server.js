@@ -2840,12 +2840,123 @@ app.post('/api/sessions/:id/auto-title', requireAuth, (req, res) => {
 });
 
 /**
+ * Extract summary-shaped messages from a transcript using the PROVIDER's own
+ * per-line parser, for a provider whose artifact is not Claude-shaped.
+ *
+ * BUILD-CONTRACT P9 (CODEX-PARITY B12). Reads the same bounded head and tail
+ * windows the Claude path reads, for the same reason: the head carries the
+ * opening request, which is the theme, and the tail carries what is happening
+ * now. A whole-file read is not an option here; the largest rollout on the
+ * reference machine is 924 MB.
+ *
+ * Uses `provider.mirror.parseLine`, which is pure, synchronous and contractually
+ * non-throwing, so a corrupt line costs one line rather than the request.
+ *
+ * @param {object} provider - Provider exposing mirror.parseLine.
+ * @param {string} headText - First window of the file.
+ * @param {string} tailText - Last window of the file.
+ * @param {number} headLimit - Max early messages to collect.
+ * @param {number} tailLimit - Max recent messages to collect.
+ * @returns {{early: Array<{role:string,text:string}>, recent: Array<{role:string,text:string}>}}
+ */
+function extractProviderSummaryMessages(provider, headText, tailText, headLimit, tailLimit) {
+  const parseLine =
+    provider && provider.mirror && typeof provider.mirror.parseLine === 'function'
+      ? provider.mirror.parseLine
+      : null;
+  const empty = { early: [], recent: [] };
+  if (!parseLine) return empty;
+
+  /**
+   * Map one window of raw lines into {role, text} pairs, keeping only the
+   * conversational roles. Tool calls and tool results are deliberately excluded:
+   * a summary of "what is this session about" is not served by the text of a
+   * shell command.
+   *
+   * @param {string} text
+   * @param {number} limit
+   * @param {boolean} fromEnd - Collect from the end (recent) rather than the start.
+   * @returns {Array<{role:string,text:string}>}
+   */
+  const collect = (text, limit, fromEnd) => {
+    const out = [];
+    if (typeof text !== 'string' || text.length === 0) return out;
+    const lines = text.split('\n');
+    const order = fromEnd ? lines.slice().reverse() : lines;
+    for (const line of order) {
+      if (out.length >= limit) break;
+      if (!line) continue;
+      let msg = null;
+      try {
+        msg = parseLine(line);
+      } catch (_) {
+        continue; // parseLine is non-throwing by contract; belt and braces
+      }
+      if (!msg) continue;
+      if (msg.role !== 'user' && msg.role !== 'assistant') continue;
+      if (!msg.text || msg.text.length < 5) continue;
+      const cleaned = msg.text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!cleaned) continue;
+      const entry = { role: msg.role, text: cleaned.substring(0, 500) };
+      if (fromEnd) out.unshift(entry);
+      else out.push(entry);
+    }
+    return out;
+  };
+
+  return {
+    early: collect(headText, headLimit, false),
+    recent: collect(tailText, tailLimit, true),
+  };
+}
+
+/**
  * POST /api/sessions/:id/summarize
- * Reads the Claude session's .jsonl file and generates a summary
- * of the overall theme and most recent tasking.
+ * Reads the session's transcript and generates a summary of the overall theme
+ * and most recent tasking.
  * Also works for project sessions by passing claudeSessionId in body.
+ *
+ * BUILD-CONTRACT P9 (CODEX-PARITY B12). Two things were wrong here and both are
+ * fixed without deleting a line:
+ *
+ *   1. THE SHADOWED ROUTE. Two handlers were registered on this exact path, one
+ *      here and one much further down the file. Express serves the first, so the
+ *      second, the provider-aware one that appends a summary to the workspace
+ *      docs, was unreachable dead code. Two live frontend callers wanted it:
+ *      `summarizeSessionToDocs()` and the mobile client's `summarize()`, both of
+ *      which read `data.summary` and always got undefined.
+ *
+ *      Resolved by DELEGATION rather than by deleting the shadowing
+ *      registration. The docs behaviour now lives in a named function,
+ *      `summarizeSessionToDocsHandler`, which is registered on its own
+ *      unshadowed route AND invoked from here when the caller opts in. The
+ *      original second registration is retained, untouched, and is still
+ *      shadowed; it now points at the same function, so the code that was dead
+ *      is the code that runs.
+ *
+ *   2. THE HARDCODED CLAUDE WALK. Artifact resolution scanned
+ *      `~/.claude/projects` for `<id>.jsonl` and nothing else, so every Codex
+ *      session got a hard 404. Resolution now dispatches through the provider
+ *      registry first and keeps the original walk as the last fallback, which is
+ *      still needed for a project session that has no store record and therefore
+ *      no provider tag.
+ *
+ * The Claude response shape is unchanged, field for field.
  */
 app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
+  // Opt-in delegation to the previously-unreachable docs summariser. A client
+  // asks for it with `{toDocs: true}` in the body or `?toDocs=1`, and gets the
+  // `{summary}` shape plus the workspace-note append. The default is unchanged,
+  // which matters: the modal summariser must never write to a user's project
+  // docs as a side effect of being opened.
+  const wantsDocs =
+    (req.body && req.body.toDocs === true) ||
+    req.query.toDocs === '1' ||
+    req.query.toDocs === 'true';
+  if (wantsDocs) {
+    return summarizeSessionToDocsHandler(req, res);
+  }
+
   const store = getStore();
   // For store sessions, use resumeSessionId. For project sessions, accept direct ID.
   const session = store.getSession(req.params.id);
@@ -2855,12 +2966,30 @@ app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'No Claude session ID available' });
   }
 
+  // Provider-first artifact resolution (CODEX-PARITY B12). The literal walk
+  // below is retained as the final fallback because a project session carries no
+  // store record, and therefore no provider tag, yet still resolves by id.
+  const provider = getProviderForSession(session);
+  let jsonlPath = null;
+  try {
+    if (provider && typeof provider.findArtifactPath === 'function') {
+      jsonlPath = provider.findArtifactPath(claudeSessionId) || null;
+    }
+    if (!jsonlPath && provider && session && session.workingDir &&
+        typeof provider.findArtifactByWorkingDir === 'function') {
+      const byDir = provider.findArtifactByWorkingDir(session.workingDir);
+      if (byDir && byDir.jsonlPath) jsonlPath = byDir.jsonlPath;
+    }
+  } catch (_) {
+    // A provider that throws must not cost the request; the walk still runs.
+    jsonlPath = null;
+  }
+
   // Find the .jsonl file in ~/.claude/projects/
   const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
-  let jsonlPath = null;
 
   try {
-    if (fs.existsSync(claudeProjectsDir)) {
+    if (!jsonlPath && fs.existsSync(claudeProjectsDir)) {
       const projectDirs = fs.readdirSync(claudeProjectsDir, { withFileTypes: true })
         .filter(d => d.isDirectory());
       for (const dir of projectDirs) {
@@ -2931,8 +3060,32 @@ app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
       return msgs;
     };
 
-    const earlyMessages = extractMessages(headLines, 5);
-    const recentMessages = extractMessages(tailLines.slice(-20), 10);
+    let earlyMessages = extractMessages(headLines, 5);
+    let recentMessages = extractMessages(tailLines.slice(-20), 10);
+
+    // CODEX-PARITY B12: the extractor above understands ONE transcript shape,
+    // Claude's `{type, message: {role, content}}`. A Codex rollout is an
+    // envelope log and yields zero messages from it, which is how a summarize
+    // request on a Codex session produced "Unable to determine theme" even when
+    // the artifact resolved.
+    //
+    // The provider's own per-line parser is consulted only when the historical
+    // extractor found NOTHING. That ordering is deliberate: it keeps the Claude
+    // path byte-identical rather than merely equivalent, because the historical
+    // extractor always succeeds on a Claude file and therefore the fallback can
+    // never run for one. It also avoids branching on a provider id, so a future
+    // provider whose artifact happens to be Claude-shaped keeps working.
+    if (earlyMessages.length === 0 && recentMessages.length === 0) {
+      const viaProvider = extractProviderSummaryMessages(
+        provider,
+        headContent,
+        tailContent,
+        5,
+        10
+      );
+      earlyMessages = viaProvider.early;
+      recentMessages = viaProvider.recent;
+    }
 
     // Build summary
     let overallTheme = 'Unable to determine theme';
@@ -5879,12 +6032,36 @@ function generateSessionSummary(jsonlPath) {
 }
 
 /**
- * POST /api/sessions/:id/summarize
- * Manually generate a summary of a session from its JSONL data.
- * Appends the summary as a timestamped note to the session's workspace docs.
- * Returns the generated summary text.
+ * Generate a summary of a session and append it to its workspace docs.
+ *
+ * BUILD-CONTRACT P9 (CODEX-PARITY B12). This was an inline handler on a SECOND
+ * `POST /api/sessions/:id/summarize` registration. Express serves the first
+ * matching route, so it never ran: it was dead code, and the two live callers
+ * that wanted its `{summary}` shape, `summarizeSessionToDocs()` in app.js and
+ * `summarize()` in the mobile client, always read `data.summary` as undefined
+ * and showed "No summary data available".
+ *
+ * Lifting it into a named function is what makes the dead code reachable
+ * WITHOUT deleting the shadowing registration. Three call sites now share it:
+ *
+ *   - `POST /api/sessions/:id/summarize-to-docs`, its own unshadowed route.
+ *   - `POST /api/sessions/:id/summarize` with `{toDocs: true}` or `?toDocs=1`,
+ *     delegated from the live handler near the top of this file.
+ *   - The original second registration below, retained untouched. It is still
+ *     shadowed, and it now points at this same function, so the behaviour it
+ *     always described is the behaviour that runs.
+ *
+ * Note for whoever wires the frontend: the append is opt-in on the shared route
+ * on purpose. The modal summariser and this one call the same URL with the same
+ * empty body and are otherwise indistinguishable, and a modal that silently
+ * writes a note into a user's project docs every time it is opened would be a
+ * worse bug than the one being fixed.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @returns {void}
  */
-app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
+function summarizeSessionToDocsHandler(req, res) {
   const store = getStore();
   const session = store.getSession(req.params.id);
   if (!session) return res.status(404).json({ error: 'Session not found' });
@@ -5914,7 +6091,30 @@ app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: 'Failed to generate summary: ' + err.message });
   }
-});
+}
+
+/**
+ * POST /api/sessions/:id/summarize-to-docs
+ *
+ * The unshadowed route for the docs summariser. Same handler, same response,
+ * reachable by name so a client does not have to know about an opt-in flag on
+ * an overloaded path.
+ */
+app.post('/api/sessions/:id/summarize-to-docs', requireAuth, summarizeSessionToDocsHandler);
+
+/**
+ * POST /api/sessions/:id/summarize
+ * Manually generate a summary of a session from its JSONL data.
+ * Appends the summary as a timestamped note to the session's workspace docs.
+ * Returns the generated summary text.
+ *
+ * RETAINED, and still shadowed by the registration near the top of this file:
+ * Express serves the first match, so this line has never executed and still does
+ * not. It is kept rather than deleted per the code-preservation rule, and it now
+ * references the shared handler above, so the file no longer contains a second
+ * copy of the logic that can drift from the copy that runs.
+ */
+app.post('/api/sessions/:id/summarize', requireAuth, summarizeSessionToDocsHandler);
 
 // ──────────────────────────────────────────────────────────
 //  FEATURE TRACKING BOARD
