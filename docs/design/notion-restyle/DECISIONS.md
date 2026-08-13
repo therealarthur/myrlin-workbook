@@ -493,6 +493,13 @@ SE-11 authorisation and closed F1.
 There is no P1.5 commit. Its content, the sanctioned test edits, shipped inside the commits that
 made the source changes those edits describe, which is what contract 5.4 requires. See 9.3.3.
 
+Two corrections to the commit messages themselves, recorded here because rewriting six unpushed
+commits would invalidate the hashes this table cites. The `fff6747` message states that `styles.css`
+grew to 12784 lines; the measured figure is **12773**, and the table in 9.4 is authoritative. The
+same message states the file grew "from 12202", which is correct. And P1.1's parent is `c5cf7c1`
+rather than `fe06712`: the concurrent Codex track committed four times into this branch while P1 was
+in progress. None of those four touches a frontend file.
+
 ### 9.2 Ambiguities resolved during P1
 
 #### 9.2.1 The bundle's numeric radius ramp cannot be copied at all
@@ -639,7 +646,7 @@ Measured against the P1 gate additions in contract 5.2:
 | Body ink `#f0efed` dark | yes, `rgb(240, 239, 237)`, was `rgb(205, 214, 244)` |
 | Never `#000000` | yes |
 | Toggling `data-chrome` leaves no orphaned surface | see 9.5 |
-| **Reverting this phase alone restores the previous appearance completely** | **verified by reverting, not assumed.** On a scratch branch, `git revert --no-commit` of all six P1 commits produced a tree whose `src/web/public/` is **byte-identical** to `fe06712`, the commit P1 branched from: `git diff fe06712 -- src/web/public/` returns nothing. Since appearance is a pure function of those files, the restoration is exact rather than approximate. The scratch branch was deleted and the working tree restored; the two concurrent tracks' uncommitted work was untouched throughout. |
+| **Reverting this phase alone restores the previous appearance completely** | **verified by reverting, not assumed.** On a scratch branch, `git revert --no-commit` of all six P1 commits produced a tree whose `src/web/public/` is **byte-identical** to `fe06712`: a `git diff` of the reverted tree against that commit, scoped to `src/web/public/`, returns nothing. `fe06712` is four commits behind P1.1 because the concurrent Codex track committed in between, but those four touch `src/providers/`, `src/web/server.js`, `package.json`, two of their own tests and one of their own docs, and not one frontend file, so the comparison is exact. Since appearance is a pure function of those files, the restoration is exact rather than approximate. The scratch branch was deleted and the working tree restored; the concurrent tracks' uncommitted work was untouched throughout. |
 
 Every file P1 touched grew. No file shrank, in line with the code-preservation rule: the three
 removed `<link>` tags in `index.html` are recorded in a comment rather than dropped, and
