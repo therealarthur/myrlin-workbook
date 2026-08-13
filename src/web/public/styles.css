@@ -900,31 +900,83 @@ h4 {
 
 /* ─── Buttons ───────────────────────────────────────────────── */
 
+/*
+ * Notion restyle phase P3, work package P3.1. BUILD-CONTRACT.md 2.2 and
+ * DESIGN-SPEC.md 12 "Buttons, the complete set".
+ *
+ * TWO CTA WEIGHTS, ONE HUE. A solid blue primary and a hairline-inset
+ * secondary. There is no third weight, no destructive fill, no gradient, no
+ * glow and no lift. Danger is red INK on an otherwise normal control.
+ *
+ * The three roles this file's existing class names now carry:
+ *
+ *   .btn            the quiet default. Transparent, primary ink, hover wash.
+ *                   This is the resting state of every button that names no
+ *                   variant, and it is what a Notion toolbar button looks like.
+ *   .btn-primary    the one accent-filled control, --app-accent-blue #2783de.
+ *   .btn-ghost      the app SECONDARY, which in this system is not "ghost" at
+ *                   all: --app-bg-elevated plus --app-shadow-button, the inset
+ *                   hairline and 1px lift the capture calls
+ *                   nt-btn-app-secondary. The class name is frozen by
+ *                   DO-NOT-BREAK rule 2, so the recipe moves and the name does
+ *                   not. .btn-icon then takes the background back off, which is
+ *                   how `btn btn-ghost btn-icon btn-sm` (pinned character for
+ *                   character by terminal-select-v2.test.js) still renders as a
+ *                   bare 26px pane-header icon button.
+ *
+ * METRICS, from DESIGN-SPEC 12: height 28px, padding 0 8px, radius 6px,
+ * 14px / 16.8px. Small is 24px at 13px; the pane-header icon button is 26px.
+ *
+ * CONTRAST, measured, both chrome themes:
+ *   .btn label        --app-text-primary on the canvas        13.98:1 light,
+ *                                                             14.18:1 dark
+ *   .btn-ghost label  --app-text-primary on --app-bg-elevated 13.98:1 / 14.18:1
+ *   .btn-primary      --app-on-accent #ffffff on #2783de       3.90:1
+ *   .btn-danger       --app-text-red #cf5148 on the canvas     4.27:1
+ * The last two sit under the 4.5:1 body floor and are the capture's own
+ * values. Both are recorded in DEVIATIONS.md DV-12 and DV-13 with the
+ * measurement and the reason darkening them is not the available fix.
+ */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 16px;
+  height: var(--app-icon-button-size);
+  padding: 0 8px;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-app-button);
+  background: transparent;
+  color: var(--app-text-primary);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: var(--app-chip-size);
   font-weight: 500;
-  line-height: 1;
+  line-height: var(--app-chip-line);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: var(--motion-hover-reveal), color var(--transition-fast);
   white-space: nowrap;
   user-select: none;
   position: relative;
 }
 
+/* The quiet default's own hover. Variants that declare a background below
+   override it, which is why this rule is written at (0,2,0) and theirs at
+   (0,2,0) too: each variant carries its own :hover. */
+.btn:hover {
+  background: var(--app-wash-hover);
+}
+
+/* Press is a wash, never a scale. The scale(0.97) that used to live here was
+   the last transform-on-interaction in the button family; PROCEDURE step 10
+   and DESIGN-SPEC 16.2 both put "the block moves under the pointer" on the
+   rejection list, and a scaled button also blurs its own text mid-press. */
 .btn:active {
-  transform: scale(0.97);
+  background: var(--app-wash-press);
 }
 
 .btn:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
+  cursor: default;
   pointer-events: none;
 }
 
@@ -932,56 +984,103 @@ h4 {
   flex-shrink: 0;
 }
 
-/* Primary - mauve accent */
+/* Primary. The single accent-filled control in the whole application, and the
+   only place --app-accent-blue is painted as a fill. Note the capture uses a
+   DIFFERENT blue for the hover (--app-ui-blue #2383e2) than for the rest fill
+   (--app-accent-blue #2783de); that one-value difference is deliberate and is
+   copied rather than collapsed. */
 .btn-primary {
-  background: var(--mauve);
-  color: var(--crust);
+  background: var(--app-accent-blue);
+  color: var(--app-on-accent);
 }
 
 .btn-primary:hover {
-  /* Lighten the theme's mauve instead of a hardcoded Mocha hex (#d4b4fa) so
-     the primary-button hover follows every Catppuccin flavor. The focus-ring
-     rgba glow below matches the existing .btn-danger:hover convention. */
-  background: color-mix(in srgb, var(--mauve) 85%, white);
+  background: var(--app-ui-blue);
   box-shadow: none;
 }
 
-/* Danger */
+.btn-primary:active {
+  background: var(--app-ui-blue-pressed);
+}
+
+/* Danger. No destructive fill exists in this system (DESIGN-SPEC 12): the
+   control keeps the secondary weight and only its ink turns red, so a
+   dangerous action reads as an action rather than as an alarm. */
 .btn-danger {
-  background: var(--red);
-  color: var(--crust);
+  background: var(--app-bg-elevated);
+  color: var(--app-text-red);
+  box-shadow: var(--app-shadow-button);
 }
 
 .btn-danger:hover {
-  box-shadow: none;
+  background: var(--app-bg-interactive);
+  box-shadow: var(--app-shadow-button);
 }
 
-/* Ghost - transparent */
+.btn-danger:active {
+  background: var(--app-bg-tertiary);
+}
+
+/* Secondary. The captured nt-btn-app-secondary: an elevated ground plus
+   --app-shadow-button, which is an inset 1px hairline and a 1px drop, not a
+   card shadow. This is the only shadow the button family carries. */
 .btn-ghost {
-  background: transparent;
-  color: var(--text-secondary);
+  background: var(--app-bg-elevated);
+  color: var(--app-text-primary);
+  box-shadow: var(--app-shadow-button);
+  border-color: transparent;
 }
 
 .btn-ghost:hover {
-  background: var(--surface0);
-  color: var(--text-primary);
+  background: var(--app-bg-interactive);
+  color: var(--app-text-primary);
 }
 
-/* Icon button */
+.btn-ghost:active {
+  background: var(--app-bg-tertiary);
+}
+
+/* Icon button. Square, bare, and quiet: it takes the secondary's ground and
+   shadow back off, so the shared `btn btn-ghost btn-icon btn-sm` recipe lands
+   as a transparent glyph with a hover wash. --radius-xs resolves to the 4px
+   rung (--radius-property-chip); DEVIATIONS.md DV-4 records why the capture's
+   own --radius-4 cannot be authored.
+   Glyph ink is --app-icon-secondary, measured 3.39:1 on the canvas and 3.20:1
+   on the sidebar ground, both clearing the 3:1 non-text UI floor. */
 .btn-icon {
-  padding: 8px;
-  border-radius: var(--radius-sm);
+  width: var(--app-icon-button-size);
+  padding: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  box-shadow: none;
+  color: var(--app-icon-secondary);
 }
 
-/* Small */
+.btn-icon:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-icon-primary);
+}
+
+.btn-icon:active {
+  background: var(--app-wash-press);
+}
+
+/* Small. 24px is --app-icon-button-size-sm, the captured small control scale,
+   at the 13px row type rather than the 14px button type. */
 .btn-sm {
-  padding: 5px 10px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
+  height: var(--app-icon-button-size-sm);
+  padding: 0 8px;
+  font-size: 13px;
+  border-radius: var(--radius-app-button);
 }
 
+/* The pane-header, popover and tab-bar icon button. 26px is a mock-local size
+   that sits between the 24px small control and the 28px standard one, and
+   BUILD-CONTRACT 2.2 names it explicitly for these three surfaces. */
 .btn-sm.btn-icon {
-  padding: 5px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
 }
 
 /* Full width */
@@ -989,10 +1088,13 @@ h4 {
   width: 100%;
 }
 
-/* Danger hover variant (ghost that turns red on hover) */
+/* Danger hover variant (a quiet control that turns red on hover). The ink is
+   the named block red and the wash is its matching block surface, so the two
+   are the pair the capture contrast-tested together rather than an ad-hoc
+   10 percent mix of a palette colour. */
 .btn-danger-hover:hover {
-  color: var(--red);
-  background: rgba(243, 139, 168, 0.1);
+  color: var(--app-text-red);
+  background: var(--app-bg-red);
 }
 
 /* Button loader */
@@ -1012,6 +1114,23 @@ h4 {
 
 .btn.loading .btn-loader {
   display: block;
+}
+
+/*
+ * Touch targets. BUILD-CONTRACT 2.2 requires every icon button to reach 44px
+ * under a coarse pointer. styles-mobile.css already does this behind a
+ * max-width media query, which covers phones but misses a touch laptop or a
+ * tablet in landscape; this rule covers the input device rather than the
+ * viewport, which is what the P10 "44px sweep returns zero rows" gate will
+ * measure. The two rules agree on the number, so whichever applies first the
+ * result is the same and neither can drift from the other by accident.
+ */
+@media (pointer: coarse) {
+  .btn-icon,
+  .btn-sm.btn-icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 
@@ -1066,7 +1185,11 @@ h4 {
   padding-right: 40px;
 }
 
-/* Password show/hide toggle button */
+/* Password show/hide toggle button. The icon-button recipe from P3.1, inlined
+   here rather than reached through .btn-icon because this control is not in
+   the .btn family in the markup. The translateY(-50%) is a centring translate,
+   not a hover lift, and survives gate G8 on that basis; the scale(0.92) that
+   used to ride along with it on :active does not (DESIGN-SPEC 16.2). */
 .password-toggle-btn {
   position: absolute;
   right: 8px;
@@ -1075,25 +1198,25 @@ h4 {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--app-icon-button-size);
+  height: var(--app-icon-button-size);
   padding: 0;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   background: transparent;
-  color: var(--overlay1);
+  color: var(--app-icon-secondary);
   cursor: pointer;
-  transition: color var(--transition-fast), background var(--transition-fast);
+  transition: var(--motion-hover-reveal), color var(--transition-fast);
   z-index: 1;
 }
 
 .password-toggle-btn:hover {
-  color: var(--text-primary);
-  background: rgba(69, 71, 90, 0.4);
+  color: var(--app-icon-primary);
+  background: var(--app-wash-hover);
 }
 
 .password-toggle-btn:active {
-  transform: translateY(-50%) scale(0.92);
+  background: var(--app-wash-press);
 }
 
 textarea.input {

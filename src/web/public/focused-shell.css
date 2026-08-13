@@ -555,9 +555,20 @@
   pointer-events: auto;
 }
 
+/*
+ * Notion restyle phase P3, work package P3.1. The workbench empty state used
+ * to grow its two buttons to 38px, which was the old design's way of saying
+ * "this is the important control on the screen". In this system importance is
+ * carried by the fill, not by the size: there is exactly one 28px button scale
+ * and DESIGN-SPEC 12 gives no large variant, so a 38px CTA next to a 28px one
+ * reads as two different components rather than as one emphasised.
+ *
+ * The 44px override inside the phone media query below is untouched: that one
+ * is a touch-target floor, not an emphasis choice.
+ */
 :root[data-ui-shell="focused"] .workbench-empty-actions .btn {
-  min-height: 38px;
-  padding-inline: 15px;
+  min-height: var(--focused-control-height);
+  padding-inline: 10px;
 }
 
 :root[data-ui-shell="focused"] .workbench-empty-hint {
