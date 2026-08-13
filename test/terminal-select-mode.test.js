@@ -171,7 +171,13 @@ check('index.html cache-busts the native-copy terminal fix', () => {
   // and three tests. Both scripts really did change in P1 (terminal.js for the
   // three font strings, app.js for setChrome), so they share this phase token
   // rather than drifting apart for no reason.
-  assert.ok(/terminal\.js\?v=20260813-notion-p4r/.test(indexSrc),
+  // SANCTIONED EDIT SE-7 again (BUILD-CONTRACT.md 5.4, gate G10's own note:
+  // "treat a bump as a five-file atomic change"). Notion restyle phase P5:
+  // terminal.js gained the terminalSurface read, the paste preparation and the
+  // two new shortcuts, so its token moves to -p5. app.js is untouched by P5
+  // and keeps -p4r, which is the independent-versioning mechanism this comment
+  // block has described since the beginning working as intended.
+  assert.ok(/terminal\.js\?v=20260813-notion-p5/.test(indexSrc),
     'expected the current terminal.js cache token');
 });
 

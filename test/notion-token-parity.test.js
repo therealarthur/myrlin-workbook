@@ -546,17 +546,45 @@ check('the pre-existing token list is not a deletion route: every entry stays de
 // ── Forward-looking: the terminalSurface projection arrives in P5 ───────────
 
 const TERMINAL_SURFACE_PATH = path.join(PUBLIC_DIR, 'terminal-surface.js');
-check('terminalSurface projection colours are 6-digit hex (skipped until P5 creates it)', () => {
+
+/**
+ * SANCTIONED EDIT SE-14 (BUILD-CONTRACT.md 5.4, phase P5.4).
+ *
+ * P0 wrote this check forward, before the file it gates existed, and it named
+ * `selectionBg` among the keys that must be six-digit hex. That key is the one
+ * slot in an xterm ITheme that CANNOT be opaque: a selection composites over
+ * the cells beneath it, so xterm's `selectionBackground` takes an rgba() and
+ * every one of the thirteen palettes this application has shipped since long
+ * before the restyle carries one.
+ *
+ * The risk R5 constraint is real and is unchanged: `_colorWithAlpha` in
+ * terminal.js parses `/^#([0-9a-f]{6})$/i` and silently returns its fallback
+ * for anything else. But `selectionBg` is that function's OUTPUT, not its
+ * input. The projection precomputes it precisely so nothing in the file is
+ * ever handed to `_colorWithAlpha` at run time.
+ *
+ * So the exemption is narrowed rather than widened: `selectionBg` must be a
+ * well-formed rgba() with an alpha, every other colour must be six-digit hex,
+ * and the sixteen ANSI slots are now matched by their real names. The original
+ * pattern's `ansi\d{1,2}` matched nothing in the shipped file, so this edit
+ * makes the gate STRONGER on the keys it was written for while making it
+ * correct on the one key it could never have passed.
+ *
+ * The existence guard is retained, so reverting P5.4 leaves this file green
+ * rather than red.
+ */
+check('terminalSurface projection colours are 6-digit hex, except the selection wash', () => {
   if (!fs.existsSync(TERMINAL_SURFACE_PATH)) {
     console.log('    (skipped: src/web/public/terminal-surface.js does not exist yet)');
     return;
   }
-  // terminal.js _colorWithAlpha parses 6-digit hex only and silently returns
-  // its fallback for anything else, so an rgba(), hsl(), oklch() or color-mix()
-  // value in the projection loses the terminal selection colour with no error.
-  // See BUILD-CONTRACT risk R5.
   const source = readText(TERMINAL_SURFACE_PATH);
-  const colourKeys = /(['"]?)(bg|ink|dim|rule|accent|cursor|selectionBg|selectionInk|ansi\d{1,2})\1\s*:\s*(['"])([^'"]*)\3/g;
+  const ansiKeys = 'black|red|green|yellow|blue|magenta|cyan|white|' +
+    'brightBlack|brightRed|brightGreen|brightYellow|brightBlue|brightMagenta|brightCyan|brightWhite';
+  const colourKeys = new RegExp(
+    '([\'"]?)(bg|ink|dim|rule|accent|cursor|cursorAccent|selectionInk|' + ansiKeys + ')\\1\\s*:\\s*([\'"])([^\'"]*)\\3',
+    'g'
+  );
   const bad = [];
   let m;
   while ((m = colourKeys.exec(source)) !== null) {
@@ -565,6 +593,13 @@ check('terminalSurface projection colours are 6-digit hex (skipped until P5 crea
   assert.deepStrictEqual(bad, [],
     'terminalSurface values must be 6-digit hex; terminal.js _colorWithAlpha cannot parse ' +
     'anything else and fails silently: ' + bad.join(', '));
+
+  const washes = [...source.matchAll(/selectionBg\s*:\s*'([^']*)'/g)].map((hit) => hit[1]);
+  assert.ok(washes.length >= 13, 'expected one selection wash per palette, found ' + washes.length);
+  const badWashes = washes.filter((value) => !/^rgba\(\d{1,3}, \d{1,3}, \d{1,3}, 0\.\d+\)$/.test(value));
+  assert.deepStrictEqual(badWashes, [],
+    'the selection wash is the one translucent slot and must be an rgba() xterm can consume: ' +
+    badWashes.join(', '));
 });
 
 console.log('  ' + '─'.repeat(42));

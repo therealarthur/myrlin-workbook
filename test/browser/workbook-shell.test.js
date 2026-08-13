@@ -372,7 +372,12 @@ async function run() {
     // cachebusters landed, so npm run test:workbook-shell could not pass. They
     // are brought to the current values as part of the same atomic bump rather
     // than left broken, which is why a bump is a FIVE-file change, not four.
-    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260813-notion-p4r');
+    // Notion restyle phase P5 carries the same edit forward: terminal.js moves
+    // to -p5 for the terminalSurface read and the paste path, app.js is
+    // untouched and keeps -p4r. Gate G10b watches exactly these two lines and
+    // was PASS after P1.6; leaving them stale would hand the next phase a
+    // warning that costs more to diagnose than it does to keep current.
+    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260813-notion-p5');
     assert.strictEqual(shell.appScript, 'app.js?v=20260813-notion-p4r');
     assert.strictEqual(shell.terminalClass, 'function', 'production TerminalPane must load');
     assert.strictEqual(shell.selectInterceptor, 'function', 'Select-mode interceptor must be present');

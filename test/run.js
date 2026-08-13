@@ -959,6 +959,7 @@ const standaloneTests = [
   'summarize-route-shadow.test.js', // Notion restyle P9 (CODEX-PARITY B12): the two registrations on one path, the previously-dead docs handler reached by delegation, the opt-in side effect, and provider-dispatched artifact resolution
   'codex-search-titles.test.js',    // Notion restyle P9.4: search labels come from the title cascade, the in-file event survives as the fallback, and a raw UUID is the last resort
   'codex-state-db-watcher.test.js', // Notion restyle P9.5: state_5.sqlite mtime poll with a fire floor, archived_sessions watch, cache invalidation on every fire, and the rollout filter that never matched a real filename
+  'terminal-surface.test.js',        // Notion restyle P5.4: the single terminalSurface projection (13 palettes, the 5 mock slots, the 16 ANSI slots), the DRIFT GATE that re-derives every palette from styles.css so a token edit can never desynchronise the terminal from its chrome, the six-digit-hex constraint risk R5 forces, and the contrast floors TERMINAL-ARCHITECTURE 10.5 gates
   'paste-input-preparation.test.js', // Notion restyle P5.1/P5.2: the prepareInputForPty truth table, EXECUTED (CRLF to one CR, the DEC 2004 bracket gate, the embedded end-marker sanitiser, the 9.4 confirm table) plus the three entry points routed through it
 ];
 

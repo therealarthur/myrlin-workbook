@@ -381,8 +381,13 @@ async function main() {
     // phase P1: assets changed, cachebuster bumped atomically across
     // index.html and three tests. P1 changed both scripts, so for once they
     // share a token; the independent-versioning mechanism above is unchanged.
+    // SANCTIONED EDIT SE-7 again, phase P5: terminal.js moves to -p5 for the
+    // terminalSurface read, the paste preparation and the two new shortcuts.
+    // app.js is untouched by P5 and keeps -p4r, which is the independent
+    // versioning this comment block describes doing its job: a terminal-only
+    // change does not force a full SPA refetch.
     assert.ok(
-      /terminal\.js\?v=20260813-notion-p4r/.test(indexSrc) &&
+      /terminal\.js\?v=20260813-notion-p5/.test(indexSrc) &&
         /app\.js\?v=20260813-notion-p4r/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );

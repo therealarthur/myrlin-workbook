@@ -748,8 +748,113 @@ class TerminalPane {
     return palette;
   }
 
+  /**
+   * The terminal surface projection, when one is reachable.
+   *
+   * Notion restyle P5.4. Prefers the global that index.html loads immediately
+   * before this file, and falls back to the theme registry's own null-safe
+   * accessor so a consumer that loaded the registry but not the surface still
+   * resolves. Returns null rather than throwing on every failure path,
+   * because every caller has a complete static fallback and a missing script
+   * must degrade to the previous behaviour rather than to a blank pane.
+   *
+   * @returns {object|null} The `MyrlinTerminalSurface` module, or null.
+   */
+  static _surfaceProvider() {
+    try {
+      if (typeof window !== 'undefined' && window.MyrlinTerminalSurface) {
+        return window.MyrlinTerminalSurface;
+      }
+      if (typeof globalThis !== 'undefined' && globalThis.MyrlinTerminalSurface) {
+        return globalThis.MyrlinTerminalSurface;
+      }
+    } catch (_) { /* a sandboxed or partially initialised global */ }
+    return null;
+  }
+
+  /**
+   * The active theme id, as the document has stamped it.
+   *
+   * One reader, because three call sites used to spell the same expression
+   * and the `|| 'mocha'` default is load bearing: the pre-paint bootstrap in
+   * index.html sets the attribute before any script runs, but a detached
+   * document in a test has none.
+   *
+   * @returns {string} A persisted theme id.
+   */
+  static _activeThemeId() {
+    try {
+      if (typeof document !== 'undefined' && document.documentElement &&
+          document.documentElement.dataset) {
+        return document.documentElement.dataset.theme || 'mocha';
+      }
+    } catch (_) { /* detached document */ }
+    return 'mocha';
+  }
+
+  /**
+   * Publish the terminal surface to CSS as `--term-*` custom properties.
+   *
+   * Notion restyle P5.4 and P5.5. This is what lets the pane's own chrome (the
+   * surface padding, the input row, its top rule and the prompt glyph) paint
+   * the SAME values xterm paints rather than a near neighbour, which
+   * TERMINAL-ARCHITECTURE.md 10.1 calls the highest risk item for perceived
+   * quality: a seam of one shade is immediately visible.
+   *
+   * Called from three places, deliberately overlapping, because each covers a
+   * case the others cannot:
+   *
+   *   1. At module load, so the first paint after a reload is already correct.
+   *   2. From getCurrentTheme(), which app.js already calls once per live pane
+   *      on every theme change, so an existing installation needs no app.js
+   *      edit to re-theme its chrome.
+   *   3. From a `data-theme` MutationObserver, which is the only one of the
+   *      three that fires when the theme changes with ZERO panes open. Without
+   *      it, switching theme on the Sessions view would leave the `--term-*`
+   *      properties stale until a pane happened to open.
+   *
+   * @param {string} [themeId] - Theme to publish. Defaults to the active one.
+   * @returns {boolean} Whether the properties were written.
+   */
+  static publishTerminalSurfaceVars(themeId) {
+    const provider = TerminalPane._surfaceProvider();
+    if (!provider || typeof provider.applyTerminalSurfaceVars !== 'function') return false;
+    try {
+      return provider.applyTerminalSurfaceVars(themeId || TerminalPane._activeThemeId());
+    } catch (_) {
+      return false;
+    }
+  }
+
   static getCurrentTheme() {
-    const themeId = (document.documentElement.dataset.theme || 'mocha');
+    const themeId = TerminalPane._activeThemeId();
+
+    // P5.4: the projection is the single source of truth for terminal surface
+    // colour. It is consulted FIRST and it needs no computed CSS, so a pane
+    // constructed before first paint gets the right palette rather than a
+    // half-resolved one. Publishing the CSS custom properties here is what
+    // keeps app.js's existing per-pane re-theme loop sufficient for the chrome
+    // half as well, with no edit to a file this work package does not own.
+    //
+    // Everything below this block is UNCHANGED and stays as the last resort,
+    // exactly as BUILD-CONTRACT P5.4 requires: "with the eight existing static
+    // palettes retained as the last-resort fallback so a missing custom
+    // property can never make one pane inherit another theme's colours". If
+    // terminal-surface.js fails to load, the terminal is what it was before P5.
+    const provider = TerminalPane._surfaceProvider();
+    if (provider && typeof provider.xtermTheme === 'function') {
+      let projected = null;
+      try {
+        projected = provider.xtermTheme(themeId);
+      } catch (_) {
+        projected = null;
+      }
+      if (projected) {
+        TerminalPane.publishTerminalSurfaceVars(themeId);
+        return projected;
+      }
+    }
+
     const fallback = TerminalPane._getThemeFallback(themeId);
     if (!fallback) return TerminalPane.THEME_MOCHA;
     const isCssDerivedTheme = themeId === 'nord'
@@ -761,6 +866,37 @@ class TerminalPane {
     const isLight = themeId === 'rose-pine-dawn'
       || themeId === 'gruvbox-light';
     return TerminalPane._getCssVariableTheme(fallback, isLight);
+  }
+
+  /**
+   * The terminal face.
+   *
+   * Notion restyle P5.5, and the answer to CURRENT-UI.md 6.2's other half:
+   * "Font family and size are hardcoded here, NOT read from --font-mono."
+   * They now come through the projection, which reads the `--font-terminal`
+   * token, so a theme can carry its own face and a user can change the face
+   * without editing JavaScript.
+   *
+   * The literal below is retained EXACTLY as it was and is the last resort, so
+   * a failure to load terminal-surface.js leaves the terminal on the face it
+   * has always had rather than on a browser default. That matters more here
+   * than anywhere else in the application: an unexpected fallback face changes
+   * the cell width, which changes the column count, which changes what the CLI
+   * on the other end draws.
+   *
+   * @returns {string} A CSS font-family list for xterm's `fontFamily` option.
+   */
+  static getTerminalFontFamily() {
+    const provider = TerminalPane._surfaceProvider();
+    try {
+      if (provider && typeof provider.terminalSurface === 'function') {
+        const surface = provider.terminalSurface(TerminalPane._activeThemeId());
+        if (surface && typeof surface.fontFamily === 'string' && surface.fontFamily.trim()) {
+          return surface.fontFamily.trim();
+        }
+      }
+    } catch (_) { /* fall through to the shipped stack */ }
+    return "'JetBrains Mono', 'Cascadia Code', Consolas, monospace";
   }
 
   // Resolve the smooth-scroll animation duration in ms. Reads the persisted
@@ -1364,7 +1500,14 @@ class TerminalPane {
         cursorBlink: true,
         cursorStyle: 'bar',
         fontSize: 13,
-        fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
+        // P5.5: the face arrives through the terminalSurface projection, which
+        // reads --font-terminal. The size deliberately does NOT: 13px is the
+        // metric the PTY column count has always been computed from, and
+        // TERMINAL-ARCHITECTURE.md 10.3 rules that the terminal's own metrics
+        // win inside the terminal region ("a 1.7 line height inside a terminal
+        // wastes roughly 40 percent of the vertical rows, which changes the
+        // PTY row count and therefore changes what the CLI renders").
+        fontFamily: TerminalPane.getTerminalFontFamily(),
         lineHeight: 1.2,
         // P5.3, TERMINAL-ARCHITECTURE defect D7. The client ring was 5000 lines
         // against a 100 KB server ring, so a chatty shell trimmed its own
@@ -1456,6 +1599,34 @@ class TerminalPane {
           // NOW connect with correct dimensions
           this._log('Calling connect()...');
           this.connect();
+
+          // P5.5 metric stability. The terminal face is now a self-hosted
+          // webfont declared with `font-display: swap`, so on a cold load the
+          // browser can measure the FALLBACK face, hand xterm a cell width,
+          // and then swap the real face in underneath it. The symptom is
+          // column drift: a pane that fitted 96 columns reflows to 92 a
+          // fraction of a second later, and the CLI on the other end has
+          // already drawn for 96.
+          //
+          // document.fonts.ready settles once every pending face has loaded or
+          // failed, so one refit at that moment closes the window. It is
+          // additive to the 200ms safety refit below rather than a replacement,
+          // because the two answer different questions: this one is "the face
+          // arrived", that one is "the layout settled". Guarded on every axis,
+          // since the Font Loading API is absent in the vm sandboxes this file
+          // is unit-tested in.
+          try {
+            if (typeof document !== 'undefined' && document.fonts &&
+                document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+              document.fonts.ready.then(() => {
+                if (this._disposed || this._mountGeneration !== mountGeneration || !this.fitAddon) return;
+                try {
+                  this.fitAddon.fit();
+                  this._sendResizeIfChanged(false);
+                } catch (_) { /* a pane torn down mid-load */ }
+              }).catch(() => { /* font loading never blocks a terminal */ });
+            }
+          } catch (_) { /* no Font Loading API */ }
 
           // Safety refit after 200ms - catches edge cases where the grid
           // is still settling (e.g., CSS transitions, slow layout).
@@ -5716,3 +5887,42 @@ class TerminalPane {
 }
 
 if (typeof window !== 'undefined') window.TerminalPane = TerminalPane;
+
+/* ═══════════════════════════════════════════════════════════════════
+   TERMINAL SURFACE PUBLICATION
+   Notion restyle P5.4 and P5.5.
+
+   The `--term-*` custom properties are what let the pane chrome (the
+   terminal surface padding, the input row, its top rule and the prompt
+   glyph) paint the SAME values xterm paints. They have to be correct
+   in three situations, and no single trigger covers all three:
+
+     at load          so the first paint after a reload is right;
+     on getCurrentTheme()  which app.js already calls per live pane on
+                      every theme change, so no app.js edit is needed;
+     on a data-theme change with NO pane open, which neither of the
+                      other two can see.
+
+   The observer is the third. It is installed once, at module scope,
+   guarded on every global it touches, because this file is evaluated
+   in DOM-less vm sandboxes by four test suites and a throw here would
+   take the whole class with it.
+   ═══════════════════════════════════════════════════════════════════ */
+(function installTerminalSurfaceSync() {
+  if (typeof document === 'undefined' || !document.documentElement) return;
+  try {
+    TerminalPane.publishTerminalSurfaceVars();
+  } catch (_) { /* the projection is optional by construction */ }
+  if (typeof MutationObserver !== 'function') return;
+  try {
+    const observer = new MutationObserver(() => {
+      try {
+        TerminalPane.publishTerminalSurfaceVars();
+      } catch (_) { /* never throw out of an observer callback */ }
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+  } catch (_) { /* an environment without observers keeps the load-time value */ }
+}());
