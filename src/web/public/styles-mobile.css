@@ -911,32 +911,81 @@
     opacity: 0.8;
   }
 
-  /* ── Mobile input row (replaces xterm textarea for autocorrect-safe typing) ── */
+  /* ══ THE PERMANENT INPUT ROW (P10.5, MOBILE-EXPERIENCE C.4) ══
+
+     The row used to be `display: none` until a "Type" toolbar key added
+     `.active`, and that key ALSO called TerminalPane.setMobileTypeMode(),
+     which flipped pointerEvents on xterm's textarea and called
+     `term.focus()`. Two overlapping mode systems for one intent is why
+     focus fought xterm.
+
+     The row is now permanent whenever a pane is live. The `.active`
+     class is retained and still forces the row visible, so nothing that
+     sets it breaks; it simply no longer gates anything.
+
+     `_mobileTypeMode` is RETAINED in terminal.js and reachable through
+     the Raw keys toggle in the pane overflow sheet, which preserves
+     per-keystroke input for a CLI that needs it. Code preservation
+     requires that hatch: an always-on input row would otherwise remove a
+     capability.
+
+     ORDER, not DOM order. index.html authors the input row BEFORE the
+     toolbar inside each pane, and the mock draws the key toolbar ABOVE
+     the input row. `order` re-stacks them without touching the terminal
+     pane markup, which belongs to another track, and without disturbing
+     `_selectStripBottomPx()`, which SUMS both heights and does not care
+     which is on top. */
+  .terminal-pane.mobile-active .terminal-mobile-toolbar {
+    order: 2;
+  }
+
+  .terminal-pane.mobile-active .terminal-mobile-input-row {
+    order: 3;
+  }
+
   .terminal-mobile-input-row {
     display: none;
     gap: 6px;
-    padding: 6px 8px;
+    padding: 8px 10px 10px;
     background: var(--mantle);
     border-top: 1px solid var(--surface0);
     flex-shrink: 0;
     align-items: center;
   }
 
+  .terminal-pane.mobile-active .terminal-mobile-input-row,
   .terminal-mobile-input-row.active {
     display: flex;
+  }
+
+  /* Keyboard up: the input row owns the bottom inset, because the tab bar
+     has retracted out from under it. max() because iOS reports
+     safe-area-inset-bottom as 0 while the keyboard is up, and a field
+     flush against the bottom edge is uncomfortable either way (C.7). */
+  body.mw-keyboard .terminal-mobile-input-row,
+  body.keyboard-open .terminal-mobile-input-row {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
   }
 
   .terminal-mobile-input-row input {
     flex: 1;
     min-width: 0;
-    height: 40px;
+    /* 36px in the mock. The floor wins (D.1 row 5), and 16px is the iOS
+       zoom floor: a focused field under 16px zooms the page, and
+       user-scalable=no is forbidden. */
+    min-height: 44px;
+    height: 44px;
     padding: 6px 12px;
     border-radius: 8px;
     background: var(--surface0);
     border: 1px solid var(--surface1);
     color: var(--text-primary);
-    font-size: 15px;
-    font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 16px;
+    /* The composer is prose, not code: it takes the app UI stack so
+       autocorrect suggestions and emoji render as the platform draws
+       them. xterm's textarea keeps the mono stack, because it is a
+       keystroke pipe. */
+    font-family: inherit;
     outline: none;
     -webkit-appearance: none;
   }
@@ -946,12 +995,55 @@
     box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.2);
   }
 
+  /* The image and microphone buttons the mock draws at 36px. The floor
+     wins on both axes (D.1 row 6). At 390px the row is field plus three
+     44px controls plus three 6px gaps plus 20px of padding, which leaves
+     about 214px of field: comfortable. */
+  .terminal-mobile-input-row .mobile-input-btn {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    padding: 0;
+    border: 1px solid var(--app-border-primary);
+    border-radius: 8px;
+    background: var(--app-bg-primary);
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .terminal-mobile-input-row .mobile-input-btn[hidden] {
+    display: none !important;
+  }
+
+  .terminal-mobile-input-row .mobile-input-btn:active {
+    background: var(--app-bg-interactive);
+  }
+
+  /* Listening state. A STATIC filled state, not the header button's
+     `mic-pulse`: the microphone now sits in a row of status-bearing
+     chrome, and DECISIONS 13.1's survivor list allows a listening
+     indicator to move only because a mic that stops moving reads as a
+     mic that stopped listening. Here the button also changes ink AND
+     ground, so the state survives greyscale, a screenshot and
+     prefers-reduced-motion, which a pulse does not. */
+  .terminal-mobile-input-row .mobile-mic-btn.mic-active {
+    background: var(--app-bg-red);
+    color: var(--app-text-red);
+    border-color: var(--app-text-red);
+  }
+
   .terminal-mobile-input-row .mobile-send-btn {
     display: flex;
     align-items: center;
     justify-content: center;
     min-width: 56px;
-    height: 40px;
+    min-height: 44px;
+    height: 44px;
     padding: 6px 14px;
     border-radius: 8px;
     background: var(--green);
@@ -959,7 +1051,7 @@
     border: none;
     font-weight: 600;
     font-size: 13px;
-    font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    font-family: inherit;
     cursor: pointer;
     flex-shrink: 0;
     -webkit-tap-highlight-color: transparent;
@@ -967,6 +1059,68 @@
 
   .terminal-mobile-input-row .mobile-send-btn:active {
     opacity: 0.8;
+  }
+
+  /* The Type key is structurally obsolete: its capability was "show the
+     keyboard", and the field is now always there to be tapped. The
+     camera key's capability moved to the input row image button, which
+     is the mock's placement and frees one of the five toolbar slots that
+     actually fit at 390px (B.7). BOTH BUTTONS AND THEIR HANDLERS ARE
+     RETAINED in index.html and app.js; only the phone display is
+     suppressed, so the desktop and the classic shell are unchanged and
+     the capability keeps two routes.
+
+     P11.4 owns the real toolbar work (priority-plus, no horizontal
+     scrolling, a pinned overflow). This is not that; it is two rules. */
+  .terminal-mobile-toolbar .toolbar-keyboard,
+  .terminal-mobile-toolbar .toolbar-upload {
+    display: none !important;
+  }
+
+  /* Every toolbar key clears the floor. The old rule set min-height to
+     38px, which is six pixels under it (D.1 row 4). */
+  .terminal-mobile-toolbar button {
+    min-height: 44px;
+  }
+
+  /* Raw keys: a persistent strip, because a terminal that silently
+     changed how typing works would be worse than one that never offered
+     the mode (C.4 rule 5). It is a NOTICE, not a control: no pointer
+     events, so it can never eat a tap the way the toast did. */
+  .mw-raw-keys-strip {
+    order: 3;
+    flex-shrink: 0;
+    padding: 6px 12px;
+    background: var(--app-bg-yellow);
+    color: var(--app-text-yellow);
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    pointer-events: none;
+  }
+
+  /* Raw keys on: the field is inert, because keystrokes now go straight
+     to the PTY. Left visible rather than hidden so the strip above it
+     explains a row that is still on screen. */
+  .terminal-pane.mw-raw-keys .terminal-mobile-input-row input {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+
+  /* The pane overflow chip, pinned at the end of the chip strip. A
+     scroll container clips a pseudo-element hit box and `overflow-x:
+     auto` computes the other axis to auto, so this takes its target from
+     its own box rather than from a ::before (D.2). */
+  .terminal-tab-overflow {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    flex-shrink: 0;
+    position: sticky;
+    right: 0;
+    background: var(--mantle);
+    color: var(--app-text-secondary);
   }
 }
 

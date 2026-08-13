@@ -133,6 +133,49 @@ const MANIFEST = [
   { id: 'settings', source: 'app', markers: ["case 'settings':"] },
   { id: 'more-menu', source: 'html', markers: ['data-mw-route="more-menu"'] },
   { id: 'account-panel', source: 'html', markers: ['id="account-chip"'] },
+
+  // ── A.3.3 Terminal (the pane overflow sheet and the input row) ─
+  { id: 'pane-overflow', source: 'app', markers: ['data-mw-route="pane-overflow"'] },
+  { id: 'voice-input', source: 'app', markers: ['mobile-mic-btn'] },
+  { id: 'image-attach', source: 'app', markers: ['mobile-image-btn'] },
+  { id: 'raw-keys', source: 'app', markers: ["label: 'Raw keys'"] },
+  { id: 'reader-overlay', source: 'app', markers: ["label: 'Reader'"] },
+  { id: 'select-mode', source: 'app', markers: ["label: 'Select mode'"] },
+  { id: 'copy-view', source: 'app', markers: ["label: 'Copy view'"] },
+  { id: 'send-ctrl-d', source: 'app', markers: ["label: 'Send Ctrl+D'"] },
+  { id: 'send-without-enter', source: 'app', markers: ["label: 'Send without Enter'"] },
+  { id: 'scheduled-messages', source: 'app', markers: ["'Scheduled messages'"] },
+  { id: 'pinned-notes', source: 'app', markers: ["label: 'Pinned notes'"] },
+  { id: 'move-to-tab-group', source: 'app', markers: ["label: 'Move to tab group'"] },
+  { id: 'fix-terminal', source: 'app', markers: ["label: 'Fix terminal (reset)'"] },
+  { id: 'restart-session', source: 'app', markers: ["label: 'Restart session'"] },
+];
+
+/**
+ * The capabilities the pane header was the only host for.
+ *
+ * `styles-mobile.css` sets `display: none` on `.terminal-pane-header` at phone
+ * widths, and that header was the only host for voice input, pane expand, pane
+ * collapse, pinned notes, the provider pill and the live activity string.
+ * Select mode and the Copy view had the same problem and were rescued in
+ * August 2026 by injecting them into the toolbar; the rest were not.
+ *
+ * Each row names the literal that proves the capability exists AT ALL, and the
+ * check below asserts that literal appears somewhere OUTSIDE every
+ * `.terminal-pane-header` region. A capability whose only occurrence is inside
+ * that header is unreachable on a phone, and a grep for "is the button in the
+ * markup" would have passed the whole time.
+ *
+ * Two of the six are deliberately absent from this list and are recorded
+ * rather than asserted: pane EXPAND and pane COLLAPSE are Not Applicable on a
+ * phone, because one pane is always full height there (A.3.3).
+ */
+const RESCUED_FROM_PANE_HEADER = [
+  { id: 'voice-input', marker: 'mobile-mic-btn' },
+  { id: 'image-attach', marker: 'mobile-image-btn' },
+  { id: 'pinned-notes', marker: '_showPinnedNotesModal(slot)' },
+  { id: 'pane-overflow', marker: 'terminal-tab-overflow' },
+  { id: 'scheduled-messages', marker: 'Scheduled messages' },
 ];
 
 /**
@@ -268,6 +311,100 @@ check('no capability is reachable only from inside .terminal-pane-header', () =>
     if (outside.indexOf('data-mw-route="' + id + '"') === -1) trapped.push(id);
   }
   assert.deepStrictEqual(trapped, [], 'routes whose only marker is inside the hidden pane header: ' + trapped.join(', '));
+});
+
+check('the pane-header capabilities are routed where a phone can see them', () => {
+  // THE REGRESSION GATE A.5 ITEM 4 EXISTS FOR. Two-sided on purpose: the
+  // marker must EXIST, and it must appear somewhere outside the header the
+  // phone stylesheet hides.
+  const outside = htmlOutsidePaneHeaders() + appJs;
+  const unrouted = [];
+  for (const row of RESCUED_FROM_PANE_HEADER) {
+    if (outside.indexOf(row.marker) === -1) unrouted.push(row.id + ' (' + row.marker + ')');
+  }
+  assert.deepStrictEqual(
+    unrouted,
+    [],
+    'capabilities still trapped in the hidden pane header:\n       ' + unrouted.join('\n       ')
+  );
+});
+
+check('the microphone is reachable, feature-detected, and not in the hidden header', () => {
+  // The sharpest example in MOBILE-EXPERIENCE 0.1: app.js has always
+  // feature-detected SpeechRecognition and wired a mic button, and the phone
+  // stylesheet has always hidden its only host.
+  assert.ok(
+    /_speechRecognitionAvailable/.test(appJs),
+    'the feature detection must survive'
+  );
+  const inject = appJs.slice(appJs.indexOf('_injectMobileInputRowControls() {'));
+  const body = inject.slice(0, inject.indexOf('\n  }\n'));
+  assert.ok(body, '_injectMobileInputRowControls must exist');
+  assert.ok(/mobile-mic-btn/.test(body), 'the mic must be injected into the input row');
+  assert.ok(
+    /spec\.key === 'mic' && !this\._speechRecognitionAvailable/.test(body),
+    'the mic must stay hidden when the API is absent, exactly as the header button was'
+  );
+  assert.ok(
+    /toggleVoiceInput\(slot\)/.test(appJs),
+    'the input-row mic must call the SAME dictation entry point the header button called'
+  );
+});
+
+check('the input row is permanent and the Type toggle is gone from the phone', () => {
+  // C.4. The row is `display: flex` whenever a pane is live, and the `.active`
+  // class is retained so nothing that sets it breaks.
+  assert.ok(
+    /\.terminal-pane\.mobile-active \.terminal-mobile-input-row,\s*\n\s*\.terminal-mobile-input-row\.active \{[^}]*display:\s*flex/.test(stylesMobile),
+    'the input row must be permanent on a live pane, with .active retained'
+  );
+  assert.ok(
+    /\.terminal-mobile-toolbar \.toolbar-keyboard,[\s\S]{0,80}display:\s*none/.test(stylesMobile),
+    'the Type key is structurally obsolete once the field is always there'
+  );
+  // Retained, not deleted: the handler and the markup both survive.
+  assert.ok(/key === 'keyboard'/.test(appJs), 'the Type handler must be retained');
+  assert.ok(
+    /toolbar-keyboard/.test(fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8')),
+    'the Type button must be retained in the markup'
+  );
+});
+
+check('Raw keys preserves per-keystroke input, which the permanent row would remove', () => {
+  // C.4 rule 5 and the code-preservation rule: an always-on input row removes
+  // a capability unless the escape hatch exists.
+  const start = appJs.indexOf('toggleMobileRawKeys(slot) {');
+  assert.ok(start !== -1, 'toggleMobileRawKeys must exist');
+  const body = appJs.slice(start, start + 1800);
+  assert.ok(/setMobileTypeMode\(\)/.test(body), 'Raw keys must enter the RETAINED type-mode path');
+  assert.ok(/setMobileScrollMode\(\)/.test(body), 'turning it off must restore the input row');
+  assert.ok(/Raw keys on\. Autocorrect is off\./.test(body), 'the persistent strip must say which mode is live');
+});
+
+check('term.focus() is not called on a phone, so the focus width-claim cannot fire', () => {
+  // C.4 rule 4 and B.9 rule 3. Focusing xterm's helper textarea summons the
+  // keyboard against an element autocorrect corrupts, and it is also what
+  // fires the focus-based geometry claim.
+  const start = appJs.indexOf('setActiveTerminalPane(slotIdx) {');
+  assert.ok(start !== -1, 'setActiveTerminalPane must exist');
+  const body = appJs.slice(start, start + 2600);
+  assert.ok(
+    /if \(!this\.isMobile \|\| tp\._mobileTypeMode\) \{\s*\n\s*tp\.focus\(\);/.test(body),
+    'the focus call must be gated on not-a-phone, with Raw keys as the exception'
+  );
+  assert.ok(
+    /bindMobileTextareaFocusGuard\(\)/.test(appJs),
+    'a defensive focus interceptor must cover the paths that focus the textarea programmatically'
+  );
+});
+
+check('the input row keeps autocorrect ON and never inherits the keystroke-pipe settings', () => {
+  // C.4 rule 7: the composer wants autocorrect, the textarea must not have it.
+  // The distinction was blurred; this pins it.
+  const inject = appJs.slice(appJs.indexOf('_injectMobileInputRowControls() {'));
+  const body = inject.slice(0, inject.indexOf('\n  }\n'));
+  assert.ok(/setAttribute\('autocorrect', 'on'\)/.test(body), 'autocorrect helps a message composer');
+  assert.ok(/setAttribute\('spellcheck', 'true'\)/.test(body), 'spellcheck helps a message composer');
 });
 
 check('no capability is reachable only from a hover-guarded rule', () => {

@@ -1798,6 +1798,16 @@ class CWMApp {
     // definition. See _injectMobileSelectControls.
     this._injectMobileSelectControls();
 
+    // ─── Mobile: the permanent input row (P10.5) ───────────────
+    // The image and microphone buttons the mock draws in the input row. The
+    // microphone has been wired and feature-detected in this file for months
+    // and hidden by the phone stylesheet for exactly as long, because its
+    // only host was `.terminal-pane-header`. This is where it becomes
+    // reachable.
+    this._injectMobileInputRowControls();
+    this.bindMobileInputRowControls();
+    this.bindMobileTextareaFocusGuard();
+
     // Toolbar buttons send input directly via WebSocket - they work in
     // both scroll and type mode, no textarea focus needed.
     document.querySelectorAll('.terminal-mobile-toolbar button').forEach(btn => {
@@ -2316,6 +2326,402 @@ class CWMApp {
       }
     });
     return created;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE PERMANENT INPUT ROW   (Notion restyle P10.5)
+
+     MOBILE-EXPERIENCE C.4. On phones the terminal input row is always
+     visible and xterm's hidden textarea never receives focus.
+
+     The old design toggled a "Type" button which showed
+     `.terminal-mobile-input-row.active` and, SEPARATELY, called
+     `TerminalPane.setMobileTypeMode()`, which flipped pointerEvents on
+     the textarea and the screen and called `term.focus()`. Two
+     overlapping mode systems for one intent is why focus fought xterm:
+     autocorrect corrupted a keystroke pipe, and the keyboard was summoned
+     against an element that is deliberately invisible.
+
+     The mock draws the input row as permanent, which is both better UX
+     and structurally simpler. `_mobileTypeMode` is RETAINED in
+     terminal.js and stays reachable through the Raw keys toggle in the
+     pane overflow sheet, which preserves per-keystroke input for a CLI
+     that needs it (a password prompt, a single-key menu, an autocomplete
+     that reacts as you type). Code preservation requires that escape
+     hatch; an always-on input row would otherwise remove a capability.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Add the image and microphone buttons to every fixed-slot input row.
+   *
+   * INJECTED rather than authored into index.html for the same reason the
+   * Select-mode toolbar buttons are: six hand-written copies of one control
+   * drift, and the terminal pane markup belongs to another track. Idempotent,
+   * so a re-init cannot stack duplicates.
+   *
+   * THE MICROPHONE IS THE POINT OF THIS METHOD. app.js has always
+   * feature-detected SpeechRecognition and wired a mic button, and
+   * styles-mobile.css has always set `display: none` on
+   * `.terminal-pane-header`, the button's only host. The capability existed,
+   * was wired, and could not be reached by any phone. The mock puts a
+   * microphone in the input row, which is the correct fix, and this is it.
+   *
+   * @returns {number} How many controls were created (0 when already present).
+   */
+  _injectMobileInputRowControls() {
+    let created = 0;
+    const rows = document.querySelectorAll('.terminal-mobile-input-row');
+    rows.forEach((row) => {
+      const field = row.querySelector('.mobile-type-input');
+      const sendBtn = row.querySelector('.mobile-send-btn');
+
+      // C.4 rule 7: autocorrect and spellcheck stay ON for this field and OFF
+      // for xterm's textarea. The whole reason the row exists is that it is a
+      // normal message composer where autocorrect helps; the textarea is a
+      // keystroke pipe where it corrupts. That distinction was blurred.
+      if (field) {
+        field.setAttribute('autocomplete', 'on');
+        field.setAttribute('autocorrect', 'on');
+        field.setAttribute('autocapitalize', 'sentences');
+        field.setAttribute('spellcheck', 'true');
+        field.setAttribute('enterkeyhint', 'send');
+        if (!field.getAttribute('aria-label')) {
+          field.setAttribute('aria-label', 'Message the terminal');
+        }
+      }
+
+      const specs = [
+        {
+          key: 'image',
+          className: 'mobile-image-btn mobile-input-btn',
+          title: 'Attach an image',
+          ariaLabel: 'Attach an image',
+          svg: '<path d="M3 3.5h10v9H3z"/><path d="M3 10.5l3-3 2.5 2.5L11 7.5l2 2"/><path d="M6 6.5h.01"/>',
+        },
+        {
+          key: 'mic',
+          className: 'mobile-mic-btn mobile-input-btn',
+          title: 'Voice input',
+          ariaLabel: 'Voice input',
+          svg: '<rect x="6" y="1.75" width="4" height="7" rx="2"/>' +
+            '<path d="M3.75 7.5a4.25 4.25 0 0 0 8.5 0"/>' +
+            '<path d="M8 11.75v2.5"/><path d="M6 14.25h4"/>',
+        },
+      ];
+
+      for (const spec of specs) {
+        if (row.querySelector('.' + spec.className.split(' ')[0])) continue;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = spec.className;
+        btn.dataset.mwZone = 'affordance';
+        btn.dataset.inputKey = spec.key;
+        btn.title = spec.title;
+        btn.setAttribute('aria-label', spec.ariaLabel);
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" ' +
+          'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+          'stroke-linejoin="round" aria-hidden="true">' + spec.svg + '</svg>';
+        // Hidden when the API is absent, exactly as the header button was.
+        if (spec.key === 'mic' && !this._speechRecognitionAvailable) btn.hidden = true;
+        if (sendBtn && sendBtn.parentNode === row) row.insertBefore(btn, sendBtn);
+        else row.appendChild(btn);
+        created++;
+      }
+    });
+    return created;
+  }
+
+  /**
+   * Wire the injected input-row controls.
+   *
+   * One delegated listener on the document rather than one per row, because
+   * the rows are static but the panes behind them are not, and a delegated
+   * listener cannot leak.
+   *
+   * @returns {void}
+   */
+  bindMobileInputRowControls() {
+    if (this._mobileInputRowBound) return;
+    this._mobileInputRowBound = true;
+    document.addEventListener('click', (e) => {
+      const btn = e.target && e.target.closest ? e.target.closest('[data-input-key]') : null;
+      if (!btn) return;
+      const paneEl = btn.closest('.terminal-pane');
+      const slot = paneEl ? parseInt(paneEl.dataset.slot, 10) : NaN;
+      const pane = Number.isNaN(slot) ? null : this.terminalPanes[slot];
+      if (!pane) return;
+      if (btn.dataset.inputKey === 'image') {
+        // Routes through the SAME upload target the toolbar camera key uses,
+        // so the two surfaces cannot disagree about which pane receives the
+        // image (A.3.3: the input row is canonical, the overflow is secondary).
+        this._uploadTarget = { terminalPane: pane, groupId: this._activeGroupId };
+        if (this.els.imageUploadInput) this.els.imageUploadInput.click();
+        return;
+      }
+      if (btn.dataset.inputKey === 'mic') {
+        this.toggleVoiceInput(slot);
+      }
+    });
+  }
+
+  /**
+   * Keep xterm's helper textarea from taking focus on a phone.
+   *
+   * C.4 rule 3. Several paths can focus it programmatically, and each one
+   * risks summoning the keyboard against a `.xterm-helper-textarea` that
+   * autocorrect will then corrupt. One delegated `focusin` listener catches
+   * every path, including panes mounted long after boot, and hands focus to
+   * the input row instead.
+   *
+   * Raw keys is the deliberate exception: when a pane is in `_mobileTypeMode`
+   * the user asked for per-keystroke input and the textarea is exactly where
+   * focus belongs.
+   *
+   * @returns {void}
+   */
+  bindMobileTextareaFocusGuard() {
+    if (this._mobileFocusGuardBound) return;
+    this._mobileFocusGuardBound = true;
+    document.addEventListener('focusin', (e) => {
+      if (!this.isMobile) return;
+      const target = e.target;
+      if (!target || !target.classList || !target.classList.contains('xterm-helper-textarea')) return;
+      const paneEl = target.closest ? target.closest('.terminal-pane') : null;
+      if (!paneEl) return;
+      const slot = parseInt(paneEl.dataset.slot, 10);
+      const pane = Number.isNaN(slot) ? null : this.terminalPanes[slot];
+      // Raw keys on: this focus is the point.
+      if (pane && pane._mobileTypeMode) return;
+      target.blur();
+      const field = paneEl.querySelector('.mobile-type-input');
+      if (field && document.activeElement !== field) field.focus({ preventScroll: true });
+    });
+  }
+
+  /**
+   * Toggle Raw keys for a pane: the escape hatch C.4 rule 5 requires.
+   *
+   * ON enters the existing `setMobileTypeMode()` path, which focuses xterm's
+   * textarea and gives the CLI every keystroke as it is typed. OFF restores
+   * the input row. A persistent strip says which mode is live, because a
+   * terminal that silently changed how typing works would be worse than one
+   * that never offered the mode.
+   *
+   * @param {number} slot - Pane slot index.
+   * @returns {boolean} The resulting raw-keys state.
+   */
+  toggleMobileRawKeys(slot) {
+    const pane = this.terminalPanes[slot];
+    if (!pane || typeof pane.setMobileTypeMode !== 'function') return false;
+    const paneEl = document.getElementById(`term-pane-${slot}`);
+    const on = !pane._mobileTypeMode;
+    if (on) {
+      pane.setMobileTypeMode();
+    } else if (typeof pane.setMobileScrollMode === 'function') {
+      pane.setMobileScrollMode();
+    }
+    if (paneEl) {
+      paneEl.classList.toggle('mw-raw-keys', on);
+      let strip = paneEl.querySelector('.mw-raw-keys-strip');
+      if (on && !strip) {
+        strip = document.createElement('div');
+        strip.className = 'mw-raw-keys-strip';
+        strip.setAttribute('role', 'status');
+        strip.textContent = 'Raw keys on. Autocorrect is off.';
+        const inputRow = paneEl.querySelector('.terminal-mobile-input-row');
+        if (inputRow && inputRow.parentNode === paneEl) paneEl.insertBefore(strip, inputRow);
+        else paneEl.appendChild(strip);
+      } else if (!on && strip) {
+        strip.remove();
+      }
+    }
+    this.showToast(on ? 'Raw keys on' : 'Raw keys off', 'info');
+    return on;
+  }
+
+  /* ─── The pane overflow sheet ───────────────────────────────
+     MOBILE-EXPERIENCE A.3.3 routes fifteen pane-scoped capabilities into
+     one sheet, and it is the surface that rescues the six the hidden pane
+     header used to be the only host for. P11.1 moves the pane action
+     sheet OFF the pane container and onto this control plus a chip
+     long-press; this builds the sheet and gives it its first, tappable
+     host so nothing waits on a gesture. */
+
+  /**
+   * Build the pane overflow sheet for a slot.
+   *
+   * Every row delegates to the method the desktop surface already calls.
+   * Groups follow A.3.3: Text, Keys, Pane, Troubleshoot, in that order,
+   * with the destructive row last after a separator (D.3 rule 4).
+   *
+   * @param {number} slot - Pane slot index.
+   * @returns {Array<Object>} Action-sheet items.
+   */
+  buildMobilePaneOverflowItems(slot) {
+    const pane = this.terminalPanes[slot];
+    const items = [];
+    if (!pane) {
+      return [{ label: 'No terminal in this pane', disabled: true }];
+    }
+
+    const scheduleCount = (this._scheduleCounts && this._scheduleCounts[pane.sessionId]) || 0;
+
+    items.push({ type: 'sep', label: 'Text' });
+    items.push({ label: 'Reader', action: () => this.openTerminalReader(pane) });
+    items.push({
+      label: 'Select mode',
+      action: () => this._runMobileSelectToolbarAction('select', pane),
+    });
+    items.push({
+      label: 'Copy view',
+      action: () => this._runMobileSelectToolbarAction('copyview', pane),
+    });
+    // Same two-branch clipboard story the desktop menu uses: the async
+    // Clipboard API is undefined on an insecure origin, so a fire-and-forget
+    // call would silently do nothing (issue #64).
+    const clipboardReadable = !!(navigator.clipboard &&
+      typeof navigator.clipboard.readText === 'function');
+    items.push({
+      label: clipboardReadable ? 'Paste' : 'Paste (Ctrl+V)',
+      action: () => {
+        if (clipboardReadable && typeof pane.pasteFromClipboard === 'function') {
+          pane.pasteFromClipboard();
+        } else {
+          this.showToast(
+            'Clipboard needs HTTPS or localhost. Press Ctrl+V (Cmd+V on Mac) to paste',
+            'info'
+          );
+        }
+      },
+    });
+
+    items.push({ type: 'sep', label: 'Keys' });
+    items.push({
+      label: 'Send Ctrl+D',
+      action: () => {
+        if (pane.ws && pane.ws.readyState === WebSocket.OPEN) {
+          pane.ws.send(JSON.stringify({ type: 'input', data: '\x04' }));
+        }
+      },
+    });
+    items.push({
+      label: 'Send without Enter',
+      action: () => this._sendMobileInput(slot, { withEnter: false }),
+    });
+    items.push({
+      label: 'Send Shift+Enter (newline)',
+      action: () => this._sendMobileInput(slot, { shiftEnter: true }),
+    });
+    items.push({
+      label: 'Raw keys',
+      check: !!pane._mobileTypeMode,
+      action: () => this.toggleMobileRawKeys(slot),
+    });
+
+    // The four capabilities below lived ONLY on `.terminal-pane-header`,
+    // which styles-mobile.css sets `display: none` at phone widths. Each one
+    // routes to the identical method the header button calls; this sheet is
+    // simply a host the phone can see (MOBILE-EXPERIENCE A.3.3, A.5 item 4).
+    items.push({ type: 'sep', label: 'Pane' });
+    items.push({
+      label: scheduleCount > 0 ? `Scheduled messages (${scheduleCount})` : 'Scheduled messages',
+      action: () => {
+        const btn = document.querySelector(`#term-pane-${slot} .terminal-pane-schedule`);
+        if (window.SchedulePopover) window.SchedulePopover.toggle(btn, pane.sessionId);
+        else this.showToast('Scheduled messages are unavailable', 'warning');
+      },
+    });
+    items.push({
+      label: 'Pinned notes',
+      action: () => this._showPinnedNotesModal(slot),
+    });
+    const otherGroups = (this._tabGroups || []).filter(g => g.id !== this._activeGroupId);
+    if (otherGroups.length > 0) {
+      items.push({
+        label: 'Move to tab group',
+        submenu: otherGroups.map(g => ({
+          label: g.name,
+          action: () => this.moveTerminalToGroup(slot, g.id),
+        })),
+      });
+    }
+
+    items.push({ type: 'sep', label: 'Troubleshoot' });
+    items.push({
+      label: 'Fix terminal (reset)',
+      action: () => {
+        // Identical to the desktop menu's entry: a reset COMMAND to the shell,
+        // not a teardown of the pane host.
+        if (typeof pane.sendCommand === 'function') {
+          pane.sendCommand('reset\r');
+          this.showToast('Sent reset to terminal', 'info');
+        }
+      },
+    });
+    items.push({ type: 'sep' });
+    items.push({
+      label: 'Restart session',
+      danger: true,
+      action: () => this.restartSession(pane.sessionId),
+    });
+    return items;
+  }
+
+  /**
+   * Open the pane overflow sheet for the pane the user is looking at.
+   *
+   * @param {number} [slot] - Pane slot; defaults to the active pane.
+   * @returns {void}
+   */
+  showMobilePaneOverflow(slot) {
+    const target = (slot === undefined || slot === null)
+      ? (this._activeTerminalSlot !== null && this._activeTerminalSlot !== undefined
+        ? this._activeTerminalSlot
+        : this.terminalPanes.findIndex(tp => tp !== null))
+      : slot;
+    if (target === -1 || target === undefined) return;
+    const pane = this.terminalPanes[target];
+    const title = pane && pane.sessionName ? pane.sessionName : 'Terminal';
+    this.showActionSheet(title, this.buildMobilePaneOverflowItems(target));
+  }
+
+  /**
+   * Send the input row's text with an explicit Enter policy.
+   *
+   * The default path (tapping Send) is unchanged and lives in bindEvents.
+   * This covers the two provider-specific cases C.4 rule 6 names, which the
+   * Feature Inventory marks partial: an Ink CLI wants ESC then CR for a
+   * newline, and some prompts want the text without a submit at all.
+   *
+   * @param {number} slot - Pane slot index.
+   * @param {Object} opts - { withEnter, shiftEnter }.
+   * @returns {boolean} True when something was sent.
+   */
+  _sendMobileInput(slot, opts) {
+    const options = opts || {};
+    const pane = this.terminalPanes[slot];
+    const paneEl = document.getElementById(`term-pane-${slot}`);
+    const field = paneEl ? paneEl.querySelector('.mobile-type-input') : null;
+    if (!pane || !pane.ws || pane.ws.readyState !== WebSocket.OPEN) return false;
+    const text = field ? field.value : '';
+    if (text) pane.ws.send(JSON.stringify({ type: 'input', data: text }));
+    if (options.shiftEnter) {
+      // Resolved per provider by terminal.js, which reads the spec map:
+      // Claude wants ESC+CR (Ink's "newline in input") and Codex wants a
+      // plain CR. The literal here is the same defensive default that
+      // resolver uses when the spec map has not loaded.
+      const seq = (typeof pane._getShiftEnterSequence === 'function')
+        ? pane._getShiftEnterSequence()
+        : '\x1b\r';
+      pane.ws.send(JSON.stringify({ type: 'input', data: seq }));
+    } else if (options.withEnter !== false) {
+      pane.ws.send(JSON.stringify({ type: 'input', data: '\r' }));
+    }
+    if (field) {
+      field.value = '';
+      field.focus();
+    }
+    return true;
   }
 
   /**
@@ -20307,7 +20713,15 @@ class CWMApp {
     const tp = this.terminalPanes[slotIdx];
     if (tp) {
       tp.setFocused(true);
-      tp.focus();
+      // NOTION RESTYLE P10.5 (MOBILE-EXPERIENCE C.4 rule 4): `term.focus()` is
+      // not called on phones. Focusing xterm's hidden helper textarea summons
+      // the soft keyboard against an element autocorrect then corrupts, and it
+      // is also what fires the focus-based width claim that B.9 rule 3 wants
+      // silenced on a phone. The permanent input row is where a phone types,
+      // and Raw keys is the explicit opt-in for the other case.
+      if (!this.isMobile || tp._mobileTypeMode) {
+        tp.focus();
+      }
       // Re-assert this pane's geometry on the shared PTY. Clicking into a
       // pane means the user works here now, so this client's viewport wins
       // over any other device that resized the same session.
@@ -21100,7 +21514,23 @@ class CWMApp {
         <button type="button" class="terminal-tab-close" data-slot="${p.idx}"
           title="Close pane" aria-label="Close ${paneName} pane">&times;</button>
       </div>`;
-    }).join('') + `<button class="terminal-tab terminal-tab-add" title="Open terminal">+</button>`;
+    }).join('') +
+      `<button class="terminal-tab terminal-tab-add" title="Open terminal">+</button>` +
+      // NOTION RESTYLE P10.5. The pane overflow, pinned at the end of the chip
+      // strip. Fifteen pane-scoped capabilities route here (A.3.3), four of
+      // which had NO phone route at all because their only host was
+      // `.terminal-pane-header`, which this stylesheet hides. P11.1 adds the
+      // second, green-band route (a long press on a chip) and removes the
+      // pane-container listener; this is the tappable host, so nothing waits
+      // on a gesture in the meantime (B.1 rule R4).
+      '<button type="button" class="terminal-tab terminal-tab-overflow"' +
+      ' data-mw-zone="affordance" data-mw-route="pane-overflow"' +
+      ' aria-haspopup="dialog" aria-label="Terminal options" title="Terminal options">' +
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+      '<circle cx="4" cy="8" r="1.35" fill="currentColor"/>' +
+      '<circle cx="8" cy="8" r="1.35" fill="currentColor"/>' +
+      '<circle cx="12" cy="8" r="1.35" fill="currentColor"/>' +
+      '</svg></button>';
 
     // Add pane indicator dots (mobile)
     if (window.innerWidth <= 768 && strip) {
@@ -21123,13 +21553,22 @@ class CWMApp {
       }
     }
 
-    // Bind tab click handlers
-    strip.querySelectorAll('.terminal-tab:not(.terminal-tab-add)').forEach(tab => {
+    // Bind tab click handlers.
+    // The overflow chip is excluded alongside "+": both are strip controls
+    // rather than panes, and neither carries a data-slot, so a shared handler
+    // would call switchTerminalTab(NaN).
+    strip.querySelectorAll('.terminal-tab:not(.terminal-tab-add):not(.terminal-tab-overflow)').forEach(tab => {
       tab.addEventListener('click', (e) => {
         if (e.target.classList.contains('terminal-tab-close')) return;
         this.switchTerminalTab(parseInt(tab.dataset.slot, 10));
       });
     });
+
+    // Bind the pane overflow chip (P10.5).
+    const overflowBtn = strip.querySelector('.terminal-tab-overflow');
+    if (overflowBtn) {
+      overflowBtn.addEventListener('click', () => this.showMobilePaneOverflow());
+    }
 
     // Bind close handlers
     strip.querySelectorAll('.terminal-tab-close').forEach(btn => {
@@ -27784,8 +28223,11 @@ class CWMApp {
   _syncTerminalTabHighlight() {
     if (!this.els.terminalTabStrip) return;
     const activeSlot = this._activeTerminalSlot;
+    // The overflow chip is excluded for the same reason "+" is: it has no
+    // data-slot, so parseInt(undefined) is NaN and the toggle would be a
+    // no-op that still costs a class write on every highlight sync.
     this.els.terminalTabStrip
-      .querySelectorAll('.terminal-tab:not(.terminal-tab-add)')
+      .querySelectorAll('.terminal-tab:not(.terminal-tab-add):not(.terminal-tab-overflow)')
       .forEach(tab => {
         tab.classList.toggle(
           'active',
