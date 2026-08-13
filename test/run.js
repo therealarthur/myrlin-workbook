@@ -953,6 +953,7 @@ const standaloneTests = [
   'vt-sidecar.test.js',          // Notion restyle P6: VT sidecar golden streams + snapshot replay fidelity, mode signal, headless containment, width-thrash ownership control
   'recency-surfaces.test.js',    // Notion restyle P4.8/P4.9: the merged cross-provider recency list executed against fixtures (sort, tie-break, dedup, exclusions) plus the four surfaces reading it and the single formatter
   'side-peek.test.js',           // Notion restyle P4 remainder B1: the peek as a fixed-measure sibling, display:contents property grid, desktop-scoped width ladder, shared chip helpers, notes editor that never clobbers a focused textarea
+  'docs-document-surface.test.js', // Notion restyle P4.6: the .nt-layout 720px named-line grid, zero-margin block box model, the corrected :has() list collapse, the 40px one-line arithmetic from token values, and the seven aria-controls
 ];
 
 let standaloneFailed = 0;

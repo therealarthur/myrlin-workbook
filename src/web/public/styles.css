@@ -5633,6 +5633,17 @@ textarea.input {
     padding: 16px;
   }
 
+  /* The document surface takes the PHONE gutter, PROCEDURE 6.1's own
+     `.layout-phone` modifier ("Mobile document surfaces"). This is not a
+     breakpoint reproducing the base grid, which 6.1 forbids; it is the
+     capture's per-surface modifier applied where the capture says to apply it.
+     At 430px the base 96px gutters would spend 45 percent of the screen on
+     nothing, which is not what "the app is extreme" means. */
+  .docs-structured {
+    --nt-margin-width: var(--app-margin-phone);
+    --nt-content-width: 1fr;
+  }
+
   /* The property grid collapses to ONE column on a phone: at 320px a
      110px label column leaves 190px for a directory. `display: contents` on
      the row means the grid template is the only thing that has to change, so
@@ -6690,12 +6701,19 @@ body.cwm-dragging .sidebar-backdrop {
   overflow: hidden;
 }
 
+/* The docs panel's own control band. It is CHROME, so it keeps the panel's
+   full width rather than joining the 720px document column beneath it, and it
+   takes the topbar's 44px so a document surface opens under one consistent
+   band height everywhere in the app. */
 .docs-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--surface0);
+  gap: 8px;
+  height: var(--app-topbar-height);
+  min-height: var(--app-topbar-height);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--app-border-secondary);
   flex-shrink: 0;
 }
 
@@ -6706,17 +6724,20 @@ body.cwm-dragging .sidebar-backdrop {
 }
 
 .docs-title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--app-text-primary);
   margin: 0;
+  white-space: nowrap;
 }
 
 .docs-workspace-name {
   font-size: 12px;
-  color: var(--subtext0);
-  padding: 2px 8px;
-  background: var(--surface0);
+  line-height: var(--app-chip-line);
+  font-weight: 500;
+  color: var(--app-chip-gray-ink);
+  background: var(--app-chip-gray-fill);
+  padding: 0 6px;
   border-radius: var(--radius-property-chip);
 }
 
@@ -6726,33 +6747,145 @@ body.cwm-dragging .sidebar-backdrop {
   gap: 8px;
 }
 
+/* The standard active recipe, the same pair the view tabs and the period pills
+   take (BUILD-CONTRACT 2.7): the selected wash and primary ink, never a second
+   raised ground. */
 #docs-toggle-raw.active {
-  background: var(--surface1);
-  color: var(--text);
+  background: var(--app-sidebar-item-selected);
+  color: var(--app-text-primary);
 }
 
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ * THE DOCUMENT GRID, `.nt-layout`. Notion restyle P4.6.
+ * LAYOUT.md 1.1 through PROCEDURE.md 6.1, verbatim; BUILD-CONTRACT 6.
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * `--content-width: minmax(auto, 720px)` between two `minmax(96px, 1fr)`
+ * gutters, expressed as NAMED LINES rather than as a centred max-width
+ * container. The reason is in LAYOUT.md and it is structural, not stylistic: a
+ * full-bleed element stays in the document flow. `grid-column: full` and
+ * `grid-column: content` both just work, with no negative margins, no 100vw
+ * hack and no scrollbar arithmetic.
+ *
+ * THERE IS NO BREAKPOINT HERE AT ALL. The minmax pair does the whole job:
+ * 1600 gives 416/720/416, 1440 gives 375/720/375, 1024 gives 206/720/206 and
+ * 768 gives 96/602/96. PROCEDURE 6.1 says in as many words not to add media
+ * queries to reproduce this, and none are added.
+ *
+ * ONE HONEST MEASUREMENT NOTE. The contract's done criterion reads "at 1440 the
+ * docs text column measures exactly 720px with 375px gutters". Those gutters
+ * are a function of the CONTAINER, not of the viewport, and in this shell the
+ * docs panel sits inside `.main-content` beside a 240px sidebar. At a 1440
+ * viewport with the sidebar open the column measures 720 with about 239px
+ * gutters; 375px arrives at a 1911px container, or at 1440 with the sidebar
+ * collapsed. The grid is the capture's grid either way; what differs is the box
+ * it is asked to fill, and reproducing the literal number would mean hiding the
+ * sidebar, which is not what the criterion is protecting.
+ *
+ * The modifiers are the ones PROCEDURE 6.1's table marks "worth having in this
+ * app". `.nt-layout-wide` is shipped as an OPT IN and never as the default,
+ * which is APPLY.md section 5's instruction about the pressure that will
+ * arrive. They change only the two custom properties.
+ */
+.nt-layout {
+  --nt-content-width: minmax(auto, var(--app-content-width));
+  --nt-margin-width: minmax(var(--app-margin-width), 1fr);
+  display: grid;
+  width: 100%;
+  align-content: start;
+  grid-template-columns:
+    [full-start] var(--nt-margin-left-width, var(--nt-margin-width))
+    [content-start] var(--nt-content-width)
+    [content-end] var(--nt-margin-right-width, var(--nt-margin-width))
+    [full-end];
+}
+
+/* Every child is a content-column block unless it asks for `full`. min-width
+   lifts the grid item automatic minimum, so a long unbroken token inside a
+   block widens nothing. */
+.nt-layout > * {
+  grid-column: content;
+  min-width: 0;
+}
+
+.nt-layout-wide {
+  --nt-content-width: 1fr;
+  --nt-margin-width: var(--app-margin-width);
+}
+
+.nt-layout-phone {
+  --nt-content-width: 1fr;
+  --nt-margin-width: var(--app-margin-phone);
+}
+
+.nt-layout-side-peek {
+  --nt-content-width: 1fr;
+  --nt-margin-width: var(--app-margin-side-peek);
+}
+
+/* The asymmetric modifier, and the reason the two `-left-` and `-right-` hooks
+   exist in the template at all: a document with a right-hand detail panel keeps
+   its left gutter and gives the right one away. PROCEDURE 6.1 records the 468px
+   as an exact captured measurement "worth copying rather than eyeballing".
+   Authored now rather than when it is first used, because the two hooks are
+   consumed by the grid above and phantom-tokens.test.js is right to insist that
+   a consumed custom property be defined SOMEWHERE: a var() with a fallback that
+   nothing ever sets is a hook nobody can find. */
+.nt-layout-wide-right-margin-expanded {
+  --nt-content-width: 1fr;
+  --nt-margin-left-width: var(--app-margin-width);
+  --nt-margin-right-width: 468px;
+}
+
+/* The page bottom dead zone, LAYOUT.md 1.3: 270px of empty click-to-append
+   space under every document. It is not decoration; it is what makes the end
+   of a document feel like a place you can keep writing rather than a wall. */
 .docs-structured {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 20px;
+  padding: 16px 0 var(--app-page-bottom-dead-zone);
 }
 
+/*
+ * THE BLOCK BOX MODEL, LAYOUT.md 1.4 via PROCEDURE 6.3.
+ *
+ * THERE ARE ZERO MARGINS BETWEEN BLOCKS. The gap between two paragraphs is
+ * 6 + 2 + 2 + 6 = 16px and every pixel of it is padding. LAYOUT.md on why this
+ * matters: "A margin based rhythm produces dead zones between blocks that you
+ * cannot click, and the whole editor feel falls apart." That is the single
+ * hardest thing in this phase to revert, which is why BUILD-CONTRACT 6 puts it
+ * in a commit of its own.
+ */
 .docs-section {
-  margin-bottom: 24px;
+  margin: 0;
+  padding-bottom: var(--app-block-pad);
+}
+
+/* A section heading is an H3-shaped block: `22px 6px 6px`, dropping to a plain
+   6px when it is the first block in its container, per PROCEDURE 6.3's table. */
+.docs-section-heading {
+  padding: var(--app-h3-pad-top) var(--app-block-pad) var(--app-block-pad);
+  margin: 0;
+}
+
+.docs-section:first-child .docs-section-heading {
+  padding-top: var(--app-block-pad);
 }
 
 .docs-section-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 0;
+  padding: 0;
+  margin: 0;
   cursor: pointer;
   user-select: none;
 }
 
 .docs-section-chevron {
   font-size: 10px;
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
   transition: transform 150ms ease;
   display: inline-block;
 }
@@ -6761,22 +6894,31 @@ body.cwm-dragging .sidebar-backdrop {
   transform: rotate(90deg);
 }
 
+/* A section title on a document surface is a HEADING, not a label. 12px/600
+   was a form legend; the capture's H3 is what a "Notes" heading over a run of
+   notes actually is. */
 .docs-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--subtext1);
+  font-size: var(--app-h3-size);
+  line-height: var(--app-h3-line);
+  font-weight: var(--app-heading-weight);
+  color: var(--app-text-primary);
   text-transform: none;
   letter-spacing: normal;
   margin: 0;
 }
 
+/* The count is a property chip, on the gray pair like every other count in the
+   app. It was mono ink on a terminal-palette ground, which read as a code
+   token rather than as a quantity. */
 .docs-section-count {
-  font-size: 11px;
-  color: var(--overlay0);
-  background: var(--surface0);
-  padding: 1px 6px;
-  border-radius: var(--radius-pane-frame);
-  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: var(--app-chip-line);
+  font-weight: 500;
+  color: var(--app-chip-gray-ink);
+  background: var(--app-chip-gray-fill);
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+  border-radius: var(--radius-property-chip);
 }
 
 .docs-add-btn {
@@ -6791,50 +6933,130 @@ body.cwm-dragging .sidebar-backdrop {
 }
 
 .docs-section-body {
-  padding-left: 4px;
+  padding-left: 0;
+  margin: 0;
 }
 
+/*
+ * THE LIST BLOCK, and the collapse.
+ *
+ * A docs item is a list block: `6px` of wrapper padding when it stands alone,
+ * and `1px` where it meets another list item. LAYOUT.md calls the collapse
+ * "one of the most recognizable behaviors in the product": a RUN of items reads
+ * visibly denser than the paragraphs around it, while a solo item keeps the
+ * paragraph rhythm. Even spacing throughout reads as a generic editor.
+ *
+ * The two-rule spelling below is the corrected form PROCEDURE 6.3 records after
+ * rendering rather than after reasoning. The naive rule (collapse the bottom
+ * padding of any item that is not the last child) is WRONG for a run followed
+ * by a paragraph, so the bottom only collapses when the NEXT SIBLING is itself
+ * a list item. `:has(+ .docs-item)` says exactly that, and `:has()` already has
+ * a call site in this sheet.
+ *
+ * Resulting geometry, which is the contract's own acceptance table:
+ *   solo            6px 6px            first of a run  6px 6px 1px
+ *   middle of a run 1px 6px            last of a run   1px 6px 6px
+ *
+ * ONE LINE IS EXACTLY 40px: 6 wrapper + 2 leaf + 24 line + 2 leaf + 6 wrapper.
+ * That arithmetic only closes at the 16px/24px document body, which is why the
+ * item text moves from 13px/1.4 to the captured body size. A 720px measure at
+ * 13px is about 120 characters a line; at 16px it is about 90, which is the
+ * measure the column was chosen for.
+ */
 .docs-item {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 6px 8px;
-  border-radius: var(--radius-app-button);
+  padding: var(--app-block-pad);
+  margin: 0;
+  position: relative;
   transition: background 150ms ease;
 }
 
-.nt-enable-hover .docs-item:hover {
-  background: var(--surface0);
+.docs-item + .docs-item {
+  padding-top: var(--app-block-pad-collapsed);
+}
+
+.docs-item:has(+ .docs-item) {
+  padding-bottom: var(--app-block-pad-collapsed);
+}
+
+/*
+ * The hover box is a pseudo-element, not the block itself. In Notion the
+ * wrapper carries the rhythm padding and an INNER box carries the hover and
+ * selection fill, so the wash is 28px tall inside a 40px block rather than
+ * filling the whole rhythm. Painting it on the block would make the hover wash
+ * touch its neighbours and turn a run of items into one continuous slab.
+ * A pseudo-element buys the inner box with zero markup change; `inset` uses the
+ * block padding so a collapsed item's wash collapses with it.
+ */
+.docs-item::before {
+  content: '';
+  position: absolute;
+  inset: var(--app-block-pad) 0;
+  border-radius: var(--radius-block-hover);
+  background: transparent;
+  transition: background 150ms ease;
+  pointer-events: none;
+}
+
+.docs-item + .docs-item::before {
+  top: var(--app-block-pad-collapsed);
+}
+
+.docs-item:has(+ .docs-item)::before {
+  bottom: var(--app-block-pad-collapsed);
+}
+
+.nt-enable-hover .docs-item:hover::before {
+  background: var(--app-wash-hover);
+}
+
+/* The block's own children paint above the hover box. Without this the
+   absolutely positioned ::before, which comes first in paint order among
+   positioned siblings, would sit over the text. */
+.docs-item > * {
+  position: relative;
 }
 
 .docs-item-done .docs-item-text {
   text-decoration: line-through;
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 
 .docs-note-time {
-  font-size: 11px;
-  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
-  color: var(--overlay0);
+  font-size: 12px;
+  color: var(--app-text-tertiary);
   white-space: nowrap;
   flex-shrink: 0;
-  padding-top: 1px;
+  font-variant-numeric: tabular-nums;
+  padding-top: var(--app-leaf-pad);
+  line-height: var(--app-body-line);
 }
 
+/* The leaf. 2px of padding on the text itself is the third level of the box
+   model, and it is what makes the 40px arithmetic close. */
 .docs-item-text,
 .docs-note-text {
-  font-size: 13px;
-  color: var(--text);
+  font-size: var(--app-body-size);
+  line-height: var(--app-body-line);
+  color: var(--app-text-primary);
   flex: 1;
-  line-height: 1.4;
+  min-width: 0;
+  padding: var(--app-leaf-pad) 0;
 }
 
+/* The marker box. LAYOUT.md 1.4 gives a list marker a 24px box, and aligning
+   it to the leaf's own 24px line is what keeps a checkbox optically centred on
+   the first line of a two-line item instead of drifting up. */
 .docs-checkbox {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   cursor: pointer;
   flex-shrink: 0;
-  padding-top: 2px;
+  height: var(--app-body-line);
+  padding-top: 0;
 }
 
 .docs-checkbox input[type="checkbox"] {
@@ -6850,16 +7072,20 @@ body.cwm-dragging .sidebar-backdrop {
   flex-shrink: 0;
   font-size: 12px;
   padding: 2px 4px;
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
+  line-height: var(--app-body-line);
 }
 
+/* Ungated on purpose. DECISIONS 12.2.2: a rule that only REVEALS a control is
+   never put behind the hover gate, because hiding an affordance mid-scroll is
+   worse than showing one. */
 .docs-item:hover .docs-item-delete {
   opacity: 0.6;
 }
 
 .docs-item-delete:hover {
   opacity: 1 !important;
-  color: var(--red);
+  color: var(--app-text-red);
 }
 
 .doc-pin-btn {
@@ -6867,12 +7093,13 @@ body.cwm-dragging .sidebar-backdrop {
   transition: opacity 0.15s;
   flex-shrink: 0;
   cursor: pointer;
+  line-height: var(--app-body-line);
 }
 
 .doc-pin-btn:hover,
 .doc-pin-btn.pinned {
   opacity: 1;
-  color: var(--mauve);
+  color: var(--app-text-purple);
 }
 
 /* Roadmap items */
@@ -6894,17 +7121,20 @@ body.cwm-dragging .sidebar-backdrop {
   transition: background 150ms ease, box-shadow 150ms ease;
 }
 
+/* The three roadmap marks follow the DECISIONS 13.1 vocabulary: an inert disc,
+   a RING for the state that is waiting on somebody, and a filled disc for done.
+   None of them moves, and all three are on the block palette. */
 .roadmap-planned .roadmap-dot {
-  background: var(--overlay0);
+  background: var(--app-text-gray);
 }
 
 .roadmap-active .roadmap-dot {
-  background: var(--yellow);
-  box-shadow: none;
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--app-text-yellow);
 }
 
 .roadmap-done .roadmap-dot {
-  background: var(--green);
+  background: var(--app-text-green);
 }
 
 .roadmap-done .docs-item-text {
@@ -6912,29 +7142,34 @@ body.cwm-dragging .sidebar-backdrop {
   opacity: 0.5;
 }
 
+/* Three status chips on the chip pairs, replacing three hand-mixed 10 percent
+   translucencies over terminal-palette ink. Same hue meanings as everywhere
+   else in the app: gray for inert, yellow for in flight, green for done, and
+   the pairs are the ones P3.2 measured above the text floor on every ground. */
 .roadmap-status-label {
-  font-size: 10px;
+  font-size: 12px;
+  line-height: var(--app-chip-line);
   font-weight: 500;
-  padding: 1px 6px;
-  border-radius: var(--radius-pane-frame);
+  padding: 0 6px;
+  border-radius: var(--radius-property-chip);
   flex-shrink: 0;
   text-transform: none;
   letter-spacing: normal;
 }
 
 .roadmap-planned .roadmap-status-label {
-  color: var(--overlay1);
-  background: var(--surface0);
+  color: var(--app-chip-gray-ink);
+  background: var(--app-chip-gray-fill);
 }
 
 .roadmap-active .roadmap-status-label {
-  color: var(--yellow);
-  background: rgba(249, 226, 175, 0.1);
+  color: var(--app-chip-yellow-ink);
+  background: var(--app-chip-yellow-fill);
 }
 
 .roadmap-done .roadmap-status-label {
-  color: var(--green);
-  background: rgba(166, 227, 161, 0.1);
+  color: var(--app-chip-green-ink);
+  background: var(--app-chip-green-fill);
 }
 
 /* Latte overrides for roadmap */
@@ -6950,39 +7185,54 @@ body.cwm-dragging .sidebar-backdrop {
   background: rgba(64, 160, 43, 0.1);
 }
 
-/* Rules items */
+/* Rules items are CALLOUTS, PROCEDURE 6.3's table: an inner box at 12px on a
+   named-palette ground, a 10px radius, a transparent 1px border and a 24px
+   icon column. The 2px left bar is gone with the recipe: "zero left borders,
+   zero bars, zero underlines" is the same rejection-list line that took the
+   sidebar's bars in P2.2 and the tab underlines in P4.4. Zero margin, because
+   this is a block and blocks have none; the gap comes from the wrapper. */
 .docs-rule-item {
   display: flex;
-  align-items: center;
-  padding: 6px 8px;
-  border-left: 2px solid var(--yellow);
-  margin-bottom: 4px;
-  background: rgba(249, 226, 175, 0.05);
-  border-radius: var(--radius-cover) var(--radius-property-chip) var(--radius-property-chip) var(--radius-cover);
+  align-items: flex-start;
+  gap: 8px;
+  padding: var(--app-block-inner-pad);
+  margin: 0 0 var(--app-block-pad);
+  border: 1px solid transparent;
+  background: var(--app-bg-yellow);
+  border-radius: var(--radius-callout);
 }
 
 .docs-rule-item .docs-item-text {
   flex: 1;
-  font-size: 12px;
+  min-width: 0;
+  font-size: var(--app-body-size);
+  line-height: var(--app-body-line);
+  padding: 0;
 }
 
 .docs-rule-icon {
-  color: var(--yellow);
-  margin-right: 6px;
+  color: var(--app-text-yellow);
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: 14px;
+  width: var(--app-callout-icon-width);
+  line-height: var(--app-body-line);
 }
 
+/* The latte override is retained rather than deleted, and re-pointed to the
+   same token the base rule now uses. Left as an explicit no-op override so a
+   future theme-specific callout tint has a place to land, and so the two rules
+   cannot silently disagree the way they did when one was a hand-mixed 5
+   percent orange and the other a hand-mixed 5 percent peach. */
 :root[data-theme="latte"] .docs-rule-item {
-  background: rgba(223, 142, 29, 0.05);
-  border-left-color: var(--yellow);
+  background: var(--app-bg-yellow);
+  border-color: transparent;
 }
 
 .docs-empty {
-  font-size: 12px;
-  color: var(--overlay0);
-  padding: 8px;
-  font-style: italic;
+  font-size: 13px;
+  color: var(--app-text-tertiary);
+  padding: var(--app-block-pad);
+  font-style: normal;
 }
 
 /* ── td Issues section ─────────────────────────────────── */

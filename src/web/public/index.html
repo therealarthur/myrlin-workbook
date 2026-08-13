@@ -1277,7 +1277,11 @@
           </div>
 
           <!-- Structured View -->
-          <div class="docs-structured" id="docs-structured">
+          <!-- The docs body is a DOCUMENT surface (PROCEDURE 0.3 and step 6
+               item 3), so it takes .nt-layout: the capture's 720px named-line
+               grid with 96px minimum gutters. Every section below lands in the
+               `content` column automatically. -->
+          <div class="docs-structured nt-layout" id="docs-structured">
             <div class="docs-section" data-section="notes">
               <div class="docs-section-heading">
                 <button type="button" class="docs-section-header" aria-expanded="true" aria-controls="docs-notes-list">
