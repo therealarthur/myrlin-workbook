@@ -191,7 +191,9 @@ function touchDb(suffix) {
     codex._startWatcherForTesting(() => { fires++; });
     fs.writeFileSync(
       path.join(tmpHome, 'sessions', '2026', '08', '01',
-        'rollout-2026-08-01T13-16-17-019ff6f9-8b5f-7fb1-acef-874b662c6bc8.jsonl'),
+        // Synthetic id, real filename SHAPE. The `T` in the timestamp is the
+        // character the old filter could not match, so it is the whole point.
+        'rollout-2026-08-01T13-16-17-019f0000-0000-7000-8000-00000000000d.jsonl'),
       '{}'
     );
     await sleep(1500);
