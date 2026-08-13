@@ -188,3 +188,73 @@ recorded here as a block rather than folded into the numbered table above.
 | **What it costs** | Nothing. Both are strict improvements with tests pinning them. |
 | **Approved by** | P9 implementation agent. |
 | **Date** | 2026-08-13 |
+---
+
+Rows DV-23 to DV-27 were incurred by P5 and are recorded as a block below the numbered
+table, in the shape the P9 rows use, because two of them (DV-24 and DV-25) carry measurement
+tables that do not fit a row. None of the five is a preference. Two record a floor the captured
+palettes cannot meet and the measured cost of meeting it, two record a specification whose
+remaining half lives in a file this phase does not own, and one records a version number that
+cannot go backwards.
+
+## P5 rows (terminal input correctness and the surface projection)
+
+Five departures. Two are places the brand and the machine disagree (DV-24 and
+DV-25), two are places a specification asks for something a file this phase
+does not own would have to deliver (DV-26 and DV-27), and one is a version
+number (DV-23). Recorded as a block, in the shape the P9 rows use.
+
+### DV-23. P5 ships as `1.3.0-alpha.22`, and `alpha.16` stays unwritten
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | `BUILD-CONTRACT.md` 5.2 assigns P5 the version `1.3.0-alpha.16`, and `DEVIATIONS.md` DV-P9-2 kept that number reserved on the reasoning that "P5 and P7 have not shipped, so their numbers stay reserved and will be written out of chronological order when they do". |
+| **What shipped** | `package.json` goes to `1.3.0-alpha.22` and the CHANGELOG entry is written under that heading. `alpha.16` is left unwritten, permanently. |
+| **Why** | A version number cannot go backwards. By the time P5 shipped, alphas 17 through 21 had been cut by the concurrent P6, P8, P9 and P4-remainder tracks, so writing `alpha.16` into `package.json` would have moved the published version DOWN five releases, and writing it into the CHANGELOG alone would have described shipped code under a version that no artefact carries. DV-P9-2's reservation was written when two of the five intervening numbers were still free; it is not written when five are gone. This agent's brief resolves the same way ("next free alpha; record in DEVIATIONS if collided"), and DV-22 set the precedent that a version collision between concurrent tracks is recorded rather than fought. |
+| **What it costs** | The phase-to-version map in 5.2 is now broken in two places rather than one: `alpha.16` and `alpha.18` are both permanent gaps, and a reader who assumes prerelease numbers map to phases has to consult this row and DV-P9-2. Nothing is lost or duplicated: alpha.22's entry names all three P5 commits. |
+| **Approved by** | P5 implementation agent, per its brief, under `BUILD-CONTRACT.md` 4.2 |
+| **Date** | 2026-08-13 |
+
+### DV-24. Fifty-five ANSI pairings sit below 4.5:1, and closing them means re-authoring six palettes
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | `BUILD-CONTRACT.md` P5.5's done criterion: "**Every ANSI colour clears 4.5:1 against its terminal ground in every one of the 13 palettes**, ratios recorded in `INVENTIONS.md`." 5.5 acceptance repeats it. |
+| **What shipped** | All thirteen palettes keep their shipped ANSI values byte for byte. Every INK, every DIM and every ACCENT clears 4.5:1 in all thirteen, which is the part of the criterion this phase could deliver and which it delivers for the full set rather than for the three themes the verification gate names. 55 of the 208 ANSI pairings do not. Every ratio is recorded, in `DECISIONS.md` 14.5 rather than in `INVENTIONS.md`, because a measurement of a captured palette is not an invention and `INVENTIONS.md`'s own preamble scopes it to what this project derived. |
+| **Why** | The failure has three shapes and none of them is a mistake this phase made. **21 of the 55 are ANSI black and bright black**, which is the background-adjacent slot by ECMA-48 convention: applications paint it BEHIND text and reach for it for box drawing and dim rules, and every terminal emulator ever shipped has it near the ground. **6 are ANSI white and bright white on the three light themes**, the same argument at the light end of the ramp. **28 are genuine hues**, 24 of them on the three light palettes where a saturated mid-tone on a near-white ground is inherently hard (`latte` yellow 2.31, `rose-pine-dawn` yellow 2.05), and 4 on Nord (red and magenta at 3.05 and 4.41). Making them pass means re-authoring Catppuccin Mocha, Macchiato, Frappe, Latte, Nord, Dracula, Tokyo Night, Rose Pine Dawn and Gruvbox Light, which would change the terminal of every existing user, contradict `DESIGN-SPEC.md` 10.5's ruling that the thirteen palettes are invariant DATA carried over rather than tokens, and re-open the thirteen background pins in `theme-registry.test.js`. `PROCEDURE.md` 4.2 forbids darkening a captured value in any case; the prescribed move, re-pairing, has no meaning for an ANSI slot, because the slot's number IS its meaning and an application asks for slot 1 rather than for red. |
+| **What it costs** | An application that prints in ANSI black on the terminal's own ground is hard to read, and on the three light themes several hues are marginal. Two things bound it. Almost nothing prints slot 0 as foreground text: it is a background colour, which is why it is dark. And every one of the thirteen palettes clears the floor comfortably for the ink an application actually writes in, 6.66:1 to 13.69:1, so ordinary output is not affected at all. |
+| **Approved by** | P5 implementation agent, escalated to the orchestrator for `BUILD-CONTRACT.md` 5.5.4's contrast reckoning at P12, which is where this product decides once whether it re-cuts the palettes or keeps them |
+| **Date** | 2026-08-13 |
+
+### DV-25. Six of the mock's `dim` and `accent` values were re-paired
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | `DESIGN-SPEC.md` 10.2 gives the five-slot table for all thirteen palettes and says it is "Verbatim from `_termThemes()` in the mock". |
+| **What shipped** | `rule` verbatim in all thirteen. `dim` and `accent` verbatim in seven, and re-paired in six: `dracula.dim` 3.03 to 7.13, `tokyo-night.dim` 2.76 to 7.04, `latte.dim` 2.83 to 5.53, `rose-pine-dawn.dim` 2.73 to 4.73, `gruvbox-light.dim` 4.29 to 7.78, and `rose-pine-dawn.accent` 3.84 to 5.59. Every substitute is another step of the same palette, chosen mechanically: walk `--subtext0`, `--subtext1`, `--text` and take the first that clears 4.5:1, which in each of these palettes is also the quietest that clears. |
+| **Why** | `TERMINAL-ARCHITECTURE.md` 10.5 makes `dim` on `bg` a verification gate (VG-7) at 4.5:1 for the three light themes, because `dim` is the ink for the history layer's paging chrome and its provenance rules. The mock's own values fail it for all three, and for two dark themes as well. `PROCEDURE.md` 4.2 forbids darkening a captured value and prescribes re-pairing onto something that works, which is what this is. The mock is also not describing the same grounds this application ships: four of its thirteen backgrounds (`cherry`, `ocean`, `amber`, `mint`) differ from the palettes actually in use, so its `dim` and `accent` were chosen against a ground the user never sees. |
+| **What it costs** | Six palettes read slightly differently from the mock's prototype, most visibly Rose Pine Dawn, whose prompt glyph is `pine` rather than `love`. Both are canonical Rose Pine accents. The alternative was shipping a paging chrome that fails its own gate on every light theme. |
+| **Approved by** | P5 implementation agent, under `PROCEDURE.md` 4.2 and `TERMINAL-ARCHITECTURE.md` 10.5 |
+| **Date** | 2026-08-13 |
+
+### DV-26. The desktop pane input row is styled but not created
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | `DESIGN-SPEC.md` 5.6 draws a pane input row on every pane: a prompt, a field, an attach button, a mic button and a hint. `BUILD-CONTRACT.md` P5.5 names "the input row **inside the terminal palette** with the `❯` prompt in `terminalSurface().accent` and a top rule in `terminalSurface().rule`". |
+| **What shipped** | The palette CONTRACT, in full: the row's ground is `--term-bg`, its top rule is `--term-rule`, the prompt glyph is a `::before` in `--term-accent` on the terminal face, and the typed text is `--term-ink`. The row itself remains the one this application already has, which is `display: none` above the phone breakpoint, so on the desktop the recipe is correct and invisible. |
+| **Why** | Turning the row on for the desktop is an IA decision rather than a restyle. It costs a row of vertical space in every one of six panes, it duplicates an affordance the terminal already has (xterm's own hidden textarea takes typing directly), and its send path, its history and its mic and attach buttons are wired in `app.js`, which this phase does not own and which the concurrent P10 track was editing throughout. The prompt is authored as a pseudo-element rather than as markup for the same reason: all six pane templates live in `index.html` and three suites read them. |
+| **What it costs** | A desktop user does not see the input row the mock draws, and the phone's row now reads in the terminal palette, which is a change P10 will see. Whoever turns the desktop row on inherits a correct row rather than a chrome-coloured one on a terminal ground, which is the part that was expensive to get right. |
+| **Approved by** | P5 implementation agent, under `BUILD-CONTRACT.md` 4.1 item 4 |
+| **Date** | 2026-08-13 |
+
+### DV-27. The pane grid takes the mock's gap and not its padding
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | `DESIGN-SPEC.md` 5.2: `gap:12px; padding: 12px 16px 16px; background: var(--app-bg-primary)`. |
+| **What shipped** | The gap and the ground. No padding. |
+| **Why** | `app.js` positions the drag splitter with an inline `left: calc(${pct}% - 3px)` on an absolutely positioned child of the grid, and a percentage on such a child resolves against the containing block's PADDING box while the grid TRACKS live in its content box. A 16px horizontal pad would therefore offset the handle from the seam it drags by up to 16px, on the only control in the region whose whole job is to be exactly on that seam. The gap alone is safe and was checked rather than assumed: at the default 50/50 split the seam centre and the percentage point coincide exactly, and the worst case at the persisted 25/75 clamp is 6px against a 22px hit area. |
+| **What it costs** | The pane grid runs to the edge of the main column rather than sitting on a 16px margin, so the frame's left and right hairlines are flush with the region boundary. Applying the padding is two lines in `app.js` (subtract the pad before computing the percentage), and it should ship with them rather than before them. |
+| **Approved by** | P5 implementation agent, under `BUILD-CONTRACT.md` 4.1 item 4 |
+| **Date** | 2026-08-13 |

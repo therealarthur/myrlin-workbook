@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Your Codex plan usage can be read without asking ChatGPT for it.** The app already knew how to fetch your usage from the account switcher, which needs a valid sign-in and a working connection. Codex also writes the same figures into every conversation it records, so the app now reads them from your own disk: the plan you are on, how much of the current window you have used, when it resets, and your credit balance. It works offline and it cannot break because a sign-in expired. The display that uses it is still to come.
 
+## [1.3.0-alpha.22] - 2026-08-13
+
+Pasting into a terminal now does what you meant. The terminal itself got the design treatment the rest of the app has had.
+
+### Fixed
+
+- **Pasting two lines used to run two commands and print two blank lines.** Windows copies text with a carriage return AND a line feed on the end of every line, and both were being sent, so the shell saw each line submitted twice. Now one line break means one Enter, whatever you copied it from.
+- **Pasting into a plain shell used to print `[200~` around whatever you pasted.** There is a terminal mode an application can turn on to say "hand me a paste in one piece", and the app was wrapping every paste in that marker whether the application had asked for it or not. Coding assistants do ask for it, which is why this looked fine most of the time; `cmd`, PowerShell and anything else did not, and got the marker as literal text. The app now checks.
+- **A pasted file can no longer break out of a paste.** If the text you paste happens to contain the marker that ends a paste, everything after it would have been treated as though you had typed it. That marker is now stripped out of the pasted text.
+
+### Added
+
+- **Pasting several lines into a plain shell asks first.** It tells you how many lines and shows you the first one, with Paste and Cancel. It does not ask when you are pasting into a coding assistant, because those handle a multi-line paste properly; that is the whole point of the mode above. You can force it always on or always off in settings under `terminalConfirmMultilinePaste`.
+- **Ctrl+Shift+C copies, always.** Plain Ctrl+C is ambiguous in a terminal: it copies when you have something selected and interrupts what is running when you do not, which means you have to know the state of something you cannot see. Ctrl+Shift+C only ever copies. Ctrl+C is unchanged.
+- **Ctrl+Shift+A selects everything in the terminal.** Ctrl+A is deliberately left alone, because in a shell it means "jump to the start of the line" and taking that away would be a bad trade.
+- **Terminals remember twice as much.** Scroll-back went from 5000 lines to 10000.
+
+### Changed
+
+- **The terminal pane is a card.** A hairline frame with rounded corners on the page background, with real space between panes instead of a two-pixel seam, and room around the text instead of the first character touching the edge.
+- **The terminal has its own type.** iA Writer Mono, the same face the app uses for code and file paths, at the same size and line height as before so nothing reflows. If you have JetBrains Mono installed, which is what the terminal used before, it is still second in line.
+- **Your terminal colours and the app's colours are finally two separate things.** Every one of the thirteen palettes now describes its terminal in one place, and the pane's own trim, its ground and its scrollbar are drawn from it. You can run a dark Mocha terminal on a light app, or the other way round, and neither leaks into the other.
+- **The panel header above each terminal is quieter**: a shorter band, no coloured underline on the pane you are working in, and the same greys as the rest of the app.
+- **The pane stopped animating while a session starts up.** It had a three-second colour cycle that, since an earlier release, cycled between four identical colours.
+
+### Notes for the next release
+
+Scrolling up in a terminal still only reaches what that terminal has drawn since you opened it. Reaching further back, into the conversation the assistant recorded, is the next piece.
+
 ## [1.3.0-alpha.21] - 2026-08-13
 
 Nothing in the app blinks at you any more. The four screens the restyle had not reached yet, the session panel, project notes, costs and settings, now look like the rest of it.

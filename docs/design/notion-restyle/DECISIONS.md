@@ -2050,3 +2050,365 @@ whether it keeps the capture's neutral ramp or ships an accessible delta.
 7. **Sanctioned edit SE-12**, taken but revertable alone, and the precedent that
    an implementation agent records a new SE number rather than editing a pin
    quietly.
+---
+
+## 14. Phase P5, terminal input correctness and the surface projection
+
+This section is P5's log. The phase has three halves rather than two, and they
+are independent: the input path (P5.1 to P5.3), the colour projection (P5.4),
+and the region restyle (P5.5). Any one of the three commits reverts without the
+other two.
+
+### 14.1 What shipped, and where
+
+| WP | Commit | Files | What |
+| --- | --- | --- | --- |
+| P5.1, P5.2, P5.3 | `f82a946` | `terminal.js`, `styles.css`, `test/paste-input-preparation.test.js` (new), `test/bracketed-paste-isolation.test.js`, `test/paste-secure-context-fallback.test.js`, `test/run.js`, `INVENTIONS.md` | `prepareInputForPty`, the DEC 2004 gate, CRLF normalisation, the embedded end-marker sanitiser, the 9.4 confirm, `Ctrl+Shift+C`, `Ctrl+Shift+A`, scrollback 5000 to 10000, `--font-terminal`. Sanctioned edit SE-13. |
+| P5.4 | `c888920` | `terminal-surface.js` (new), `terminal.js`, `theme-registry.js`, `index.html`, `test/terminal-surface.test.js` (new), four pinning tests, `test/run.js` | The projection, the xterm `ITheme` builder, the `--term-*` publication, the registry accessor, the font read, the `document.fonts.ready` refit, the cachebuster bump. Sanctioned edit SE-14. |
+| P5.5 | `50be81b` | `styles.css`, `test/phantom-tokens.test.js`, `test/browser/notion-shell.spec.js` | The pane frame, the gutter, the 38px header, the terminal surface and its padding, the terminal scrollbar, the input row's palette contract, the booting pane, the phone floor, two live-PTY region shots. |
+
+### 14.2 Ambiguities resolved during P5
+
+#### 14.2.1 The bracket gate has three sources and may depend on none of them
+
+`TERMINAL-ARCHITECTURE` D1 says to gate on `term.modes.bracketedPasteMode`.
+P6.3 then shipped a server-side `mode` frame carrying the same fact, measured
+by a headless VT that sees every byte including the ones this client was not
+attached for, and put it behind `CWM_VT_SIDECAR`, which **defaults off**.
+
+`isBracketedPasteMode()` therefore reads three sources in falling order of
+authority: the mode frame when one has arrived, xterm's own public `IModes`
+reader otherwise, and `false` underneath. The frame is an UPGRADE, never a
+dependency, which is what the constraint "nothing you ship may hard-depend on
+the mode frame" requires and what the executed test asserts by running the
+reader with the frame absent.
+
+`false` is the right floor in both directions, and that is not symmetric
+reasoning: a missing bracket pastes the text literally, which is mildly wrong,
+while a spurious bracket prints `[200~` into the user's shell, which is
+visibly broken. The safe default is the one that degrades quietly.
+
+#### 14.2.2 Ctrl+A is not touched, and that is the architecture's ruling
+
+The brief asked whether select-all should be wired to `Ctrl+A` when the
+terminal has focus. It is not, and `TERMINAL-ARCHITECTURE` 8.4 rules for the
+Shift form explicitly. `Ctrl+A` is beginning-of-line in readline and therefore
+in every shell, editor and agent CLI this application spawns, and it is the
+default tmux and screen prefix. Intercepting it would break the terminal to
+add a convenience.
+
+`Cmd+A` on macOS is left alone too: xterm 6 already maps it to its own
+`SELECT_ALL` action, so it works today and adding a handler would shadow it.
+
+#### 14.2.3 Three suites read the Ctrl+C branch out of the source, so the two new shortcuts sit above it
+
+`copy-secure-context-fallback.test.js` slices from `if (mod && shortcutKey === 'c'`
+to the next `return false;` and asserts the slice contains no `preventDefault`
+and no `copyTextToClipboard`. `terminal-select-mode.test.js` slices the same
+branch to the `// Ctrl+V / Cmd+V` comment and asserts the same two absences.
+`terminal-select-v2.test.js` extracts it by balanced braces and asserts it does
+not unfreeze Select mode.
+
+Both new branches use `preventDefault` and one uses `copyTextToClipboard`, so
+their PLACEMENT is load bearing twice over. They are spelled
+`if (mod && e.shiftKey && shortcutKey === 'c')`, which does not begin with the
+anchor string, and they sit ABOVE the plain branch, which is also what the
+behaviour needs: `mod && shortcutKey === 'c'` is true with Shift held, so the
+plain branch would otherwise swallow `Ctrl+Shift+C` and hand it to a native
+copy Chromium has bound to Inspect Element.
+
+#### 14.2.4 The projection is data, and the direction of flow is the decision
+
+`CURRENT-UI` 6.2 frames the problem as eight palettes being unreachable FROM
+CSS, which reads as an instruction to make the terminal read CSS. P5.4 does the
+opposite: the projection is a static table and it PUBLISHES seven `--term-*`
+custom properties into CSS.
+
+Three reasons, each of which rules out the other direction. A CSS read needs a
+resolved stylesheet, so a pane constructed before first paint would get a
+half-resolved palette, which is the failure the eight static palettes were
+written to prevent. `_colorWithAlpha` parses six-digit hex only and silently
+returns its fallback for anything else, so a custom property re-authored as
+`oklch()` or `color-mix()` would take the terminal's selection colour with it
+without an error (risk R5); a data table can guarantee the format, a token
+cannot. And the pane chrome has to paint the SAME value the canvas paints:
+publishing makes that true by construction, while reading leaves two systems
+free to disagree, which `TERMINAL-ARCHITECTURE` 10.1 calls the highest risk
+item for perceived quality.
+
+What makes a static table safe is the drift gate, not care.
+`test/terminal-surface.test.js` re-derives all thirteen palettes from the real
+per-theme blocks in `styles.css` through the real `_buildThemePalette` in
+`terminal.js` and compares key for key. It was verified non-vacuous by editing
+`--base` for Nord and watching it fail.
+
+#### 14.2.5 The drift gate found eleven pre-existing divergences on its first run
+
+None is visible today, because the eight static palettes never went through the
+builder. All eleven keep their SHIPPED value, because P5.4's done criterion is
+that nobody's terminal changes colour, and in each case the shipped value is
+also the better one:
+
+| Divergence | styles.css derives | The palette ships | Why the shipped value stays |
+| --- | --- | --- | --- |
+| `mocha.brightWhite` | `#cdd6f4` (`--text`) | `#a6adc8` | Catppuccin's own subtext0 mapping for ANSI 15, and the mock's `dim` for this theme. The builder's generic rule collapses ANSI 15 onto the foreground and loses a step. |
+| `macchiato.selectionBackground`, `frappe.selectionBackground` | alpha `0.25` | alpha `0.3` | Two palettes authored a slightly stronger wash. Both are legible; changing one would move a colour for no reason. |
+| `cherry`, `ocean`, `amber`, `mint`: `.cursor` and `.selectionBackground` | `--rosewater` and `--mauve` | each theme's signature colour | All four invented dark themes chose a signature cursor and derived the wash from it. The cursor is the most identity-carrying pixel in a terminal and it moves on every keystroke. |
+
+The exemption list is itself gated: a second check asserts every entry is STILL
+a real divergence, so a future edit that reconciles one fails rather than
+leaving a stale licence behind.
+
+#### 14.2.6 Six of the mock's dim and accent values do not clear the floor on the ground this application ships
+
+`DESIGN-SPEC` 10.2's table is the source for `dim`, `rule` and `accent`, and it
+is taken verbatim in seven of the thirteen. Six values were re-paired, each
+onto another step of the SAME palette, because `PROCEDURE` 4.2 forbids
+darkening a captured value and prescribes re-pairing:
+
+| Slot | Mock | Measured | Shipped | Measured | Source |
+| --- | --- | --- | --- | --- | --- |
+| `dracula.dim` | `#6272a4` | 3.03 | `#b8b8b0` | 7.13 | `--subtext0` |
+| `tokyo-night.dim` | `#565f89` | 2.76 | `#9aa5ce` | 7.04 | `--subtext0` |
+| `latte.dim` | `#8c8fa1` | 2.83 | `#5c5f77` | 5.53 | `--subtext1` |
+| `rose-pine-dawn.dim` | `#9893a5` | 2.73 | `#6e6a86` | 4.73 | `--subtext0` |
+| `gruvbox-light.dim` | `#7c6f64` | 4.29 | `#504945` | 7.78 | `--subtext0` |
+| `rose-pine-dawn.accent` | `#b4637a` | 3.84 | `#286983` | 5.59 | `--blue`, Rose Pine's own `pine` |
+
+The rule is mechanical rather than a taste: walk `--subtext0`, `--subtext1`,
+`--text`, take the first that clears 4.5:1. In every one of these palettes that
+order is quietest first, so "the first that clears" and "the quietest that
+clears" are the same value, which is what `dim` wants to be.
+
+`TERMINAL-ARCHITECTURE` 10.5 makes this a gate for the three light themes only
+(verification gate VG-7). It is applied to all thirteen, because a floor that
+holds for three of thirteen is a floor somebody steps off, and because two of
+the five failures were dark themes. **VG-7 is closed**: `dim` on `bg` measures
+4.64 to 7.78 across the set, and `latte`, `rose-pine-dawn` and `gruvbox-light`
+measure 5.53, 4.73 and 7.78.
+
+`rule` is NOT substituted anywhere. It is a 1px divider, so its floor is the
+3:1 boundary floor rather than the text floor, and it measures 1.27 to 1.80.
+That is the same compressed-neutral-ramp family `DEVIATIONS` DV-15 already
+records, with the same owner: 5.5.4's contrast reckoning at P12. Raising it per
+theme here would be thirteen uncoordinated answers to one question.
+
+#### 14.2.7 The terminal padding is safe for the PTY, and that had to be checked rather than assumed
+
+`DESIGN-SPEC` 5.5 puts 12px by 14px of padding on the pane body. Padding on the
+element xterm mounts INTO would ordinarily be a column-count bug: the terminal
+would be fitted to a box larger than the space it has and would clip.
+
+The vendored FitAddon reads `getComputedStyle(parentElement)`'s `height` and
+`width`, and the CSSOM resolves both to USED values, which are content-box
+figures. The padding is therefore already excluded from the area it fits into.
+Measured on the captured pane rather than reasoned about: the terminal's first
+column lands 14px inside the frame and there is no horizontal overflow at any
+of the four probed widths.
+
+The cost is real and bounded: 28px of width is about four columns at this cell
+size, which is why the two numbers are tokens and why the phone floor halves
+them.
+
+#### 14.2.8 A webfont terminal face needs a second fit, and the first one is not enough
+
+`--font-terminal` resolves to a self-hosted face declared with
+`font-display: swap`. On a cold load the browser can measure the FALLBACK face,
+hand xterm a cell width, and swap the real face in underneath it. The symptom
+is column drift: a pane that fitted 96 columns reflows to 92 a moment later,
+and the CLI on the other end has already drawn for 96.
+
+`mount()` now also refits on `document.fonts.ready`, which settles once every
+pending face has loaded or failed. It is additive to the existing 200ms safety
+refit rather than a replacement, because the two answer different questions:
+one is "the face arrived", the other is "the layout settled".
+
+### 14.3 Scope decisions, and what was deliberately left alone
+
+1. **The Select v1, v2 and v3 machinery is untouched.** Not one identifier was
+   renamed, moved or reformatted. `terminal-select-v2.test.js` (134
+   assertions), `terminal-select-mode.test.js` and `terminal-host-ownership.test.js`
+   all pass unedited. P7 rescopes Select mode; P5 only added.
+2. **`Ctrl+Shift+A` selects the terminal buffer, not a history document.**
+   Stage 3 upgrades it. Today it selects everything that exists.
+3. **The grid padding `DESIGN-SPEC` 5.2 specifies is not applied.** `app.js`
+   positions the drag splitter with `left: calc(pct% - 3px)`, and a percentage
+   on an absolutely positioned child resolves against the PADDING box, so a
+   16px pad would move the handle 16px away from the seam it drags. The 12px
+   gap alone is safe: at a 50/50 split the seam centre and the percentage point
+   coincide exactly, and the worst case at the 25/75 clamp is 6px against a
+   22px hit area. Applying the padding is two lines in `app.js`, which this
+   phase does not own. `DEVIATIONS` DV-27.
+4. **The desktop pane input row is not created.** `DESIGN-SPEC` 5.6 draws one;
+   this application has an input row in the markup for all six panes and it is
+   `display: none` above the phone breakpoint. Making it visible on the desktop
+   is an IA decision with a wiring cost (the send path, the history, a row of
+   vertical space in every pane) and it belongs with the composer P10 and P12
+   own, not with a region restyle. What P5 does ship is the palette CONTRACT
+   for it, so whoever turns it on gets a correct row rather than a chrome
+   coloured one. `DEVIATIONS` DV-26.
+5. **The mobile sheet was not swept, for the fourth phase running.** The input
+   row's geometry, its field and its send button stay in `styles-mobile.css`.
+   P5 takes only the four properties `DESIGN-SPEC` 5.6 makes a palette
+   contract, one of which (the typed text's colour) is a bug fix rather than a
+   style: `--text-primary` on a `--term-bg` ground is near-black ink on a
+   near-black ground the moment the row moves into the palette.
+6. **`app.js` was not touched at all.** The theme change re-themes live panes
+   through the loop it already has, because `getCurrentTheme()` publishes the
+   CSS variables as a side effect. The `data-theme` observer covers the case
+   that loop cannot see, which is a theme change with zero panes open.
+
+### 14.4 The numbers
+
+| Measure | After the P4 remainder | After P5 |
+| --- | --- | --- |
+| `terminal.js` lines | 5286 | **5928** |
+| `styles.css` lines | 15565 | **15877** |
+| `theme-registry.js` lines | 141 | **187** |
+| `terminal-surface.js` lines | did not exist | **553** |
+| Gate G4, Catppuccin `var()` in chrome | 751 | **747** |
+| Gate G6, numeric radius literals | 0 | **0** |
+| Gate G8, `translateY` | 16 | **16** |
+| Gate G14, animated status marks | 0 | **0** |
+| Animations consumed on the pane frame | 1 (dead) | **0** |
+| Test files / assertions | 90 / 1541 | **94 / 1642** |
+
+P5's own assertion delta is **+64**: 37 in the new
+`paste-input-preparation.test.js`, 24 in the new `terminal-surface.test.js`,
+2 added to `bracketed-paste-isolation.test.js` because the architecture asks
+for the mode gate by name, and 1 added to
+`paste-secure-context-fallback.test.js` for the shell-pane case that could not
+be expressed before the bracket was gated. Two new files, two sanctioned edits
+(SE-13 and SE-14), each in the same commit as its source change. The remaining
+delta against 94 files is the concurrent P10 track's two files.
+
+G4's four-point fall is smaller than it looks in both directions. Ten palette
+consumptions were removed from the pane header, the pane title, the active
+header, the grid ground and the reduced-motion guard; seven were ADDED, and
+every one of them is a `var(--term-x, var(--palette))` FALLBACK on a terminal
+surface. Those seven are the one place in the sheet where a Catppuccin token is
+the correct value: `DESIGN-SPEC` 10.4 says the palette paints the terminal, and
+the fallback's whole job is to be right in the window before the projection has
+published. G4 cannot tell the two cases apart, which is worth knowing before
+somebody drives it to zero by deleting them.
+
+### 14.5 Contrast, measured for every palette
+
+Computed from the shipped values, ink against its own terminal ground, all
+thirteen.
+
+| theme | ink | dim | accent | rule | ANSI worst | ANSI best |
+| --- | --- | --- | --- | --- | --- | --- |
+| `mocha` | 11.34 | 7.37 | 8.07 | 1.80 | 1.80 black | 12.91 yellow |
+| `macchiato` | 9.92 | 6.62 | 6.84 | 1.77 | 1.77 black | 10.20 yellow |
+| `frappe` | 8.06 | 5.55 | 5.60 | 1.72 | 1.72 black | 8.06 brightWhite |
+| `nord` | 10.84 | 4.64 | 6.24 | 1.45 | 1.45 black | 10.84 brightWhite |
+| `dracula` | 13.36 | 7.13 | 5.90 | 1.56 | 1.56 black | 13.36 brightWhite |
+| `tokyo-night` | 10.59 | 7.04 | 6.79 | 1.74 | 1.74 black | 10.59 brightWhite |
+| `cherry` | 13.16 | 4.95 | 5.35 | 1.39 | 1.74 black | 13.16 brightWhite |
+| `ocean` | 12.96 | 5.63 | 6.97 | 1.56 | 1.65 black | 12.96 brightWhite |
+| `amber` | 13.62 | 5.42 | 7.70 | 1.55 | 1.73 black | 13.62 brightWhite |
+| `mint` | 13.69 | 6.30 | 7.98 | 1.69 | 1.77 black | 13.69 brightWhite |
+| `latte` | 7.06 | 5.53 | 4.79 | 1.61 | 1.61 brightWhite | 5.53 black |
+| `rose-pine-dawn` | 6.66 | 4.73 | 5.59 | 1.27 | 1.27 brightWhite | 5.59 brightBlue |
+| `gruvbox-light` | 10.22 | 7.78 | 5.40 | 1.51 | 1.92 brightWhite | 9.24 black |
+
+**Every ink, every dim and every accent clears 4.5:1 in every palette.** That
+is the part this phase could deliver and it is delivered for all thirteen
+rather than for the three the gate names.
+
+**The ANSI set does not, and cannot without redesigning the palettes.** 55 of
+the 208 ANSI pairings measure below 4.5:1, which is `BUILD-CONTRACT` P5.5's
+done criterion unmet, and the shape of the failure is the reason it is unmet
+rather than unfinished:
+
+- **21 are ANSI black and bright black.** Slot 0 is the background-adjacent
+  colour by ECMA-48 convention: it is what an application paints BEHIND text,
+  and what box-drawing and dim rules reach for. Every terminal emulator ever
+  shipped has it near the ground. 1.27 to 2.61 here.
+- **6 are ANSI white and bright white on the three light themes.** Same
+  argument at the other end: slot 7 is the light end of the ramp and a light
+  theme's ground is at the light end too.
+- **28 are genuine hues**, and all but four are on the three light palettes,
+  where a saturated mid-tone on a near-white ground is inherently a hard
+  pairing (`latte` yellow 2.31, `rose-pine-dawn` yellow 2.05). The four dark
+  ones are Nord's red and magenta at 3.05 and 4.41.
+
+Fixing these means re-authoring Catppuccin, Nord, Dracula, Tokyo Night, Rose
+Pine and Gruvbox, which would change every existing user's terminal, break the
+thirteen palettes `DESIGN-SPEC` 10.5 calls invariant DATA, and re-open the
+`theme-registry.test.js` background pins. Recorded rather than done, as
+`DEVIATIONS` DV-24, with the numbers, for 5.5.4's reckoning at P12.
+
+### 14.6 The p5 screenshots, and an honest reading of them
+
+`screenshots/notion-restyle/p5/`, the frozen eight plus eleven region shots.
+
+**The region set gains two, and both spawn a live PTY**, because a terminal
+pane with nothing attached is a drop slot and shows none of what this phase
+changed: not the ground, not the padding, not the ANSI palette, not the new
+face, not the scrollbar. `desktop-light-terminal` and `desktop-dark-terminal`
+spawn the provider CLI, which is the pane P5.5's acceptance criterion is
+actually about; `desktop-light-terminal-mocha-on-light` spawns a bare shell
+because its one job is a proof and it should not depend on a CLI's cold start
+to make it.
+
+**The two-axis proof is measured rather than eyeballed**, and it had to be:
+looking at that PNG in a viewer suggested the whole page had gone dark, and the
+pixels say otherwise. Sampled from the file: sidebar `#f1f0ef`, topbar
+`#ffffff`, terminal ground `#1e1e2e`. The chrome is Notion light while the
+terminal palette is Mocha, which is `DESIGN-SPEC` 10.1's two independent axes
+working, and it is a picture that could not have been taken before P5.4.
+
+The harness now records the live `data-chrome`, `data-theme`, the sidebar and
+terminal grounds and the `--term-*` values per region shot, so the next reader
+does not have to sample pixels to find that out.
+
+**What the pictures show that is new.** The pane is a card: an 8px frame on a
+hairline over a canvas gutter, with 12px between panes instead of a 2px seam.
+The terminal has room, 14px of it, so the first column no longer touches the
+frame. The face is iA Writer Mono at the same 13px and the same 1.2 line
+height, so the cell metrics are the terminal's own. The header is a 38px band
+with the provider tint, the pill, the title and the icon row, and nothing in
+it is mauve.
+
+**What still reads as the old design**, each with its owner:
+
+1. **The pane input row is invisible on the desktop.** Its palette contract
+   ships; the row itself is `display: none` above 768px. **P10 or P12.**
+2. **The first-run Copy hint pops over the top right of the pane** and lands in
+   two of the region shots. It is a one-time hint on a fresh profile and every
+   capture run gets a fresh profile, so it will be in every future p-set too.
+   Worth suppressing in the harness. **The harness owner.**
+3. **The pane's active ring is a 2px inset blue** inside a 1px hairline, so a
+   focused pane carries two borders one pixel apart. `DESIGN-SPEC` 5.3
+   specifies exactly that, and it reads heavier than the mock does at this
+   scale. **P12.**
+4. **The terminal scrollbar is only visible while scrolling** in the shots,
+   which is xterm's own overlay behaviour rather than the new rule.
+5. **The phone terminal is a floor, not a design.** **P10.**
+
+### 14.7 What P7 inherits
+
+1. **`terminalSurface(themeId)`**, returning
+   `{ id, appearance, bg, ink, dim, rule, accent, cursor, cursorAccent, selectionBg, selectionInk, fontFamily, ansi{16} }`
+   for all thirteen ids and `null` for anything else. Stage 3's history layer
+   reads `bg`, `ink`, `dim`, `rule` and `accent` from exactly here, and 10.3's
+   typography table reads `fontFamily` from the same object.
+2. **Seven `--term-*` custom properties on the document root**, republished on
+   every theme change by three overlapping triggers. Anything the history layer
+   draws in CSS can name them instead of measuring the terminal.
+3. **The seam is already closed for colour.** `.terminal-container` paints
+   `--term-bg`, which IS the value xterm paints, so a layer that occupies the
+   pane body rect over that ground is invisible at its edges by construction.
+   What stage 3 still has to derive from the live instance is METRICS, per 10.3.
+4. **`prepareInputForPty` and `isBracketedPasteMode`**, both module level or
+   stateless, both executed by tests. Stage 4's paste paths route through the
+   same function.
+5. **`Ctrl+Shift+A` wired and ready to be upgraded.** It calls
+   `term.selectAll()` today; P7.6 replaces the body, not the binding.
+6. **A drift gate that will fail on P7's behalf.** If P7 adds a slot to the
+   projection it must add it to `CSS_VARIABLES` or to the exemption list, and
+   the phantom-token allow-list asserts CSS consumption in both directions.
+7. **Two live-PTY region shots and a harness that kills its own probes.**
+   Adding a history-layer shot is one entry in `REGION_ROUTES`.
