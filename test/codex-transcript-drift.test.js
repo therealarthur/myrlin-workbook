@@ -347,6 +347,77 @@ function byToolName(messages) {
   if (prevHome === undefined) delete process.env.CODEX_HOME;
   else process.env.CODEX_HOME = prevHome;
 
+  // ── 5b. The bounded read ───────────────────────────────────────────────
+  //
+  // Found by the read-only proof harness rather than by reading the code: the
+  // heaviest thread on the reference machine has a 924 MB rollout, and the
+  // whole file was being read into one string. That is above V8's maximum
+  // string length, so the read threw and the catch returned an EMPTY
+  // transcript. A 924 MB session rendered as "no messages", silently, which is
+  // the same class of failure P9.1 exists to close. Measured across all 2889
+  // rollouts: 170 of them, 5.9 percent, are above the 256 MB ceiling.
+
+  await test('an oversized rollout reads its TAIL and says so, instead of failing empty', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-bounded-'));
+    const dir = path.join(home, 'sessions', '2026', '08', '01');
+    fs.mkdirSync(dir, { recursive: true });
+    const id = '019f0000-0000-7000-8000-0000000000bb';
+    const file = path.join(dir, 'rollout-2026-08-01T10-00-00-' + id + '.jsonl');
+
+    // Ten identical tool calls; each line is well over 100 bytes, so a 600-byte
+    // ceiling keeps only the last few and must drop the partial first line.
+    const line = JSON.stringify({
+      type: 'response_item',
+      payload: { type: 'custom_tool_call', name: 'exec', input: 'x'.repeat(120) },
+    });
+    fs.writeFileSync(file, Array(10).fill(line).join('\n') + '\n');
+    const fullSize = fs.statSync(file).size;
+
+    const saved = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = home;
+    try {
+      const p = freshParse();
+      const whole = await p.parseTranscriptDetailed(id);
+      assert.strictEqual(whole.messages.length, 10, 'the unbounded read must see every line');
+      assert.strictEqual(whole.stats.truncatedFile, false);
+      assert.strictEqual(whole.stats.fileSize, fullSize);
+      assert.strictEqual(whole.stats.bytesRead, fullSize);
+
+      const bounded = await p.parseTranscriptDetailed(id, { maxBytes: 600 });
+      assert.strictEqual(bounded.stats.truncatedFile, true, 'truncation must be reported, not hidden');
+      assert.strictEqual(bounded.stats.bytesRead, 600);
+      assert.strictEqual(bounded.stats.fileSize, fullSize);
+      assert(bounded.messages.length > 0, 'the tail must still parse');
+      assert(bounded.messages.length < 10, 'the tail must genuinely be a tail');
+      // The partial leading line is dropped, not counted as corrupt.
+      assert.strictEqual(bounded.stats.unparsable, 0);
+      assert.strictEqual(bounded.stats.unknown, 0);
+    } finally {
+      if (saved === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = saved;
+    }
+  });
+
+  await test('an empty rollout is empty, not an error', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-empty-'));
+    const dir = path.join(home, 'sessions', '2026', '08', '01');
+    fs.mkdirSync(dir, { recursive: true });
+    const id = '019f0000-0000-7000-8000-0000000000cc';
+    fs.writeFileSync(path.join(dir, 'rollout-2026-08-01T10-00-00-' + id + '.jsonl'), '');
+    const saved = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = home;
+    try {
+      const p = freshParse();
+      const d = await p.parseTranscriptDetailed(id);
+      assert.deepStrictEqual(d.messages, []);
+      assert.strictEqual(d.stats.fileSize, 0);
+      assert.strictEqual(d.stats.unknown, 0);
+    } finally {
+      if (saved === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = saved;
+    }
+  });
+
   // ── 6. One fixture per observed cli_version family ─────────────────────
   //
   // Measured on 2026-08-13 over a 133-file even-spread sample: seventeen

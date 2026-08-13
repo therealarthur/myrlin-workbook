@@ -955,6 +955,7 @@ const standaloneTests = [
   'side-peek.test.js',           // Notion restyle P4 remainder B1: the peek as a fixed-measure sibling, display:contents property grid, desktop-scoped width ladder, shared chip helpers, notes editor that never clobbers a focused textarea
   'docs-document-surface.test.js', // Notion restyle P4.6: the .nt-layout 720px named-line grid, zero-margin block box model, the corrected :has() list collapse, the 40px one-line arithmetic from token values, and the seven aria-controls
   'codex-transcript-drift.test.js', // Notion restyle P9.1/P9.2: the recovered custom_tool_call emit set, array-form tool results, image containment, the unknown-payload counter, and one fixture per cli_version shape family
+  'codex-usage-cost.test.js',       // Notion restyle P9.3: token_count normalisers, the cached-read conversion, and the cost capability gate that replaced a false $0.00 with an explicit unsupported state carrying real token counts
 ];
 
 let standaloneFailed = 0;

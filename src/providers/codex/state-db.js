@@ -1075,6 +1075,7 @@ let _cache = {
   projections: new Map(),
   rolloutById: null,
   cwdById: null,
+  tokensById: null,
   knownIds: null,
   capabilities: null,
   walFrames: 0,
@@ -1219,9 +1220,17 @@ async function listThreads(opts) {
     const knownIds = new Set();
     const censusRollouts = new Map();
     const censusCwds = new Map();
+    // BUILD-CONTRACT P9.3: the token census. `tokens_used` is the desktop app's
+    // own cumulative counter, and it was verified equal to the rollout's last
+    // `total_token_usage.total_tokens` on the measured thread (226,420,778 from
+    // both). Carrying it here makes an honest per-session total an O(1) map
+    // lookup instead of a tail read, which is what /api/cost/batch needs when it
+    // iterates every session on the machine.
+    const censusTokens = new Map();
     const censusColumns = ['id'];
     if (columns.has('rollout_path')) censusColumns.push('rollout_path');
     if (columns.has('cwd')) censusColumns.push('cwd');
+    if (columns.has('tokens_used')) censusColumns.push('tokens_used');
     for (const row of selectRows(db, 'SELECT ' + censusColumns.join(', ') + ' FROM threads')) {
       const id = toStringOrNull(row.id);
       if (!id) continue;
@@ -1231,6 +1240,8 @@ async function listThreads(opts) {
       if (rollout) censusRollouts.set(idLower, normalizeCodexPath(rollout));
       const cwd = toStringOrNull(row.cwd);
       if (cwd) censusCwds.set(idLower, normalizeCodexPath(cwd));
+      const tokens = toNumberOrNull(row.tokens_used);
+      if (tokens !== null) censusTokens.set(idLower, tokens);
     }
 
     return {
@@ -1238,6 +1249,7 @@ async function listThreads(opts) {
       knownIds: knownIds,
       rolloutById: censusRollouts,
       cwdById: censusCwds,
+      tokensById: censusTokens,
       capabilities: query.capabilities,
       meta: meta,
     };
@@ -1255,6 +1267,7 @@ async function listThreads(opts) {
   _cache.at = Date.now();
   _cache.rolloutById = result.rolloutById instanceof Map ? result.rolloutById : _cache.rolloutById;
   _cache.cwdById = result.cwdById instanceof Map ? result.cwdById : _cache.cwdById;
+  _cache.tokensById = result.tokensById instanceof Map ? result.tokensById : _cache.tokensById;
   _cache.knownIds = result.knownIds instanceof Set ? result.knownIds : _cache.knownIds;
   _cache.capabilities = result.capabilities;
   _cache.walFrames = result.meta ? result.meta.walFrames : 0;
@@ -1455,6 +1468,28 @@ function resolveCwdSync(threadId) {
 }
 
 /**
+ * Cumulative token total for one thread, answered from the warm cache only.
+ *
+ * BUILD-CONTRACT P9.3. `threads.tokens_used` is the desktop app's own counter,
+ * and on the measured thread it equals the rollout's last
+ * `total_token_usage.total_tokens` exactly (226,420,778 from both sources), so
+ * this is the same number the slow path would produce with none of the IO.
+ *
+ * Returns null on a cold cache, which the caller must render as "unknown"
+ * rather than as zero. That distinction is the entire point of the work this
+ * function belongs to: a false zero is a claim, and it was the wrong one.
+ *
+ * @param {string} threadId
+ * @returns {number|null}
+ */
+function totalTokensSync(threadId) {
+  const id = toStringOrNull(threadId);
+  if (!id || !_cache.tokensById) return null;
+  const value = _cache.tokensById.get(id.toLowerCase());
+  return typeof value === 'number' ? value : null;
+}
+
+/**
  * Every thread whose working directory matches, newest first, with its rollout
  * path already resolved. Answered from the warm cache only.
  *
@@ -1506,6 +1541,8 @@ function getDiagnostics() {
     engineError: _engineError,
     cachedThreadCount: _cache.threads ? _cache.threads.length : 0,
     knownThreadCount: _cache.knownIds ? _cache.knownIds.size : 0,
+    // P9.3: how many threads the warm census can answer a token total for.
+    tokenCensusCount: _cache.tokensById ? _cache.tokensById.size : 0,
     cacheAgeMs: _cache.at ? Date.now() - _cache.at : null,
     capabilities: _cache.capabilities,
     walFrames: _cache.walFrames,
@@ -1530,6 +1567,8 @@ module.exports = {
   resolveThreadsByCwdSync,
   listSpawnEdges,
   getDisplayTitle,
+  // BUILD-CONTRACT P9.3: O(1) cumulative token total from the warm census.
+  totalTokensSync,
 
   // Title cascade, pure and independently testable
   resolveTitle,

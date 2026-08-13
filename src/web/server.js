@@ -2417,11 +2417,20 @@ function probeAvailability(cliBinary, forceRefresh) {
  *   ?refresh=true  Bypass the 30s availability cache and re-probe.
  *
  * Response (200):
- *   [{id, displayName, accentToken, enabled, available, supportsCost}]
+ *   [{id, displayName, accentToken, enabled, available, supportsCost,
+ *     supportsTokenUsage}]
  *
  * Plan 15-03 (DISC-06). Plan 18-04 added supportsCost so the frontend can
  * disclose Codex's "cost not tracked" state with an em-dash + tooltip
  * instead of misleading "$0.00" badges (COST-02 / COST-03).
+ *
+ * BUILD-CONTRACT P9.3 added supportsTokenUsage, because the two claims are not
+ * the same one. "We know how many tokens this session burned" and "we know what
+ * it cost in money" were conflated behind a single flag, and Codex can only make
+ * the first: it bills against a ChatGPT plan and its rollouts carry a plan type
+ * and a credits block but no price. A row that is `supportsCost: false,
+ * supportsTokenUsage: true` should show a token count where a Claude row shows
+ * a dollar amount, rather than showing nothing or, worse, `$0.00`.
  */
 app.get('/api/providers', requireAuth, (req, res) => {
   const forceRefresh = req.query.refresh === 'true';
@@ -2441,6 +2450,13 @@ app.get('/api/providers', requireAuth, (req, res) => {
     // broken/misregistered provider rather than silently dropping the
     // cost badge for Claude.
     supportsCost: (typeof p.supportsCost === 'function') ? (p.supportsCost() !== false) : true,
+    // BUILD-CONTRACT P9.3: OPTIONAL capability, so an absent member reports
+    // false rather than defaulting to true. The asymmetry with supportsCost
+    // above is deliberate: defaulting cost to true preserves the pre-provider
+    // behaviour every caller already assumed, while defaulting token usage to
+    // true would promise a number no existing provider has been asked for.
+    supportsTokenUsage:
+      (typeof p.supportsTokenUsage === 'function') ? (p.supportsTokenUsage() === true) : false,
   }));
   res.json(out);
 });
@@ -3627,10 +3643,144 @@ function calculateSessionCost(jsonlPath) {
   };
 }
 
+// ──────────────────────────────────────────────────────────
+//  COST CAPABILITY GATE (BUILD-CONTRACT P9.3, CODEX-PARITY B10)
+// ──────────────────────────────────────────────────────────
+//
+// The cost routes below run a Claude-shaped parser over whatever transcript
+// they are handed: it matches `entry.type === 'assistant' && message.usage`.
+// A Codex rollout yields ZERO matches against 618 `event_msg/token_count`
+// entries in the file CODEX-PARITY measured, so the route returned a
+// fully-formed cost object of zeroes and the UI rendered `$0.00` for a session
+// that had 226 million tokens against it.
+//
+// `$0.00` is a claim, and it was the wrong one. These helpers make the routes
+// say "this provider does not report money", with the real token counts
+// attached, instead.
+
+/**
+ * Machine-readable reasons a money figure is absent, mirrored from
+ * src/providers/codex/usage.js so a non-Codex provider that lacks cost support
+ * gets the same vocabulary without importing a provider module.
+ */
+const COST_UNAVAILABLE_REASONS = Object.freeze({
+  NO_PRICE_MODEL: 'provider-has-no-price-model',
+  NO_USAGE: 'provider-reports-no-usage',
+  NO_ARTIFACT: 'no-transcript-artifact',
+});
+
+/**
+ * Does this provider report a MONEY figure.
+ *
+ * Defensive on both ends: an absent flag means "yes" (Claude semantics, which
+ * is what every caller assumed before providers existed), and a throwing flag
+ * is treated the same way rather than failing the request. Only an explicit
+ * `false` gates.
+ *
+ * @param {object|null} provider
+ * @returns {boolean}
+ */
+function providerSupportsCost(provider) {
+  if (!provider || typeof provider.supportsCost !== 'function') return true;
+  try {
+    return provider.supportsCost() !== false;
+  } catch (_) {
+    return true;
+  }
+}
+
+/**
+ * Build the response for a provider that has no price model.
+ *
+ * Shape contract, consumed by the session peek and by any future token display:
+ *
+ *   costSupported          false. The single field a client should branch on.
+ *   costUnavailableReason  one of COST_UNAVAILABLE_REASONS.
+ *   cost                   null, NEVER a zeroed object. A client that does
+ *                          `if (!data.cost)` hides its money panel, which is
+ *                          the correct outcome and is what app.js already does.
+ *   tokens                 real counts in the SAME field names the Claude path
+ *                          uses (input, output, cacheRead, cacheWrite, total),
+ *                          plus `reasoning`, so existing token-bar arithmetic
+ *                          works unchanged. Null when nothing is known.
+ *   tokensSource           'state-db' | 'rollout' | 'state-db+rollout' | null.
+ *   usage                  the provider's full native report, for callers that
+ *                          want the context window, the last turn or the plan
+ *                          and rate-limit snapshot.
+ *
+ * @param {object|null} provider
+ * @param {string} sessionId - Workbook session id.
+ * @param {string|null} resumeSessionId - Upstream provider session id.
+ * @param {string|null} jsonlPath - Resolved artifact, when one was found.
+ * @returns {Promise<object>} Always resolves; never rejects.
+ */
+async function buildUnpricedCostResponse(provider, sessionId, resumeSessionId, jsonlPath) {
+  const base = {
+    sessionId: sessionId,
+    resumeSessionId: resumeSessionId || null,
+    provider: provider && provider.id ? provider.id : null,
+    costSupported: false,
+    cost: null,
+    modelBreakdown: {},
+    messageCount: 0,
+    firstMessage: null,
+    lastMessage: null,
+  };
+
+  const canReportUsage =
+    provider &&
+    typeof provider.parseUsage === 'function' &&
+    (typeof provider.supportsTokenUsage !== 'function' || provider.supportsTokenUsage() !== false);
+
+  if (!canReportUsage) {
+    return Object.assign(base, {
+      costUnavailableReason: COST_UNAVAILABLE_REASONS.NO_USAGE,
+      tokens: null,
+      tokensSource: null,
+      usage: null,
+    });
+  }
+
+  let report = null;
+  try {
+    report = await provider.parseUsage(resumeSessionId || sessionId, {
+      artifactPath: jsonlPath || undefined,
+    });
+  } catch (_) {
+    // parseUsage is contractually non-throwing; the guard keeps a broken
+    // contract from turning an honest disclosure into a 500.
+    report = null;
+  }
+
+  if (!report) {
+    return Object.assign(base, {
+      costUnavailableReason: COST_UNAVAILABLE_REASONS.NO_ARTIFACT,
+      tokens: null,
+      tokensSource: null,
+      usage: null,
+    });
+  }
+
+  return Object.assign(base, {
+    costUnavailableReason: COST_UNAVAILABLE_REASONS.NO_PRICE_MODEL,
+    tokens: report.tokens || null,
+    tokensSource: report.source || null,
+    contextWindow: typeof report.contextWindow === 'number' ? report.contextWindow : null,
+    lastTurn: report.lastTurn || null,
+    rateLimits: report.rateLimits || null,
+    model: report.model || null,
+    usage: report,
+  });
+}
+
 /**
  * GET /api/sessions/:id/cost
  * Reads the session's JSONL file and calculates token usage and estimated cost.
  * Results are cached for 60 seconds, invalidated when the file mtime changes.
+ *
+ * BUILD-CONTRACT P9.3: gated on provider.supportsCost(). A provider with no
+ * price model gets the explicit unsupported disclosure above, carrying its real
+ * token counts, instead of a zeroed cost object that renders as `$0.00`.
  */
 app.get('/api/sessions/:id/cost', requireAuth, (req, res) => {
   const store = getStore();
@@ -3661,6 +3811,19 @@ app.get('/api/sessions/:id/cost', requireAuth, (req, res) => {
   if (!jsonlPath && !resumeSessionId) {
     jsonlPath = provider ? provider.findArtifactPath(req.params.id) : null;
     resumeSessionId = req.params.id;
+  }
+
+  // BUILD-CONTRACT P9.3: the capability gate, placed BEFORE the missing-artifact
+  // branch on purpose. A provider whose totals live in its own store can answer
+  // with real numbers even when no transcript file was resolved, and it must
+  // never fall through to the zeroed cost object below.
+  if (!providerSupportsCost(provider)) {
+    buildUnpricedCostResponse(provider, req.params.id, resumeSessionId, jsonlPath)
+      .then((payload) => res.json(payload))
+      .catch((err) =>
+        res.status(500).json({ error: 'Failed to read usage: ' + (err && err.message ? err.message : err) })
+      );
+    return;
   }
 
   if (!jsonlPath) {
@@ -3733,6 +3896,38 @@ app.get('/api/cost/batch', requireAuth, async (req, res) => {
         if (!resumeSessionId) continue;
         // Plan 15-01 (DISC-03): dispatch through provider abstraction.
         const provider = getProviderForSession(session);
+
+        // BUILD-CONTRACT P9.3: the same capability gate the single-session route
+        // applies, applied here too and BEFORE any artifact resolution.
+        //
+        // Without it, a cost-unsupported provider's rows ran the Claude parser,
+        // matched nothing, and returned `cost: 0`, which is the false zero this
+        // phase exists to remove. `cost: null` is the honest answer, and it is
+        // also the value the frontend's badge patcher already skips, so a stale
+        // batch response can never overwrite the em-dash disclosure.
+        //
+        // The token total is a warm-cache map lookup, so this branch performs no
+        // IO at all and cannot slow a batch that spans every session on the
+        // machine. A cold cache yields null, which means "unknown", not "zero".
+        if (!providerSupportsCost(provider)) {
+          let tokenTotal = null;
+          try {
+            if (provider && typeof provider.totalTokensSync === 'function') {
+              tokenTotal = provider.totalTokensSync(resumeSessionId);
+            }
+          } catch (_) {
+            tokenTotal = null;
+          }
+          costs[session.id] = {
+            cost: null,
+            costSupported: false,
+            costUnavailableReason: COST_UNAVAILABLE_REASONS.NO_PRICE_MODEL,
+            tokens: tokenTotal,
+            lastActive: session.lastActive || null,
+          };
+          continue;
+        }
+
         const jsonlPath = provider ? provider.findArtifactPath(resumeSessionId) : null;
         if (!jsonlPath) continue;
 

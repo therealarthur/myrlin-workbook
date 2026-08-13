@@ -41,6 +41,11 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+// BUILD-CONTRACT P9.1: the read-only thread store, consulted only as an O(1)
+// index in front of the existing walk. Never throws, returns null when
+// unavailable, at which point resolution behaves exactly as it always has.
+// No cycle: state-db requires only ./paths, which requires only crypto.
+const stateDb = require('./state-db');
 
 // ---------------------------------------------------------------------------
 // Module-private constants
@@ -141,6 +146,38 @@ const TOOL_BODY_JSON_MAX_CHARS = 4096;
  * A log line that enumerates fifty variants is not read by anyone.
  */
 const UNKNOWN_TYPE_LOG_LIMIT = 5;
+
+/**
+ * Ceiling on how much of a rollout is read into memory at once.
+ *
+ * Found by the P9 read-only proof harness, not by reading the code: the
+ * heaviest thread on the reference machine has a **969 MB** rollout. The whole
+ * file was being read into a single string, which is above V8's maximum string
+ * length, so the read threw and the catch returned an empty transcript. A
+ * 969 MB session rendered as "no messages", silently, which is the same class of
+ * failure this phase exists to close.
+ *
+ * Above the ceiling the tail is read instead. A rollout is append-only, so the
+ * tail is the recent conversation, which is what a reader opening a transcript
+ * wants. `stats.truncatedFile` says plainly that it happened.
+ *
+ * The number is chosen from the measured size distribution of all 2889
+ * rollouts on the reference machine, 128.8 GB in total:
+ *
+ *      <1 MB   413        32-64 MB    98
+ *     1-8 MB  1243       64-128 MB   252
+ *    8-32 MB   500      128-512 MB   380
+ *                          >512 MB     3
+ *
+ *   64 MB would truncate 635 files, 22.0 percent. Too blunt.
+ *   256 MB truncates 170 files, 5.9 percent, and stays clear of V8's maximum
+ *      string length so the read can never throw the way the 924 MB one did.
+ *   No ceiling at all fails outright on the 3 files above 512 MB and asks a
+ *      server process to hold a 500 MB string on the other 380.
+ *
+ * Callers with a tighter budget pass `opts.maxBytes`.
+ */
+const MAX_TRANSCRIPT_READ_BYTES = 256 * 1024 * 1024;
 
 /**
  * How a payload field is turned into display text. Named strategies rather than
@@ -456,7 +493,83 @@ function createTranscriptStats() {
     skippedTypes: {},
     /** True when at least one pre-0.45 bare-JSON line was wrapped. */
     bareJson: false,
+    /** True when only the tail of the file was read (see MAX_TRANSCRIPT_READ_BYTES). */
+    truncatedFile: false,
+    /** Size of the rollout on disk, in bytes; null when it was never stat'd. */
+    fileSize: null,
+    /** Bytes actually read. Equals fileSize unless truncatedFile is true. */
+    bytesRead: 0,
   };
+}
+
+/**
+ * Read a rollout for parsing, bounded.
+ *
+ * Two properties, both learned from the real store rather than assumed:
+ *
+ *   - ASYNCHRONOUS. A synchronous whole-file read blocks the event loop for as
+ *     long as the disk takes, and this runs inside a server. P8 measured a
+ *     23 MB synchronous read at 6.2 seconds under contention against 188 ms for
+ *     the chunked asynchronous form.
+ *   - BOUNDED. The heaviest rollout on the reference machine is 969 MB, which
+ *     is above V8's maximum string length: reading it whole threw, and the
+ *     transcript came back empty with no explanation.
+ *
+ * @param {string} filePath
+ * @param {number} maxBytes
+ * @param {Object} stats - Filled in with fileSize, bytesRead, truncatedFile.
+ * @returns {Promise<string|null>} File text, or null when it could not be read.
+ */
+async function readRolloutBounded(filePath, maxBytes, stats) {
+  let stat;
+  try {
+    stat = await fs.promises.stat(filePath);
+  } catch (_) {
+    return null;
+  }
+  if (!stat.isFile()) return null;
+  if (stats) stats.fileSize = stat.size;
+  if (stat.size === 0) {
+    if (stats) stats.bytesRead = 0;
+    return '';
+  }
+
+  if (stat.size <= maxBytes) {
+    try {
+      const text = await fs.promises.readFile(filePath, 'utf-8');
+      if (stats) stats.bytesRead = stat.size;
+      return text;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Tail window. The first line in it almost certainly opened mid-record, so it
+  // is dropped rather than counted as a torn line.
+  let handle = null;
+  try {
+    handle = await fs.promises.open(filePath, 'r');
+    const buf = Buffer.alloc(maxBytes);
+    await handle.read(buf, 0, maxBytes, stat.size - maxBytes);
+    let text = buf.toString('utf-8');
+    const nl = text.indexOf('\n');
+    text = nl >= 0 ? text.slice(nl + 1) : '';
+    if (stats) {
+      stats.bytesRead = maxBytes;
+      stats.truncatedFile = true;
+    }
+    return text;
+  } catch (_) {
+    return null;
+  } finally {
+    if (handle) {
+      try {
+        await handle.close();
+      } catch (_) {
+        /* nothing useful to do */
+      }
+    }
+  }
 }
 
 /**
@@ -529,6 +642,28 @@ function normalizeRole(role) {
  */
 function resolveRolloutPath(providerSessionId) {
   if (!providerSessionId || typeof providerSessionId !== 'string') return null;
+
+  // BUILD-CONTRACT P9.1, found by the read-only proof harness rather than by
+  // reading the code: the heaviest thread on the reference machine parsed to
+  // ZERO messages, because this walk only ever looks under
+  // `$CODEX_HOME/sessions`. The store knows better. `threads.rollout_path` is a
+  // direct absolute path, and it reaches the two transcripts under
+  // `D:\CodexArchive` and everything under `archived_sessions/` that this walk
+  // structurally cannot see.
+  //
+  // findArtifactPath in index.js has consulted the store since P8.8; this
+  // function did not, so the transcript view and the artifact lookup disagreed
+  // about whether a session existed. They now agree.
+  //
+  // Answered from the warm cache, so it is a map lookup and never IO, and a
+  // cold cache falls straight through to the walk exactly as before.
+  try {
+    const fromStore = stateDb.resolveRolloutPathSync(providerSessionId);
+    if (fromStore) return fromStore;
+  } catch (_) {
+    // state-db is contractually non-throwing; the guard costs the fast path
+    // rather than transcript resolution if that contract ever breaks.
+  }
 
   const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex'); // gsd:provider-literal-allowed
   const sessionsRoot = path.join(codexHome, 'sessions');
@@ -977,6 +1112,8 @@ async function parseTranscript(providerSessionId) {
  * @param {string} [opts.filePath] - Skip id resolution and read this file. Used
  *   by callers that already resolved the rollout (the state store answers that
  *   in O(1)) and by tests working against a fixture.
+ * @param {number} [opts.maxBytes=MAX_TRANSCRIPT_READ_BYTES] - Read ceiling.
+ *   Above it, only the tail is read and `stats.truncatedFile` is set.
  * @returns {Promise<{messages: Array<object>, stats: Object, filePath: string|null}>}
  *   Always resolves; never rejects. `stats.unknown > 0` means this transcript
  *   dropped lines nothing recognised, which is the drift signal.
@@ -996,10 +1133,16 @@ async function parseTranscriptDetailed(providerSessionId, opts) {
     const filePath = explicitPath || resolveRolloutPath(providerSessionId);
     if (!filePath) return { messages: [], stats: stats, filePath: null };
 
-    let raw;
-    try {
-      raw = fs.readFileSync(filePath, 'utf-8');
-    } catch (_) {
+    // Bounded and asynchronous. See readRolloutBounded: the previous
+    // `fs.readFileSync(filePath, 'utf-8')` blocked the event loop for the whole
+    // read AND threw outright on the 969 MB rollout that exists on the
+    // reference machine, returning an empty transcript with no explanation.
+    const maxBytes =
+      Number.isFinite(options.maxBytes) && options.maxBytes > 0
+        ? Math.floor(options.maxBytes)
+        : MAX_TRANSCRIPT_READ_BYTES;
+    const raw = await readRolloutBounded(filePath, maxBytes, stats);
+    if (raw === null) {
       return { messages: [], stats: stats, filePath: filePath };
     }
 
@@ -1109,6 +1252,8 @@ module.exports = {
     extractOutputText: extractOutputText,
     coerceToolBody: coerceToolBody,
     createTranscriptStats: createTranscriptStats,
+    readRolloutBounded: readRolloutBounded,
+    MAX_TRANSCRIPT_READ_BYTES: MAX_TRANSCRIPT_READ_BYTES,
     IMAGE_PART_PLACEHOLDER: IMAGE_PART_PLACEHOLDER,
     TOOL_SEARCH_TOOL_NAME: TOOL_SEARCH_TOOL_NAME,
     WEB_SEARCH_TOOL_NAME: WEB_SEARCH_TOOL_NAME,

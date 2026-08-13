@@ -44,6 +44,9 @@ const { search } = require('./search');
 // index in front of the existing O(n) walk. Never throws; returns null when
 // unavailable, at which point every call site below behaves exactly as before.
 const stateDb = require('./state-db');
+// BUILD-CONTRACT P9.3: token accounting. Codex has usage but no price model, so
+// this backs supportsTokenUsage + parseUsage while supportsCost stays false.
+const usage = require('./usage');
 
 // ---------------------------------------------------------------------------
 // Idle signal detection
@@ -102,14 +105,52 @@ function getKeyBindings() {
 // ---------------------------------------------------------------------------
 
 /**
- * supportsCost capability flag. Codex returns false in v1.2 because no
- * token usage shape is locked in yet (the cost worker would emit
- * misleading $0 entries). Cost tracking is deferred to v1.3 (CROSS-COST-01).
+ * supportsCost capability flag: does this provider report a MONEY figure.
  *
- * @returns {boolean}
+ * Still false, and BUILD-CONTRACT P9.3 asked for it to be flipped to true. The
+ * deviation is deliberate and is recorded in DEVIATIONS.md; the reasoning:
+ *
+ *   - The contract's done criterion is "Codex cost is real, or honestly absent,
+ *     never a false zero".
+ *   - The frontend gates purely on this flag. `renderSessionItem` renders
+ *     `$` + the cached cost when it is true, and the em-dash "not tracked"
+ *     badge when it is false. Nothing downstream consults the cost route's own
+ *     response to decide which to show.
+ *   - Codex desktop bills against a ChatGPT plan. The rollouts carry
+ *     `rate_limits.plan_type` and a credits block; they carry no price, and no
+ *     per-token rate exists that could be applied without inventing one.
+ *
+ * So flipping this flag with no price model would have replaced the false
+ * `$0.00` with a differently-false `$0.00`, which is the exact outcome the
+ * criterion forbids. What P9.3 actually asked for underneath, real numbers or
+ * an honest absence, is delivered by supportsTokenUsage + parseUsage below and
+ * by the route gate that now reports `costSupported: false` with the real token
+ * counts attached.
+ *
+ * Flip this the moment a price model exists. Nothing else needs to change.
+ *
+ * @returns {boolean} False: Codex has usage, not cost.
  */
 function supportsCost() {
   return false;
+}
+
+/**
+ * supportsTokenUsage capability flag: does this provider report TOKEN counts.
+ *
+ * BUILD-CONTRACT P9.3. OPTIONAL member, deliberately separate from
+ * supportsCost, because "we know exactly how many tokens this session burned"
+ * and "we know what it cost in money" are different claims and Codex can only
+ * make the first one. A single flag conflated them, which is how a session with
+ * 226 million tokens against it came to be displayed as `$0.00`.
+ *
+ * A provider that omits this member is treated as "unknown", so no existing
+ * provider changes behaviour by not having it.
+ *
+ * @returns {boolean} True: see parseUsage.
+ */
+function supportsTokenUsage() {
+  return true;
 }
 
 /**
@@ -433,6 +474,14 @@ module.exports = {
   init: init,
   dispose: dispose,
   supportsCost: supportsCost,
+  // BUILD-CONTRACT P9.3: OPTIONAL capability pair. supportsTokenUsage says the
+  // provider can report token counts even though it cannot report money;
+  // parseUsage produces them. NOT in REQUIRED_METHODS, so providers without
+  // token accounting still validate, and callers probe both defensively.
+  supportsTokenUsage: supportsTokenUsage,
+  parseUsage: usage.parseUsage,
+  totalTokensSync: usage.totalTokensSync,
+  COST_UNAVAILABLE: usage.COST_UNAVAILABLE,
   isIdleSignal: isIdleSignal,
   getKeyBindings: getKeyBindings,
   // Issue #10 Tier 1: OPTIONAL mirror capability. mirror.parseLine maps one
