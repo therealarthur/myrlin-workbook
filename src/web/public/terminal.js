@@ -278,6 +278,40 @@ const BRACKETED_PASTE_END_RE = /\x1b\[201~/g;
 // recognise a command, short enough that the dialog never grows a scrollbar.
 const PASTE_PREVIEW_MAX_CHARS = 120;
 
+/* ═══════════════════════════════════════════════════════════════════
+   UNIFIED SCROLLBACK SURFACE
+   Notion restyle phase P7, work packages P7.1 to P7.6.
+   TERMINAL-ARCHITECTURE.md sections 7 to 12, stages 3 and 4.
+
+   The history surface itself lives in terminal-history.js. What lives
+   HERE is the pane's side of the contract, and it is deliberately thin:
+   three data fetchers that reuse the mirror plumbing the Copy view
+   already owns, the two event hooks (wheel and key) that decide when
+   the surface opens, and the lifecycle calls that tear it down with
+   every other host-owned resource.
+
+   NOTHING in this block is a dependency of anything that existed
+   before it. If terminal-history.js fails to load, every accessor
+   below returns null or false, the wheel and the keyboard behave
+   exactly as they did in P6, and the pane is a P6 pane. That is the
+   same containment shape the Copy view, the sidecar and node-pty all
+   use, and it is why this can ship without a flag.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Bytes requested per transcript page for the history surface. Same value the
+// Copy view uses, and the server clamps it to its own window cap.
+const HISTORY_TRANSCRIPT_PAGE_BYTES = 262144;
+
+// Default page size for a deep-history request. The route clamps to 2000; this
+// is a page of the document rather than the whole log.
+const HISTORY_DEEP_PAGE_LINES = 2000;
+
+// localStorage key recording that the Select-mode strip has explained itself
+// once. P7.6 demotes the strip: the scrollbar is the affordance now, so the
+// standing explanation appears only on the FIRST plain drag under mouse
+// tracking and never again on any pane.
+const SELECT_STRIP_SEEN_KEY = 'cwm_selectstrip_v1';
+
 /**
  * Prepare clipboard text for delivery to a PTY.
  *
@@ -1225,6 +1259,24 @@ class TerminalPane {
     this._remoteBracketedPaste = undefined;
     this._modeSeq = 0;
     this._pasteConfirmEl = null;
+    // ── P7 Unified Scrollback Surface state ──────────────────────
+    // _remoteModeFrame: the whole last mode frame, kept alongside the single
+    //   boolean P5 extracted from it. The history layer needs altBuffer and
+    //   mouseTracking as well, and mouseTracking is a STRING ENUM ('none',
+    //   'x10', 'vt200', 'drag', 'any') that must never be truthy-tested: the
+    //   string 'none' is truthy. Undefined until a frame arrives, which on a
+    //   default install (CWM_VT_SIDECAR off) is never, and the layer falls back
+    //   to xterm's own readers.
+    // _historyLayer: the surface, created lazily on first use and destroyed
+    //   with every other host-owned resource.
+    // _historyBufferDisposable: the onBufferChange subscription that re-routes
+    //   a pane crossing the normal/alternate boundary.
+    // _selectStripAnnounced: whether this pane has already shown the demoted
+    //   Select-mode strip in this session.
+    this._remoteModeFrame = null;
+    this._historyLayer = null;
+    this._historyBufferDisposable = null;
+    this._selectStripAnnounced = false;
     // Copy-mode root cause (user report, 2026-07-25): Claude Code's interactive
     // TUI turns on terminal mouse tracking (DECSET 1000/1002/1003 + SGR 1006).
     // While that is active, xterm forwards a plain drag/wheel to the PTY instead
@@ -1570,6 +1622,13 @@ class TerminalPane {
       // repaint every cell under the highlight.
       this._installSelectModeWheelGuard();
       this._injectCopyControls();
+      // P7.1: the boundary wheel handler and the buffer-mode subscription that
+      // together make wheel-up reach history. Installed through xterm 6's
+      // PUBLIC attachCustomWheelEventHandler rather than as a second capture
+      // phase listener, so the Select-mode wheel guard above is untouched and
+      // keeps working exactly as it does today (13.2's ruling: add a sibling,
+      // never rewrite the guard).
+      this._installHistorySurface();
       // Width claim: start watching for this pane becoming the one the user is
       // actually looking at. Both triggers are inert until the WebSocket is
       // open and the initial replay window has passed.
@@ -1695,6 +1754,54 @@ class TerminalPane {
           return false;
         }
 
+        // ── Ctrl+C over a HISTORY selection (P7, TERMINAL-ARCHITECTURE 9.1) ──
+        //
+        // Written with the layer test FIRST, and that spelling is load bearing:
+        // three suites (copy-secure-context-fallback, terminal-select-mode and
+        // terminal-select-v2) locate the plain branch below by an indexOf of
+        // its exact if-header text, so a branch that BEGAN with those same
+        // characters would be extracted as part of it and would turn all three
+        // red while behaving correctly. The header literal is deliberately not
+        // repeated anywhere above the branch it belongs to, comments included,
+        // because indexOf cannot tell a comment from code.
+        //
+        // WHY IT EXISTS AT ALL. Plain Ctrl+C deliberately does nothing but
+        // return false, leaving the copy to Chromium's trusted `copy` event,
+        // which xterm answers on the terminal element with ITS OWN selection.
+        // The reachable case where that is wrong is Ctrl+Shift+A: it selects
+        // the history document while the keyboard focus is still on the
+        // terminal, so xterm would answer the copy with an empty selection and
+        // the user would get nothing. When the selection lives in the history
+        // layer this branch copies it explicitly through the universal helper,
+        // which works on insecure origins too.
+        if (this._historyOwnsSelection() && mod && !e.shiftKey && shortcutKey === 'c') {
+          e.preventDefault();
+          const historySelection = this.getCopySelection();
+          if (historySelection.hasSelection && historySelection.text) {
+            TerminalPane.copyTextToClipboard(historySelection.text);
+          }
+          return false;
+        }
+
+        // ── The history surface's own keys (8.4) ──
+        //
+        // Shift+PageUp / Shift+PageDown, Ctrl+Shift+Home / End, Escape, and
+        // the row that makes the whole surface modeless: any printable key
+        // dismisses and is delivered, exactly as in a native terminal.
+        //
+        // The verdict comes back from the layer rather than being decided here
+        // so the two entry points (this handler, and the layer's own keydown
+        // for when the user has clicked into the document) cannot drift.
+        // 'consumed' means xterm must not see the key; 'pass' means the layer
+        // has closed and the key belongs to the PTY, which is what returning
+        // true delivers.
+        const historyVerdict = this._historyKeyVerdict(e);
+        if (historyVerdict === 'consumed') {
+          e.preventDefault();
+          return false;
+        }
+        if (historyVerdict === 'pass') return true;
+
         // ── Ctrl+Shift+A, select all (D5 and 8.4) ──
         //
         // Terminal.selectAll() has existed in xterm 6 the whole time
@@ -1708,13 +1815,27 @@ class TerminalPane {
         // 8.4 rules on this explicitly and picks the Shift form; Cmd+A already
         // reaches xterm's own SELECT_ALL on macOS and is left alone.
         //
-        // Stage 3 upgrades this to select the whole history document; today it
-        // selects the whole terminal buffer, which is everything that exists.
+        // P7.6 REPLACED THIS BODY, not its binding. It now selects the whole
+        // HISTORY DOCUMENT including the current screen, which is requirement
+        // A6 ("select the entire pane content, including history, with one
+        // action") and which term.selectAll() can never satisfy on an agent
+        // pane: xterm holds one screen there, because the alternate viewport
+        // never scrolls.
+        //
+        // Opening the surface first is deliberate. "Select everything" on a
+        // surface that is not showing everything would copy a subset while
+        // looking like it copied the lot, which is the silent-wrong-answer
+        // class of failure this whole phase exists to remove. term.selectAll()
+        // remains the fallback for a pane whose layer cannot open (no host, no
+        // terminal-history.js), so nothing regresses when the surface is
+        // unavailable.
         if (mod && e.shiftKey && shortcutKey === 'a') {
           e.preventDefault();
-          try {
-            if (this.term && typeof this.term.selectAll === 'function') this.term.selectAll();
-          } catch (_) { /* a disposed terminal has nothing to select */ }
+          if (!this.selectAllHistory()) {
+            try {
+              if (this.term && typeof this.term.selectAll === 'function') this.term.selectAll();
+            } catch (_) { /* a disposed terminal has nothing to select */ }
+          }
           return false;
         }
 
@@ -2127,6 +2248,15 @@ class TerminalPane {
               if (typeof msg.bracketedPaste === 'boolean') {
                 this._remoteBracketedPaste = msg.bracketedPaste;
               }
+              // P7: keep the WHOLE frame, not just the one boolean P5 needed.
+              // The history layer routes on `altBuffer` and decides the wheel
+              // on `mouseTrackingActive`, and both are authoritative here in a
+              // way the client cannot be: this parser saw the bytes that
+              // arrived before this client attached. Stored on the same seq
+              // guard so an out-of-order frame cannot move the router
+              // backwards.
+              this._remoteModeFrame = msg;
+              if (this._historyLayer) this._historyLayer.onBufferChange();
             }
             return;
           } else if (msg.type === 'error') {
@@ -2571,6 +2701,12 @@ class TerminalPane {
     if (this._selNoticeTimer) { clearTimeout(this._selNoticeTimer); this._selNoticeTimer = null; }
     this._removeSelectModeWheelGuard();
     this._destroyCopyView();
+    // P7: the history surface is parented on the pane element too, so it is a
+    // fixed-host resource exactly like the Copy view overlay above. A cached
+    // pane that kept its surface attached would leave one session's history
+    // floating over another session's terminal, and its document-level
+    // selectionchange listener would keep running for a pane nobody can see.
+    this._destroyHistoryLayer();
     // P5.2: the multi-line paste confirm is parented on the pane element, so it
     // is a fixed-host resource exactly like the Copy view overlay above. A
     // cached pane that kept its dialog attached would leave a question about
@@ -2650,6 +2786,12 @@ class TerminalPane {
       // detachHostBindings() call above.
       this._installSelectModeWheelGuard();
       this._injectCopyControls();
+      // P7: the history surface follows the pane to its new slot for the same
+      // reason the wheel guard does. detachHostBindings destroyed it above, so
+      // this rebuilds the layer against the destination host; a surface that
+      // was open when the pane moved comes back closed, which is correct
+      // because the rect it was measured against no longer exists.
+      this._installHistorySurface();
       // Width claim: rebuild both triggers against the destination slot. The
       // hidden-to-visible edge then fires for the restored pane, which is
       // exactly when this device should own the geometry again.
@@ -3130,6 +3272,11 @@ class TerminalPane {
     const onTouchStart = (e) => {
       // Copy view overlay owns its own scrolling and long-press selection.
       if (this._isInsideCopyView(e.target)) return;
+      // P7: so does the history surface. It scrolls natively, its selection
+      // uses the platform handles, and its pull-to-refresh suppression is the
+      // browser's own, so the engine must not convert a touch inside it into
+      // term.scrollLines().
+      if (this._isInsideHistoryLayer(e.target)) return;
       // In type mode, let xterm.js handle everything
       if (this._mobileTypeMode) return;
       // If currently selecting, let xterm handle
@@ -3161,6 +3308,8 @@ class TerminalPane {
     const onTouchMove = (e) => {
       // Copy view overlay scrolls natively; never convert it to term scroll.
       if (this._isInsideCopyView(e.target)) return;
+      // P7: the history surface scrolls natively for the same reason.
+      if (this._isInsideHistoryLayer(e.target)) return;
       if (this._mobileTypeMode) return;
       // If selecting, let xterm.js handle the selection drag
       if (this._mobileSelecting) return;
@@ -3200,6 +3349,8 @@ class TerminalPane {
     const onTouchEnd = (e) => {
       // Copy view overlay: leave the gesture entirely to the browser.
       if (this._isInsideCopyView(e.target)) return;
+      // P7: and the history surface, whose selection handles are the platform's.
+      if (this._isInsideHistoryLayer(e.target)) return;
       if (!this._mobileTypeMode && !this._mobileSelecting) e.stopPropagation();
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
@@ -3336,6 +3487,15 @@ class TerminalPane {
     this._writeBuf += data;
     this._activitySample += data;
 
+    // P7: tell the history surface that the application produced output. Two
+    // jobs, both cheap: it cancels a pending wheel-exhaustion verdict (an
+    // application that answers the wheel is scrolling its own history and must
+    // keep the wheel), and it marks the live segment dirty so an open surface
+    // keeps mirroring the screen. Called on ARRIVAL rather than after the
+    // write because the exhaustion probe is a timing measurement, and called
+    // again after the write in _flushWriteBuffer because the mirror is not.
+    if (this._historyLayer) this._historyLayer.noteOutput();
+
     // Select mode v2 freeze gate. While the toggle is on for a hosted pane,
     // bytes accumulate in the SAME queue the batching pipeline already uses
     // and no flush is scheduled, so the visible screen becomes a stable
@@ -3407,6 +3567,13 @@ class TerminalPane {
 
     // Single xterm write for the entire frame's data
     this.term.write(buf);
+
+    // P7: the buffer has changed, so an open history surface re-reads its live
+    // segment on the next frame. This is the MIRROR half of the mirror-freeze
+    // principle: the write pipeline above is never gated on the surface, and
+    // the surface never gates it. A selection held in the layer pauses this
+    // refresh and nothing else.
+    if (this._historyLayer) this._historyLayer.noteOutput();
 
     // Track completion (debounced internally). The flushed chunk is passed
     // so the tracker can decide whether this burst is meaningful output or
@@ -4363,6 +4530,11 @@ class TerminalPane {
       // Never steal wheel events that belong to the Copy view overlay; it is
       // an ordinary scrollable DOM element and scrolls natively.
       if (this._isInsideCopyView(e.target)) return;
+      // P7: the history surface is the same kind of element and gets the same
+      // exemption. It normally sits outside this container (it is parented on
+      // the pane), so this only matters in the fallback host case, but the
+      // check is cheap and makes both paths correct wherever the layer landed.
+      if (this._isInsideHistoryLayer(e.target)) return;
       const holding = !!this._selectHold;
       const isAlt = !!(this.term && this.term.buffer && this.term.buffer.active &&
         this.term.buffer.active.type === 'alternate');
@@ -4495,6 +4667,13 @@ class TerminalPane {
           sessionId: this.sessionId,
           selectMode: !!this._selectMode,
           copyViewOpen: !!this._copyOverlayOpen,
+          // P7: the phone chrome has to stay honest about a third state now
+          // (8.5). Added to the EXISTING contract rather than given an event
+          // of its own, so the app shell's single delegated listener picks it
+          // up with no new wiring; a listener that ignores the field is
+          // unaffected, which is what keeps this safe to add from a file the
+          // mobile track does not own.
+          historyOpen: !!(this._historyLayer && this._historyLayer.isOpen()),
         },
       }));
     } catch (_) {
@@ -4606,7 +4785,14 @@ class TerminalPane {
         ? 'Select mode ON: output is paused, drag selects text, Ctrl+C copies. Clickable options are paused. Click to turn off, or just type.'
         : 'Select / Copy mode: pause output and drag to select text. Tip: hold Shift and drag to select any time. Clickable options pause while this is on.';
     }
-    if (on) this._showSelectModeStrip();
+    // P7.6 DEMOTES THE STRIP, and this is the whole of the demotion: the
+    // method, its text, its placement and its notice path are untouched, and
+    // the call is gated instead. Under the Unified Scrollback Surface the
+    // scrollbar is the affordance that says history exists, so a standing
+    // strip on every toggle is chrome explaining something the surface already
+    // shows. What is left worth saying is said once, on the first plain drag
+    // under mouse tracking. See _shouldShowSelectModeStrip.
+    if (on && this._shouldShowSelectModeStrip()) this._showSelectModeStrip();
     else this._hideSelectModeStrip();
     if (this.paneEl) this.paneEl.classList.toggle('select-mode-on', on);
     // Mobile parity: the app shell mirrors this toggle onto the mobile toolbar,
@@ -5806,6 +5992,397 @@ class TerminalPane {
     this._copyHintTimer = setTimeout(() => this._dismissCopyHint(), 14000);
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     THE UNIFIED SCROLLBACK SURFACE (P7)
+     TERMINAL-ARCHITECTURE.md sections 7 to 12, stages 3 and 4.
+
+     Select mode makes the VISIBLE screen selectable. The Copy view
+     snapshots both buffers into an overlay the user has to know to
+     open. Neither answers "wheel up and copy what I read ten minutes
+     ago", because for an alternate-screen CLI that content was never
+     in the terminal at all: the viewport never scrolls, so there is no
+     scrollback to reach (measured, section 2.3).
+
+     The history surface reaches it by SCROLL POSITION instead of by a
+     button, and it contains the current screen as its last segment, so
+     a drag from the live screen up into last hour's conversation is
+     one ordinary DOM selection with no boundary in it.
+
+     Everything below is the pane's half of that contract. The surface
+     itself is terminal-history.js.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Whether the history surface module is present and usable.
+   *
+   * Every P7 entry point is gated on this, which is what lets the whole
+   * feature be additive: with terminal-history.js absent (an old cached
+   * index.html, a stripped deployment, a unit test evaluating this file in a
+   * bare vm sandbox) the wheel, the keyboard and Select mode behave exactly as
+   * they did in P6.
+   *
+   * @returns {boolean} True when the layer can be constructed.
+   */
+  _historySurfaceAvailable() {
+    try {
+      return !!(typeof window !== 'undefined' && window.TerminalHistory &&
+        typeof window.TerminalHistory.TerminalHistoryLayer === 'function');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Create the history layer for this pane, once.
+   *
+   * @returns {object|null} The layer, or null when it is unavailable.
+   */
+  _ensureHistoryLayer() {
+    if (this._historyLayer) return this._historyLayer;
+    if (this._disposed || !this._historySurfaceAvailable()) return null;
+    try {
+      this._historyLayer = new window.TerminalHistory.TerminalHistoryLayer(this);
+    } catch (err) {
+      this._log('History layer construction failed: ' + (err && err.message));
+      this._historyLayer = null;
+    }
+    return this._historyLayer;
+  }
+
+  /**
+   * Install the two live hooks the surface needs: the boundary wheel handler
+   * and the buffer-mode subscription.
+   *
+   * The wheel handler is xterm 6's PUBLIC attachCustomWheelEventHandler
+   * (xterm.d.ts line 1094), which runs inside xterm's own wheel path and
+   * therefore composes with the Select-mode capture-phase guard instead of
+   * racing it: the guard sees the event first and only ever acts while Select
+   * mode is on, and this handler decides the boundary for everything else.
+   *
+   * Returns quietly on a pane with no terminal or no surface module, because
+   * both are ordinary states rather than errors.
+   *
+   * @returns {boolean} Whether the hooks were installed.
+   */
+  _installHistorySurface() {
+    if (!this.term) return false;
+    const layer = this._ensureHistoryLayer();
+    if (!layer) return false;
+
+    try {
+      if (typeof this.term.attachCustomWheelEventHandler === 'function') {
+        this.term.attachCustomWheelEventHandler((e) => {
+          try {
+            return this._historyLayer ? this._historyLayer.handleTerminalWheel(e) : true;
+          } catch (_) {
+            // A throw here would swallow the user's wheel entirely, so the
+            // failure mode is "xterm handles it", which is the old behaviour.
+            return true;
+          }
+        });
+      }
+    } catch (_) { /* an engine without the API keeps the Shift+PageUp path */ }
+
+    // Re-route when the application enters or leaves the alternate buffer, so
+    // a shell where the user types `claude` (and later exits it) crosses the
+    // boundary with no user action and no teardown. Disposed with the pane.
+    //
+    // Idempotent across a rebind: a pane moved between grid slots runs this
+    // again, and a second subscription on the same terminal would fire the
+    // router twice per buffer change forever.
+    if (this._historyBufferDisposable) {
+      try { this._historyBufferDisposable.dispose(); } catch (_) {}
+      this._historyBufferDisposable = null;
+    }
+    try {
+      if (this.term.buffer && typeof this.term.buffer.onBufferChange === 'function') {
+        this._historyBufferDisposable = this.term.buffer.onBufferChange(() => {
+          if (this._historyLayer) this._historyLayer.onBufferChange();
+        });
+      }
+    } catch (_) { /* the client-side fallback re-evaluates on every open anyway */ }
+    return true;
+  }
+
+  /**
+   * Open the history surface.
+   *
+   * Public so the pane menu, the mobile toolbar and the app shell can reach
+   * the same entry point the wheel does.
+   *
+   * @param {string} [reason] - Diagnostic label.
+   * @returns {boolean} True when the surface is open.
+   */
+  openHistory(reason) {
+    const layer = this._ensureHistoryLayer();
+    if (!layer) return false;
+    return layer.open(reason || 'api');
+  }
+
+  /**
+   * Close the history surface and pin the terminal to live.
+   *
+   * @param {string} [reason] - Diagnostic label.
+   * @returns {boolean} True when a surface was closed.
+   */
+  closeHistory(reason) {
+    if (!this._historyLayer) return false;
+    return this._historyLayer.close(reason || 'api');
+  }
+
+  /**
+   * Toggle the history surface.
+   * @returns {boolean} True when it ends up open.
+   */
+  toggleHistory() {
+    if (this.isHistoryOpen()) { this.closeHistory('toggle'); return false; }
+    return this.openHistory('toggle');
+  }
+
+  /** @returns {boolean} Whether the history surface is currently open. */
+  isHistoryOpen() {
+    return !!(this._historyLayer && this._historyLayer.isOpen());
+  }
+
+  /**
+   * Select the whole history document, opening the surface if needed (P7.6).
+   *
+   * @returns {boolean} Whether a document-wide selection was made.
+   */
+  selectAllHistory() {
+    const layer = this._ensureHistoryLayer();
+    if (!layer) return false;
+    if (!layer.isOpen() && !layer.open('select-all')) return false;
+    return layer.selectAll();
+  }
+
+  /**
+   * Ask the history surface what a key means, without giving it the decision
+   * about whether xterm also handles the key.
+   *
+   * @param {KeyboardEvent} e - The keydown event.
+   * @returns {string|null} 'consumed', 'pass', or null.
+   */
+  _historyKeyVerdict(e) {
+    if (!this._historySurfaceAvailable()) return null;
+    // Shift+PageUp has to reach the layer even when it has never been opened,
+    // because opening it IS what that key means. Everything else is only
+    // meaningful while the surface is up, so a closed pane pays one property
+    // read per keystroke and nothing more.
+    const wantsOpen = !!(e && e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'PageUp');
+    if (!this._historyLayer && !wantsOpen) return null;
+    const layer = wantsOpen ? this._ensureHistoryLayer() : this._historyLayer;
+    if (!layer) return null;
+    if (!layer.isOpen() && !wantsOpen) return null;
+    try {
+      return layer.handleTerminalKey(e);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Whether the current selection lives inside this pane's history surface.
+   *
+   * @returns {boolean} True when the layer owns the selection.
+   */
+  _historyOwnsSelection() {
+    try {
+      return !!(this._historyLayer && this._historyLayer.isOpen() &&
+        this._historyLayer.hasSelection());
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Whether an event target sits inside this pane's OPEN history surface.
+   *
+   * The same exemption the Copy view has, for the same handlers: the mobile
+   * touch engine and the Select-mode wheel guard both live on the pane
+   * container and would otherwise translate a gesture inside the surface into
+   * terminal scrolling.
+   *
+   * @param {EventTarget} target - The event target to test.
+   * @returns {boolean} True when the target is within the open surface.
+   */
+  _isInsideHistoryLayer(target) {
+    try {
+      return !!(this._historyLayer && this._historyLayer.contains(target));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Whether the application currently owns the mouse, read through the same
+   * resolver the history surface uses.
+   *
+   * `mouseTracking` is a STRING ENUM and 'none' is truthy, so this must never
+   * be open-coded as a truthy test at a call site.
+   *
+   * @returns {boolean} True when mouse tracking is active.
+   */
+  _mouseTrackingActive() {
+    try {
+      const api = (typeof window !== 'undefined') ? window.TerminalHistory : null;
+      if (api && typeof api.resolveMouseTrackingActive === 'function') {
+        return api.resolveMouseTrackingActive(this._remoteModeFrame || null, this.term);
+      }
+      const mode = this.term && this.term.modes ? this.term.modes.mouseTrackingMode : null;
+      return typeof mode === 'string' && mode !== 'none' && mode !== '';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Whether the Select-mode strip should be shown right now (P7.6).
+   *
+   * THE DEMOTION, and where it is implemented is deliberate: the strip's own
+   * method, its placement, its text and its notice path are all untouched, and
+   * the only change is this predicate at the ONE call site that used to show
+   * it unconditionally whenever the toggle went on.
+   *
+   * Under the Unified Scrollback Surface the strip is no longer the thing that
+   * explains how to reach history, because the scrollbar is the affordance and
+   * the wheel is the gesture. What is left worth saying is "a plain drag
+   * selects even though this application owns the mouse", and that is worth
+   * saying exactly once, at the moment it first happens.
+   *
+   * The pre-P7 behaviour is preserved verbatim when the surface is
+   * unavailable, so a deployment without terminal-history.js keeps the
+   * explanation it has always had.
+   *
+   * @returns {boolean} Whether to show the standing strip.
+   */
+  _shouldShowSelectModeStrip() {
+    try {
+      if (!this._historySurfaceAvailable()) return true;
+      // No drag in progress means nothing to explain: the toggle alone pauses
+      // nothing and selects nothing (Select mode v3).
+      if (!this._selectHold) { this._selectStripAnnounced = false; return false; }
+      if (this._selectStripAnnounced) return true;
+      if (!this._mouseTrackingActive()) return false;
+      let seen = false;
+      try { seen = !!localStorage.getItem(SELECT_STRIP_SEEN_KEY); } catch (_) { seen = false; }
+      if (seen) return false;
+      try { localStorage.setItem(SELECT_STRIP_SEEN_KEY, '1'); } catch (_) { /* private mode */ }
+      this._selectStripAnnounced = true;
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /**
+   * Fetch one page of deep normal-buffer history from the server's VT sidecar.
+   *
+   * Wraps GET /api/sessions/:id/history, which never throws and never 404s: a
+   * session with no sidecar answers 200 with `available: false`, because "this
+   * pane has no deep history" is an ordinary state rather than an error.
+   *
+   * @param {{beforeLine?: number, lines?: number}} [options] - Paging cursor.
+   * @returns {Promise<object>} The page envelope.
+   */
+  async fetchDeepHistory(options) {
+    const opts = options || {};
+    const lines = Number.isFinite(opts.lines) ? opts.lines : HISTORY_DEEP_PAGE_LINES;
+    let path = '/api/sessions/' + encodeURIComponent(this.sessionId) +
+      '/history?lines=' + encodeURIComponent(String(lines));
+    if (Number.isFinite(opts.beforeLine)) {
+      path += '&beforeLine=' + encodeURIComponent(String(Math.max(0, Math.floor(opts.beforeLine))));
+    }
+    return this._copyViewApi('GET', path);
+  }
+
+  /**
+   * Fetch one window of the session transcript for the history surface.
+   *
+   * SNAPSHOT SEMANTICS, and that is a robustness decision rather than a
+   * shortcut (section 12): the mirror service allows ten concurrent watchers,
+   * and a pane the user is merely READING must not consume one. So the newest
+   * window is taken by opening a mirror and closing it in the same call, which
+   * is exactly what the Copy view's own snapshot does, and earlier windows are
+   * plain paged reads that never open anything.
+   *
+   * Reuses `_copyViewIdentity`, `_copyViewApi` and `_copyViewDeviceId` rather
+   * than duplicating them, which is what TERMINAL-ARCHITECTURE 13.2 asks for
+   * ("promote them to shared methods used by both surfaces"). The Copy view's
+   * own methods are untouched.
+   *
+   * @param {{beforeOffset?: number}} [options] - Paging cursor.
+   * @returns {Promise<{messages: Array, startOffset: number|null,
+   *   truncatedHead: boolean}|null>} The window, or null with no identity.
+   */
+  async fetchTranscriptWindow(options) {
+    const identity = this._copyViewIdentity();
+    if (!identity) return null;
+    const opts = options || {};
+
+    if (Number.isFinite(opts.beforeOffset) && opts.beforeOffset > 0) {
+      const page = await this._copyViewApi('GET', '/api/mirror/history'
+        + '?provider=' + encodeURIComponent(identity.provider)
+        + '&providerSessionId=' + encodeURIComponent(identity.providerSessionId)
+        + '&beforeOffset=' + encodeURIComponent(String(opts.beforeOffset))
+        + '&maxBytes=' + encodeURIComponent(String(HISTORY_TRANSCRIPT_PAGE_BYTES)));
+      return {
+        messages: Array.isArray(page && page.messages) ? page.messages : [],
+        startOffset: typeof (page && page.startOffset) === 'number' ? page.startOffset : null,
+        truncatedHead: !!(page && page.truncatedHead),
+      };
+    }
+
+    const opened = await this._copyViewApi('POST', '/api/mirror/open', {
+      provider: identity.provider,
+      providerSessionId: identity.providerSessionId,
+      deviceId: this._copyViewDeviceId(),
+    });
+    // Release the subscription immediately. Fire and forget: the server's idle
+    // sweep is the safety net, and a failed close must never surface as a
+    // reading error on a surface the user is already looking at.
+    try {
+      const mirrorKey = opened && opened.mirrorKey;
+      if (mirrorKey) {
+        const p = this._copyViewApi('POST', '/api/mirror/close', {
+          mirrorKey,
+          deviceId: this._copyViewDeviceId(),
+        });
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      }
+    } catch (_) { /* courtesy call only */ }
+
+    return {
+      messages: Array.isArray(opened && opened.history) ? opened.history : [],
+      startOffset: typeof (opened && opened.startOffset) === 'number' ? opened.startOffset : null,
+      truncatedHead: !!(opened && opened.truncatedHead),
+    };
+  }
+
+  /**
+   * Tear the history surface down and release its subscription.
+   *
+   * Called from detachHostBindings (the pane is being unhosted or moved) and
+   * from dispose, exactly like the Copy view overlay: the layer is parented on
+   * the pane element, and fixed grid slots are reused across tab groups, so a
+   * layer left attached would float over another session's terminal.
+   *
+   * @returns {boolean} Whether a layer was destroyed.
+   */
+  _destroyHistoryLayer() {
+    let destroyed = false;
+    if (this._historyLayer) {
+      try { this._historyLayer.destroy(); } catch (_) {}
+      this._historyLayer = null;
+      destroyed = true;
+    }
+    if (this._historyBufferDisposable) {
+      try { this._historyBufferDisposable.dispose(); } catch (_) {}
+      this._historyBufferDisposable = null;
+    }
+    return destroyed;
+  }
+
   /** Dismiss the one-time copy hint and remember it so it never returns. */
   _dismissCopyHint() {
     try { localStorage.setItem('cwm_copyhint_v1', '1'); } catch (_) {}
@@ -5871,6 +6448,11 @@ class TerminalPane {
     // session it no longer displays.
     this._removeVisibilityActivate();
     this._destroyCopyView();
+    // P7: and the history surface, with its document-level selectionchange
+    // listener, its rAF and its two timers. detachHostBindings above has
+    // already done this; the second call is idempotent and is here for the
+    // same belt-and-braces reason every other teardown in this method is.
+    this._destroyHistoryLayer();
     // P5.2: a disposed pane must not leave its paste question on screen, and
     // the answer would have nowhere to go anyway once the socket is closed.
     this._dismissPasteConfirm();

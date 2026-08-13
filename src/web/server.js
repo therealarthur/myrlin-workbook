@@ -1917,6 +1917,131 @@ app.get('/api/sessions/:id/scrollback', requireAuth, (req, res) => {
   return res.json(result);
 });
 
+/* ──────────────────────────────────────────────────────────────
+   DEEP NORMAL-BUFFER HISTORY (Notion restyle P7.5)
+
+   The route TERMINAL-ARCHITECTURE.md stage 4 names, wrapping the read
+   API P6 left ready (`ptyManager.getHistoryLines`). It is the data
+   source for the history layer's `deep` segment, which is the half of
+   the Unified Scrollback Surface that serves NORMAL-buffer panes: a
+   shell, a build, a REPL. Alternate-buffer panes route to the session
+   transcript through /api/mirror/* instead, because a viewport that
+   never scrolls has no terminal-layer history to serve (section 2.3).
+
+   FOUR PROPERTIES, each deliberate:
+
+     READ-ONLY AND BOUNDED. The sidecar's own readLines clamps the page
+     to [1, 10000]; this route clamps harder, to HISTORY_ROUTE_MAX_LINES,
+     because the page size a browser asks for is untrusted input and a
+     10000-line page of 200-column lines is a 4 MB response. The client
+     pages instead, which is what `hasMore` and `firstLine` are for.
+
+     IT NEVER THROWS AND NEVER 404s. A session with no sidecar (the
+     default: CWM_VT_SIDECAR is off), a session that does not exist, and
+     a disposed sidecar all answer 200 with `available: false` and an
+     empty page. The layer treats "no deep history" as an ordinary state
+     rather than an error, so an error status here would turn a normal
+     condition into a red console line on every open.
+
+     IT REPORTS ITS OWN SEAMS. `lostLines` counts lines evicted before
+     capture and `reflows` counts resize seams, and the log can repeat
+     up to |delta rows| lines around a widen (vt-sidecar.js
+     _rebaselineLineLog). Both are published so the client can dedupe at
+     RENDER time with a bounded window rather than guess, and so a gap is
+     visible rather than invented. That is the same ruling section 7.4
+     makes for the transcript seam: a visible duplicate beats a silent
+     deletion.
+
+     IT CARRIES THE MODE. `getSessionMode` is free here and answers the
+     one question the client needs before it can route (alt buffer or
+     not). The WebSocket `mode` frame is still the primary signal; this
+     is the fallback for a client that attached before the sidecar had
+     an opinion, and it is null whenever the sidecar is off, which is
+     exactly when the client falls back to `buffer.active.type`.
+   ────────────────────────────────────────────────────────────── */
+
+// Hard ceiling on one page of deep history. HISTORY_PAGE_LINES in
+// TERMINAL-ARCHITECTURE.md 11.2 is 2000, which is one page of the history
+// document, so a request larger than that cannot be a page render.
+const HISTORY_ROUTE_MAX_LINES = 2000;
+
+// Default page size when the caller does not ask for one.
+const HISTORY_ROUTE_DEFAULT_LINES = 500;
+
+/**
+ * GET /api/sessions/:id/history
+ *
+ * Returns one page of committed normal-buffer lines from the session's VT
+ * sidecar, newest page first, paging backwards by absolute line index.
+ *
+ * Query params:
+ *   - beforeLine: absolute line index to page backwards FROM (exclusive).
+ *     Omitted means "the newest page".
+ *   - lines: page size, clamped to [1, HISTORY_ROUTE_MAX_LINES].
+ *
+ * Returns: {
+ *   lines: Array<{t: string, w: boolean}>,  // oldest first within the page;
+ *                                           // w is isWrapped, so a client can
+ *                                           // rejoin a wrapped logical line
+ *   firstLine, beforeLine, total, oldestAvailable, hasMore,
+ *   lostLines, reflows, available, maxLines,
+ *   mode: {altBuffer, mouseTracking, mouseTrackingActive, bracketedPaste}|null
+ * }
+ */
+app.get('/api/sessions/:id/history', requireAuth, (req, res) => {
+  // One empty shape, used for every "nothing to serve" case, so a client
+  // never has to branch on null or on a status code.
+  const empty = {
+    lines: [], firstLine: 0, beforeLine: 0, total: 0, oldestAvailable: 0,
+    hasMore: false, lostLines: 0, reflows: 0, available: false,
+    maxLines: HISTORY_ROUTE_MAX_LINES, mode: null,
+  };
+
+  try {
+    const ptyManager = getPtyManager();
+    if (!ptyManager) return res.json(empty);
+
+    const requested = parseInt(req.query.lines, 10);
+    const lines = Math.max(1, Math.min(
+      HISTORY_ROUTE_MAX_LINES,
+      Number.isFinite(requested) ? requested : HISTORY_ROUTE_DEFAULT_LINES
+    ));
+    // A missing, blank or malformed cursor means "the newest page". A negative
+    // one is clamped rather than rejected: the sidecar already clamps into
+    // [oldestAvailable, total], so an out-of-range cursor is answered with the
+    // nearest real page instead of a 400 the layer would have to handle.
+    const parsedBefore = parseInt(req.query.beforeLine, 10);
+    const options = { lines };
+    if (Number.isFinite(parsedBefore)) options.beforeLine = Math.max(0, parsedBefore);
+
+    const page = ptyManager.getHistoryLines(req.params.id, options);
+
+    // Seam counter for render-time dedupe. Read from the diagnostics surface
+    // rather than added to getHistoryLines, so P6's read API keeps the exact
+    // shape it published and this route owns its own enrichment.
+    let reflows = 0;
+    try {
+      const stats = ptyManager.getSidecarStats();
+      const list = (stats && Array.isArray(stats.sidecars)) ? stats.sidecars : [];
+      const mine = list.find((s) => s && s.sessionId === req.params.id);
+      if (mine && typeof mine.reflows === 'number') reflows = mine.reflows;
+    } catch (_) { /* diagnostics are advisory; a page without them still renders */ }
+
+    let mode = null;
+    try { mode = ptyManager.getSessionMode(req.params.id) || null; } catch (_) { mode = null; }
+
+    return res.json(Object.assign({}, empty, page, {
+      reflows,
+      mode,
+      maxLines: HISTORY_ROUTE_MAX_LINES,
+    }));
+  } catch (_) {
+    // The history layer degrades to the client-side ring on an empty page, so
+    // answering 200-with-nothing keeps a pane readable when this fails.
+    return res.json(empty);
+  }
+});
+
 /**
  * GET /api/sessions/:id/logs
  * Returns paginated session log entries.

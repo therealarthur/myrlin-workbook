@@ -103,6 +103,12 @@ const DYNAMIC_TOKENS = new Set([
   '--term-ink',          // styles.css: the input row's typed text
   '--term-rule',         // styles.css: the input row's top rule and the terminal scrollbar
   '--term-accent',       // styles.css: the input row's prompt glyph
+  // Notion restyle P7 adds the row P5.4's note above reserved: the history
+  // surface's paging chrome is the first stylesheet consumption of --term-dim.
+  // TERMINAL-ARCHITECTURE 10.5 makes `dim` on `bg` a contrast gate for exactly
+  // this text, and DECISIONS 14.2.6 closed it (4.64:1 to 7.78:1 across all
+  // thirteen palettes), so the token arrives here already measured.
+  '--term-dim',          // styles.css: the history surface's paging chrome
 ]);
 
 let passed = 0;

@@ -8313,6 +8313,141 @@ body.cwm-dragging .sidebar-backdrop {
   }
 }
 
+/* ─── THE HISTORY SURFACE (Notion restyle P7) ───────────────────
+ *
+ * The Unified Scrollback Surface, TERMINAL-ARCHITECTURE 10.4. It occupies
+ * exactly the pane body rect (the rect is measured from .terminal-container in
+ * terminal-history.js and written inline, because the header above it and the
+ * input row below it must not move when it opens), and it carries NO border,
+ * NO shadow and NO backdrop blur, because any of those would announce it as an
+ * overlay. It is not an overlay. It is the same terminal, scrolled up.
+ *
+ * WHY THE GROUND IS NOT AUTHORED HERE AS THE ONLY SOURCE. 10.1 calls a one
+ * shade mismatch the highest risk item for perceived quality, so the surface
+ * takes its ground from the SAME projection the xterm canvas takes it from
+ * (--term-bg, published by terminal-surface.js) and terminal-history.js also
+ * writes the resolved value inline. The token here is what paints correctly
+ * before the script has run; the inline value is what guarantees it matches
+ * the canvas afterwards. Both resolve to the same colour by construction.
+ *
+ * TYPOGRAPHY IS DELIBERATELY ABSENT FROM THIS BLOCK. 10.3 rules that the
+ * layer derives family, size, line height, letter spacing and horizontal
+ * padding from the LIVE xterm instance at open time, not from a stylesheet: a
+ * webfont that swapped in after mount changes the metric without changing any
+ * token, and a one pixel line-height difference makes the seam visible.
+ */
+.terminal-history {
+  position: absolute;
+  overflow: hidden;
+  background: var(--term-bg, var(--app-bg-primary));
+  contain: layout paint;
+}
+.terminal-history-doc {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  outline: none;
+  color: var(--term-ink, var(--app-text-primary));
+  /* The document draws its own quiet scrollbar (P7.4), so the engine's is
+     suppressed rather than restyled: two scrollbars on one axis is the
+     failure this replaces. */
+  scrollbar-width: none;
+}
+.terminal-history-doc::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.terminal-history-seg {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  white-space: inherit;
+  overflow-wrap: inherit;
+}
+/* THE SEAM. One hairline in the palette's own rule colour, no label and no
+   banner: TERMINAL-ARCHITECTURE 7.4 makes the overlap between the newest
+   transcript turn and the live frame DELIBERATE, so the boundary has to read
+   as structure rather than as a mode announcement. The explanation lives in a
+   title attribute, which is where an explanation belongs. */
+.terminal-history-rule {
+  height: 0;
+  margin: 6px 0;
+  border-top: 1px solid var(--term-rule, var(--app-border-secondary));
+}
+/* The paging chrome: a quiet full-width row in the terminal ground with dim
+   text, matching the mock's quiet rows. Sticky so a reader who has scrolled
+   into the middle of a long fetch still sees what the surface is doing. */
+.terminal-history-paging {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  background: var(--term-bg, var(--app-bg-primary));
+  color: var(--term-dim, var(--app-text-tertiary));
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 11px;
+  line-height: 24px;
+  letter-spacing: normal;
+}
+/* THE AFFORDANCE (P7.4, TERMINAL-ARCHITECTURE 8.3). A 6px overlay bar that
+   represents the WHOLE logical extent, so its thumb size communicates how much
+   history exists. This is the only persistent affordance the surface needs,
+   which is why there is no strip, no toggle and no announcement anywhere in
+   this phase. */
+.terminal-history-scrollbar {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  bottom: 4px;
+  width: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+.terminal-history-scrollbar.is-visible {
+  opacity: 1;
+}
+.terminal-history-thumb {
+  width: 6px;
+  min-height: 24px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--app-border-secondary) 40%, transparent);
+}
+/* Paging: a 2px indeterminate shimmer at the top of the track. No spinner,
+   per the house rule, and no movement: the bar fades rather than travels, so
+   it cannot read as a status dot and cannot need a translate. */
+.terminal-history-scrollbar.is-paging::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--app-text-tertiary);
+  animation: history-paging-shimmer 1100ms ease-in-out infinite;
+}
+@keyframes history-paging-shimmer {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminal-history-scrollbar.is-paging::before {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 /* ─── THE PANE INPUT ROW (Notion restyle P5.5) ──────────────────
  *
  * DESIGN-SPEC 5.6, and its last paragraph is the whole point: "The input row

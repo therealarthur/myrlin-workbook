@@ -2319,6 +2319,16 @@
        which test/experience-ux-contract.test.js pins. -->
   <script src="terminal-surface.js?v=20260813-notion-p5"></script>
   <script src="terminal.js?v=20260813-notion-p5"></script>
+  <!-- Notion restyle P7: the Unified Scrollback Surface. Loaded AFTER
+       terminal.js because it is optional to it: every P7 entry point in
+       TerminalPane is gated on window.TerminalHistory existing, so a
+       deployment without this file is a P6 pane rather than a broken one.
+       terminal.js's own cachebuster is deliberately NOT bumped here (see
+       DEVIATIONS DV-28): express.static serves this tree with maxAge 0 and an
+       ETag, so a changed file is revalidated on every load anyway, and the two
+       suites that pin the terminal.js query string are the 3199 lines of
+       Select-mode assertions P7 must leave byte-identical. -->
+  <script src="terminal-history.js?v=20260813-notion-p7"></script>
   <script src="instance-colors.js?v=20260813-notion-p4r"></script>
   <!-- Issue #10 Tier 1 Phase 4: MirrorPaneView (read-only session mirror).
        MUST load before app.js so window.MirrorPaneView exists when
