@@ -1368,6 +1368,97 @@
           </div>
         </div>
 
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- PHONE SCREENS (Notion restyle P10.2)                        -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--
+          Three destinations the desktop shell does not have, because the
+          desktop reaches the same capabilities from the sidebar and the
+          topbar. They are view modes like any other panel here, so
+          setViewMode drives them with no second navigation system, and they
+          are display:none above the phone breakpoint so a desktop that
+          restores a stale `cwm_viewMode` cannot land on a surface built for
+          a 390px column (loadAll also filters the persisted value).
+
+          Bodies are rendered by app.js; the shells are static so their ids
+          are stable for the element cache and for gate G1.
+        -->
+
+        <!-- Home: attention banner, Active now, Recent, Workspace, meta -->
+        <section class="mobile-screen mobile-home-screen" id="mobile-home-panel"
+                 aria-labelledby="mobile-home-title" hidden>
+          <h1 class="mobile-screen-title-sr" id="mobile-home-title">Home</h1>
+          <div class="mobile-screen-scroll" id="mobile-home-scroll">
+            <!-- Blocks 1 to 7 of MOBILE-EXPERIENCE A.4, rendered by
+                 renderMobileHome(). -->
+            <div id="mobile-home-body"></div>
+            <!--
+              The classic command list, kept reachable on a phone.
+              MOBILE-EXPERIENCE A.2 dissolves the More TAB, and every item
+              that sheet carried now has its own canonical row above or its
+              own tab. This row is not that sheet's replacement; it is the
+              full command catalogue, kept because code preservation says a
+              capability that exists today keeps a route, and because
+              `showMoreMenu` is retained verbatim for the classic shell.
+            -->
+            <button type="button" class="mobile-home-row mobile-home-row-more" id="mobile-more-tab"
+                    data-mw-zone="affordance" data-mw-route="more-menu"
+                    aria-haspopup="dialog" aria-label="All commands">
+              <span class="mobile-home-row-glyph" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <circle cx="4" cy="8" r="1.35" fill="currentColor"/>
+                  <circle cx="8" cy="8" r="1.35" fill="currentColor"/>
+                  <circle cx="12" cy="8" r="1.35" fill="currentColor"/>
+                </svg>
+              </span>
+              <span class="mobile-home-row-label">All commands</span>
+              <span class="mobile-home-row-chevron" aria-hidden="true">&#8250;</span>
+            </button>
+            <!-- Block 8: version and last sync. Non-interactive. -->
+            <p class="mobile-home-meta" id="mobile-home-meta"></p>
+          </div>
+        </section>
+
+        <!-- Attention: the app's only persistent alarm, as a destination -->
+        <section class="mobile-screen mobile-attention-screen" id="mobile-attention-panel"
+                 aria-labelledby="mobile-attention-title" hidden>
+          <div class="mobile-screen-bar">
+            <h1 class="mobile-screen-title" id="mobile-attention-title">Attention</h1>
+            <button type="button" class="mobile-screen-overflow mw-touch-expand"
+                    id="mobile-attention-overflow" data-mw-zone="affordance"
+                    data-mw-route="attention-overflow" aria-haspopup="dialog"
+                    aria-label="Attention options">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="4" cy="8" r="1.35" fill="currentColor"/>
+                <circle cx="8" cy="8" r="1.35" fill="currentColor"/>
+                <circle cx="12" cy="8" r="1.35" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
+          <!-- One polite region for the whole tab, updated at most once per
+               five seconds by renderMobileAttention (MOBILE-EXPERIENCE D.6):
+               a live region on a badge that changes on every SSE tick is a
+               screen-reader flood. -->
+          <p class="mobile-attention-live" id="mobile-attention-live" role="status" aria-live="polite"></p>
+          <div class="mobile-screen-scroll" id="mobile-attention-list"></div>
+        </section>
+
+        <!-- Search: quick switcher, commands, transcripts and help, unified -->
+        <section class="mobile-screen mobile-search-screen" id="mobile-search-panel"
+                 aria-labelledby="mobile-search-title" hidden>
+          <div class="mobile-screen-bar">
+            <h1 class="mobile-screen-title" id="mobile-search-title">Search</h1>
+          </div>
+          <div class="mobile-search-field">
+            <input type="search" class="mobile-search-input" id="mobile-search-input"
+                   placeholder="Search sessions, commands, history"
+                   data-mw-route="search-open" enterkeyhint="search"
+                   autocomplete="off" aria-label="Search" />
+          </div>
+          <div class="mobile-search-scopes" id="mobile-search-scopes" role="group" aria-label="Search scope"></div>
+          <div class="mobile-screen-scroll" id="mobile-search-results"></div>
+        </section>
+
       </main>
 
       <!-- ═══════════════════════════════════════════ -->
@@ -1581,38 +1672,63 @@
     <!-- ═══════════════════════════════════════════ -->
     <!-- MOBILE BOTTOM TAB BAR                       -->
     <!-- ═══════════════════════════════════════════ -->
-    <nav class="mobile-tab-bar" id="mobile-tab-bar" aria-label="Workbook views" hidden>
-      <button class="mobile-tab" data-view="workspace" aria-label="Sessions">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <rect x="2" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
-          <rect x="11" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
-          <rect x="2" y="12" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
-          <rect x="11" y="12" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+    <!--
+      NOTION RESTYLE P10.1 (MOBILE-EXPERIENCE A.2, sanctioned edit SE-8).
+      Five tabs: home, sessions, terminal, attention, search. The old four-tab
+      bar carried `more`, a bottom sheet of fourteen unrelated items, which is
+      where features went to be forgotten. Its contents are redistributed:
+      utility views to Home > Workspace, bulk operations to the Sessions
+      overflow, the attention queue to its own tab with the badge, and the
+      quick switcher to the Search tab.
+
+      The icons are the mock's own 16-unit monoline set (home, database, code,
+      inbox, search), drawn at 20px with a 1.5 stroke.
+
+      `data-mw-zone` classifies each item for the P11 long-press allowlist
+      (MOBILE-EXPERIENCE B.2); `data-mw-route` is the marker the IA contract
+      test greps for (A.5).
+    -->
+    <nav class="mobile-tab-bar" id="mobile-tab-bar" aria-label="Workbook views" data-mw-zone="chrome" hidden>
+      <button class="mobile-tab" data-view="home" data-mw-zone="affordance" data-mw-route="nav-home" aria-label="Home">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 7.5L8 3l5 4.5"/>
+          <path d="M4.5 6.75v6.25h7V6.75"/>
+        </svg>
+        <span>Home</span>
+      </button>
+      <button class="mobile-tab" data-view="sessions" data-mw-zone="affordance" data-mw-route="nav-sessions" aria-label="Sessions">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 5.25c2.5 0 4.5-.62 4.5-1.38S10.5 2.5 8 2.5 3.5 3.12 3.5 3.88 5.5 5.25 8 5.25z"/>
+          <path d="M3.5 3.88v8.24c0 .76 2 1.38 4.5 1.38s4.5-.62 4.5-1.38V3.88"/>
+          <path d="M3.5 8c0 .76 2 1.38 4.5 1.38S12.5 8.76 12.5 8"/>
         </svg>
         <span>Sessions</span>
       </button>
-      <button class="mobile-tab" data-view="terminal" aria-label="Workbench">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <rect x="2" y="3" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.4"/>
-          <path d="M5 8l3 2.5L5 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M11 13h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      <button class="mobile-tab" data-view="terminal" data-mw-zone="affordance" data-mw-route="nav-terminal" aria-label="Terminal">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5.5 5L3 8l2.5 3"/>
+          <path d="M10.5 5L13 8l-2.5 3"/>
         </svg>
-        <span>Workbench</span>
+        <span>Terminal</span>
       </button>
-      <button class="mobile-tab" data-view="tasks" aria-label="Tasks">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.4"/>
-          <path d="M6.5 8l1.5 1.5L11.5 6M6.5 13h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <button class="mobile-tab" data-view="attention" data-mw-zone="affordance" data-mw-route="attention-queue" aria-label="Attention">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 3.5h10v9H3z"/>
+          <path d="M3 9h3l.75 1.5h2.5L10 9h3"/>
         </svg>
-        <span>Tasks</span>
+        <span>Attention</span>
+        <!-- Wash-plus-ink badge, not the mock's solid red on white: white on
+             the Notion red token measures about 4.4:1 at 9px/700 and fails.
+             MOBILE-EXPERIENCE D.4 row 1. Static, per the standing rule that
+             a badge never animates (DECISIONS 13.1, gate G14). -->
+        <span class="mobile-tab-badge" id="mobile-attention-badge" hidden>0</span>
       </button>
-      <button class="mobile-tab" data-view="more" id="mobile-more-tab" aria-label="More">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <circle cx="10" cy="5" r="1.5" fill="currentColor"/>
-          <circle cx="10" cy="10" r="1.5" fill="currentColor"/>
-          <circle cx="10" cy="15" r="1.5" fill="currentColor"/>
+      <button class="mobile-tab" data-view="search" data-mw-zone="affordance" data-mw-route="search-tab" aria-label="Search">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7.25 12a4.75 4.75 0 1 0 0-9.5 4.75 4.75 0 0 0 0 9.5z"/>
+          <path d="M10.75 10.75L13.5 13.5"/>
         </svg>
-        <span>More</span>
+        <span>Search</span>
       </button>
     </nav>
   </div>

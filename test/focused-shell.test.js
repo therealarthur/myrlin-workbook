@@ -155,12 +155,23 @@ check('focused More is a utility control, not a view tab', () => {
   );
 });
 
-check('mobile navigation is exactly workspace, terminal, tasks, and more', () => {
+check('mobile navigation is exactly home, sessions, terminal, attention, and search', () => {
+  // SANCTIONED TEST EDIT SE-8 (BUILD-CONTRACT 5.4), shipped in the same commit
+  // as the source change because a deepStrictEqual cannot be split.
+  //
+  // Notion restyle IA: five-tab bar per DESIGN-SPEC 14.1; `tasks` moves to
+  // Home > Workspace, `more` is dissolved into Home > Workspace and
+  // per-surface overflow sheets.
+  //
+  // `#mobile-more-tab` is NOT deleted: it survives as the "All commands" row
+  // inside Home > Workspace, so `showMoreMenu` keeps a phone route and the id
+  // keeps its entry in the G1 snapshot. It is no longer a `.mobile-tab`, so
+  // this filter no longer sees it, which is the point of the filter.
   const mobileNav = elementRegionById(html, 'nav', 'mobile-tab-bar');
   const mobileModes = startTags(mobileNav, 'button')
     .filter(tag => classTokens(tag).includes('mobile-tab'))
     .map(tag => attribute(tag, 'data-view'));
-  assert.deepStrictEqual(mobileModes, ['workspace', 'terminal', 'tasks', 'more']);
+  assert.deepStrictEqual(mobileModes, ['home', 'sessions', 'terminal', 'attention', 'search']);
 });
 
 check('Workbench empty state and both CTA IDs ship in the shell', () => {

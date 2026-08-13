@@ -166,7 +166,11 @@
   border-top: 1px solid var(--border-subtle);
   padding: 0 4px;
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  /* Notion restyle P10.1: 64px of content plus the home-indicator inset,
+     read from the one custom property every other bottom-anchored
+     surface reads, so the bar height and the toast anchor can never
+     drift apart (MOBILE-EXPERIENCE C.7 and the appendix). */
+  height: var(--mw-tabbar-h);
   align-items: center;
   justify-content: space-around;
 }
@@ -175,19 +179,36 @@
   display: none !important;
 }
 
+/*
+  Notion restyle P10.1. Five tabs, so each is 78px wide at 390px and the
+  whole item is the target: 64px tall by 78px wide clears the 44px floor
+  on both axes with room to spare (D.1, "passing without change").
+
+  `position: relative` is what the Attention badge is absolutely
+  positioned against, and `flex: 1` is what divides the bar into five
+  equal columns rather than five content-width buttons.
+*/
 .mobile-tab {
+  position: relative;
   display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 3px;
   padding: 6px 0;
-  min-width: 48px;
-  min-height: 48px;
+  min-width: 44px;
+  min-height: 44px;
   background: none;
   border: none;
-  color: var(--overlay0);
+  /* DEVIATION from the mock, MOBILE-EXPERIENCE D.4 row 3: the mock draws
+     the inactive label in tertiary ink at 10px/500. Tertiary at 10px is
+     small text and has to clear 4.5:1; in the Notion dark chrome it is
+     marginal. The ink moves one step up to secondary and the mock's 10px
+     density choice is kept, which is the resolution D.4 prefers. */
+  color: var(--app-text-secondary);
   font-size: 10px;
+  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
   transition: color var(--transition-fast);
@@ -201,11 +222,20 @@
 }
 
 .mobile-tab.active {
-  color: var(--green);
+  color: var(--app-text-primary);
 }
 
 .mobile-tab:active {
   opacity: 0.7;
+}
+
+/* A3 requires a visible ring on every interactive element in both
+   chromes. Touch rarely fires :focus-visible, but a phone with a
+   Bluetooth keyboard must still be navigable (D.4, focus rings). */
+.mobile-tab:focus-visible {
+  outline: 2px solid var(--app-accent-blue);
+  outline-offset: -3px;
+  border-radius: var(--radius-app-button);
 }
 
 @media (max-width: 768px) {
@@ -223,9 +253,10 @@
     display: none;
   }
 
-  /* Make room for bottom tab bar */
+  /* Make room for bottom tab bar. One custom property, so the bar height
+     and every surface that clears it can never disagree. */
   .app-body {
-    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: var(--mw-tabbar-h);
   }
 
   /* Session detail slides in from the right */
@@ -233,7 +264,7 @@
     position: fixed;
     top: var(--header-height);
     right: 0;
-    bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+    bottom: var(--mw-tabbar-h);
     left: 0;
     z-index: 15;
     background: var(--bg-primary);
@@ -1311,5 +1342,572 @@
   .account-panel,
   .account-panel-backdrop {
     animation: none;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 11: THE FIVE-TAB PHONE IA   (Notion restyle P10.1, P10.2)
+
+   MOBILE-EXPERIENCE A. The bar above this block was four tabs and one
+   of them was `more`, a bottom sheet of fourteen unrelated items. The
+   five-tab bar replaces it with five destinations, and this block draws
+   the three of them the desktop shell does not have.
+
+   Every rule here is inside the phone breakpoint except the base
+   `display: none` on the three screens, which has to hold at every
+   width: they are laid out for a 390px column and a desktop that
+   restores a stale `cwm_viewMode` must never see one.
+   ═══════════════════════════════════════════════════════════════ */
+
+/*
+  THE CUSTOM-PROPERTY CONTRACT (MOBILE-EXPERIENCE, appendix).
+
+  Six measurements, in one place, so implementers do not invent parallel
+  constants. Two are static and four are written by the viewport driver
+  in mobile-viewport.js. All six carry a correct DEFAULT here, for three
+  reasons: the first paint happens before any script runs, an engine
+  without visualViewport never gets a driver value at all, and
+  test/phantom-tokens.test.js requires every var() consumed in this sheet
+  to be defined in this sheet or in styles.css.
+
+  | Property          | Written by            | Read by                          |
+  | ----------------- | --------------------- | -------------------------------- |
+  | --mw-vh           | viewport driver       | .app height                      |
+  | --mw-kb           | viewport driver       | diagnostics, sheet max-heights   |
+  | --mw-tabbar-h     | static, here          | toast anchor, app-body padding   |
+  | --mw-toolbar-h    | viewport driver       | toast anchor, Select strip       |
+  | --mw-inputrow-h   | viewport driver       | toast anchor, Select strip       |
+  | --mw-toast-gap    | static, here          | toast anchor                     |
+
+  The tab bar is 64px of CONTENT plus the home-indicator inset. The mock
+  draws 64; the old bar was 56 and the focused shell used 60, and the
+  restyle standardises on the mock's number (C.7).
+*/
+:root {
+  --mw-vh: 100dvh;
+  --mw-kb: 0px;
+  --mw-tabbar-h: calc(64px + env(safe-area-inset-bottom, 0px));
+  --mw-toolbar-h: 0px;
+  --mw-inputrow-h: 0px;
+  --mw-toast-gap: 8px;
+}
+
+/* The three phone screens do not exist above the breakpoint. The
+   [hidden] guard is separate and stronger, because JS drives visibility
+   through the hidden PROPERTY 264 times across this app and any new
+   display rule has to be paired with one (DO-NOT-BREAK rule 3). */
+.mobile-screen {
+  display: none;
+}
+
+.mobile-screen[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+
+  .mobile-screen:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    background: var(--app-bg-primary);
+  }
+
+  /* The screen title is spoken but not drawn on Home: the header already
+     names the workspace and the section labels name the blocks, so a
+     second heading would be a duplicate. It stays in the accessibility
+     tree because D.6 asks for one h1 per screen. */
+  .mobile-screen-title-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* Attention and Search draw their titles, because both carry a
+     surface-level control beside them. 44px tall so the bar itself
+     clears the touch floor even before the overflow button does. */
+  .mobile-screen-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 6px 12px 6px 16px;
+    border-bottom: 1px solid var(--app-border-secondary);
+    flex-shrink: 0;
+  }
+
+  .mobile-screen-title {
+    flex: 1;
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--app-text-primary);
+  }
+
+  /* The mock draws header icon buttons at 32px. The floor wins, and the
+     resolution technique is the codebase idiom: keep the drawn size,
+     expand the hit box with a transparent pseudo-element
+     (MOBILE-EXPERIENCE D.1 row 1, D.2). */
+  .mobile-screen-overflow {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border: none;
+    border-radius: var(--radius-app-button);
+    background: transparent;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-screen-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding: 12px 16px calc(var(--mw-tabbar-h) + 12px);
+    /* So scrollIntoView never lands a row under the tab bar (C.7). */
+    scroll-padding-bottom: var(--mw-tabbar-h);
+  }
+
+  /* ─── Section labels ────────────────────────────────────────
+     The mock styles these as divs; D.6 asks for real headings, so they
+     are h2 elements reset to the mock's metrics. Sentence case, never
+     uppercase: gate G7 allows exactly one uppercase label in this
+     product and it is the Quick Find group header. */
+  .mobile-section-label {
+    margin: 12px 0 6px;
+    padding: 0 2px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--app-sidebar-section-label);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .mobile-screen-scroll > .mobile-section-label:first-child {
+    margin-top: 2px;
+  }
+
+  /* ─── Home block 1: the attention banner ────────────────────
+     Wash plus ink, which is the one yellow pairing PROCEDURE 4.2
+     blesses. Never yellow ink on the plain canvas. 44px minimum because
+     it is a tap target that navigates (D.1 row 8). */
+  .mobile-home-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    margin-bottom: 14px;
+    padding: 8px 10px;
+    border: none;
+    border-radius: var(--radius-callout);
+    background: var(--app-bg-yellow);
+    color: var(--app-text-yellow);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-home-banner-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .mobile-home-banner-chevron,
+  .mobile-home-row-chevron {
+    flex-shrink: 0;
+    font-size: 15px;
+    line-height: 1;
+    color: var(--app-text-tertiary);
+  }
+
+  .mobile-home-banner .mobile-home-banner-chevron {
+    color: inherit;
+  }
+
+  /* The banner's ring takes the banner's own ink so it reads on the
+     yellow wash rather than against the page ground. */
+  .mobile-home-banner .status-dot-idle {
+    box-shadow: inset 0 0 0 2px currentColor;
+  }
+
+  /* ─── Home block 3: active session cards ────────────────────
+     BORDERED cards for live things. BUILD-CONTRACT 2.13.6 calls this
+     the semantic being drawn, and it is why Active now and Recent are
+     two lists rather than one list with a filter. */
+  .mobile-session-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 56px;
+    margin-bottom: 8px;
+    padding: 11px 10px;
+    border: 1px solid var(--app-border-primary);
+    border-radius: var(--radius-collection-card);
+    background: transparent;
+    color: var(--app-text-primary);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-session-card .status-dot {
+    width: 8px;
+    height: 8px;
+  }
+
+  .mobile-session-card-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .mobile-session-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-session-card-meta {
+    font-size: 12px;
+    color: var(--app-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ─── Home block 5: recent rows ─────────────────────────────
+     BORDERLESS rows for history, sharing recentRowInnerHtml with Quick
+     Find, the sidebar and the workbench continue row. */
+  .mobile-recent-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 48px;
+    padding: 10px;
+    border: none;
+    border-radius: var(--radius-block-hover);
+    background: transparent;
+    color: var(--app-text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .nt-enable-hover .mobile-recent-row:hover,
+  .nt-enable-hover .mobile-home-row:hover,
+  .nt-enable-hover .mobile-attention-row:hover {
+    background: var(--app-wash-hover);
+  }
+
+  .mobile-recent-row .recent-row-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-recent-row .recent-row-project {
+    display: none;
+  }
+
+  .mobile-recent-row .recent-row-spacer {
+    flex: 0 0 4px;
+  }
+
+  .mobile-recent-row .recent-row-time {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--app-text-tertiary);
+  }
+
+  .mobile-home-seeall {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 44px;
+    padding: 10px;
+    border: none;
+    border-radius: var(--radius-block-hover);
+    background: transparent;
+    color: var(--app-text-tertiary);
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ─── Home block 7: the Workspace section ───────────────────
+     The permanent home for every utility view the dissolved More sheet
+     used to carry. A scrolling list of Notion rows, deliberately, not a
+     menu: a menu is where features go to be forgotten (A.4). */
+  .mobile-home-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 48px;
+    padding: 10px;
+    border: none;
+    border-radius: var(--radius-block-hover);
+    background: transparent;
+    color: var(--app-text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-home-row-glyph {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    color: var(--app-text-secondary);
+  }
+
+  .mobile-home-row-label {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-home-row-detail {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--app-text-tertiary);
+  }
+
+  .mobile-home-meta {
+    margin: 16px 2px 0;
+    font-size: 11px;
+    color: var(--app-text-tertiary);
+  }
+
+  .mobile-home-empty {
+    margin: 8px 2px;
+    font-size: 13px;
+    color: var(--app-text-tertiary);
+  }
+
+  /* ─── Attention rows ────────────────────────────────────────
+     The state is carried twice: by a static shape and by the word on
+     the second line. Colour is never the only channel (D.4). */
+  .mobile-attention-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 56px;
+    padding: 10px;
+    border: none;
+    border-radius: var(--radius-block-hover);
+    background: transparent;
+    color: var(--app-text-primary);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-attention-row-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .mobile-attention-row-title {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-attention-row-meta {
+    font-size: 12px;
+    color: var(--app-text-secondary);
+  }
+
+  /* The live region is spoken, not drawn: the rows themselves already
+     say everything it announces. */
+  .mobile-attention-live {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  /* ─── Search ────────────────────────────────────────────────
+     A destination, not a modal (A.2). The field escalates into the
+     existing full-screen Quick Find on focus, which on a phone covers
+     the viewport, so the two read as one surface. */
+  .mobile-search-field {
+    padding: 10px 16px 6px;
+    flex-shrink: 0;
+  }
+
+  .mobile-search-input {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid var(--app-border-primary);
+    border-radius: var(--radius-app-button);
+    background: var(--app-bg-primary);
+    color: var(--app-text-primary);
+    font-family: inherit;
+    /* 16px, never less: iOS zooms a focused field under 16px, and
+       user-scalable=no is forbidden (C.3). */
+    font-size: 16px;
+    outline: none;
+  }
+
+  .mobile-search-scopes {
+    display: flex;
+    gap: 8px;
+    padding: 4px 16px 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex-shrink: 0;
+  }
+
+  .mobile-search-scopes::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* A scroll container clips a pseudo-element hit box, and
+     `overflow-x: auto` computes the other axis to auto, so the chips
+     take their target from their OWN padding instead (D.2). */
+  .mobile-scope-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 14px;
+    flex-shrink: 0;
+    border: 1px solid var(--app-border-primary);
+    border-radius: var(--radius-status-chip);
+    background: transparent;
+    color: var(--app-text-secondary);
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-scope-chip.is-active {
+    background: var(--app-bg-interactive);
+    color: var(--app-text-primary);
+    border-color: var(--app-border-strong);
+  }
+
+  /* ─── The injected phone header controls ────────────────────
+     A back chevron for the Home destinations and a "+" for New session.
+     The mock draws a magnifier where the "+" is; Search is a tab, and a
+     header magnifier would be a second route to a first-class
+     destination while New session, a primary action, would have none
+     (A.4 deviation 1). */
+  .mobile-header-back,
+  .mobile-header-new {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border: none;
+    border-radius: var(--radius-app-button);
+    background: transparent;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-header-back[hidden] {
+    display: none !important;
+  }
+
+  /* The workspace tile is the mock's leading square. .header-brand is a
+     div, so it takes role=button and a tab stop in JS; this gives it the
+     target and the affordance. */
+  .app-header .header-brand[data-mw-route="workspace-switch"] {
+    min-height: 44px;
+    cursor: pointer;
+  }
+
+  /* The breadcrumb and the focused-shell More button are desktop chrome.
+     The breadcrumb's job (say where you are) is done by the tab bar and
+     the screen titles, and every item the More sheet carried now has a
+     row on Home > Workspace or a tab of its own. `showMoreMenu` stays
+     wired and stays reachable from the Home > Workspace "All commands"
+     row, so no capability is lost. */
+  .app-header .header-breadcrumb,
+  .app-header .focused-more-btn {
+    display: none !important;
+  }
+
+  /* ─── The tab badge ─────────────────────────────────────────
+     DEVIATION from the mock: wash plus ink, not white on solid red.
+     White on the Notion red token measures about 4.4:1 and the mock
+     draws it at 9px/700, which is below both the contrast floor and the
+     legibility floor (D.4 row 1). 16px box, 10px/700 numeral, count
+     capped at 9+. Static: a badge never animates (gate G14). */
+  .mobile-tab-badge {
+    position: absolute;
+    top: 8px;
+    right: calc(50% - 18px);
+    display: grid;
+    place-items: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: var(--radius-status-chip);
+    background: var(--app-bg-red);
+    color: var(--app-text-red);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    pointer-events: none;
+  }
+
+  .mobile-tab-badge[hidden] {
+    display: none !important;
   }
 }

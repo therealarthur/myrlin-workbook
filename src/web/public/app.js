@@ -206,6 +206,50 @@ class CWMApp {
    *  than as the everyday number. */
   static SIDEBAR_CHROME_FALLBACK_PX = 200;
 
+  /* ─── The phone IA, Notion restyle P10 (MOBILE-EXPERIENCE A) ─────────
+     The five-tab bar names its own destinations; three of them map onto
+     view modes the desktop already has, and three are phone-only screens.
+     The map lives here rather than in the two places that read it (the
+     click handler and the active-state pass in setViewMode) so a tab and
+     its destination cannot drift apart. */
+
+  /** Bottom-tab id to view mode. `sessions` is the shell's `workspace`
+   *  mode: the tab is named for what the user is looking for, the mode
+   *  keeps the name every other surface, localStorage key and test uses. */
+  static MOBILE_TAB_VIEW = {
+    home: 'home',
+    sessions: 'workspace',
+    terminal: 'terminal',
+    attention: 'attention',
+    search: 'search',
+  };
+
+  /** View modes that exist only on a phone. A desktop that restores one of
+   *  these from `cwm_viewMode` falls back to `workspace`, because these
+   *  screens are laid out for a 390px column and are display:none above
+   *  the phone breakpoint. */
+  static MOBILE_ONLY_VIEW_MODES = ['home', 'attention', 'search'];
+
+  /** Modes reached FROM Home > Workspace. While one is showing, Home stays
+   *  the selected tab, exactly as the old `more` tab stayed selected for
+   *  the destinations its sheet routed to. */
+  static HOME_DESTINATION_MODES = ['tasks', 'costs', 'recent', 'docs', 'resources'];
+
+  /** Home is an orientation surface, so its two session lists are capped
+   *  and overflow to "See all" rather than growing without bound
+   *  (MOBILE-EXPERIENCE A.4 deviation 3). */
+  static MOBILE_HOME_ACTIVE_LIMIT = 6;
+  static MOBILE_HOME_RECENT_LIMIT = 5;
+
+  /** The Attention tab's polite live region announces at most this often.
+   *  MOBILE-EXPERIENCE D.6: a live region driven by every SSE tick is a
+   *  screen-reader flood. */
+  static MOBILE_ATTENTION_ANNOUNCE_MS = 5000;
+
+  /** The tab badge caps its numeral rather than widening the pill.
+   *  MOBILE-EXPERIENCE D.1 row 9. */
+  static MOBILE_BADGE_MAX = 9;
+
   constructor() {
     // ─── State ─────────────────────────────────────────────────
     this.state = {
@@ -585,6 +629,24 @@ class CWMApp {
 
       // Mobile
       mobileTabBar: document.getElementById('mobile-tab-bar'),
+      // Notion restyle P10.1/P10.2: the five-tab bar's badge plus the three
+      // phone-only screens. Every one is null on a server that predates the
+      // markup, and every reader guards, so an old shell degrades to the
+      // desktop panels rather than throwing.
+      mobileAttentionBadge: document.getElementById('mobile-attention-badge'),
+      mobileHomePanel: document.getElementById('mobile-home-panel'),
+      mobileHomeScroll: document.getElementById('mobile-home-scroll'),
+      mobileHomeBody: document.getElementById('mobile-home-body'),
+      mobileHomeMeta: document.getElementById('mobile-home-meta'),
+      mobileMoreTab: document.getElementById('mobile-more-tab'),
+      mobileAttentionPanel: document.getElementById('mobile-attention-panel'),
+      mobileAttentionList: document.getElementById('mobile-attention-list'),
+      mobileAttentionLive: document.getElementById('mobile-attention-live'),
+      mobileAttentionOverflow: document.getElementById('mobile-attention-overflow'),
+      mobileSearchPanel: document.getElementById('mobile-search-panel'),
+      mobileSearchInput: document.getElementById('mobile-search-input'),
+      mobileSearchScopes: document.getElementById('mobile-search-scopes'),
+      mobileSearchResults: document.getElementById('mobile-search-results'),
       actionSheetOverlay: document.getElementById('action-sheet-overlay'),
       actionSheet: document.getElementById('action-sheet'),
       actionSheetHeader: document.getElementById('action-sheet-header'),
@@ -1536,13 +1598,19 @@ class CWMApp {
     });
 
     // ─── Mobile: Bottom Tab Bar ─────────────────────────────
+    //
+    // NOTION RESTYLE P10.1. Five tabs, one destination each
+    // (MOBILE-EXPERIENCE A.2). The `workspace` branch is unchanged in
+    // behaviour and is now reached through the `sessions` tab id; the
+    // `more` branch is retained below it because `showMoreMenu` is retained
+    // for the classic shell and nothing in this file may stop calling it.
     if (this.els.mobileTabBar) {
       this.els.mobileTabBar.querySelectorAll('.mobile-tab').forEach(tab => {
         tab.addEventListener('click', () => {
           const view = tab.dataset.view;
           if (view === 'more') {
             this.showMoreMenu();
-          } else if (view === 'workspace') {
+          } else if (view === 'sessions' || view === 'workspace') {
             this.setViewMode('workspace');
             const focusedShell = document.documentElement.dataset.uiShell === 'focused';
             // In the focused shell, Sessions is a real destination; projects
@@ -1553,7 +1621,7 @@ class CWMApp {
               this.toggleSidebar();
             }
           } else {
-            this.setViewMode(view);
+            this.setViewMode(CWMApp.MOBILE_TAB_VIEW[view] || view);
             // Close sidebar if open
             if (this.state.sidebarOpen) {
               this.toggleSidebar();
@@ -1562,6 +1630,10 @@ class CWMApp {
         });
       });
     }
+
+    // ─── Mobile: the three phone screens (P10.2) ────────────
+    this._injectMobileHeaderControls();
+    this.bindMobileScreens();
 
     // ─── Mobile: Action Sheet ───────────────────────────────
     if (this.els.actionSheetOverlay) {
@@ -2256,6 +2328,762 @@ class CWMApp {
     // matters because the toolbar is the only feedback a phone user gets.
     this._syncMobileSelectToolbar(pane);
     return true;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE PHONE IA: HOME, ATTENTION, SEARCH   (Notion restyle P10.2)
+
+     MOBILE-EXPERIENCE A.1 states the contract in one sentence:
+     every capability the app has on a phone has exactly one canonical
+     home in the five-tab IA and at most one secondary shortcut; nothing
+     is reachable only by a gesture, and nothing is unreachable.
+
+     Three of the five tabs land on view modes the shell already had.
+     The other two are built here, plus Home, which is the surface that
+     absorbs the fourteen orphans the dissolved More sheet carried.
+
+     Everything below RENDERS; nothing below re-implements. Each row
+     calls the same method the desktop surface calls, which is the
+     established idiom in this file (see _runMobileSelectToolbarAction
+     delegating to TerminalPane.toggleSelectMode) and is what keeps the
+     two surfaces from drifting apart in behaviour.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Wire the three phone screens once, at bind time.
+   *
+   * Delegated listeners on the three static containers rather than a
+   * listener per rendered row: these bodies are rebuilt on every SSE tick,
+   * and a listener per row per render is how listener leaks start. Every
+   * handler is guarded on the element existing, so a shell that predates
+   * this markup binds nothing and throws nothing.
+   *
+   * @returns {void}
+   */
+  bindMobileScreens() {
+    // Home: one delegated click for every row type on the screen.
+    if (this.els.mobileHomeScroll && !this._mobileHomeBound) {
+      this._mobileHomeBound = true;
+      this.els.mobileHomeScroll.addEventListener('click', (e) => {
+        const target = e.target && e.target.closest
+          ? e.target.closest('[data-mw-route]')
+          : null;
+        if (!target) return;
+        this._runMobileHomeRoute(target.dataset.mwRoute, target);
+      });
+    }
+
+    // Attention: rows focus their session; the overflow opens the sheet.
+    if (this.els.mobileAttentionList && !this._mobileAttentionBound) {
+      this._mobileAttentionBound = true;
+      this.els.mobileAttentionList.addEventListener('click', (e) => {
+        const row = e.target && e.target.closest
+          ? e.target.closest('.mobile-attention-row')
+          : null;
+        if (!row) return;
+        if (row.dataset.conflictRow === 'true') {
+          this.openConflictCenter();
+          return;
+        }
+        const queue = this._getAttentionQueue();
+        const item = queue.find(entry => entry.sessionId === row.dataset.sessionId);
+        if (item) this._focusAttentionItem(item);
+      });
+    }
+    if (this.els.mobileAttentionOverflow && !this._mobileAttentionOverflowBound) {
+      this._mobileAttentionOverflowBound = true;
+      this.els.mobileAttentionOverflow.addEventListener('click', () => {
+        this.showActionSheet('Attention', this.buildMobileAttentionOverflowItems());
+      });
+    }
+
+    // Search: the field escalates into the existing full-screen Quick Find,
+    // the scope chips route to the surface that already answers that scope,
+    // and the body lists the same recency rows every other surface shows.
+    if (this.els.mobileSearchInput && !this._mobileSearchBound) {
+      this._mobileSearchBound = true;
+      const openScope = () => this.openMobileSearchScope(this._mobileSearchScope || 'all');
+      this.els.mobileSearchInput.addEventListener('focus', openScope);
+      this.els.mobileSearchInput.addEventListener('click', openScope);
+    }
+    if (this.els.mobileSearchScopes && !this._mobileSearchScopesBound) {
+      this._mobileSearchScopesBound = true;
+      this.els.mobileSearchScopes.addEventListener('click', (e) => {
+        const chip = e.target && e.target.closest ? e.target.closest('[data-mw-scope]') : null;
+        if (!chip) return;
+        this._mobileSearchScope = chip.dataset.mwScope;
+        this.renderMobileSearch();
+        this.openMobileSearchScope(chip.dataset.mwScope);
+      });
+    }
+    if (this.els.mobileSearchResults && !this._mobileSearchResultsBound) {
+      this._mobileSearchResultsBound = true;
+      this.els.mobileSearchResults.addEventListener('click', (e) => {
+        const row = e.target && e.target.closest
+          ? e.target.closest('.mobile-recent-row')
+          : null;
+        if (!row) return;
+        const found = this.getRecentSessions(0).find(r => r.key === row.dataset.recentKey);
+        if (found) this.openRecentRow(found);
+      });
+    }
+  }
+
+  /**
+   * Run one Home row's route.
+   *
+   * The route ids are the capability ids MOBILE-EXPERIENCE A.3 enumerates,
+   * so the IA contract test can grep for them and prove every capability
+   * has a reachable home. Every arm calls an existing method.
+   *
+   * @param {string} route - The `data-mw-route` id on the tapped row.
+   * @param {Element} el - The row itself, for row-scoped data.
+   * @returns {void}
+   */
+  _runMobileHomeRoute(route, el) {
+    switch (route) {
+      case 'attention-queue': this.setViewMode('attention'); return;
+      case 'sessions-all': this.setViewMode('workspace'); return;
+      case 'tasks-board': this.setViewMode('tasks'); return;
+      case 'docs-notes': this.setViewMode('docs'); return;
+      case 'costs': this.setViewMode('costs'); return;
+      case 'resources': this.setViewMode('resources'); return;
+      case 'pair-device': this.showPairMobileModal(); return;
+      case 'settings': this.openSettings(); return;
+      case 'more-menu': this.showMoreMenu(); return;
+      case 'session-open': {
+        const key = el && el.dataset ? el.dataset.recentKey : null;
+        const found = key ? this.getRecentSessions(0).find(r => r.key === key) : null;
+        if (found) this.openRecentRow(found);
+        return;
+      }
+      default: return;
+    }
+  }
+
+  /**
+   * Cap a badge numeral so the pill never widens past its 16px box.
+   *
+   * @param {number} count - Raw count.
+   * @returns {string} The numeral, or "9+" past the cap.
+   */
+  _mobileBadgeText(count) {
+    const n = Number(count) || 0;
+    return n > CWMApp.MOBILE_BADGE_MAX ? CWMApp.MOBILE_BADGE_MAX + '+' : String(n);
+  }
+
+  /**
+   * Paint the Attention tab's badge, which is the app's only persistent
+   * alarm (MOBILE-EXPERIENCE A.2).
+   *
+   * The count rides in the tab's ACCESSIBLE NAME rather than in a live
+   * region, per D.6: a live region on a badge that changes on every SSE
+   * tick is a screen-reader flood. Static, never animated: gate G14.
+   *
+   * @returns {void}
+   */
+  renderMobileTabBadge() {
+    const badge = this.els.mobileAttentionBadge;
+    if (!badge) return;
+    const actionable = this._getAttentionQueue().filter(item => item.actionable).length;
+    badge.textContent = this._mobileBadgeText(actionable);
+    badge.hidden = actionable === 0;
+    const tab = this.els.mobileTabBar
+      ? this.els.mobileTabBar.querySelector('.mobile-tab[data-view="attention"]')
+      : null;
+    if (tab) {
+      tab.setAttribute(
+        'aria-label',
+        actionable > 0
+          ? `Attention, ${actionable} item${actionable === 1 ? '' : 's'} needing input`
+          : 'Attention'
+      );
+    }
+  }
+
+  /**
+   * Keep the phone screens current without re-rendering them when they are
+   * not on screen.
+   *
+   * Called from the render paths that already run on every roster change,
+   * so Home and Attention track SSE with no second polling loop.
+   *
+   * @returns {void}
+   */
+  _refreshMobileScreens() {
+    this.renderMobileTabBadge();
+    if (this.state.viewMode === 'home') this.renderMobileHome();
+    else if (this.state.viewMode === 'attention') this.renderMobileAttention();
+  }
+
+  /* ─── Home ───────────────────────────────────────────────── */
+
+  /**
+   * Render the Home screen's seven dynamic blocks.
+   *
+   * MOBILE-EXPERIENCE A.4 composition, in order: attention banner, the
+   * "Active now" label and its bordered cards, the "Recent" label and its
+   * borderless rows, and the "Workspace" label and its rows. The static
+   * eighth block (version and last sync) is filled at the end.
+   *
+   * BORDERED CARDS FOR LIVE THINGS, BORDERLESS ROWS FOR HISTORY is the
+   * semantic BUILD-CONTRACT 2.13.6 asks Home to draw, and it is the reason
+   * the two lists are not one list with a filter.
+   *
+   * Both lists come from getRecentSessions, which BUILD-CONTRACT 2.13
+   * makes the single entry point for every recency surface. Home does not
+   * sort, merge or de-duplicate; if it did, criterion 2 ("the four
+   * recency surfaces show the same session first") could not hold.
+   *
+   * @returns {void}
+   */
+  renderMobileHome() {
+    const host = this.els.mobileHomeBody;
+    if (!host) return;
+
+    const rows = this.getRecentSessions(0);
+    const queue = this._getAttentionQueue();
+    const actionable = queue.filter(item => item.actionable);
+    const stateBySession = new Map(queue.map(item => [item.sessionId, item]));
+
+    const active = rows.filter(r => r.status === 'running');
+    const recent = rows.filter(r => r.status !== 'running');
+
+    const parts = [];
+
+    // 1. Attention banner. Wash plus ink, a 44px tap target, and it goes to
+    //    the Attention tab rather than opening a sheet, because the tab is
+    //    the canonical home and a banner that opened a popover would be a
+    //    second route to a first-class destination.
+    if (actionable.length > 0) {
+      const word = actionable.length === 1 ? 'session needs' : 'sessions need';
+      parts.push(
+        '<button type="button" class="mobile-home-banner" data-mw-zone="affordance" ' +
+        'data-mw-route="attention-queue">' +
+        '<span class="status-dot status-dot-idle" aria-hidden="true"></span>' +
+        `<span class="mobile-home-banner-text">${actionable.length} ${word} your input</span>` +
+        '<span class="mobile-home-banner-chevron" aria-hidden="true">&#8250;</span>' +
+        '</button>'
+      );
+    }
+
+    // 2 and 3. Active now, capped, then a "See all" row into Sessions.
+    if (active.length > 0) {
+      parts.push('<h2 class="mobile-section-label">Active now</h2>');
+      const shown = active.slice(0, CWMApp.MOBILE_HOME_ACTIVE_LIMIT);
+      parts.push(shown.map(r => this._mobileActiveCardHtml(r, stateBySession.get(r.sessionId))).join(''));
+      if (active.length > shown.length) {
+        parts.push(this._mobileSeeAllRowHtml(`See all ${active.length}`, 'sessions-all'));
+      }
+    }
+
+    // 4 and 5. Recent, capped, then "See all".
+    if (recent.length > 0) {
+      parts.push('<h2 class="mobile-section-label">Recent</h2>');
+      const shown = recent.slice(0, CWMApp.MOBILE_HOME_RECENT_LIMIT);
+      parts.push(shown.map(r => this._mobileRecentRowHtml(r)).join(''));
+      if (recent.length > shown.length) {
+        parts.push(this._mobileSeeAllRowHtml('See all', 'sessions-all'));
+      }
+    }
+
+    if (active.length === 0 && recent.length === 0) {
+      parts.push(
+        '<p class="mobile-home-empty">No sessions yet. Start one from the plus in the header.</p>'
+      );
+    }
+
+    // 6 and 7. Workspace: the permanent home for every utility view.
+    parts.push('<h2 class="mobile-section-label">Workspace</h2>');
+    parts.push(this.buildHomeWorkspaceItems().map(item => this._mobileHomeRowHtml(item)).join(''));
+
+    host.innerHTML = parts.join('');
+
+    // 8. Footer meta. Non-interactive by design (A.4 block 8). Both values
+    // are best-effort: the version arrives with the update check and the
+    // sync stamp with the last roster render, so an empty footer means
+    // "not known yet" rather than "broken".
+    if (this.els.mobileHomeMeta) {
+      const version = (this._versionInfo && this._versionInfo.version) || '';
+      const bits = [];
+      if (version) bits.push('v' + version);
+      bits.push('synced ' + this.relativeTime(new Date().toISOString()));
+      this.els.mobileHomeMeta.textContent = bits.join(' · ');
+    }
+
+    this.renderMobileTabBadge();
+  }
+
+  /**
+   * The Home > Workspace section: the replacement for the More tab.
+   *
+   * MOBILE-EXPERIENCE A.3.6 gives every one of the fourteen orphans a row
+   * here, and A.4 draws it as a scrolling list of Notion rows rather than a
+   * menu, deliberately: a menu is a place features go to be forgotten.
+   *
+   * SANCTIONED TEST EDITS SE-9 AND SE-10 point at this builder. The four
+   * labels the More sheet pinned (Settings, Appearance, Pair device, All
+   * sessions) keep their capabilities here: Settings is a row, Appearance
+   * lives inside Settings > Interface on a phone, Pair device is the
+   * "Paired devices" row, and All sessions is the Sessions tab. The
+   * `showMoreMenu` method and its four labels are RETAINED unchanged for
+   * the classic shell.
+   *
+   * @returns {Array<Object>} Row descriptors: { route, label, count, glyph }.
+   */
+  buildHomeWorkspaceItems() {
+    const runningTasks = Array.isArray(this._worktreeTaskCache)
+      ? this._worktreeTaskCache.filter(t => t && (t.status === 'running' || t.status === 'in_progress')).length
+      : 0;
+    const pairedDevices = Number(this._pairedDeviceCount) || 0;
+    return [
+      {
+        route: 'tasks-board',
+        label: 'Agent tasks',
+        detail: runningTasks > 0 ? `${runningTasks} running` : '',
+        glyph: 'M3 3.5h10v9H3z M5.5 8l1.5 1.5L10.5 6',
+      },
+      {
+        route: 'docs-notes',
+        label: 'Project notes',
+        detail: '',
+        glyph: 'M4.5 2h7v12h-7z M6.5 5h3 M6.5 8h3 M6.5 11h2',
+      },
+      {
+        route: 'costs',
+        label: 'Costs',
+        detail: '',
+        glyph: 'M8 2v12 M5.5 4.5c0-.9 1.1-1.5 2.5-1.5s2.5.6 2.5 1.5S9.4 6 8 6 5.5 6.6 5.5 7.5 6.6 9 8 9s2.5.6 2.5 1.5S9.4 12 8 12s-2.5-.6-2.5-1.5',
+      },
+      {
+        route: 'resources',
+        label: 'System resources',
+        detail: '',
+        glyph: 'M2.5 13V8.5h3V13z M6.5 13V4h3v9z M10.5 13V6.5h3V13z',
+      },
+      {
+        route: 'pair-device',
+        label: 'Paired devices',
+        detail: pairedDevices > 0 ? String(pairedDevices) : '',
+        glyph: 'M5 1.5h6v13H5z M7 12.5h2',
+      },
+      {
+        route: 'settings',
+        label: 'Settings',
+        detail: '',
+        glyph: 'M8 5.75a2.25 2.25 0 1 0 0 4.5 2.25 2.25 0 0 0 0-4.5z M13 8l1-1.5-1.5-2.5-1.75.5-1.5-.9L8.75 1.5h-1.5L7 3.6l-1.5.9-1.75-.5L2.25 6.5 3.25 8l-1 1.5 1.5 2.5 1.75-.5 1.5.9.25 2.1h1.5l.25-2.1 1.5-.9 1.75.5 1.5-2.5z',
+      },
+    ];
+  }
+
+  /**
+   * One Home > Workspace row.
+   *
+   * A borderless Notion row: 20px leading glyph, label, optional trailing
+   * count, chevron. The whole row is the button, so the hit box is the row
+   * and no pseudo-element expansion is needed (MOBILE-EXPERIENCE D.1).
+   *
+   * @param {Object} item - Descriptor from buildHomeWorkspaceItems.
+   * @returns {string} Row markup.
+   */
+  _mobileHomeRowHtml(item) {
+    const detail = item.detail
+      ? `<span class="mobile-home-row-detail">${this.escapeHtml(item.detail)}</span>`
+      : '';
+    const paths = String(item.glyph || '').split(' M').map((d, i) => (i === 0 ? d : 'M' + d));
+    const glyph = paths
+      .map(d => `<path d="${this.escapeHtml(d)}"/>`)
+      .join('');
+    return '<button type="button" class="mobile-home-row" data-mw-zone="affordance" ' +
+      `data-mw-route="${this.escapeHtml(item.route)}">` +
+      '<span class="mobile-home-row-glyph" aria-hidden="true">' +
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+      `stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg></span>` +
+      `<span class="mobile-home-row-label">${this.escapeHtml(item.label)}</span>` +
+      detail +
+      '<span class="mobile-home-row-chevron" aria-hidden="true">&#8250;</span>' +
+      '</button>';
+  }
+
+  /**
+   * A "See all" row. Borderless, tertiary ink, routes into Sessions.
+   *
+   * @param {string} label - Row text.
+   * @param {string} route - Capability id to run.
+   * @returns {string} Row markup.
+   */
+  _mobileSeeAllRowHtml(label, route) {
+    return '<button type="button" class="mobile-home-seeall" data-mw-zone="affordance" ' +
+      `data-mw-route="${this.escapeHtml(route)}">${this.escapeHtml(label)}` +
+      '<span class="mobile-home-row-chevron" aria-hidden="true">&#8250;</span></button>';
+  }
+
+  /**
+   * One "Active now" card: bordered, because it is a live thing.
+   *
+   * The status mark is a STATIC SHAPE, never a pulse: a filled disc for
+   * running, a ring for needs-input. The mock draws both with `mwPulse`;
+   * the standing rule recorded in DECISIONS 13.1 and DEVIATIONS DV-21 bans
+   * animated status marks and outranks the mock, and gate G14 enforces it.
+   * The hue is never the only channel: the second line repeats the state
+   * as a word.
+   *
+   * @param {Object} row - A row from getRecentSessions.
+   * @param {Object|null} attention - Its attention-queue entry, when it has one.
+   * @returns {string} Card markup.
+   */
+  _mobileActiveCardHtml(row, attention) {
+    const wantsInput = !!(attention && attention.state === 'needs-input');
+    const dotClass = wantsInput ? 'status-dot-idle' : 'status-dot-running';
+    const activity = attention && attention.label ? attention.label : 'Running';
+    const meta = [row.projectLabel, activity].filter(Boolean).map(t => this.escapeHtml(t)).join(' · ');
+    return '<button type="button" class="mobile-session-card" data-mw-zone="affordance" ' +
+      `data-mw-route="session-open" data-recent-key="${this.escapeHtml(row.key)}"` +
+      (wantsInput ? ' data-attention-state="needs-input"' : '') + '>' +
+      `<span class="status-dot ${dotClass}" aria-hidden="true"></span>` +
+      '<span class="mobile-session-card-body">' +
+      `<span class="mobile-session-card-title">${this.escapeHtml(row.title)}</span>` +
+      `<span class="mobile-session-card-meta">${meta}</span>` +
+      '</span>' +
+      this.providerChipHtml(row.providerId) +
+      '</button>';
+  }
+
+  /**
+   * One "Recent" row: borderless, because it is history.
+   *
+   * Shares recentRowInnerHtml with Quick Find, the sidebar Recent section
+   * and the workbench continue row, so the four cannot drift apart in what
+   * they show (BUILD-CONTRACT 2.13, criterion 2).
+   *
+   * @param {Object} row - A row from getRecentSessions.
+   * @returns {string} Row markup.
+   */
+  _mobileRecentRowHtml(row) {
+    return '<button type="button" class="mobile-recent-row" data-mw-zone="affordance" ' +
+      `data-mw-route="session-open" data-recent-key="${this.escapeHtml(row.key)}">` +
+      this.recentRowInnerHtml(row, { showProvider: false }) +
+      '</button>';
+  }
+
+  /* ─── Attention ──────────────────────────────────────────── */
+
+  /**
+   * The per-surface overflow builder for the Attention tab.
+   *
+   * MOBILE-EXPERIENCE A.3.4 puts exactly one item here, "Stop all", in the
+   * danger group, because the queue itself is the surface and everything
+   * else about it is a row.
+   *
+   * @returns {Array<Object>} Action-sheet items.
+   */
+  buildMobileAttentionOverflowItems() {
+    const conflictCount = (this._currentConflicts || []).length;
+    const items = [
+      { label: 'All sessions', action: () => this.setViewMode('workspace') },
+    ];
+    if (conflictCount > 0) {
+      items.push({
+        label: `Conflicts (${conflictCount})`,
+        action: () => this.openConflictCenter(),
+      });
+    }
+    items.push(
+      { type: 'sep' },
+      { label: 'Stop all', action: () => this.restartAllSessions(), danger: true }
+    );
+    return items;
+  }
+
+  /**
+   * Render the Attention tab: everything that wants the user, grouped.
+   *
+   * A running session with nothing to say never appears here (A.2). The
+   * groups are the five the queue can produce plus a conditional Conflicts
+   * group; a group with no members is not drawn, so the screen is never a
+   * list of empty headings.
+   *
+   * The "Held" group has no producer yet: auto-trust either accepts a safe
+   * prompt or flags it as needs-input, so nothing is ever held today. The
+   * group is declared anyway, keyed on a `held` state, so the moment a
+   * producer exists the row appears with no further work here.
+   *
+   * @returns {void}
+   */
+  renderMobileAttention() {
+    const host = this.els.mobileAttentionList;
+    if (!host) return;
+
+    const queue = this._getAttentionQueue();
+    const groups = [
+      { state: 'needs-input', label: 'Waiting for you' },
+      { state: 'held', label: 'Held' },
+      { state: 'failed', label: 'Failed' },
+      { state: 'complete', label: 'Finished' },
+      { state: 'stale', label: 'Stale' },
+    ];
+
+    const parts = [];
+    for (const group of groups) {
+      const members = queue.filter(item => item.state === group.state);
+      if (members.length === 0) continue;
+      parts.push(`<h2 class="mobile-section-label">${this.escapeHtml(group.label)}</h2>`);
+      parts.push(members.map(item => this._mobileAttentionRowHtml(item)).join(''));
+    }
+
+    const conflicts = this._currentConflicts || [];
+    if (conflicts.length > 0) {
+      parts.push('<h2 class="mobile-section-label">Conflicts</h2>');
+      parts.push(
+        '<button type="button" class="mobile-attention-row" data-mw-zone="affordance" ' +
+        'data-mw-route="conflict-center" data-conflict-row="true">' +
+        '<span class="status-dot status-dot-idle" aria-hidden="true"></span>' +
+        '<span class="mobile-attention-row-body">' +
+        `<span class="mobile-attention-row-title">${conflicts.length} file conflict` +
+        `${conflicts.length === 1 ? '' : 's'}</span>` +
+        '<span class="mobile-attention-row-meta">Multiple sessions editing the same files</span>' +
+        '</span></button>'
+      );
+    }
+
+    if (parts.length === 0) {
+      parts.push('<p class="mobile-home-empty">Nothing needs you right now.</p>');
+    }
+
+    host.innerHTML = parts.join('');
+
+    // One polite announcement, rate limited. D.6: announce only transitions
+    // into "needs input", and at most once per five seconds.
+    const actionable = queue.filter(item => item.actionable).length;
+    if (this.els.mobileAttentionLive) {
+      const now = Date.now();
+      const changed = actionable !== this._mobileAttentionLastCount;
+      const cool = !this._mobileAttentionLastAnnounce ||
+        (now - this._mobileAttentionLastAnnounce) >= CWMApp.MOBILE_ATTENTION_ANNOUNCE_MS;
+      if (changed && cool) {
+        this._mobileAttentionLastAnnounce = now;
+        this.els.mobileAttentionLive.textContent = actionable > 0
+          ? `${actionable} session${actionable === 1 ? '' : 's'} need attention`
+          : '';
+      }
+      this._mobileAttentionLastCount = actionable;
+    }
+
+    this.renderMobileTabBadge();
+  }
+
+  /**
+   * One Attention row. The state is carried by a static shape AND by the
+   * label beside it, so the hue is never the only channel (D.4).
+   *
+   * @param {Object} item - An attention-queue entry.
+   * @returns {string} Row markup.
+   */
+  _mobileAttentionRowHtml(item) {
+    const dotClass = item.state === 'needs-input' || item.state === 'stale'
+      ? 'status-dot-idle'
+      : (item.state === 'failed' ? 'status-dot-error' : 'status-dot-running');
+    return '<button type="button" class="mobile-attention-row" data-mw-zone="affordance" ' +
+      `data-mw-route="attention-item" data-session-id="${this.escapeHtml(item.sessionId)}" ` +
+      `data-attention-state="${this.escapeHtml(item.state)}">` +
+      `<span class="status-dot ${dotClass}" aria-hidden="true"></span>` +
+      '<span class="mobile-attention-row-body">' +
+      `<span class="mobile-attention-row-title">${this.escapeHtml(item.sessionName)}</span>` +
+      `<span class="mobile-attention-row-meta">${this.escapeHtml(item.label)}</span>` +
+      '</span></button>';
+  }
+
+  /* ─── Search ─────────────────────────────────────────────── */
+
+  /**
+   * The Search tab's scope set.
+   *
+   * MOBILE-EXPERIENCE A.3.5 unifies the quick switcher, the command
+   * palette, global transcript search and help behind scope chips. Each
+   * scope names the surface that already answers it; none of them is
+   * re-implemented here.
+   *
+   * @returns {Array<Object>} { id, label } chips.
+   */
+  _mobileSearchScopes() {
+    return [
+      { id: 'all', label: 'All' },
+      { id: 'sessions', label: 'Sessions' },
+      { id: 'commands', label: 'Commands' },
+      { id: 'conversations', label: 'Conversations' },
+      { id: 'help', label: 'Help' },
+    ];
+  }
+
+  /**
+   * Open the surface that answers a scope.
+   *
+   * DIVERGENCE, recorded in DECISIONS: the Search TAB is a real screen
+   * (field, scope chips, recent rows), and typing escalates into the
+   * existing full-screen Quick Find overlay rather than into a second
+   * search engine written for the phone. On a phone the overlay covers the
+   * viewport, so the two read as one surface; re-implementing the palette's
+   * scoring, catalogue and result routing would have been a second engine
+   * to keep in step with the first.
+   *
+   * @param {string} scope - One of the ids from _mobileSearchScopes.
+   * @returns {void}
+   */
+  openMobileSearchScope(scope) {
+    if (scope === 'help') {
+      this.openQuickSwitcher('help');
+      return;
+    }
+    if (scope === 'conversations') {
+      this.openGlobalSearch();
+      return;
+    }
+    this.openQuickSwitcher();
+    if (scope === 'commands' && this.els.qsInput) {
+      // The palette's own command mode is the '>' prefix; seeding it is how
+      // the chip routes to Commands without a parallel mode flag.
+      this.els.qsInput.value = '>';
+      this.onQuickSwitcherInput();
+    }
+  }
+
+  /**
+   * Render the Search screen: scope chips plus the recency rows that stand
+   * in for "Recent searches" until a search history exists.
+   *
+   * @returns {void}
+   */
+  renderMobileSearch() {
+    const scope = this._mobileSearchScope || 'all';
+    if (this.els.mobileSearchScopes) {
+      this.els.mobileSearchScopes.innerHTML = this._mobileSearchScopes().map(chip =>
+        '<button type="button" class="mobile-scope-chip' +
+        (chip.id === scope ? ' is-active' : '') + '" ' +
+        `data-mw-zone="affordance" data-mw-scope="${this.escapeHtml(chip.id)}" ` +
+        `aria-pressed="${chip.id === scope}">${this.escapeHtml(chip.label)}</button>`
+      ).join('');
+    }
+    if (this.els.mobileSearchResults) {
+      const rows = this.getRecentSessions(CWMApp.RECENCY_QUICK_FIND_LIMIT);
+      this.els.mobileSearchResults.innerHTML = rows.length > 0
+        ? '<h2 class="mobile-section-label">Recent</h2>' +
+          rows.map(r => this._mobileRecentRowHtml(r)).join('')
+        : '<p class="mobile-home-empty">Nothing to search yet.</p>';
+    }
+  }
+
+  /* ─── The mobile header: back chevron and New session ─────── */
+
+  /**
+   * Inject the two phone-only header controls, once.
+   *
+   * They are INJECTED rather than authored into index.html for the same
+   * reason the Select-mode toolbar buttons are: the header is shared chrome
+   * owned by another track, and one runtime definition cannot drift from
+   * six hand-written copies. Both are ordinary buttons in the header's own
+   * flow, so nothing floats and nothing overlaps.
+   *
+   * "+" is the mock's header affordance with search removed, because Search
+   * is a tab and New session had no header route at all
+   * (MOBILE-EXPERIENCE A.4 deviation 1). The back chevron is the tap
+   * equivalent of the OS back gesture for the Home destinations (A.3.1).
+   *
+   * @returns {number} How many controls were created.
+   */
+  _injectMobileHeaderControls() {
+    const header = document.querySelector('.app-header .header-left');
+    if (!header) return 0;
+    let created = 0;
+
+    if (!header.querySelector('.mobile-header-back')) {
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'mobile-header-back mw-touch-expand';
+      back.dataset.mwZone = 'affordance';
+      back.dataset.mwRoute = 'nav-back';
+      back.setAttribute('aria-label', 'Back to Home');
+      back.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" ' +
+        'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+        'stroke-linejoin="round" aria-hidden="true"><path d="M10 3.5L5.5 8 10 12.5"/></svg>';
+      back.hidden = true;
+      back.addEventListener('click', () => this.setViewMode('home'));
+      header.insertBefore(back, header.firstChild);
+      created++;
+    }
+
+    if (!header.querySelector('.mobile-header-new')) {
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'mobile-header-new mw-touch-expand';
+      add.dataset.mwZone = 'affordance';
+      add.dataset.mwRoute = 'session-new';
+      add.setAttribute('aria-label', 'New session');
+      add.innerHTML = '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" ' +
+        'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+        'aria-hidden="true"><path d="M8 3.5v9"/><path d="M3.5 8h9"/></svg>';
+      add.addEventListener('click', () => this.openLauncher());
+      const switcher = header.querySelector('#account-switcher');
+      if (switcher) header.insertBefore(add, switcher);
+      else header.appendChild(add);
+      created++;
+    }
+
+    // The workspace tile: the mock's leading square opens a workspace sheet.
+    // .header-brand is a div, so it takes the same role/tabindex treatment
+    // the other div-shaped controls in this shell take, and Enter and Space
+    // reach it through bindRowKeyboardActivation.
+    const brand = document.querySelector('.app-header .header-brand');
+    if (brand && !brand.dataset.mwRoute) {
+      brand.dataset.mwZone = 'affordance';
+      brand.dataset.mwRoute = 'workspace-switch';
+      brand.setAttribute('role', 'button');
+      brand.setAttribute('tabindex', '0');
+      brand.setAttribute('aria-label', 'Switch workspace');
+      brand.addEventListener('click', () => {
+        if (this.isMobile) this.openMobileWorkspaceSheet();
+      });
+      created++;
+    }
+
+    return created;
+  }
+
+  /**
+   * Show or hide the injected back chevron for the current view.
+   *
+   * @param {string} mode - The view mode being entered.
+   * @returns {void}
+   */
+  _syncMobileHeader(mode) {
+    const back = document.querySelector('.app-header .mobile-header-back');
+    if (!back) return;
+    back.hidden = !CWMApp.HOME_DESTINATION_MODES.includes(mode);
+  }
+
+  /**
+   * The workspace sheet behind the Home header's tile.
+   *
+   * Replaces the edge-swipe drawer as the workspace-switch route
+   * (MOBILE-EXPERIENCE B.1 rule R2: the edge belongs to the OS). Projects
+   * remain reachable from the Sessions tab, which is the drawer's other
+   * half.
+   *
+   * @returns {void}
+   */
+  openMobileWorkspaceSheet() {
+    const items = (this.state.workspaces || []).map(ws => ({
+      label: ws.name || ws.id,
+      check: this.state.activeWorkspace && this.state.activeWorkspace.id === ws.id,
+      action: () => this.selectWorkspace(ws.id),
+    }));
+    if (items.length > 0) items.push({ type: 'sep' });
+    items.push({ label: 'All sessions', action: () => this.setViewMode('workspace') });
+    items.push({ label: 'Projects', action: () => {
+      this.setViewMode('workspace');
+      this.setProjectsCollapsed(false);
+      if (this.isMobile && !this.state.sidebarOpen) this.toggleSidebar();
+    } });
+    this.showActionSheet('Workspace', items);
   }
 
   /**
@@ -3106,6 +3934,20 @@ class CWMApp {
     const savedViewMode = localStorage.getItem('cwm_viewMode');
     if (savedViewMode && ['workspace', 'all', 'costs', 'recent', 'terminal', 'docs', 'resources', 'tasks'].includes(savedViewMode)) {
       this.state.viewMode = savedViewMode;
+    }
+    // Notion restyle P10.2: the three phone-only modes are honoured only on a
+    // phone. A desktop that restores `home` from a phone session would land
+    // on a screen laid out for a 390px column, so it falls through to the
+    // list above and keeps the desktop default.
+    if (savedViewMode && CWMApp.MOBILE_ONLY_VIEW_MODES.includes(savedViewMode) && this.isMobile) {
+      this.state.viewMode = savedViewMode;
+    }
+    // OQ-1, answered: Home is the phone's landing tab, because Home is the
+    // orientation surface and recency is the first thing a phone should
+    // show (BUILD-CONTRACT 2.13.6). A user who has chosen a tab before keeps
+    // it; only a first run lands on Home.
+    if (!savedViewMode && this.isMobile) {
+      this.state.viewMode = 'home';
     }
     // Always apply the current view mode (handles default 'terminal' for new users)
     this.setViewMode(this.state.viewMode);
@@ -11896,11 +12738,22 @@ class CWMApp {
     }
 
     // Update mobile tab bar
+    //
+    // NOTION RESTYLE P10.1. `isMoreDestination` is retained verbatim: the
+    // `more` tab no longer exists in the five-tab bar, so the second clause
+    // is simply never true, and the classic shell keeps the behaviour it
+    // had. `isHomeDestination` is its replacement: Costs, Resources, Project
+    // notes, Agent tasks and Recent are now reached from Home > Workspace, so
+    // Home is the tab that stays lit while one of them is showing.
     if (this.els.mobileTabBar) {
       const isMoreDestination = ['costs', 'recent', 'docs', 'resources'].includes(mode);
+      const isHomeDestination = CWMApp.HOME_DESTINATION_MODES.includes(mode);
       this.els.mobileTabBar.querySelectorAll('.mobile-tab').forEach(tab => {
+        const tabMode = CWMApp.MOBILE_TAB_VIEW[tab.dataset.view] || tab.dataset.view;
         const isActive = tab.dataset.view === mode ||
-          (tab.dataset.view === 'more' && isMoreDestination);
+          (tab.dataset.view === 'more' && isMoreDestination) ||
+          tabMode === mode ||
+          (tab.dataset.view === 'home' && isHomeDestination);
         tab.classList.toggle('active', isActive);
         if (isActive) tab.setAttribute('aria-current', 'page');
         else tab.removeAttribute('aria-current');
@@ -11928,8 +12781,15 @@ class CWMApp {
     const isResources = mode === 'resources';
     const isCosts = mode === 'costs';
     const isTasks = mode === 'tasks';
-    this.els.sessionListPanel.hidden = isTerminal || isDocs || isResources || isCosts || isTasks;
-    this.els.detailPanel.hidden = isTerminal || isDocs || isResources || isCosts || isTasks || !this.state.selectedSession;
+    // Notion restyle P10.2: the three phone screens are ordinary panels in
+    // this same switch, so exactly one surface is ever visible and no second
+    // navigation system exists.
+    const isHome = mode === 'home';
+    const isAttention = mode === 'attention';
+    const isSearch = mode === 'search';
+    const isMobileScreen = isHome || isAttention || isSearch;
+    this.els.sessionListPanel.hidden = isTerminal || isDocs || isResources || isCosts || isTasks || isMobileScreen;
+    this.els.detailPanel.hidden = isTerminal || isDocs || isResources || isCosts || isTasks || isMobileScreen || !this.state.selectedSession;
     // A view switch can open or close the peek without going through
     // renderSessionDetail (switching to Costs hides it; switching back to
     // Sessions with a selection still made shows it), so the body class is
@@ -11963,6 +12823,30 @@ class CWMApp {
     }
     if (this.els.tasksPanel) {
       this.els.tasksPanel.hidden = !isTasks;
+    }
+    // Notion restyle P10.2: the phone screens follow the same hidden-property
+    // idiom as every other panel, so [hidden] stays the single source of
+    // truth for what is on screen (DO-NOT-BREAK rule 3).
+    if (this.els.mobileHomePanel) {
+      this.els.mobileHomePanel.hidden = !isHome;
+    }
+    if (this.els.mobileAttentionPanel) {
+      this.els.mobileAttentionPanel.hidden = !isAttention;
+    }
+    if (this.els.mobileSearchPanel) {
+      this.els.mobileSearchPanel.hidden = !isSearch;
+    }
+    // The mobile back chevron only exists while a Home destination is
+    // showing, because that is the only phone surface with a parent to
+    // return to (MOBILE-EXPERIENCE A.3.1, "Back from a detail surface").
+    this._syncMobileHeader(mode);
+
+    if (isHome) {
+      this.renderMobileHome();
+    } else if (isAttention) {
+      this.renderMobileAttention();
+    } else if (isSearch) {
+      this.renderMobileSearch();
     }
 
     if (isTasks) {
@@ -14673,6 +15557,12 @@ class CWMApp {
       costs: 'Costs',
       docs: 'Docs',
       resources: 'System resources',
+      // Notion restyle P10.2: the three phone screens name themselves too, so
+      // a tablet that crosses the breakpoint mid-session never shows a
+      // breadcrumb leaf that says "Workbench" over the Home screen.
+      home: 'Home',
+      attention: 'Attention',
+      search: 'Search',
     };
     let leaf = labels[mode] || labels.terminal;
 
@@ -17490,6 +18380,11 @@ class CWMApp {
   }
 
   renderAttentionQueue() {
+    // Notion restyle P10.2: the phone's Attention TAB and its badge ride
+    // the same render path as the desktop header button, so the two can
+    // never disagree about the count. Runs before the desktop guard below,
+    // because the phone shell has no #attention-queue-btn on screen.
+    if (typeof this._refreshMobileScreens === 'function') this._refreshMobileScreens();
     const button = this.els && this.els.attentionQueueBtn;
     const badge = this.els && this.els.attentionQueueBadge;
     if (!button || !badge) return;
@@ -27231,6 +28126,10 @@ class CWMApp {
     try {
       const res = await this.api('GET', '/api/devices');
       const count = (res.devices || []).length;
+      // Notion restyle P10.2: Home > Workspace shows "Paired devices (n)",
+      // and this is the only place the count is known. Cached rather than
+      // re-fetched so the Home render stays synchronous.
+      this._pairedDeviceCount = count;
       if (count > 0) {
         badge.textContent = String(count);
         badge.hidden = false;
