@@ -3312,8 +3312,8 @@ textarea.input {
 .detail-logs-title {
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--text-muted);
   margin-bottom: 10px;
 }
@@ -3366,8 +3366,8 @@ textarea.input {
 .detail-section-title {
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--text-muted);
   margin-bottom: 4px;
 }
@@ -3389,8 +3389,8 @@ textarea.input {
   font-size: 10px;
   font-weight: 500;
   color: var(--overlay1);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .analytics-card-value {
@@ -3413,8 +3413,8 @@ textarea.input {
   font-size: 11px;
   font-weight: 500;
   color: var(--overlay1);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
   margin-bottom: 6px;
 }
 
@@ -3464,8 +3464,8 @@ textarea.input {
 .cost-total-label {
   font-size: 11px;
   color: var(--subtext0);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .cost-breakdown {
@@ -3529,8 +3529,8 @@ textarea.input {
   font-size: 11px;
   font-weight: 600;
   color: var(--subtext0);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .subagent-count {
@@ -3843,8 +3843,8 @@ textarea.input {
 .settings-category-label {
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--overlay0);
   padding: 8px 0 4px;
 }
@@ -5406,8 +5406,8 @@ body.cwm-dragging .sidebar-backdrop {
   grid-column: 1 / -1;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
   color: var(--overlay0);
   padding: 6px 2px 2px;
   margin-top: 2px;
@@ -5418,8 +5418,8 @@ body.cwm-dragging .sidebar-backdrop {
   grid-column: 1 / -1;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
   color: var(--mauve);
   padding: 10px 2px 3px;
   margin-top: 6px;
@@ -5813,8 +5813,8 @@ body.cwm-dragging .sidebar-backdrop {
 .discover-badge {
   font-size: 9px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
   padding: 1px 5px;
   border-radius: var(--radius-row-icon);
 }
@@ -6048,8 +6048,8 @@ body.cwm-dragging .sidebar-backdrop {
   font-size: 10px;
   color: var(--green);
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  text-transform: none;
+  letter-spacing: normal;
 }
 .ai-find-card-header {
   display: flex;
@@ -6068,8 +6068,8 @@ body.cwm-dragging .sidebar-backdrop {
 .ai-find-card-badge {
   font-size: 10px;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: normal;
   padding: 1px 6px;
   border-radius: var(--radius-row-icon);
   background: var(--surface1);
@@ -6197,7 +6197,7 @@ body.cwm-dragging .sidebar-backdrop {
 .project-session-size { font-size: 11px; color: var(--app-text-tertiary); font-family: var(--font-mono); }
 .project-session-time { font-size: 11px; color: var(--app-text-tertiary); }
 /* Archived thread badge (e.g. Codex archived_sessions/): muted pill so ended threads stay visible but distinct */
-.project-session-archived { font-size: 9px; color: var(--overlay0); border: 1px solid var(--surface1); border-radius: var(--radius-property-chip); padding: 0 4px; text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0; }
+.project-session-archived { font-size: 9px; color: var(--overlay0); border: 1px solid var(--surface1); border-radius: var(--radius-property-chip); padding: 0 4px; text-transform: none; letter-spacing: normal; flex-shrink: 0; }
 .project-session-item.dragging { opacity: 0.4; }
 
 /* Legacy flat project item (keep for compatibility) */
@@ -6232,8 +6232,8 @@ body.cwm-dragging .sidebar-backdrop {
   cursor: pointer;
   font-size: 12px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--subtext1);
   /* Subtle tinted background - lighter than active workspace to avoid confusion */
   background: color-mix(in srgb, var(--group-color, var(--mauve)) 6%, var(--mantle));
@@ -6419,8 +6419,8 @@ body.cwm-dragging .sidebar-backdrop {
   font-size: 12px;
   font-weight: 600;
   color: var(--subtext1);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
   margin: 0;
 }
 
@@ -6572,8 +6572,8 @@ body.cwm-dragging .sidebar-backdrop {
   padding: 1px 6px;
   border-radius: var(--radius-pane-frame);
   flex-shrink: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .roadmap-planned .roadmap-status-label {
@@ -6651,8 +6651,8 @@ body.cwm-dragging .sidebar-backdrop {
   color: var(--base);
   vertical-align: middle;
   margin-left: 4px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .td-issue-item {
@@ -6797,8 +6797,8 @@ body.cwm-dragging .sidebar-backdrop {
   display: block;
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--overlay1);
   margin-bottom: 2px;
 }
@@ -6810,8 +6810,8 @@ body.cwm-dragging .sidebar-backdrop {
 .td-issue-modal-section-title {
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--overlay1);
   margin-bottom: 6px;
 }
@@ -8420,8 +8420,8 @@ html.activity-indicators-disabled .terminal-pane-activity {
   padding: 4px 8px;
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--overlay0);
 }
 
@@ -8669,8 +8669,8 @@ html.activity-indicators-disabled .terminal-pane-activity {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .kanban-column-count {
@@ -8942,8 +8942,8 @@ html.activity-indicators-disabled .terminal-pane-activity {
   padding: 10px 16px 4px;
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--subtext0);
   border-bottom: 1px solid var(--surface1);
   margin-top: 4px;
@@ -9387,8 +9387,8 @@ html.activity-indicators-disabled .terminal-pane-activity {
 .detail-changes-title {
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--subtext0);
   display: flex;
   align-items: center;
@@ -9565,8 +9565,8 @@ html.activity-indicators-disabled .terminal-pane-activity {
   font-size: 11px;
   font-weight: 500;
   color: var(--subtext0);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
   margin-bottom: 6px;
 }
 
@@ -9810,8 +9810,8 @@ html.activity-indicators-disabled .terminal-pane-activity {
   font-size: 10px;
   font-weight: 600;
   color: var(--subtext0);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
   padding: 8px 12px;
   text-align: left;
   border-bottom: 1px solid var(--surface1);
@@ -9959,8 +9959,8 @@ html.activity-indicators-disabled .terminal-pane-activity {
   font-size: 11px;
   font-weight: 500;
   color: var(--overlay1);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
   margin-bottom: 8px;
 }
 
@@ -10030,8 +10030,8 @@ html.activity-indicators-disabled .terminal-pane-activity {
   font-size: 11px;
   font-weight: 500;
   color: var(--overlay1);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
   padding: 6px 10px;
   border-bottom: 1px solid var(--surface1);
 }
@@ -10700,8 +10700,8 @@ html {
   padding: 10px 12px 6px;
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--overlay0);
   position: sticky;
   top: 0;
@@ -10836,9 +10836,9 @@ html {
 .machine-pill-key {
   font-family: var(--font-mono);
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: normal;
   color: var(--text-muted);
-  text-transform: uppercase;
+  text-transform: none;
   flex-shrink: 0;
 }
 
@@ -11024,8 +11024,8 @@ html {
 .account-plan-badge {
   font-size: 9px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: normal;
   padding: 1px 5px;
   border-radius: var(--radius-property-chip);
   background: var(--surface0);
@@ -11276,8 +11276,8 @@ html {
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
   color: var(--text-muted);
   margin-right: 5px;
 }
@@ -12612,8 +12612,8 @@ html {
   padding: 4px 12px 2px;
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--overlay1);
   pointer-events: none;
   user-select: none;
@@ -12921,8 +12921,8 @@ html {
   padding: 10px 16px 4px;
   font-size: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
+  text-transform: none;
+  letter-spacing: normal;
   color: var(--overlay0);
   user-select: none;
 }
@@ -13071,8 +13071,8 @@ html {
   font-weight: 500;
   color: var(--overlay0);
   margin-bottom: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .launcher-form-input {
@@ -13243,9 +13243,9 @@ html {
   color: var(--subtext0);
   font-weight: 500;
   min-width: 64px;
-  text-transform: uppercase;
+  text-transform: none;
   font-size: 10px;
-  letter-spacing: 0.5px;
+  letter-spacing: normal;
 }
 
 .pair-url-value {
@@ -13440,8 +13440,8 @@ html {
   font-size: 11px;
   font-weight: 600;
   color: var(--subtext0);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  text-transform: none;
+  letter-spacing: normal;
   background: var(--surface0);
   border-bottom: 1px solid var(--surface1);
 }
@@ -13746,8 +13746,8 @@ html {
 /* ─── Schedule list rows ──────────────────────────────── */
 .schedule-list { margin-top: 12px; border-top: 1px solid var(--surface1); padding-top: 8px; }
 .schedule-list-header {
-  font-size: 11px; color: var(--subtext0); text-transform: uppercase;
-  letter-spacing: 0.05em; margin-bottom: 4px;
+  font-size: 11px; color: var(--subtext0); text-transform: none;
+  letter-spacing: normal; margin-bottom: 4px;
 }
 .schedule-row {
   display: flex; align-items: center; gap: 8px;
@@ -14104,8 +14104,8 @@ html {
   padding: 1px 6px;
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: normal;
   border-radius: var(--radius-property-chip);
   border: 1px solid currentColor;
   background: transparent;
@@ -14433,8 +14433,8 @@ html {
   border: 1px solid var(--surface-2);
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
   color: var(--subtext0);
   user-select: none;
 }
@@ -14597,8 +14597,8 @@ html {
   margin-left: 6px;
   font-size: 9px;
   color: var(--peach);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 /* Skeleton rows while the initial open() is in flight (never spinners). */

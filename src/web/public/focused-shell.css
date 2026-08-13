@@ -943,8 +943,8 @@
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .docs-workspace-select {
@@ -1132,8 +1132,8 @@ body.appearance-open {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 750;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .theme-gallery-grid {
@@ -1567,8 +1567,8 @@ body.appearance-open {
     color: var(--text-muted);
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    letter-spacing: normal;
+    text-transform: none;
   }
 
   :root[data-ui-shell="focused"] .claude-session-table td.session-name-cell {
