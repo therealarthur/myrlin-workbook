@@ -882,7 +882,7 @@ html, body {
   background-clip: padding-box;
 }
 
-::-webkit-scrollbar-thumb:hover {
+.nt-enable-hover ::-webkit-scrollbar-thumb:hover {
   background: var(--app-text-tertiary);
 }
 
@@ -1022,7 +1022,7 @@ h4 {
 /* The quiet default's own hover. Variants that declare a background below
    override it, which is why this rule is written at (0,2,0) and theirs at
    (0,2,0) too: each variant carries its own :hover. */
-.btn:hover {
+.nt-enable-hover .btn:hover {
   background: var(--app-wash-hover);
 }
 
@@ -1054,7 +1054,7 @@ h4 {
   color: var(--app-on-accent);
 }
 
-.btn-primary:hover {
+.nt-enable-hover .btn-primary:hover {
   background: var(--app-ui-blue);
   box-shadow: none;
 }
@@ -1072,7 +1072,7 @@ h4 {
   box-shadow: var(--app-shadow-button);
 }
 
-.btn-danger:hover {
+.nt-enable-hover .btn-danger:hover {
   background: var(--app-bg-interactive);
   box-shadow: var(--app-shadow-button);
 }
@@ -1091,7 +1091,7 @@ h4 {
   border-color: transparent;
 }
 
-.btn-ghost:hover {
+.nt-enable-hover .btn-ghost:hover {
   background: var(--app-bg-interactive);
   color: var(--app-text-primary);
 }
@@ -1116,7 +1116,7 @@ h4 {
   color: var(--app-icon-secondary);
 }
 
-.btn-icon:hover {
+.nt-enable-hover .btn-icon:hover {
   background: var(--app-wash-hover);
   color: var(--app-icon-primary);
 }
@@ -1152,7 +1152,7 @@ h4 {
    the named block red and the wash is its matching block surface, so the two
    are the pair the capture contrast-tested together rather than an ad-hoc
    10 percent mix of a palette colour. */
-.btn-danger-hover:hover {
+.nt-enable-hover .btn-danger-hover:hover {
   color: var(--app-text-red);
   background: var(--app-bg-red);
 }
@@ -1305,7 +1305,7 @@ h4 {
   z-index: 1;
 }
 
-.password-toggle-btn:hover {
+.nt-enable-hover .password-toggle-btn:hover {
   color: var(--app-icon-primary);
   background: var(--app-wash-hover);
 }
@@ -1992,7 +1992,7 @@ textarea.input {
   transition: var(--motion-hover-reveal), color var(--transition-fast);
 }
 
-.sidebar-toggle:hover {
+.nt-enable-hover .sidebar-toggle:hover {
   background: var(--app-wash-hover);
   color: var(--text-primary);
 }
@@ -2080,7 +2080,7 @@ textarea.input {
   white-space: nowrap;
 }
 
-.view-tab:hover {
+.nt-enable-hover .view-tab:hover {
   color: var(--app-text-primary);
   background: var(--app-wash-hover);
 }
@@ -2234,7 +2234,7 @@ textarea.input {
   transition: var(--motion-hover-reveal), color var(--transition-fast);
 }
 
-.sidebar-collapse-btn:hover {
+.nt-enable-hover .sidebar-collapse-btn:hover {
   background: var(--app-wash-hover);
   color: var(--app-text-primary);
   border-color: transparent;
@@ -2318,7 +2318,7 @@ textarea.input {
   overflow: hidden;
 }
 
-.sidebar-launch-btn:hover {
+.nt-enable-hover .sidebar-launch-btn:hover {
   background: var(--app-wash-hover);
   color: var(--app-text-primary);
   border-color: transparent;
@@ -2372,7 +2372,7 @@ textarea.input {
   letter-spacing: normal;
 }
 
-.sidebar-view-btn:hover {
+.nt-enable-hover .sidebar-view-btn:hover {
   color: var(--app-text-primary);
   background: var(--app-wash-hover);
 }
@@ -2448,7 +2448,7 @@ textarea.input {
   font-weight: 500;
 }
 
-.workspace-item:hover {
+.nt-enable-hover .workspace-item:hover {
   background: var(--app-wash-hover);
   border-color: transparent;
   color: var(--app-text-primary);
@@ -2650,7 +2650,7 @@ textarea.input {
   padding-left: 12px;
 }
 
-.ws-session-item:hover {
+.nt-enable-hover .ws-session-item:hover {
   background: var(--app-wash-hover);
   color: var(--app-text-primary);
 }
@@ -3627,7 +3627,7 @@ textarea.input {
   transition: var(--motion-hover-reveal);
 }
 
-.template-chip:hover {
+.nt-enable-hover .template-chip:hover {
   background: var(--app-chip-blue-fill);
   color: var(--app-chip-blue-ink);
 }
@@ -3808,7 +3808,7 @@ textarea.input {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.settings-nav-item:hover {
+.nt-enable-hover .settings-nav-item:hover {
   background: var(--surface-1);
   color: var(--text-base);
 }
@@ -3859,7 +3859,7 @@ textarea.input {
   transition: background 0.12s ease;
 }
 
-.settings-row:hover {
+.nt-enable-hover .settings-row:hover {
   background: var(--surface0);
 }
 
@@ -3975,7 +3975,7 @@ textarea.input {
   transition: all 0.12s;
 }
 
-.settings-scale-btn:hover {
+.nt-enable-hover .settings-scale-btn:hover {
   background: var(--surface1);
   border-color: var(--surface2);
 }
@@ -4034,7 +4034,7 @@ textarea.input {
 }
 
 /* Hidden items in settings panel */
-.settings-hidden-item:hover {
+.nt-enable-hover .settings-hidden-item:hover {
   background: var(--surface1) !important;
 }
 .settings-hidden-item .settings-unhide-btn:hover {
@@ -4498,7 +4498,7 @@ textarea.input {
   transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
-.wt-review-btn:hover {
+.nt-enable-hover .wt-review-btn:hover {
   background: var(--surface2);
 }
 
@@ -4508,7 +4508,7 @@ textarea.input {
   color: var(--green);
 }
 
-.wt-review-btn-merge:hover {
+.nt-enable-hover .wt-review-btn-merge:hover {
   background: rgba(166, 227, 161, 0.25);
 }
 
@@ -4518,7 +4518,7 @@ textarea.input {
   color: var(--red);
 }
 
-.wt-review-btn-reject:hover {
+.nt-enable-hover .wt-review-btn-reject:hover {
   background: rgba(243, 139, 168, 0.20);
 }
 
@@ -4528,7 +4528,7 @@ textarea.input {
   color: var(--blue);
 }
 
-.wt-review-btn-diff:hover {
+.nt-enable-hover .wt-review-btn-diff:hover {
   background: rgba(137, 180, 250, 0.20);
 }
 
@@ -4538,7 +4538,7 @@ textarea.input {
   color: var(--yellow);
 }
 
-.wt-review-btn-resume:hover {
+.nt-enable-hover .wt-review-btn-resume:hover {
   background: rgba(249, 226, 175, 0.20);
 }
 
@@ -4548,7 +4548,7 @@ textarea.input {
   color: var(--teal);
 }
 
-.wt-review-btn-push:hover {
+.nt-enable-hover .wt-review-btn-push:hover {
   background: rgba(148, 226, 213, 0.20);
 }
 
@@ -4712,7 +4712,7 @@ textarea.input {
   font-size: 14px;
 }
 
-.fallback-dismiss:hover {
+.nt-enable-hover .fallback-dismiss:hover {
   background: rgba(249, 226, 175, 0.15);
 }
 
@@ -5221,7 +5221,7 @@ textarea.input {
   appearance: none;
 }
 
-.terminal-reader-close:hover {
+.nt-enable-hover .terminal-reader-close:hover {
   color: var(--text-primary);
   background: var(--surface0) !important;
 }
@@ -5451,7 +5451,7 @@ body.cwm-dragging .sidebar-backdrop {
   pointer-events: none;
 }
 
-.icon-swatch:hover {
+.nt-enable-hover .icon-swatch:hover {
   background: var(--surface0);
   color: var(--text);
 }
@@ -5678,7 +5678,7 @@ body.cwm-dragging .sidebar-backdrop {
   opacity: 0.55;
   cursor: default;
 }
-.context-item-current:hover {
+.nt-enable-hover .context-item-current:hover {
   background: none;
 }
 
@@ -5750,7 +5750,7 @@ body.cwm-dragging .sidebar-backdrop {
   transition: background 0.15s ease;
 }
 
-.discover-row:hover {
+.nt-enable-hover .discover-row:hover {
   background: var(--bg-hover);
 }
 
@@ -5913,7 +5913,7 @@ body.cwm-dragging .sidebar-backdrop {
   transition: all var(--transition-fast);
   justify-content: center;
 }
-.find-conversation-btn:hover {
+.nt-enable-hover .find-conversation-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
   background: rgba(203, 166, 247, 0.05);
@@ -6032,7 +6032,7 @@ body.cwm-dragging .sidebar-backdrop {
   cursor: pointer;
   transition: all 150ms ease;
 }
-.ai-find-card:hover {
+.nt-enable-hover .ai-find-card:hover {
   background: var(--surface1);
   border-color: var(--accent);
 }
@@ -6169,7 +6169,7 @@ body.cwm-dragging .sidebar-backdrop {
   cursor: pointer; transition: var(--motion-hover-reveal), color var(--transition-fast);
   font-size: 13px; color: var(--app-text-secondary); font-weight: 500;
 }
-.project-accordion-header:hover { background: var(--app-wash-hover); color: var(--app-text-primary); }
+.nt-enable-hover .project-accordion-header:hover { background: var(--app-wash-hover); color: var(--app-text-primary); }
 .project-accordion-header .project-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 .project-accordion-header .project-size { font-size: 11px; color: var(--app-text-tertiary); font-family: var(--font-mono); }
 .project-accordion-header .project-session-count {
@@ -6192,7 +6192,7 @@ body.cwm-dragging .sidebar-backdrop {
   cursor: grab; transition: var(--motion-hover-reveal), color var(--transition-fast);
   font-size: 13px; color: var(--app-text-secondary);
 }
-.project-session-item:hover { background: var(--app-wash-hover); color: var(--app-text-primary); }
+.nt-enable-hover .project-session-item:hover { background: var(--app-wash-hover); color: var(--app-text-primary); }
 .project-session-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .project-session-size { font-size: 11px; color: var(--app-text-tertiary); font-family: var(--font-mono); }
 .project-session-time { font-size: 11px; color: var(--app-text-tertiary); }
@@ -6207,7 +6207,7 @@ body.cwm-dragging .sidebar-backdrop {
   cursor: grab; transition: background var(--transition-fast);
   font-size: 13px; color: var(--text-secondary);
 }
-.project-item:hover { background: var(--surface0); color: var(--text-primary); }
+.nt-enable-hover .project-item:hover { background: var(--surface0); color: var(--text-primary); }
 .project-item.missing { opacity: 0.4; cursor: not-allowed; }
 .project-item .project-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 .project-item .project-size { font-size: 11px; color: var(--overlay0); font-family: var(--font-mono); }
@@ -6244,7 +6244,7 @@ body.cwm-dragging .sidebar-backdrop {
   user-select: none;
 }
 
-.workspace-group-header:hover {
+.nt-enable-hover .workspace-group-header:hover {
   color: var(--text);
   background: color-mix(in srgb, var(--group-color, var(--mauve)) 10%, var(--mantle));
   border-color: color-mix(in srgb, var(--group-color, var(--mauve)) 25%, var(--surface2));
@@ -6457,7 +6457,7 @@ body.cwm-dragging .sidebar-backdrop {
   transition: background 150ms ease;
 }
 
-.docs-item:hover {
+.nt-enable-hover .docs-item:hover {
   background: var(--surface0);
 }
 
@@ -6665,7 +6665,7 @@ body.cwm-dragging .sidebar-backdrop {
   transition: background 0.12s;
 }
 
-.td-issue-item:hover {
+.nt-enable-hover .td-issue-item:hover {
   background: var(--surface0);
 }
 
@@ -6721,7 +6721,7 @@ body.cwm-dragging .sidebar-backdrop {
   white-space: nowrap;
 }
 
-.td-start-worktree-btn:hover {
+.nt-enable-hover .td-start-worktree-btn:hover {
   background: var(--blue);
   color: var(--base);
   border-color: var(--blue);
@@ -6863,7 +6863,7 @@ body.cwm-dragging .sidebar-backdrop {
   color: var(--text);
 }
 
-.sidebar-tasks-mode-btn:hover:not(.active) {
+.nt-enable-hover .sidebar-tasks-mode-btn:hover:not(.active) {
   background: var(--surface0);
   color: var(--text);
 }
@@ -6878,7 +6878,7 @@ body.cwm-dragging .sidebar-backdrop {
   transition: background 0.12s;
 }
 
-.sidebar-td-item:hover {
+.nt-enable-hover .sidebar-td-item:hover {
   background: var(--surface0);
 }
 
@@ -7400,7 +7400,7 @@ body.cwm-dragging .sidebar-backdrop {
 }
 .terminal-pane:not(.terminal-pane-empty):hover .terminal-pane-upload,
 .terminal-pane-upload:focus-visible { opacity: 0.7; }
-.terminal-pane-upload:hover { opacity: 1 !important; background: var(--surface1); color: var(--text); }
+.nt-enable-hover .terminal-pane-upload:hover { opacity: 1 !important; background: var(--surface1); color: var(--text); }
 /* On mobile, hide floating upload button - mobile toolbar has its own upload btn */
 @media (max-width: 768px) {
   .terminal-pane-upload { display: none; }
@@ -7691,7 +7691,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   cursor: row-resize;
 }
 .terminal-resize-row::before { inset: -8px 0; }
-.terminal-resize-handle:hover {
+.nt-enable-hover .terminal-resize-handle:hover {
   background: rgba(203, 166, 247, 0.4);
 }
 .terminal-resize-handle.active {
@@ -8002,7 +8002,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   cursor: pointer;
 }
 
-.terminal-group-tab-close:hover {
+.nt-enable-hover .terminal-group-tab-close:hover {
   opacity: 1 !important;
   color: var(--red);
   background: rgba(243, 139, 168, 0.15);
@@ -8031,7 +8031,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   margin-left: 4px;
 }
 
-.terminal-groups-add:hover {
+.nt-enable-hover .terminal-groups-add:hover {
   color: var(--text);
   background: var(--surface0);
 }
@@ -8074,7 +8074,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   touch-action: pan-x;
 }
 
-.tab-folder-header:hover {
+.nt-enable-hover .tab-folder-header:hover {
   background: color-mix(in srgb, var(--folder-color, var(--mauve)) 10%, transparent);
 }
 
@@ -8443,7 +8443,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   transition: background var(--transition-fast);
 }
 
-.task-item:hover {
+.nt-enable-hover .task-item:hover {
   background: var(--surface0);
 }
 
@@ -8972,7 +8972,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   transition: background 0.1s;
 }
 
-.tasks-td-row:hover { background: var(--surface0); }
+.nt-enable-hover .tasks-td-row:hover { background: var(--surface0); }
 
 .td-priority-badge {
   margin-left: auto;
@@ -9143,7 +9143,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   opacity: 1;
 }
 
-.ws-new-task-btn:hover {
+.nt-enable-hover .ws-new-task-btn:hover {
   background: var(--surface1);
   color: var(--text-primary);
   border-color: var(--mauve);
@@ -9229,7 +9229,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   border-left: 2px solid transparent;
 }
 
-.diff-file-item:hover {
+.nt-enable-hover .diff-file-item:hover {
   background: var(--surface0);
 }
 
@@ -9422,7 +9422,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   transition: background var(--transition-fast);
 }
 
-.detail-change-item:hover {
+.nt-enable-hover .detail-change-item:hover {
   background: var(--surface0);
 }
 
@@ -9846,7 +9846,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   transition: background 0.1s;
 }
 
-.costs-sessions-table tbody tr:hover {
+.nt-enable-hover .costs-sessions-table tbody tr:hover {
   background: var(--mantle);
 }
 
@@ -10043,7 +10043,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   border-bottom: 1px solid var(--surface0);
 }
 
-.claude-session-table tr:hover td {
+.nt-enable-hover .claude-session-table tr:hover td {
   background: var(--surface0);
 }
 
@@ -10107,14 +10107,14 @@ html.activity-indicators-disabled .terminal-pane-activity {
   white-space: nowrap;
 }
 
-.resource-action-btn:hover {
+.nt-enable-hover .resource-action-btn:hover {
   background: var(--surface1);
 }
 
 .resource-action-btn.action-stop {
   color: var(--yellow);
 }
-.resource-action-btn.action-stop:hover {
+.nt-enable-hover .resource-action-btn.action-stop:hover {
   border-color: var(--yellow);
   background: rgba(249, 226, 175, 0.1);
 }
@@ -10122,7 +10122,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 .resource-action-btn.action-restart {
   color: var(--blue);
 }
-.resource-action-btn.action-restart:hover {
+.nt-enable-hover .resource-action-btn.action-restart:hover {
   border-color: var(--blue);
   background: rgba(137, 180, 250, 0.1);
 }
@@ -10130,7 +10130,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 .resource-action-btn.action-kill {
   color: var(--red);
 }
-.resource-action-btn.action-kill:hover {
+.nt-enable-hover .resource-action-btn.action-kill:hover {
   border-color: var(--red);
   background: rgba(243, 139, 168, 0.1);
 }
@@ -10138,7 +10138,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
 .resource-action-btn.action-start {
   color: var(--green);
 }
-.resource-action-btn.action-start:hover {
+.nt-enable-hover .resource-action-btn.action-start:hover {
   border-color: var(--green);
   background: rgba(166, 227, 161, 0.1);
 }
@@ -10209,7 +10209,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   background: rgba(137, 180, 250, 0.08);
   transition: background 150ms ease;
 }
-.port-link:hover {
+.nt-enable-hover .port-link:hover {
   background: rgba(137, 180, 250, 0.18);
   text-decoration: underline;
 }
@@ -10540,7 +10540,7 @@ html {
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.account-chip:hover {
+.nt-enable-hover .account-chip:hover {
   background: var(--app-wash-hover);
   color: var(--app-text-primary);
 }
@@ -10959,7 +10959,7 @@ html {
   grid-row: 3;
 }
 
-.account-row:hover {
+.nt-enable-hover .account-row:hover {
   background: var(--surface0);
 }
 
@@ -11181,7 +11181,7 @@ html {
   opacity: 1;
 }
 
-.account-row-edit:hover {
+.nt-enable-hover .account-row-edit:hover {
   background: var(--surface1);
   color: var(--text);
 }
@@ -11197,7 +11197,7 @@ html {
    does not shout). The button is not rendered on the ACTIVE row at all:
    the credential watcher re-saves the live login within ~1s, so deleting
    the active snapshot would be a confusing no-op. */
-.account-row-edit.account-delete-btn:hover {
+.nt-enable-hover .account-row-edit.account-delete-btn:hover {
   background: var(--surface1);
   color: var(--red);
 }
@@ -11221,7 +11221,7 @@ html {
   transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
-.account-retry-btn:hover {
+.nt-enable-hover .account-retry-btn:hover {
   background: var(--surface1);
   border-color: var(--overlay0);
 }
@@ -11339,13 +11339,13 @@ html {
   opacity: 1;
 }
 
-.account-seg:hover {
+.nt-enable-hover .account-seg:hover {
   background: var(--surface1);
   color: var(--text);
   opacity: 1;
 }
 
-.account-seg.is-on:hover {
+.nt-enable-hover .account-seg.is-on:hover {
   background: var(--mauve);
   color: var(--base);
 }
@@ -11569,7 +11569,7 @@ html {
   background: var(--app-bg-blue);
 }
 
-:root[data-theme="latte"] .terminal-resize-handle:hover {
+:root[data-theme="latte"] .nt-enable-hover .terminal-resize-handle:hover {
   background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent);
 }
 
@@ -11634,7 +11634,7 @@ html {
   background: var(--app-bg-blue);
 }
 
-:root[data-theme="frappe"] .terminal-resize-handle:hover {
+:root[data-theme="frappe"] .nt-enable-hover .terminal-resize-handle:hover {
   background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent);
 }
 
@@ -11699,7 +11699,7 @@ html {
   background: var(--app-bg-blue);
 }
 
-:root[data-theme="macchiato"] .terminal-resize-handle:hover {
+:root[data-theme="macchiato"] .nt-enable-hover .terminal-resize-handle:hover {
   background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent);
 }
 
@@ -11757,7 +11757,7 @@ html {
   background: var(--app-bg-blue);
 }
 
-:root[data-theme="cherry"] .terminal-resize-handle:hover {
+:root[data-theme="cherry"] .nt-enable-hover .terminal-resize-handle:hover {
   background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent);
 }
 
@@ -11816,7 +11816,7 @@ html {
   background: var(--app-bg-blue);
 }
 
-:root[data-theme="ocean"] .terminal-resize-handle:hover {
+:root[data-theme="ocean"] .nt-enable-hover .terminal-resize-handle:hover {
   background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent);
 }
 
@@ -11875,7 +11875,7 @@ html {
   background: var(--app-bg-blue);
 }
 
-:root[data-theme="amber"] .terminal-resize-handle:hover {
+:root[data-theme="amber"] .nt-enable-hover .terminal-resize-handle:hover {
   background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent);
 }
 
@@ -11934,7 +11934,7 @@ html {
   background: var(--app-bg-blue);
 }
 
-:root[data-theme="mint"] .terminal-resize-handle:hover {
+:root[data-theme="mint"] .nt-enable-hover .terminal-resize-handle:hover {
   background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent);
 }
 
@@ -12074,7 +12074,7 @@ html {
   padding: 2px 6px; border-radius: var(--radius-property-chip); cursor: pointer;
   color: var(--subtext1); transition: all 0.15s; flex-shrink: 0;
 }
-.folder-browser-crumb:hover { background: var(--surface0); color: var(--text); }
+.nt-enable-hover .folder-browser-crumb:hover { background: var(--surface0); color: var(--text); }
 .folder-browser-crumb.active { color: var(--mauve); font-weight: 600; }
 
 .folder-browser-sep {
@@ -12100,7 +12100,7 @@ html {
   transition: all 0.15s; user-select: none;
   border: 1px solid transparent;
 }
-.folder-browser-item:hover { background: var(--surface0); color: var(--text); }
+.nt-enable-hover .folder-browser-item:hover { background: var(--surface0); color: var(--text); }
 
 .folder-browser-item-icon { font-size: 16px; flex-shrink: 0; width: 20px; text-align: center; }
 .folder-browser-item-name {
@@ -12233,7 +12233,7 @@ html {
   user-select: none;
 }
 
-.sm-session-row:hover {
+.nt-enable-hover .sm-session-row:hover {
   background: var(--surface0);
 }
 
@@ -12348,7 +12348,7 @@ html {
   transition: all 0.12s;
 }
 
-.sm-action-btn:hover {
+.nt-enable-hover .sm-action-btn:hover {
   background: var(--surface1);
   color: var(--text);
 }
@@ -12540,7 +12540,7 @@ html {
   border: none;
 }
 
-.conflict-session-chip:hover {
+.nt-enable-hover .conflict-session-chip:hover {
   background: var(--surface1);
   color: var(--text);
 }
@@ -12670,7 +12670,7 @@ html {
 :root[data-theme="nord"] ::selection { background: var(--app-selection-token); color: var(--app-text-primary); }
 :root[data-theme="nord"] .stat-dot-running { background: var(--app-text-green); box-shadow: none; }
 :root[data-theme="nord"] .terminal-pane-empty.drag-over .terminal-container { background: var(--app-bg-blue); }
-:root[data-theme="nord"] .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
+:root[data-theme="nord"] .nt-enable-hover .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════ */
 /* DRACULA (Dark — Iconic Purple & Neon)                      */
@@ -12712,7 +12712,7 @@ html {
 :root[data-theme="dracula"] ::selection { background: var(--app-selection-token); color: var(--app-text-primary); }
 :root[data-theme="dracula"] .stat-dot-running { background: var(--app-text-green); box-shadow: none; }
 :root[data-theme="dracula"] .terminal-pane-empty.drag-over .terminal-container { background: var(--app-bg-blue); }
-:root[data-theme="dracula"] .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
+:root[data-theme="dracula"] .nt-enable-hover .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════ */
 /* TOKYO NIGHT (Dark — Neon City Lights)                      */
@@ -12754,7 +12754,7 @@ html {
 :root[data-theme="tokyo-night"] ::selection { background: var(--app-selection-token); color: var(--app-text-primary); }
 :root[data-theme="tokyo-night"] .stat-dot-running { background: var(--app-text-green); box-shadow: none; }
 :root[data-theme="tokyo-night"] .terminal-pane-empty.drag-over .terminal-container { background: var(--app-bg-blue); }
-:root[data-theme="tokyo-night"] .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
+:root[data-theme="tokyo-night"] .nt-enable-hover .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════ */
 /* ROSE PINE DAWN (Light — Soft Warm Rose)                    */
@@ -12796,7 +12796,7 @@ html {
 :root[data-theme="rose-pine-dawn"] ::selection { background: var(--app-selection-token); color: var(--app-text-primary); }
 :root[data-theme="rose-pine-dawn"] .stat-dot-running { background: var(--app-text-green); box-shadow: none; }
 :root[data-theme="rose-pine-dawn"] .terminal-pane-empty.drag-over .terminal-container { background: var(--app-bg-blue); }
-:root[data-theme="rose-pine-dawn"] .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
+:root[data-theme="rose-pine-dawn"] .nt-enable-hover .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════ */
 /* GRUVBOX LIGHT (Light — Warm Retro Earthy)                  */
@@ -12838,7 +12838,7 @@ html {
 :root[data-theme="gruvbox-light"] ::selection { background: var(--app-selection-token); color: var(--app-text-primary); }
 :root[data-theme="gruvbox-light"] .stat-dot-running { background: var(--app-text-green); box-shadow: none; }
 :root[data-theme="gruvbox-light"] .terminal-pane-empty.drag-over .terminal-container { background: var(--app-bg-blue); }
-:root[data-theme="gruvbox-light"] .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
+:root[data-theme="gruvbox-light"] .nt-enable-hover .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════════
    SESSION LAUNCHER MODAL
@@ -12937,7 +12937,7 @@ html {
   border-left: 2px solid transparent;
 }
 
-.launcher-project-row:hover {
+.nt-enable-hover .launcher-project-row:hover {
   background: var(--surface0);
 }
 
@@ -13018,7 +13018,7 @@ html {
   color: var(--yellow);
 }
 
-.launcher-pin-btn:hover {
+.nt-enable-hover .launcher-pin-btn:hover {
   color: var(--yellow);
   background: color-mix(in srgb, var(--yellow) 12%, transparent);
 }
@@ -13121,7 +13121,7 @@ html {
   border-radius: var(--radius-row-icon);
 }
 
-.launcher-list::-webkit-scrollbar-thumb:hover {
+.nt-enable-hover .launcher-list::-webkit-scrollbar-thumb:hover {
   background: var(--overlay0);
 }
 
@@ -13174,7 +13174,7 @@ html {
   position: relative;
 }
 
-.pair-tab:hover {
+.nt-enable-hover .pair-tab:hover {
   color: var(--text);
   background: var(--surface0);
 }
@@ -13269,7 +13269,7 @@ html {
   transition: color var(--transition-fast, 150ms), background var(--transition-fast, 150ms);
 }
 
-.pair-url-copy:hover {
+.nt-enable-hover .pair-url-copy:hover {
   color: var(--text);
   background: var(--surface1);
 }
@@ -13307,7 +13307,7 @@ html {
   transition: background var(--transition-fast, 150ms);
 }
 
-.pair-device-card:hover {
+.nt-enable-hover .pair-device-card:hover {
   background: var(--surface1);
 }
 
@@ -13388,7 +13388,7 @@ html {
   color: var(--app-text-red);
 }
 
-.device-actions .btn-danger:hover {
+.nt-enable-hover .device-actions .btn-danger:hover {
   background: var(--app-bg-red);
 }
 
@@ -13457,7 +13457,7 @@ html {
   transition: background 0.1s;
 }
 
-.git-file-row:hover { background: var(--surface0); }
+.nt-enable-hover .git-file-row:hover { background: var(--surface0); }
 .git-file-row.active { background: var(--surface1); }
 
 .git-file-state {
@@ -13511,7 +13511,7 @@ html {
   border-bottom: 1px solid var(--surface0);
   transition: background 0.1s;
 }
-.git-commit-row:hover { background: var(--surface0); }
+.nt-enable-hover .git-commit-row:hover { background: var(--surface0); }
 .git-commit-row.selected { background: var(--surface1); }
 
 .git-commit-hash {
@@ -13573,7 +13573,7 @@ html {
   transition: background 0.1s;
 }
 
-.files-tree-row:hover { background: var(--surface0); }
+.nt-enable-hover .files-tree-row:hover { background: var(--surface0); }
 .files-tree-row.active { background: var(--surface1); }
 
 .files-tree-icon {
@@ -13629,7 +13629,7 @@ html {
   transition: background 0.1s;
 }
 
-.files-save-btn:hover:not(:disabled) { background: var(--surface2); }
+.nt-enable-hover .files-save-btn:hover:not(:disabled) { background: var(--surface2); }
 .files-save-btn:disabled { opacity: 0.5; cursor: default; }
 .files-save-btn.dirty { background: var(--blue); color: var(--base); border-color: var(--blue); }
 
@@ -13660,7 +13660,7 @@ html {
 }
 .terminal-pane:not(.terminal-pane-empty):hover .terminal-pane-schedule,
 .terminal-pane-schedule:focus-visible { opacity: 0.7; }
-.terminal-pane-schedule:hover { opacity: 1 !important; background: var(--surface1); color: var(--text); }
+.nt-enable-hover .terminal-pane-schedule:hover { opacity: 1 !important; background: var(--surface1); color: var(--text); }
 .terminal-pane-schedule .pane-schedule-count {
   position: absolute; top: -2px; right: -2px;
   min-width: 14px; height: 14px; padding: 0 3px;
@@ -13697,7 +13697,7 @@ html {
   cursor: pointer; font-size: 12px; font-weight: 600;
   transition: background 150ms, color 150ms;
 }
-.schedule-popover-tab:hover { background: var(--surface1); color: var(--text); }
+.nt-enable-hover .schedule-popover-tab:hover { background: var(--surface1); color: var(--text); }
 .schedule-popover-tab.active {
   color: var(--mauve);
   box-shadow: inset 0 -2px 0 var(--app-ui-blue);
@@ -13753,7 +13753,7 @@ html {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 4px; border-radius: var(--radius-sm);
 }
-.schedule-row:hover { background: var(--surface1); }
+.nt-enable-hover .schedule-row:hover { background: var(--surface1); }
 .schedule-row .glyph { width: 14px; text-align: center; opacity: 0.8; }
 .schedule-row .label { flex: 1; font-family: var(--font-mono, "JetBrains Mono"), monospace; font-size: 12px; }
 .schedule-row .when { color: var(--subtext0); font-size: 11px; }
@@ -13761,7 +13761,7 @@ html {
   background: transparent; border: 0; color: var(--subtext0);
   cursor: pointer; padding: 2px 4px; border-radius: var(--radius-property-chip);
 }
-.schedule-row .trash:hover { color: var(--red); background: var(--surface2); }
+.nt-enable-hover .schedule-row .trash:hover { color: var(--red); background: var(--surface2); }
 .schedule-empty { color: var(--subtext0); font-size: 12px; padding: 8px 0; text-align: center; }
 
 /* ─── Schedule indicators (sidebar + pane title) ───────── */
@@ -13856,13 +13856,13 @@ html {
 .ws-session-item[data-provider="claude"] {
   box-shadow: none;
 }
-.ws-session-item[data-provider="claude"]:hover {
+.nt-enable-hover .ws-session-item[data-provider="claude"]:hover {
   background: color-mix(in srgb, var(--provider-claude-accent) 10%, var(--app-wash-hover));
 }
 .ws-session-item[data-provider="codex"] {
   box-shadow: none;
 }
-.ws-session-item[data-provider="codex"]:hover {
+.nt-enable-hover .ws-session-item[data-provider="codex"]:hover {
   background: color-mix(in srgb, var(--provider-codex-accent) 10%, var(--app-wash-hover));
 }
 
@@ -13916,7 +13916,7 @@ html {
   user-select: none;
   transition: var(--motion-hover-reveal);
 }
-.codex-status-chip:hover {
+.nt-enable-hover .codex-status-chip:hover {
   background: var(--app-chip-blue-fill);
   color: var(--app-chip-blue-ink);
 }
@@ -13943,7 +13943,7 @@ html {
   font-weight: 600;
   letter-spacing: normal;
 }
-.codex-status-chip-bypass:hover {
+.nt-enable-hover .codex-status-chip-bypass:hover {
   background: var(--app-chip-red-fill);
   color: var(--app-chip-red-ink);
 }
@@ -14179,7 +14179,7 @@ html {
   cursor: pointer;
   transition: var(--motion-hover-reveal), color var(--transition-fast);
 }
-.sidebar-tab:hover {
+.nt-enable-hover .sidebar-tab:hover {
   color: var(--app-text-primary);
   background: var(--app-wash-hover);
 }
@@ -14452,7 +14452,7 @@ html {
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
-.mirror-load-earlier:hover {
+.nt-enable-hover .mirror-load-earlier:hover {
   background: var(--surface-1);
   color: var(--text);
 }
@@ -14541,7 +14541,7 @@ html {
   font-size: 11px;
   transition: background var(--transition-fast);
 }
-.mirror-msg-tool > summary:hover {
+.nt-enable-hover .mirror-msg-tool > summary:hover {
   background: var(--surface0);
 }
 .mirror-msg-tool > summary::before {

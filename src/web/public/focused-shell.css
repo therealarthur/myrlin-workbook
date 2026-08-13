@@ -148,7 +148,7 @@
   display: none;
 }
 
-:root[data-ui-shell="focused"] .view-tab:hover {
+:root[data-ui-shell="focused"] .nt-enable-hover .view-tab:hover {
   color: var(--app-text-primary);
   background: var(--app-wash-hover);
 }
@@ -253,7 +253,7 @@
   background: transparent;
 }
 
-:root[data-ui-shell="focused"] .sidebar-launch-btn:hover {
+:root[data-ui-shell="focused"] .nt-enable-hover .sidebar-launch-btn:hover {
   color: var(--app-text-primary);
   border-color: transparent;
   background: var(--app-wash-hover);
