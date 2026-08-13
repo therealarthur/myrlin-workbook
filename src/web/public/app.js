@@ -6245,7 +6245,7 @@ class CWMApp {
         for (const item of hiddenItems) {
           html += `
             <div class="settings-hidden-item" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--surface0);border-radius:6px;">
-              <span class="settings-hidden-item-type" style="font-size:10px;text-transform:uppercase;opacity:0.5;min-width:60px;">${this.escapeHtml(item.type)}</span>
+              <span class="settings-hidden-item-type" style="font-size:12px;opacity:0.6;min-width:60px;">${this.escapeHtml(item.type)}</span>
               <span class="settings-hidden-item-name" style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.escapeHtml(item.name)}</span>
               <button class="btn btn-ghost btn-icon btn-sm settings-unhide-btn" data-unhide-type="${item.type}" data-unhide-id="${this.escapeHtml(item.id)}" title="Unhide" style="opacity:0.5;flex-shrink:0;">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3C4.5 3 1.7 5.1 1 8c.7 2.9 3.5 5 7 5s6.3-2.1 7-5c-.7-2.9-3.5-5-7-5zm0 8a3 3 0 110-6 3 3 0 010 6zm0-5a2 2 0 100 4 2 2 0 000-4z"/></svg>
@@ -9218,20 +9218,20 @@ class CWMApp {
       const html = `
         <div style="display:flex;flex-direction:column;gap:16px;">
           <div>
-            <div style="font-size:11px;text-transform:uppercase;color:var(--overlay0);font-weight:600;margin-bottom:6px;">Overall Theme</div>
+            <div style="font-size:12px;color:var(--app-text-tertiary);font-weight:500;margin-bottom:6px;">Overall Theme</div>
             <div style="font-size:13px;color:var(--text-primary);line-height:1.5;background:var(--surface0);padding:10px 12px;border-radius:8px;">${this.escapeHtml(data.overallTheme)}</div>
           </div>
           <div>
-            <div style="font-size:11px;text-transform:uppercase;color:var(--overlay0);font-weight:600;margin-bottom:6px;">Most Recent Tasking</div>
+            <div style="font-size:12px;color:var(--app-text-tertiary);font-weight:500;margin-bottom:6px;">Most Recent Tasking</div>
             <div style="font-size:13px;color:var(--text-primary);line-height:1.5;background:var(--surface0);padding:10px 12px;border-radius:8px;">${this.escapeHtml(data.recentTasking)}</div>
           </div>
           ${data.recentAssistant ? `<div>
-            <div style="font-size:11px;text-transform:uppercase;color:var(--overlay0);font-weight:600;margin-bottom:6px;">Last Assistant Response</div>
+            <div style="font-size:12px;color:var(--app-text-tertiary);font-weight:500;margin-bottom:6px;">Last Assistant Response</div>
             <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;background:var(--surface0);padding:10px 12px;border-radius:8px;max-height:120px;overflow-y:auto;">${this.escapeHtml(data.recentAssistant)}</div>
           </div>` : ''}
           <div style="font-size:11px;color:var(--overlay0);">File size: ${this.formatSize(data.fileSize)}</div>
           ${this.state.workspaces.length > 0 ? `<div style="border-top:1px solid var(--border-subtle);padding-top:12px;">
-            <div style="font-size:11px;text-transform:uppercase;color:var(--overlay0);font-weight:600;margin-bottom:8px;">Send to Project</div>
+            <div style="font-size:12px;color:var(--app-text-tertiary);font-weight:500;margin-bottom:8px;">Send to Project</div>
             <div style="display:flex;gap:8px;">
               <select id="summary-ws-select" style="flex:1;padding:8px;border-radius:6px;background:var(--surface0);color:var(--text-primary);border:1px solid var(--surface1);font-size:13px;">
                 ${wsOptions}

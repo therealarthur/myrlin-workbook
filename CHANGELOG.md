@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0-alpha.15] - 2026-08-13
+
+The previous two releases rebuilt the furniture and the controls. This one rebuilds the rooms, and answers the thing you actually asked for: finding your most recent session is now the easiest thing in the app rather than the hardest.
+
+### Added
+
+- **Recent sessions are everywhere you would look for them.** Press `Ctrl+K` and hit Enter: that opens the session you were last working in, whichever assistant it belongs to. There is a `Recent` section at the top of the sidebar with the last five. The empty workbench offers `Continue where you left off` with the last four as cards. The Sessions view sorts by last activity by default. All four read the same list, so they always agree on what is most recent, and Claude and Codex sessions interleave properly by time instead of sitting in separate piles.
+- **Quick Find used to show nothing useful when you opened it.** It sorted whatever the current view happened to be showing, which in the workbench was nothing at all, and it never showed a Codex session the app had not adopted. It now opens on the eight most recent sessions across everything on the machine, with the first one already selected.
+- **The Sessions view has a `Last active` column**, and every column sorts. Your choice is remembered.
+- **The top bar tells you where you are.** `Myrlin / Sessions`, or `Myrlin / Workbench · Main` when you are in a tab group. The view tabs tell you what is available; they never told you what was showing.
+
+### Changed
+
+- **The Sessions view is a real table.** It was a list of cards: about six fitted on screen, and every one of them repeated the same three facts in a different arrangement. It is now seven columns at Notion's own measured density, roughly eighteen rows on the same screen, with the project, the assistant, the status, the model, the cost and the last activity each in their own column. On a phone each row folds back into a card.
+- **Menus and dialogs are one menu and one dialog.** Every context menu, popover, dropdown and modal in the app now shares one shadow, one corner radius and one 150ms fade. Menus are 240px with 28px rows and a check mark in the icon slot for the selected item, instead of a highlight.
+- **Dialogs stopped blurring the page behind them.** The frosted-glass backdrop was the most expensive thing on screen while a dialog was open, because it forced everything behind it, including any live terminal, to be re-rendered on every frame. It is now a plain dim.
+- **Every tab in the app is a pill.** The terminal group tabs lost the coloured bar underneath them and took a coloured dot instead; the tasks, docs and account tabs lost their underlines; the filter and period buttons stopped looking selected when you merely hovered them.
+- **Panes are framed rather than striped.** A pane belonging to Claude or Codex used to carry a thick coloured bar across the top, another across the bottom, and a coloured wash over the whole thing. It now has a single hairline in that assistant's colour all the way round. The same applies to the per-slot colours, which were drawn twice from two different colour tables that had drifted apart.
+- **The agent board columns have no background until you drag a card over one**, and then the whole column lights up rather than just the part with cards in it.
+- **Notifications appear at the bottom left instead of the bottom right**, where they no longer land on top of the session detail panel or the account menu.
+- **Nothing shouts any more.** Forty-six all-capitals labels became sentence case. Exactly one remains, the `Recent` heading in Quick Find, which is deliberate.
+- **Loading placeholders shimmer instead of flashing.** The old one pulsed the opacity of a block of your text colour, which on a light theme was a blinking near-black rectangle.
+
+### Fixed
+
+- **Hover highlights no longer flash under the pointer while you scroll or drag.** 126 rules now wait until the pointer is actually resting.
+- **The worktree task dots have never worked.** The code that renders them put the attribute inside the class name by mistake, so the browser never saw it: the "busy" pulse, the "waiting" fade and the "ready" tick have been invisible since they were written. All three now appear.
+- **Rows you can click can now be reached with the keyboard.** Session rows, project rows, board cards and task items are focus stops and respond to Enter and Space. They had focus rings drawn for them last release with no way to focus them.
+- **The empty workbench no longer draws its icon in a shadowed rounded box**, which was the last raised element on the default screen.
+- **Loading placeholders across the whole app were being sized by a rule meant for one card**, because the same class was declared twice and the wrong one won.
+- **The login screen dropped its purple graph-paper background.**
+
+### Known
+
+- **Two all-capitals labels remain in the mobile action sheet.** They live in the phone stylesheet, which belongs to the mobile work still to come, and will be swept with it.
+- **The contrast items recorded in the previous release are unchanged** and are still scheduled for a single decision before this work is called finished.
+
+### Testing
+
+- The suite is green at 83 files and 1402 assertions. This release added one test file with 28 assertions covering the recency merge, executed against fixtures rather than read from the source, and retargeted three existing expectations, two of them pre-authorised.
+- All seventeen mechanical gates pass. Blurred backdrops fell from 6 to 0, gradients from 5 to 1 (the loading shimmer, which is a gradient by nature), all-capitals labels from 49 to 3, raw colour values outside the token block from 71 to 46, and leftover palette references from 1021 to 902.
+- Eight screenshots at two sizes in both light and dark are recorded under `screenshots/notion-restyle/p4/`.
+
 ## [1.3.0-alpha.14] - 2026-08-13
 
 The last release moved the furniture. This one replaces the things you actually click. Buttons, fields, checkboxes, switches, tags, status chips and progress bars all stop being thirteen slightly different components and become one of each. The purple buttons are gone.

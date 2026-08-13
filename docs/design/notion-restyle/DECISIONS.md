@@ -1250,3 +1250,341 @@ half of it closed at the same time through the concurrent P2.7 track. The sessio
 8. **Four new deviation rows**, DV-12 to DV-15, all of them contrast, all of them captured values,
    and all of them pointing at the same owner: 5.5.4's full reckoning at P12. The measurements are
    already in the rows, so that pass does not have to re-derive them.
+
+---
+
+## 12. Phase P4, composites, regions and recency
+
+### 12.1 What shipped, and where
+
+| WP | Commit | Files | What |
+| --- | --- | --- | --- |
+| P4.1 | `d22530f` | `styles.css`, `app.js` | Context menus and five popovers on one shadow, one radius, one entrance. The menu row at 28px in a 240px card. The `.ctx-label` span. The hover gate mirrored onto `<body>`. |
+| P4.2 | `7ed481d` | `styles.css` | The scrim, `backdrop-filter` to zero, the modal card recipe, and the whole Quick Find region including the one sanctioned uppercase label. |
+| P4.3 | `5accc8c` | `styles.css`, `app.js`, `instance-colors.js`, `test/instance-colors.test.js`, `DEVIATIONS.md` | The Sessions database table, seven columns, persisted sort. Both orchestrator rulings. The tri-state attribute bug. DV-16 and DV-17. |
+| P4.8, P4.9 | `beca785` | `app.js`, `index.html`, `styles.css`, `focused-shell.css`, `test/recency-surfaces.test.js` | The recency system: one merged list, four surfaces, the measured sidebar split, the reduced-precision rule. |
+| P4.4 | `140f01e` | `styles.css` | The remaining four tab families plus the filter pills. The terminal group tab's underline slab. |
+| P4.5 | `3af2daa` | `styles.css`, `test/provider-label-pill.test.js`, `test/css-tokens.test.js` | The pane frame with SE-2 and SE-3 spent, the slot ramp's second copy, the board, the toast, the drop slot, the skeleton and its double declaration, the login graph paper. |
+| P4.10 CSS | `53ce7e5` | `styles.css`, `focused-shell.css` | Forty-six uppercase rules and their tracking. |
+| DV-3 | `c41b62e` | `styles.css`, `focused-shell.css` | The hover gate sweep, 126 rules. |
+| inherited | `40d4791` | `app.js`, `styles.css`, `index.html`, four test files | tabindex and keyboard activation, the sixth colour map, the five-file cachebuster bump, the italic mono project row. |
+| DV-9 | `270574a` | `index.html`, `app.js`, `styles.css` | The topbar breadcrumb. |
+
+Ten commits, each revertable on its own. The order is deliberate: the two that
+are hardest to revert, the table rewrite and the recency wiring, ship after the
+pure-CSS region work and before the sweeps, so reverting either takes no token
+work with it.
+
+### 12.2 Ambiguities resolved during P4
+
+#### 12.2.1 The hover gate could never have worked, and the reason is in `index.html`
+
+`BUILD-CONTRACT` 2.1 puts `nt-enable-hover` on `#app` and DV-3 promised the
+strip. Both are right about the mechanism and wrong about the DOM. `index.html`
+closes `#app` at line 1531 and then opens every modal, the quick switcher, the
+toast stack, the action sheet and `#context-menu` as **siblings** of it. A rule
+written `.nt-enable-hover .context-menu-item:hover`, which is the form the
+contract and `DESIGN-SPEC` 1.7 both prescribe, therefore matches nothing inside
+an overlay: the ancestor carrying the class is not on that branch of the tree.
+
+`_setHoverGate` now mirrors the class onto `<body>` as well. One selector reaches
+both branches, `#app` keeps the class so nothing already keyed to the shell
+changed, and the line `instance-colors.test.js` pins is untouched. Without this,
+gating the menu rows would have silently deleted their hover states.
+
+#### 12.2.2 What a hover gate must never gate
+
+The sweep gates 126 rules and deliberately leaves nine. Each of the nine shares
+its selector with `:focus-visible`, `.active` or an `[aria-*]` state:
+
+- the two resize handles pair `:hover` with `.active`, which is the DRAGGING
+  state, and the gate is stripped by `dragstart`. Gating those would remove the
+  drag feedback at exactly the moment the user is dragging.
+- the other seven pair `:hover` with `:focus-visible`. A keyboard user who
+  scrolls must not lose their focus ring, so suppressing that rule mid-scroll
+  would trade an accessibility regression for a cosmetic one.
+
+Rules that only REVEAL a control (`opacity`, `visibility`, `display`) are also
+ungated: hiding an affordance mid-scroll is worse than showing it.
+
+#### 12.2.3 The table is a real `<table>`, and that is what saved the delegation
+
+`#session-list`'s rows carry `data-id`, `draggable`, `.active` and
+`.attention-state`, and six delegated handlers resolve through
+`closest('.session-item')`. A grid of divs would have needed `display: contents`
+on the row to make its cells grid items, which destroys the row's own box and
+with it the hover wash, the selected fill and the drag image. Keeping the row as
+one element is what let the whole region change with zero handler edits, and the
+real `<table>` gets genuine column headers and `border-collapse` hairlines for
+free.
+
+#### 12.2.4 The tri-state dots have never rendered, and it is a quoting bug
+
+`renderSessionItem` emitted `class="ws-session-dot${tristateAttr}"` with
+`tristateAttr` holding a leading-space `data-tristate="busy"`. Interpolated
+inside the class attribute's own quotes, the markup came out as
+`class="ws-session-dot data-tristate="` and the parser never saw a
+`data-tristate` attribute at all. The three CSS rules keyed on it have been dead
+since they were written. Moving the interpolation outside the quotes is what
+makes the busy pulse, the waiting fade and the ready tick visible for the first
+time; this phase also had to take the emitter's inline `background` with it,
+which is 10.7.6 item 4's blocker for the `.status-dot` recipe.
+
+#### 12.2.5 The capture has no dark table hairline, and shipping its silence ships an invisible grid
+
+`--app-table-cell-border` is `rgba(42,28,0,0.07)`: correct on a white page and
+identical to the ground on the `#191919` dark canvas. The vendored `colors.css`
+has no dark override for it, nor for `--app-divider`; both dark blocks were read
+to confirm it. The token keeps its captured value, because re-authoring it would
+fail the parity diff and would assert something about the capture that is not
+true, and the dark CALL SITE re-points to `--app-border-secondary`.
+`DEVIATIONS.md` DV-16.
+
+#### 12.2.6 The snackbar keyframe was not authored, and the reason is a gate
+
+`BUILD-CONTRACT` 2.8 names `nt-snackbar-slide-in-bottom`, an 8px rise. The toast
+takes `mwFadein` at the snackbar's 200ms instead. 2.4 says one entrance for every
+overlay in the app; authoring a second to differ by 4px of travel on a 200ms
+animation buys nothing visible, and gate G8 ratchets `translateY` occurrences
+DOWN because that counter exists to keep hover lifts out of the sheet. Spending a
+seventeenth on an invisible difference is not what the budget is for.
+
+#### 12.2.7 Two of the eleven unreachable controls were never unreachable
+
+`DECISIONS` 11.3.1 item 3 lists eleven controls with no `tabindex`. Two of them,
+`.sidebar-tab` and `.context-menu-item`, are real `button` elements and have
+always been tab stops, so their P3 rings already fired. Two more, `.qs-result`
+and `.search-result`, are deliberately NOT made tab stops: both live in a modal
+whose text input must keep focus for typing, and both already have arrow-key
+navigation with Enter to activate. Making them tab stops would break the faster
+interaction to satisfy a rule about the slower one. The remaining six took
+`role="button"` and `tabindex="0"` plus a shared Enter and Space handler, because
+a tab stop that cannot be activated is half a fix.
+
+#### 12.2.8 The Model column was the wrong home for the topic
+
+The first cut of the table put a session's topic in the Model cell when there was
+no model. It rendered, and it was mislabelled: a topic under a `Model` header is
+a lie the column header tells. The topic moved into the Name cell as a tertiary
+secondary, which is where it belongs and which also keeps the `.session-topic`
+class alive on real data rather than as a placeholder.
+
+### 12.3 Scope decisions, and what was deliberately left alone
+
+#### 12.3.1 Four regions did not ship, and each is a package rather than a leftover
+
+P4's contract scope is ten work packages plus the accumulated handoff items from
+three previous phases. These four did not fit, and are named here with what they
+need so the next agent starts from a specification rather than a rediscovery:
+
+1. **P4.6, the docs panel as a document surface.** `.nt-layout`, the block box
+   model, the 720px measure with 375px gutters, and the list collapse.
+   `BUILD-CONTRACT` 6 calls this the hardest step to revert, which is also why it
+   is the right one to leave for a commit of its own.
+2. **The side peek** (`#session-detail-panel`, `DESIGN-SPEC` 7). It is currently
+   an overlay and 2.12 makes it a layout SIBLING that narrows the main column:
+   eight properties in a `minmax(80px,110px) 1fr` grid, a 44px header mirroring
+   the topbar, and the borderless notes editor P3 already built.
+3. **The Costs view interiors and the settings shell.** The sixth colour map
+   shipped; the cards, the tables and the `Share` column meter did not.
+4. **The attention popover and the account/usage popover interiors.** Both shells
+   took the popover recipe in P4.1; their rows, meters and credential lines are
+   still the old treatment.
+
+#### 12.3.2 `styles-mobile.css` was not touched, again
+
+Gate G7's target is 1 and it lands at 3. The two survivors are
+`.action-sheet-header` and `.action-sheet-sep-labeled .as-sep-label` in
+`styles-mobile.css`, the phone analogues of the context-menu header this phase
+fixed. `DECISIONS` 10.3.2 records the precedent and the reasoning: P2 swept that
+file and reverted, because sweeping another track's file to satisfy a gate that
+does not cover it is exactly the collision `BUILD-CONTRACT` 4.1 item 4 exists to
+prevent. The same logic put the phone collapse for `.session-table` inside a
+`@media (max-width: 768px)` block in `styles.css` rather than in the mobile
+sheet: the table is this phase's, so its phone floor is this phase's too.
+
+#### 12.3.3 The `app.js` inline palette census is not finished
+
+Contract 1.10 counts 115 palette `var()` references in `app.js` outside the five
+maps. The sixth map (`barColors`) shipped and the tag chips moved to the chip
+pair, leaving about 68 on settings rows, task badges, analytics cards, meters and
+the resources view. They do not count against G4, which measures the stylesheets,
+and each is an inline style on a surface whose region has not been restyled yet.
+They should move with their regions rather than as a sweep, which is how the five
+maps were handled.
+
+### 12.4 The numbers
+
+| Measure | After P3 | After P4 |
+| --- | --- | --- |
+| `styles.css` lines | 13728 | **14486** |
+| `focused-shell.css` lines | 1488 | **1596** |
+| Gate G3, `[hidden]` guards (up is better) | 22 | **25** |
+| Gate G4, Catppuccin `var()` in chrome | 1021 | **902** |
+| Gate G5b, raw `rgba()` outside `:root` | 71 | **46** |
+| Gate G7, uppercase labels | 49 | **3** |
+| Gate G9a, `linear-gradient` | 5 | **1** |
+| Gate G9b, `backdrop-filter` | 6 | **0** |
+| Test files / assertions | 82 / 1368 | 83 / **1402** |
+
+The assertion delta is **+34**, of which +33 is P4's (28 in the new
+`recency-surfaces.test.js`, 5 in `instance-colors.test.js` for the chip
+projection) and +1 is the concurrent P6 track's `vt-sidecar.test.js`. Three
+existing assertions were retargeted: the tag-chip pair under the orchestrator's
+ruling, and sanctioned edits SE-2 and SE-3, each in the same commit as its source
+change, which is what 5.4 requires.
+
+Measured against the P4 gate additions in contract 5.2:
+
+| Gate addition | Result |
+| --- | --- |
+| Menus and popovers all use one shadow token and one radius | **yes.** Six surfaces on `--app-shadow-menu` at 6px or 10px, one entrance. |
+| `grep -c backdrop-filter styles.css` down from 5 to 0 | **yes,** from 6; the contract undercounted by one. |
+| Header row 36px, body rows 32px, hairlines, row hover the faint wash and not a solid fill | **yes,** with DV-16 on the dark hairline. |
+| No underline slab and no pill-less text tab anywhere | **yes,** in `styles.css`. The pinned tab markup is byte-identical. |
+| Every content loading state is a shimmer skeleton, not a spinner | **partially.** The skeleton is the shimmer and the double declaration is fixed; `.btn-loader` still spins where it was already used, which 2.2 explicitly retains for genuinely indeterminate operations. |
+| `grep -rnE "text-transform:\s*uppercase"` returns exactly 1 | **no, it returns 3.** 12.3.2 names the two and their owner. |
+| `test/recency-contract.test.js` green | **renamed and green.** `recency-surfaces.test.js`, 28 assertions, eleven executing the merge. The server endpoint P4.7 specifies was not in this agent's ownership set; the merge is client-side and the endpoint has exactly one place to land when it ships. |
+| `Ctrl+K` then `Enter` opens the most recent session | **yes.** |
+| All four surfaces agree on the first session | **yes, by construction.** One function, one sort, one tie-break. |
+| The sidebar split arithmetic constant is measured, not guessed | **yes.** `measureSidebarChromeHeight` measures the complement of the two lists, so a section added later counts automatically. |
+
+### 12.5 Recency acceptance criteria, against 2.13.7
+
+1. **Two keystrokes from a cold load.** Yes. `Ctrl+K` renders the eight most
+   recent with index 0 highlighted, and `Enter` opens it.
+2. **Four surfaces, same first session.** Yes, by construction: all four call
+   `getRecentSessions`, which sorts once and breaks ties once.
+3. **Five seconds over SSE, no polling.** Yes, structurally. Every path that
+   changes a session already calls `renderWorkspaces`, including the SSE
+   handlers, and both recency renders hang off it. No timer was added. Not yet
+   measured end to end against a live session; that belongs to the acceptance
+   sweep.
+4. **Codex and Claude interleave by time.** Yes, and it is executed in the test
+   rather than asserted from the source: a Codex row a minute old sorts above a
+   Claude row an hour old.
+5. **One formatter.** Yes. `relativeTime` is the only one, and it now returns
+   `just now` under a minute per the reduced-precision rule.
+6. **Hidden sessions never appear.** Yes, all three exclusion sets, executed.
+7. **Under five seconds on the phone.** Not measured; the phone's Home IA is
+   P10's and the section G.5 human script runs at acceptance.
+
+### 12.6 The P4 screenshots, and an honest reading of them
+
+`screenshots/notion-restyle/p4/`, eight shots plus `manifest.json`, the same
+matrix as P0 through P3. All eight were looked at, and two shipped fixes came out
+of looking: the phone Sessions view was a seven-column smear before the table
+collapse was written, and the phone topbar rendered the breadcrumb as a bare
+slash against the account chip. A third, the project-group caret rendering as a
+blue emoji square, was caught the same way.
+
+**What changed, and it is the thing the phase existed for.** The Sessions view is
+a database table: seven columns, about eighteen rows where six cards used to fit,
+sorted by last activity with the sort marked in the header. The sidebar opens
+with `Recent`. The empty workbench offers four sessions to resume instead of a
+dashed box. The topbar says `Myrlin / Workbench · Main`. The terminal group tab
+is a pill with a dot. Nothing on the default screen is uppercase.
+
+**What still reads as the old design**, top deltas first, each with its owner:
+
+1. **The side peek is still the old overlay panel.** It is the largest region the
+   restyle has not touched. **P4 remainder, 12.3.1 item 2.**
+2. **The docs panel is not a document surface yet.** **P4.6.**
+3. **The Costs and settings interiors are untouched**, so switching to either
+   still lands on the old design. **P4 remainder, 12.3.1 item 3.**
+4. **The `.session-badge-cost-na` chip renders as an em dash in a bordered box**
+   in the sidebar, which reads as an empty control rather than as "not tracked".
+   The markup is pinned character-for-character by `cost-display.test.js`, so the
+   fix is CSS-only and needs a decision about what "no cost" should look like.
+   **P4 remainder or P12.**
+5. **The account chip is still the old pill.** `DESIGN-SPEC` 4 gives it an avatar
+   and a usage percentage. **P4 remainder.**
+6. **The two contrast families from P3 are unchanged**, DV-12 through DV-15.
+   **P12's 5.5.4.**
+7. **The phone is still the old IA**, now with a correct table collapse under it.
+   **P10.**
+
+### 12.7 What P5 and P10 inherit
+
+1. **A pane frame that is finished on the outside.** A 1px hairline at a 35
+   percent hue mix, an 8px radius, the flat provider tint on the header band, and
+   both sanctioned edits spent. The terminal SURFACE inside it is untouched: no
+   xterm internals, no Select machinery and no part of the write pipeline was
+   read or modified by this phase.
+2. **A hover gate that works**, with the `<body>` mirror that makes it reach the
+   overlay layer. Any new hover wash should be written
+   `.nt-enable-hover .thing:hover` from the start.
+3. **A recency system with one entry point.** `getRecentSessions(limit)` returns
+   rows already shaped for a surface. The mobile Home tab (2.13.6) is a render
+   away, and `recentRowInnerHtml` is the shared row.
+4. **A phone floor, not a phone design.** `.session-table` collapses to cards
+   under 768px and the breadcrumb hides. Both are holding measures inside
+   `styles.css`; P10 owns the real IA and may replace either.
+5. **Two uppercase rules in `styles-mobile.css`** that keep G7 off its target
+   (12.3.2).
+6. **Four regions specified but not built** (12.3.1), each with its contract
+   section and its measurements already gathered.
+7. **A cachebuster that is now atomic across six files**, including
+   `instance-colors.js`, which had none. A bump is `index.html` plus the three
+   pinning tests plus the browser lane.
+
+### 12.8 Contrast, measured for every composite this phase drew
+
+Thirty-nine pairings, computed from the shipped token values in both chromes,
+with translucent grounds composited over their page ground before the ink is
+composited over them. `PROCEDURE.md` 4.2's floors: 4.5:1 for text, 3:1 for a
+boundary or a graphic.
+
+**Every ink this phase put on a ground clears its floor, or fails only in a
+family already recorded.** There is no new deviation row for contrast, and that
+is a measurement rather than an assertion:
+
+| Composite | Light | Dark |
+| --- | --- | --- |
+| Table row title on the canvas | 13.98 | 15.30 |
+| Table row title on a hovered row | 13.41 | 13.23 |
+| Menu row ink on the elevated ground | 13.98 | 14.18 |
+| Menu row ink, hovered | 13.04 | 12.11 |
+| Toast ink on the inverted ground | 12.16 | 15.30 |
+| Toast close glyph | 5.98 | 5.65 |
+| Breadcrumb leaf | 13.98 | 15.30 |
+| Sidebar Recent row title | 13.18 | 14.18 |
+| Workbench continue card title | 13.98 | 15.30 |
+| Board card title | 13.98 | 14.18 |
+| Quick Find row title | 13.98 | 14.18 |
+| Provider chip, Claude | 7.17 | 6.17 |
+| Provider chip, Codex | 6.77 | 5.72 |
+| Status chip, on the canvas | 7.26 | 5.62 |
+| Status chip, on a hovered sidebar row | 6.86 | 5.22 |
+
+**The orchestrator's tag-chip ruling is measured, and it was right.** The block
+pair P3 shipped measures **3.49:1 light and 2.87:1 dark** for brown on brown.
+The chip pair it moved to measures **6.62 and 5.73** for the same hue, **5.71
+and 4.69** for the worst of the ten (yellow), and **6.54 and 5.56** for blue.
+Every one of the twenty pairs clears 4.5:1 in both chromes, on the canvas and on
+the sidebar ground alike, which is what the translucent fill buys.
+
+**Twenty-one pairings sit below their floor, and every one of them is a
+consumption of a token family already recorded.** Two families, no more:
+
+- `--app-text-tertiary` at **2.67:1** light and **4.11:1** dark. This is DV-10's
+  recorded 2.6:1 exactly, and it is the ink for every piece of meta copy in the
+  system: the Last active cell, the menu hint, the breadcrumb separator, the
+  Recent row's timestamp, the See all row, the card meta, the drop-slot copy and
+  the Quick Find detail. P4 did not choose it; P4 consumed the token the capture
+  gives for exactly this role. `--app-text-secondary` at **4.27:1** light is the
+  same family one step up and misses by 0.23.
+- The boundary family at **1.15 to 2.71**: the table hairline, the card border
+  and the drop slot's dashed edge. This is DV-15 verbatim, whose own note says
+  the capture's neutral ramp is compressed at both ends.
+
+Both families point at the same owner and the same decision:
+`BUILD-CONTRACT.md` 5.5.4's full contrast reckoning at P12, which is the right
+place to decide once whether this product keeps the capture's neutral ramp or
+ships an accessible delta. Deciding it per-composite here would mean nineteen
+uncoordinated darkenings of the same two tokens.
+
+One measurement is worth flagging for that pass specifically: **the Quick Find
+group label measures 3.16:1** in light chrome. It is the single sanctioned
+uppercase label in the design, it is 11px, and it is the only label in the app
+whose whole job is to be read before the rows under it.

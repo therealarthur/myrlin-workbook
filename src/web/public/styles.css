@@ -2065,6 +2065,16 @@ textarea.input {
   }
 }
 
+/* On the phone the breadcrumb loses. The mobile tab bar already names the
+   current view at the bottom of the screen, so the crumb is a second answer
+   to a question already answered, and at 390px it collided with the account
+   chip and rendered as a bare separator. Caught in the p4 phone shots. */
+@media (max-width: 768px) {
+  .header-breadcrumb {
+    display: none;
+  }
+}
+
 .header-logo-icon {
   width: 28px;
   height: 28px;
@@ -3163,7 +3173,10 @@ textarea.input {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  flex-shrink: 1;
+  /* The topic gives way long before the title does. Equal shrink factors made
+     a 40-character topic and a 14-character name truncate in proportion, so
+     the name lost characters while the topic still had room. */
+  flex-shrink: 100;
 }
 
 /* Numeric and time columns are right aligned with tabular figures so the
@@ -3192,6 +3205,75 @@ textarea.input {
 /* Hidden rows stay legible but recede, per DESIGN-SPEC 6. */
 .session-item.is-hidden-row {
   opacity: 0.55;
+}
+
+/*
+ * THE PHONE COLLAPSE. Seven columns in 390px is not a table, it is a smear:
+ * the p4 screenshot run showed every cell truncated to two characters. The
+ * mechanism is the one the app already uses for .claude-session-table and
+ * that mobile-ux-fixes.test.js and experience-ux-contract.test.js pin, so
+ * the two tables collapse the same way rather than two ways.
+ *
+ * It lives in styles.css rather than styles-mobile.css because this table is
+ * this phase's and styles-mobile.css belongs to the mobile track (DECISIONS
+ * 10.3.2). P10 owns the phone's real Sessions IA; this is the floor that
+ * stops the desktop work from regressing the phone in the meantime.
+ *
+ * Each row becomes a card: the name line stays a line, and the five property
+ * cells become an inline wrap of chips and values. The header is removed from
+ * flow but kept in the accessibility tree.
+ */
+@media (max-width: 768px) {
+  .session-table,
+  .session-table tbody,
+  .session-table tr {
+    display: block;
+    width: 100%;
+  }
+
+  .session-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .session-table tbody tr {
+    height: auto;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--app-border-primary);
+    border-radius: var(--radius-callout);
+  }
+
+  .session-table td {
+    display: inline-flex;
+    align-items: center;
+    width: auto;
+    max-width: 100%;
+    padding: 0 8px 0 0;
+    border: none;
+    text-align: left;
+  }
+
+  .session-table td.session-cell-name {
+    display: flex;
+    width: 100%;
+    padding: 0 0 4px;
+  }
+
+  .session-table .session-cell-time {
+    margin-left: auto;
+    padding-right: 0;
+    text-align: right;
+  }
+
+  /* An empty property cell would still reserve its inline padding and open a
+     gap in the middle of the meta line. */
+  .session-table td:empty {
+    display: none;
+  }
 }
 
 /*
@@ -7802,11 +7884,19 @@ html.activity-indicators-disabled .terminal-pane-activity {
   color: var(--app-text-secondary);
 }
 
-/* 8px, not 10. The glyph is U+25B6, which switches to EMOJI presentation at
-   larger sizes on Windows and renders as a blue rounded square instead of a
-   caret. Verified in the p4 screenshot run at 10px. */
+/*
+ * 8px, and the MONO face on purpose. The glyph is U+25B6, which has emoji
+ * presentation by default: in the UI stack it falls through to Segoe UI Emoji
+ * and paints a blue rounded square instead of a caret. The row's own face
+ * moved from mono to the UI stack in this phase, which is what exposed it,
+ * and the p4 screenshot run caught it twice, at 10px and again at 8px. The
+ * face is pinned here rather than on the row, so the label reads as UI text
+ * and only the marker keeps the mono fallback that has a text-presentation
+ * triangle.
+ */
 .ws-project-group-chevron {
   font-size: 8px;
+  font-family: var(--font-mono);
   transition: transform var(--transition-fast);
   color: var(--app-icon-tertiary);
   flex-shrink: 0;
