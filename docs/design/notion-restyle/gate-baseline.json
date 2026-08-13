@@ -3,9 +3,21 @@
   "recordedAt": "2026-08-13",
   "baselineCommit": "7eac21e",
   "suite": {
-    "files": 77,
-    "assertions": 1158,
-    "recordedAt": "2026-08-13"
+    "comment": "P0.1 is the floor every later phase compares against. postP0 records where phase P0 left the suite. Count with scripts/test-assertion-count.js so the five summary formats are normalised the same way every time.",
+    "p01": {
+      "files": 77,
+      "assertions": 1158,
+      "failures": 0,
+      "commit": "7eac21e",
+      "recordedAt": "2026-08-13"
+    },
+    "postP0": {
+      "files": 82,
+      "assertions": 1308,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "includes 3 files and 120 assertions from the concurrent P6 and P8 tracks (codex-paths 22, codex-state-db 64, vt-sidecar 34); P0 itself contributed notion-token-parity 13 and do-not-break-gates 17"
+    }
   },
   "gates": {
     "G3": {

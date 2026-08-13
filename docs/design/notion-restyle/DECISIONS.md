@@ -128,6 +128,26 @@ P0 adds two files to this list, `notion-token-parity.test.js` and `do-not-break-
 the post-P0 baseline is higher. The number that matters for every later phase is the one recorded in
 `gate-baseline.json` under `suite`, which is updated only when a phase legitimately adds tests.
 
+### 1.3.1 Where P0 left the suite
+
+| Measure | P0.1 baseline | End of P0 | Delta |
+| --- | --- | --- | --- |
+| Test files | 77 | **82** | +5 |
+| Assertions passed | 1158 | **1308** | +150 |
+| Assertions failed | 0 | **0** | 0 |
+| `npm test` exit code | 0 | **0** | |
+
+Only 2 files and 30 assertions of that delta belong to P0: `notion-token-parity.test.js` (13) and
+`do-not-break-gates.test.js` (17). The other 3 files and 120 assertions belong to the **concurrent**
+Codex and terminal tracks, which the contract's parallelisation matrix runs at the same time as the
+frontend track: `codex-paths.test.js` (22) and `codex-state-db.test.js` (64) from P8, and
+`vt-sidecar.test.js` (34) from P6. P0 and those tracks share `test/run.js` and nothing else, so each
+agent appended one line to the `standaloneTests` array and no other file was contended.
+
+Anyone comparing a later phase against this table must therefore compare against 1308 and not against
+1158, and must expect the number to keep moving underneath them while P6 and P8 are in flight. The
+invariant that matters is the one the standing gate states: **the count never goes down**.
+
 ### 1.4 Drift counters, contract claim against measurement
 
 Every counter the contract states was re-measured on unmodified source. All of them match, which is
@@ -406,3 +426,48 @@ fixing it, per `BUILD-CONTRACT.md` 4.1 item 7.
 
 Nothing is deferred yet. Rows that reach `5.5.1` as `○` without a route land here, one per row, with
 a reason.
+
+---
+
+## 8. What P0 shipped, and what P1 inherits
+
+### 8.1 Artifacts
+
+| Path | What it is |
+| --- | --- |
+| `src/web/public/design/notion/**` | The vendored bundle. Tokens, provenance JSON, the `nt-*` paint layer, both font families, and a README stating the not-linked rule. Nothing links to it yet. |
+| `test/notion-token-parity.test.js` | Bundle integrity, `components.css` `var()` resolution, and the `styles.css` to bundle value diff. 13 assertions. |
+| `test/do-not-break-gates.test.js` | Runs the gates inside `npm test`. 17 assertions. |
+| `scripts/do-not-break-gates.js` | G1 to G13. `--strict`, `--json`, `--record`. Also available as `npm run gates`. |
+| `scripts/test-assertion-count.js` | Normalises the suite's five summary formats into one comparable number. |
+| `docs/design/notion-restyle/gate-baseline.json` | Every recorded baseline, target and target phase. |
+| `docs/design/notion-restyle/id-snapshot.txt` | 346 static plus 32 dynamic ids. |
+| `docs/design/notion-restyle/class-snapshot.txt` | 278 JS-coupled class names. |
+| `test/browser/notion-shell.spec.js` | The screenshot and metric harness. `npm run test:notion-shell`. |
+| `screenshots/notion-restyle/baseline/` | 8 before pictures plus `manifest.json`. Git-ignored, on disk. |
+
+### 8.2 The numbers P1 and P2 have to move
+
+Measured on the baseline screenshots, so these are what the restyle actually has to change, not what
+a stylesheet claims:
+
+| Metric | Baseline (P0) | Target | Due |
+| --- | --- | --- | --- |
+| Header height, desktop | 58px | 44px | P2 |
+| Header height, phone | 50px | 44px | P2, P10 |
+| Sidebar width | 264px | 240px, with an inset right edge rather than a border | P2 |
+| Body ink, dark | `rgb(205, 214, 244)` | `#f0efed` | P1 |
+| Body ink, light | `rgb(76, 79, 105)` | `#2c2c2b`, never `#000000` | P1 |
+| Body font | `"Plus Jakarta Sans", system-ui, ...` | starts with `ui-sans-serif` | P1.2 |
+| `.btn` radius | 10px | 6px, and chips at 4px must measure differently from cards at 10px | P2, P3 |
+| External origins requested | `fonts.googleapis.com` | none | P1.2 |
+
+### 8.3 Three traps P1 should not have to rediscover
+
+1. **The parity test compares per chrome theme.** Author light values in `:root` and dark values in
+   a block whose selector carries `[data-chrome="dark"]` or `[data-theme="dark"]`. A dark value
+   authored anywhere else is read as a light value and the diff will fail.
+2. **The eight pre-existing project tokens are excluded from the diff and must stay defined.**
+   Re-point them per table C. Do not delete `--radius-xl`; retire it by alias.
+3. **A cachebuster bump is a five-file atomic change**, and G10 checks four of them.
+   `test/browser/workbook-shell.test.js` is the fifth and is already stale, see F1.
