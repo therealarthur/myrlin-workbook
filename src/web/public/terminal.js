@@ -4046,7 +4046,12 @@ class TerminalPane {
     s.textContent = TerminalPane.SELECT_STRIP_TEXT;
     s.style.cssText = 'position:absolute;left:8px;right:8px;'
       + 'bottom:' + SELECT_STRIP_BASE_BOTTOM_PX + 'px;z-index:' + SELECT_STRIP_Z_INDEX + ';'
-      + "font:11px/1.4 'Plus Jakarta Sans', system-ui, sans-serif;"
+      // Notion restyle P1.2: the Plus Jakarta Sans webfont stopped loading when
+      // index.html dropped its Google Fonts link, so this names the token
+      // instead of a family that is no longer fetched. The literal fallback is
+      // kept for the same reason every token here carries one: a stale cached
+      // stylesheet must not leave this strip unstyled.
+      + 'font:11px/1.4 var(--font-sans, ui-sans-serif);'
       + 'color:var(--text, #cdd6f4);background:var(--surface0, rgba(24, 24, 37, 0.94));'
       + 'border:1px solid var(--mauve, #cba6f7);border-radius:8px;padding:6px 10px;'
       + 'box-shadow:0 6px 18px rgba(0, 0, 0, 0.35);opacity:0;'
@@ -4306,7 +4311,8 @@ class TerminalPane {
     bar.style.cssText = 'display:flex;align-items:center;gap:8px;flex:0 0 auto;'
       + 'padding:6px 8px 6px 12px;background:var(--surface0, #313244);'
       + 'border-bottom:1px solid var(--surface1, #45475a);'
-      + "font:600 12px/1.4 'Plus Jakarta Sans', system-ui, sans-serif;";
+      // Notion restyle P1.2: token rather than the retired webfont family.
+      + 'font:600 12px/1.4 var(--font-sans, ui-sans-serif);';
 
     const title = document.createElement('span');
     title.className = 'terminal-copyview-title';
@@ -4380,7 +4386,12 @@ class TerminalPane {
     pre.className = 'terminal-copyview-text';
     pre.tabIndex = 0;
     pre.style.cssText = 'margin:0;flex:1 1 auto;overflow:auto;padding:10px 12px;'
-      + "font:12px/1.5 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;"
+      // Notion restyle P1.2: the Copy view snapshot is terminal text, so it
+      // takes the terminal's mono token (--font-code, the native SFMono and
+      // Consolas chain) rather than the retired JetBrains Mono webfont. Two
+      // literal fallbacks follow it so the snapshot can never render
+      // proportionally, which would silently misalign every column.
+      + 'font:12px/1.5 var(--font-code, ui-monospace, monospace);'
       + 'white-space:pre-wrap;overflow-wrap:anywhere;'
       + 'user-select:text;-webkit-user-select:text;-webkit-overflow-scrolling:touch;'
       + 'background:var(--mantle, #181825);color:var(--text, #cdd6f4);outline:none;';
