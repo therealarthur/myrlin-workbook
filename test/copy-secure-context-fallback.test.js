@@ -382,8 +382,8 @@ async function main() {
     // index.html and three tests. P1 changed both scripts, so for once they
     // share a token; the independent-versioning mechanism above is unchanged.
     assert.ok(
-      /terminal\.js\?v=20260813-notion-p4/.test(indexSrc) &&
-        /app\.js\?v=20260813-notion-p4/.test(indexSrc),
+      /terminal\.js\?v=20260813-notion-p4r/.test(indexSrc) &&
+        /app\.js\?v=20260813-notion-p4r/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
   });

@@ -52,9 +52,21 @@ check('CSS: .settings-nav-item + is-active selectors exist', () => {
   assert.ok(/\.settings-nav-item\.is-active/.test(css), '.settings-nav-item.is-active missing');
 });
 
-check('CSS: active rail item highlights via --mauve token', () => {
-  assert.ok(/\.settings-nav-item\.is-active[\s\S]{0,400}--mauve/.test(css),
-    '.settings-nav-item.is-active must reference --mauve token');
+// SANCTIONED EDIT SE-12 (BUILD-CONTRACT.md 5.4, Notion restyle P4 remainder):
+// the settings rail's active state takes the standard active recipe, which is
+// the selected wash plus primary ink. Three reasons point the same way and none
+// of them is taste. --mauve is a CATPPUCCIN palette token, so the rail's
+// selected state used to change hue with the TERMINAL theme, which
+// DESIGN-SPEC 10.4 forbids and gate G4 counts. Mauve is also the retired brand
+// primary (P3.1). And the same rule carried a 2px left border, which is on the
+// rejection list beside the sidebar bars P2.2 removed and the tab underlines
+// P4.4 removed. The assertion's intent, that the active rail item is visibly
+// distinguished by a rule of its own, is preserved and retargeted.
+check('CSS: active rail item highlights via the standard selected wash', () => {
+  assert.ok(/\.settings-nav-item\.is-active[\s\S]{0,400}--app-sidebar-item-selected/.test(css),
+    '.settings-nav-item.is-active must reference --app-sidebar-item-selected');
+  assert.ok(!/\.settings-nav-item\.is-active[\s\S]{0,400}border-left/.test(css),
+    '.settings-nav-item.is-active must not reintroduce a left accent bar');
 });
 
 check('app.js: _settingsCategorySlug method exists', () => {

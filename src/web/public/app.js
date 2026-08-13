@@ -9884,7 +9884,36 @@ class CWMApp {
     if (els.accountChipLabel) els.accountChipLabel.textContent = chipName;
     if (els.accountChipMeta) {
       const fiveHour = active && active.usage && active.usage.five_hour;
-      if (fiveHour && fiveHour.resets_at) {
+      // DESIGN-SPEC 4 draws the chip as `{name} · {n}%`, so the meta slot
+      // carries the session UTILIZATION and not the reset countdown.
+      //
+      // The percentage is the more useful of the two at a glance and it is the
+      // one the mock chose, for a reason worth stating: a countdown answers
+      // "when does this reset", which only matters once you already know you
+      // are near the ceiling, while the percentage is what tells you whether
+      // to care at all. The countdown is not lost; it keeps its place in the
+      // account panel's own usage rows, one click away.
+      //
+      // data-reset-at is REMOVED in this branch, and that is load-bearing
+      // rather than tidy. _tickAccountCountdowns rewrites the textContent of
+      // every [data-reset-at] element inside .account-switcher once a minute,
+      // so leaving the attribute on a percentage would have the tick silently
+      // replace "42%" with "Resets in 2 hr 14 min" within sixty seconds, on a
+      // timer, which is the hardest possible version of this bug to reproduce.
+      // The attribute stays on the panel rows and the usage meter, which is
+      // where the countdown actually lives.
+      const pct = fiveHour && typeof fiveHour.utilization === 'number'
+        ? Math.max(0, Math.min(100, Math.round(fiveHour.utilization)))
+        : null;
+      if (pct !== null) {
+        els.accountChipMeta.textContent = pct + '%';
+        delete els.accountChipMeta.dataset.resetAt;
+        els.accountChipMeta.hidden = false;
+        els.accountChipMeta.classList.toggle('is-stale', this._isUsageStale(active));
+      } else if (fiveHour && fiveHour.resets_at) {
+        // No utilization number, but a window exists: fall back to the
+        // countdown rather than to nothing, so a partial payload still says
+        // something true.
         els.accountChipMeta.textContent = this._formatResetText(fiveHour.resets_at);
         els.accountChipMeta.dataset.resetAt = fiveHour.resets_at;
         els.accountChipMeta.hidden = false;

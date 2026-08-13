@@ -4051,33 +4051,48 @@ textarea.input {
   flex-direction: column;
 }
 
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ * THE SETTINGS SHELL, Notion restyle P4 remainder (DESIGN-SPEC 13).
+ * DECISIONS 12.3.1 item 3 and 12.6 item 3.
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * The card itself took the modal recipe in P4.2 and is unchanged. What did not
+ * ship is the INTERIOR, and the one sentence in DESIGN-SPEC 13 that governs all
+ * of it is about the setting row: "Note the rule is a row separator only, no
+ * card, no panel, no grouping box." That is the whole change. Settings in this
+ * app were rows with a hover wash and a radius inside padded category blocks,
+ * which reads as a list of buttons; Notion draws them as a plain list separated
+ * by hairlines, where the only interactive-looking thing in the row is the
+ * control on the right.
+ */
 .settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px 12px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 16px 24px 8px;
+  border-bottom: 1px solid var(--app-border-secondary);
 }
 
 .settings-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--app-text-primary);
 }
 
 .settings-search {
   position: relative;
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--app-border-secondary);
 }
 
 .settings-search-icon {
   position: absolute;
-  left: 28px;
+  left: 32px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
   pointer-events: none;
 }
 
@@ -4087,8 +4102,8 @@ textarea.input {
   background: transparent;
   border: none;
   outline: none;
-  font-size: 13px;
-  color: var(--text);
+  font-size: 14px;
+  color: var(--app-text-primary);
   font-family: inherit;
 }
 
@@ -4098,7 +4113,7 @@ textarea.input {
 
 .settings-body {
   overflow-y: auto;
-  padding: 8px 0 12px;
+  padding: 4px 0 24px;
   flex: 1;
   min-height: 0;
 }
@@ -4107,50 +4122,79 @@ textarea.input {
    `category` field. Clicking an item smooth-scrolls the body to the
    matching section; a scroll-spy keeps the active item highlighted as
    the user scrolls naturally. Theme-safe via existing tokens. */
+/* 200px, DESIGN-SPEC 13's measured left-nav width, up from 152. The rail
+   carries real section names and a 152px column ellipsised half of them. */
 .settings-content {
   display: grid;
-  grid-template-columns: 152px 1fr;
+  grid-template-columns: 200px 1fr;
   gap: 0;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
+
+/* The rail is the SIDEBAR ground, warmer than the canvas and not darker, which
+   is the same relationship the app sidebar has to the workbench (LAYOUT.md
+   1.7). The 50-percent color-mix over --bg-secondary it used to carry resolved
+   against the terminal palette, so the rail changed shade with the terminal
+   theme while the card behind it did not. */
 .settings-nav {
-  border-right: 1px solid var(--surface-2);
-  padding: 8px 6px 12px;
+  border-right: 1px solid var(--app-border-secondary);
+  padding: 12px 8px;
   overflow-y: auto;
-  background: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
+  background: var(--app-bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
+
+/*
+ * A rail row, on the standard active recipe (BUILD-CONTRACT 2.7). Three things
+ * changed and each was on a rejection list.
+ *
+ * `text-transform: lowercase` is gone. P4.10 took 46 uppercase rules out of
+ * this sheet on the rule that the design never transforms case, and forcing
+ * case DOWN is the same rule broken in the other direction: it renamed the
+ * user's own section labels.
+ *
+ * The 2px left border is gone. "Zero left borders, zero bars, zero underlines"
+ * is the line that took the sidebar's bars in P2.2 and the tab underlines in
+ * P4.4, and it left a padding-compensation hack behind it.
+ *
+ * The 18-percent mauve mix is gone. Mauve is the retired brand primary (P3.1)
+ * and it is a TERMINAL palette token, so the rail's selected state changed hue
+ * with the terminal theme. The selected wash is the app's own, and it is the
+ * same wash the sidebar rows and the view tabs already use. Sanctioned test
+ * edit SE-12, DECISIONS 13.4.
+ */
 .settings-nav-item {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 6px 10px;
-  margin-bottom: 2px;
+  padding: 5px 8px;
+  margin-bottom: 0;
   border-radius: var(--radius-app-button);
   background: transparent;
   border: 0;
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
-  color: var(--text-muted);
+  color: var(--app-text-secondary);
   cursor: pointer;
-  text-transform: lowercase;
-  letter-spacing: 0.02em;
+  text-transform: none;
+  letter-spacing: normal;
   transition: background 150ms ease, color 150ms ease, opacity 150ms ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .nt-enable-hover .settings-nav-item:hover {
-  background: var(--surface-1);
-  color: var(--text-base);
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
 }
 .settings-nav-item.is-active {
-  background: color-mix(in srgb, var(--mauve) 18%, var(--surface-1));
-  color: var(--text-base);
+  background: var(--app-sidebar-item-selected);
+  color: var(--app-text-primary);
   font-weight: 500;
-  border-left: 2px solid var(--mauve);
-  padding-left: 8px; /* compensate for the 2px border so text doesn't jump */
 }
 .settings-nav-item.is-dimmed {
   opacity: 0.35;
@@ -4165,35 +4209,47 @@ textarea.input {
   grid-template-columns: 1fr;
 }
 
+/* The right pane's body measure, DESIGN-SPEC 13: `4px 24px 24px`. */
 .settings-category {
-  padding: 0 20px;
+  padding: 0 24px;
 }
 
 .settings-category + .settings-category {
-  margin-top: 8px;
+  margin-top: 16px;
 }
 
 .settings-category-label {
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
-  color: var(--overlay0);
-  padding: 8px 0 4px;
+  color: var(--app-text-secondary);
+  padding: 12px 0 2px;
 }
 
+/*
+ * THE SETTING ROW. DESIGN-SPEC 13, and the sentence that governs the whole
+ * region: "the rule is a row separator only, no card, no panel, no grouping
+ * box." A hover wash and a radius on the row made every setting look like a
+ * button you could press; the only pressable thing in a setting row is the
+ * control on the right, and the row's job is to separate one setting from the
+ * next. The hover rule is retained below as a no-op override rather than
+ * deleted, so the gated selector stays in the sheet if the wash ever comes
+ * back for a genuinely clickable row.
+ */
 .settings-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 8px;
-  border-radius: var(--radius-sm);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--app-border-secondary);
+  border-radius: var(--radius-cover);
   transition: background 0.12s ease;
 }
 
 .nt-enable-hover .settings-row:hover {
-  background: var(--surface0);
+  background: transparent;
 }
 
 .settings-row-info {
@@ -4202,14 +4258,14 @@ textarea.input {
 }
 
 .settings-row-label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  color: var(--text);
+  color: var(--app-text-primary);
 }
 
 .settings-row-desc {
-  font-size: 11px;
-  color: var(--subtext0);
+  font-size: 12px;
+  color: var(--app-text-secondary);
   margin-top: 1px;
 }
 
@@ -4292,34 +4348,41 @@ textarea.input {
   flex-shrink: 0;
 }
 
+/* The secondary button weight (DESIGN-SPEC 12), at the 28px icon-button size,
+   rather than a fourth bespoke button recipe. Two CTA weights in the system
+   means a stepper button is one of the two, not a third. */
 .settings-scale-btn {
-  width: 28px;
-  height: 28px;
+  width: var(--app-icon-button-size);
+  height: var(--app-icon-button-size);
   border-radius: var(--radius-app-button);
-  border: 1px solid var(--surface1);
-  background: var(--surface0);
-  color: var(--text);
+  border: 1px solid var(--app-border-primary);
+  background: var(--app-bg-elevated);
+  box-shadow: var(--app-shadow-button);
+  color: var(--app-text-primary);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.12s;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
 .nt-enable-hover .settings-scale-btn:hover {
-  background: var(--surface1);
-  border-color: var(--surface2);
+  background: var(--app-wash-button-hover);
+  border-color: var(--app-border-primary);
 }
 
+/* Tabular figures, not a mono face. A scale factor is a value being stepped,
+   not a code token; what the mono stack was actually buying here was digit
+   alignment so the number does not jog as it steps through 90, 100, 110. */
 .settings-scale-value {
   min-width: 40px;
   text-align: center;
   font-size: 13px;
   font-weight: 500;
-  color: var(--text);
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: var(--app-text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Number input for settings (e.g., quota limits) */
@@ -4360,15 +4423,17 @@ textarea.input {
 }
 
 .settings-empty {
-  padding: 24px 20px;
+  padding: 24px;
   text-align: center;
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
   font-size: 13px;
 }
 
-/* Hidden items in settings panel */
+/* Hidden items in settings panel. This row IS clickable (it unhides), so it is
+   the one row in the region that keeps a hover wash, and it takes the system's
+   wash rather than a raised terminal-palette ground. */
 .nt-enable-hover .settings-hidden-item:hover {
-  background: var(--surface1) !important;
+  background: var(--app-wash-hover) !important;
 }
 .settings-hidden-item .settings-unhide-btn:hover {
   opacity: 1 !important;
@@ -10118,19 +10183,40 @@ html.activity-indicators-disabled .terminal-pane-activity {
   padding: 0;
 }
 
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ * THE COSTS VIEW, Notion restyle P4 remainder (DESIGN-SPEC 9.2).
+ * DECISIONS 12.3.1 item 3 and 12.6 item 3: the sixth colour map shipped in
+ * P2.7, but the cards, the tables and the Share meter did not, so switching to
+ * Costs still landed on the old design.
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * ONE STRUCTURAL CHANGE UNDERNEATH ALL THE COLOUR. Every group in this view was
+ * a FILLED, BORDERED, ROUNDED tile: four stat cards, the chart, two breakdown
+ * cards and the sessions table, all on --surface0 inside a --surface1 hairline.
+ * Eight raised boxes on one page is the "panel of panels" idiom the rejection
+ * list refuses; Notion draws a data page as content ON the canvas, with a
+ * hairline where a boundary is genuinely load-bearing and nothing where it is
+ * not. Stat cards keep their hairline (they are a row of discrete facts and the
+ * boundary is what separates them); the chart, the breakdowns and the table lose
+ * theirs and become sections under labels.
+ */
 .costs-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px 12px;
-  border-bottom: 1px solid var(--surface1);
+  gap: 8px;
+  height: var(--app-topbar-height);
+  min-height: var(--app-topbar-height);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--app-border-secondary);
   flex-shrink: 0;
 }
 
 .costs-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--app-text-primary);
   margin: 0;
 }
 
@@ -10140,12 +10226,15 @@ html.activity-indicators-disabled .terminal-pane-activity {
   gap: 8px;
 }
 
+/* The pill GROUP loses its own tray. A segmented control on a raised ground is
+   two affordances doing one job: the active pill already carries the selected
+   wash, so the tray behind it only adds a second boundary. */
 .costs-period-selector {
   display: flex;
   gap: 2px;
-  background: var(--surface0);
+  background: transparent;
   border-radius: var(--radius-app-button);
-  padding: 2px;
+  padding: 0;
 }
 
 /*
@@ -10178,18 +10267,25 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 .costs-refresh-btn {
-  color: var(--subtext0);
+  color: var(--app-text-secondary);
 }
 
+/* The page frame, DESIGN-SPEC 9.2: a 1100px measure with 48px side padding and
+   60px of tail. This is a DATA surface, not a document one, so it keeps its own
+   measure rather than taking the 720px .nt-layout column (PROCEDURE 0.3's
+   split). `margin: 0 auto` centres it once the viewport passes 1100. */
 .costs-body {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 20px 24px;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 28px 48px 60px;
 }
 
 .costs-loading {
   text-align: center;
-  color: var(--subtext0);
+  color: var(--app-text-tertiary);
   padding: 48px 0;
   font-size: 13px;
 }
@@ -10199,57 +10295,77 @@ html.activity-indicators-disabled .terminal-pane-activity {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
+/* A hairline on the page ground, never a filled tile. The fill is what made
+   four facts read as four buttons. */
 .costs-card {
-  background: var(--surface0);
-  border: 1px solid var(--surface1);
+  background: transparent;
+  border: 1px solid var(--app-border-primary);
   border-radius: var(--radius-pane-frame);
   padding: 14px 16px;
 }
 
 .costs-card-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  color: var(--subtext0);
+  color: var(--app-text-secondary);
   text-transform: none;
   letter-spacing: normal;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 
 .costs-card-value {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 700;
-  color: var(--text);
+  letter-spacing: -0.01em;
+  color: var(--app-text-primary);
   font-variant-numeric: tabular-nums;
 }
 
-.costs-card-value.green { color: var(--green); }
-.costs-card-value.blue { color: var(--blue); }
-.costs-card-value.mauve { color: var(--mauve); }
-.costs-card-value.peach { color: var(--peach); }
+/*
+ * THE FOUR HUE MODIFIERS ARE NOW NO-OPS, AND THAT IS THE POINT.
+ *
+ * They painted the four headline numbers green, blue, mauve and peach, which
+ * said nothing: a total spend is not "more green" than a token count. In this
+ * design a hue is a SIGNAL (green means running, yellow means attention, red
+ * means failed), so spending four of them on four neutral facts devalues the
+ * three that mean something. The classes are retained rather than removed
+ * because app.js emits them, and G2 protects JS-coupled class names; each now
+ * resolves to the primary ink, so the markup keeps working and the page stops
+ * shouting in four colours at once.
+ */
+.costs-card-value.green,
+.costs-card-value.blue,
+.costs-card-value.mauve,
+.costs-card-value.peach {
+  color: var(--app-text-primary);
+}
 
 .costs-card-sub {
-  font-size: 11px;
-  color: var(--subtext0);
+  font-size: 12px;
+  color: var(--app-text-tertiary);
   margin-top: 2px;
 }
 
 /* Timeline Chart */
+/* The chart is a SECTION under a label, not a card. DESIGN-SPEC 9.2 gives the
+   sub-section label pattern (13px/600 secondary, 4px below) and uses it twice;
+   this is the third use, for consistency with the two breakdown tables. */
 .costs-chart-section {
-  background: var(--surface0);
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-pane-frame);
-  padding: 16px;
-  margin-bottom: 20px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-cover);
+  padding: 0;
+  margin-bottom: 22px;
 }
 
 .costs-chart-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
-  margin: 0 0 12px;
+  color: var(--app-text-secondary);
+  margin: 0 0 4px;
 }
 
 .costs-chart-container {
@@ -10263,21 +10379,24 @@ html.activity-indicators-disabled .terminal-pane-activity {
   height: 100%;
 }
 
+/* The series is BLUE, not green. Green is the running state everywhere else in
+   this app, and a spend line is not a status; blue is the capture's own data
+   hue and it is what the Share meter and the token bar already use. */
 .costs-chart-container .chart-line {
   fill: none;
-  stroke: var(--green);
+  stroke: var(--app-text-blue);
   stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
 
 .costs-chart-container .chart-area {
-  fill: var(--green);
+  fill: var(--app-text-blue);
   opacity: 0.08;
 }
 
 .costs-chart-container .chart-dot {
-  fill: var(--green);
+  fill: var(--app-text-blue);
   cursor: pointer;
   transition: r 0.15s ease;
 }
@@ -10287,13 +10406,13 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 .costs-chart-container .chart-grid {
-  stroke: var(--surface1);
+  stroke: var(--app-border-secondary);
   stroke-width: 0.5;
 }
 
 .costs-chart-container .chart-label {
-  fill: var(--subtext0);
-  font-size: 10px;
+  fill: var(--app-text-tertiary);
+  font-size: 11px;
   font-family: inherit;
 }
 
@@ -10306,20 +10425,23 @@ html.activity-indicators-disabled .terminal-pane-activity {
   align-items: center;
   justify-content: center;
   height: 180px;
-  color: var(--subtext0);
+  color: var(--app-text-tertiary);
   font-size: 13px;
 }
 
-/* Chart Tooltip */
+/* Chart Tooltip. A floating card, so it takes the elevated ground and the menu
+   shadow like every other floating surface in the app (BUILD-CONTRACT 2.4)
+   rather than a near-black terminal fill. */
 .costs-chart-tooltip {
   position: absolute;
   pointer-events: none;
-  background: var(--crust);
-  border: 1px solid var(--surface2);
+  background: var(--app-bg-elevated);
+  border: 1px solid var(--app-border-primary);
   border-radius: var(--radius-app-button);
+  box-shadow: var(--app-shadow-menu);
   padding: 6px 10px;
-  font-size: 11px;
-  color: var(--text);
+  font-size: 12px;
+  color: var(--app-text-primary);
   white-space: nowrap;
   z-index: 10;
   opacity: 0;
@@ -10331,48 +10453,58 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 .costs-chart-tooltip-date {
-  color: var(--subtext0);
-  font-size: 10px;
+  color: var(--app-text-tertiary);
+  font-size: 11px;
 }
 
 .costs-chart-tooltip-value {
   font-weight: 600;
-  color: var(--green);
+  color: var(--app-text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Breakdown Section */
 .costs-breakdown {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 24px;
+  margin-bottom: 22px;
 }
 
 .costs-breakdown-card {
-  background: var(--surface0);
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-pane-frame);
-  padding: 16px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-cover);
+  padding: 0;
 }
 
 .costs-breakdown-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
-  margin: 0 0 12px;
+  color: var(--app-text-secondary);
+  margin: 0 0 4px;
 }
 
+/* A breakdown row is a TABLE row at the captured 32px, not a stack of 8px
+   margins: label, meter, number, on hairlines. margin-bottom is gone with the
+   card, because rhythm on a data surface is row height. */
 .costs-breakdown-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 8px;
+  min-height: var(--app-table-row-height);
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--app-table-cell-border);
 }
 
+/* THE ONE METER, BUILD-CONTRACT 2.11 and DESIGN-SPEC 9.2: a 5px track at the
+   3px row-icon radius on --app-bg-tertiary. The usage popover, the token bar
+   and this Share column are one component at three call sites, so this track
+   drops from 6px to the system's 5px. */
 .costs-breakdown-bar-track {
   flex: 1;
-  height: 6px;
-  background: var(--surface1);
+  height: 5px;
+  background: var(--app-bg-tertiary);
   border-radius: var(--radius-row-icon);
   overflow: hidden;
 }
@@ -10380,39 +10512,43 @@ html.activity-indicators-disabled .terminal-pane-activity {
 .costs-breakdown-bar {
   height: 100%;
   border-radius: var(--radius-row-icon);
+  background: var(--app-text-blue);
   transition: width 0.3s ease;
 }
 
 .costs-breakdown-label {
-  font-size: 12px;
-  color: var(--text);
+  font-size: 13px;
+  color: var(--app-text-primary);
   min-width: 80px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* The trailing number is the meter's percentage, DESIGN-SPEC 9.2: 12px
+   tertiary, right aligned, 32px minimum. It is also what keeps the meter from
+   being the only channel, which accessibility floor A4 requires. */
 .costs-breakdown-value {
   font-size: 12px;
-  font-weight: 600;
-  color: var(--subtext1);
+  font-weight: 400;
+  color: var(--app-text-tertiary);
   font-variant-numeric: tabular-nums;
   min-width: 50px;
   text-align: right;
 }
 
 .costs-breakdown-empty {
-  color: var(--subtext0);
-  font-size: 12px;
+  color: var(--app-text-tertiary);
+  font-size: 13px;
   padding: 8px 0;
 }
 
 /* Session Cost Table */
 .costs-sessions-section {
-  background: var(--surface0);
-  border: 1px solid var(--surface1);
-  border-radius: var(--radius-pane-frame);
-  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-cover);
+  overflow: visible;
 }
 
 .costs-sessions-header {
@@ -10425,54 +10561,68 @@ html.activity-indicators-disabled .terminal-pane-activity {
 .costs-sessions-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--app-text-secondary);
   margin: 0;
 }
 
+/* The 28px field recipe P3.3 shipped, reused rather than re-cut. The focus
+   treatment is the captured input ring, not a green border: green means running
+   and a focused search field is not a running session. */
 .costs-sessions-search {
-  background: var(--mantle);
-  border: 1px solid var(--surface1);
+  height: var(--app-input-height);
+  background: var(--app-bg-primary);
+  border: 1px solid var(--app-border-primary);
   border-radius: var(--radius-app-button);
-  padding: 4px 10px;
-  font-size: 12px;
-  color: var(--text);
+  padding: 0 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--app-text-primary);
   outline: none;
   width: 180px;
-  transition: border-color 0.15s;
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
 }
 
 .costs-sessions-search::placeholder {
-  color: var(--overlay0);
+  color: var(--app-text-tertiary);
 }
 
 .costs-sessions-search:focus {
-  border-color: var(--green);
+  border-color: var(--app-ui-blue);
+  box-shadow: var(--app-input-focus-ring);
 }
 
+/*
+ * THE SAME DATABASE TABLE the Sessions view became in P4.3: a 36px header row
+ * at the captured header ink, 32px body rows, and hairlines at
+ * --app-table-cell-border. It was a 10px header inside a rounded filled card,
+ * which is a widget; this is a table.
+ */
 .costs-sessions-table {
   width: 100%;
   border-collapse: collapse;
 }
 
 .costs-sessions-table th {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--subtext0);
+  height: var(--app-table-header-height);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--app-text-tertiary);
   text-transform: none;
   letter-spacing: normal;
-  padding: 8px 12px;
+  padding: 0 8px;
   text-align: left;
-  border-bottom: 1px solid var(--surface1);
+  border-bottom: 1px solid var(--app-table-cell-border);
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
 }
 
-.costs-sessions-table th:hover {
-  color: var(--text);
+.nt-enable-hover .costs-sessions-table th:hover {
+  color: var(--app-text-primary);
 }
 
 .costs-sessions-table th.sort-active {
-  color: var(--green);
+  color: var(--app-text-primary);
 }
 
 .costs-sessions-table th.sort-active::after {
@@ -10484,34 +10634,37 @@ html.activity-indicators-disabled .terminal-pane-activity {
 }
 
 .costs-sessions-table td {
-  font-size: 12px;
-  color: var(--text);
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--surface0);
+  height: var(--app-table-row-height);
+  font-size: 13px;
+  color: var(--app-text-primary);
+  padding: 0 8px;
+  border-bottom: 1px solid var(--app-table-cell-border);
 }
 
 .costs-sessions-table tr {
   transition: background 0.1s;
 }
 
+/* The faintest wash in the system (LAYOUT.md 1.8), never a solid fill. */
 .nt-enable-hover .costs-sessions-table tbody tr:hover {
-  background: var(--mantle);
+  background: var(--app-wash-table-row-hover);
 }
 
 .costs-sessions-table .cost-cell {
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: var(--green);
+  font-weight: 500;
+  color: var(--app-text-primary);
+  text-align: right;
 }
 
 .costs-sessions-table .model-cell {
-  font-size: 11px;
-  color: var(--subtext0);
+  font-size: 13px;
+  color: var(--app-text-secondary);
 }
 
 .costs-sessions-table .workspace-cell {
-  font-size: 11px;
-  color: var(--subtext0);
+  font-size: 13px;
+  color: var(--app-text-secondary);
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -10527,9 +10680,9 @@ html.activity-indicators-disabled .terminal-pane-activity {
 
 .costs-sessions-empty {
   text-align: center;
-  color: var(--subtext0);
+  color: var(--app-text-tertiary);
   padding: 24px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* Responsive: stack cards on narrow screens */
@@ -11222,12 +11375,28 @@ html {
   font-weight: 500;
 }
 
+/* `{name} · {n}%`, DESIGN-SPEC 4. The separator is drawn here rather than
+   emitted into the text, so the middot never survives into a copied string or
+   into a screen reader's reading of an empty meta. Tabular figures keep the
+   percentage from jogging the chip's width as it ticks; the mono FACE is gone,
+   because a utilisation percentage is a value and not a code token, which is
+   the same call the session badges and the analytics cards took. */
 .account-chip-meta {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--app-text-tertiary);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* No [hidden] guard is needed and none is added: the meta carries no display
+   rule of its own, so the hidden attribute already takes the whole element and
+   its pseudo-element with it. Gate G3 counts guards paired with display rules,
+   and adding one here would inflate that counter with a rule it does not
+   describe. */
+.account-chip-meta::before {
+  content: '\00B7';
+  margin-right: 4px;
+  color: var(--app-text-tertiary);
 }
 
 /* Usage cache older than the 10 min TTL: countdown dims (design 6.4) */
@@ -14744,23 +14913,50 @@ html {
       every search-result header. Color is driven by the parent
       .search-result[data-provider="..."] selector so every theme
       cascades the right accent through the provider token layer. */
-/* The one chip in the system that is deliberately EMPTY rather than gray: a
-   dashed hairline says "no value was recorded", where a gray fill would say
-   "the value is neutral". Notion draws an unset property as blank, and this is
-   the closest the app can get while still carrying its own tooltip. The
-   markup, including the &mdash; entity and the exact title text, is pinned
-   character for character by cost-display.test.js and is untouched. */
+/*
+ * THE UNSET COST, made honest. Notion restyle P4 remainder.
+ * DECISIONS 12.6 item 4 flagged this and left the decision open: the chip
+ * "renders as an em dash in a bordered box, which reads as an empty control
+ * rather than as 'not tracked'". This is that decision.
+ *
+ * WHAT IT ACTUALLY MEANS. CODEX-PARITY B10: a provider that does not expose
+ * usage has no cost, and the bug that row records is reporting it as $0.00
+ * rather than as unsupported. So the state this chip draws is "no value was
+ * recorded", not "the value is zero" and not "a control is disabled".
+ *
+ * NOTION DRAWS AN UNSET PROPERTY AS BLANK. Not as an outline, not as a gray
+ * pill, not as a dashed placeholder waiting to be filled. The dashed border was
+ * an honest attempt at "deliberately empty" and it read as the opposite: a
+ * bordered box with a dash in it is a form field nobody has typed in, which is
+ * exactly the affordance a chip in a session row must not offer, because there
+ * is nothing to click.
+ *
+ * So the box goes. What is left is the em dash itself, at the tertiary ink
+ * every other piece of meta copy in the system uses, with `cursor: help` and
+ * the title attribute carrying the reason. It is quiet by design: a session
+ * whose provider does not track cost should cost nothing to look at.
+ *
+ * CSS ONLY. The markup, including the entity and the exact title text, is
+ * pinned character for character by cost-display.test.js and is untouched,
+ * which is what the orchestrator's brief requires and what makes this
+ * revertible in one rule.
+ */
 .session-badge-cost-na {
   background: transparent;
   color: var(--app-text-tertiary);
-  border: 1px dashed var(--app-border-strong);
+  border: none;
+  padding: 0 2px;
   cursor: help;
 }
 
+/* The table's mirror of the same state, and the same reasoning: an unset value
+   is quiet, not italic. Italic in this design means an inferred or provisional
+   VALUE (the italic mono project row P4 shipped), and an absent value is not a
+   provisional one. */
 .cost-cell-na {
   color: var(--app-text-tertiary);
   cursor: help;
-  font-style: italic;
+  font-style: normal;
 }
 
 .search-result-provider {
