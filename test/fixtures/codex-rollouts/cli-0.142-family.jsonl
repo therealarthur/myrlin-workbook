@@ -1,0 +1,10 @@
+{"timestamp":"2026-06-02T09:00:00.000Z","type":"session_meta","payload":{"id":"019f0000-0000-7000-8000-000000000142","timestamp":"2026-06-02T09:00:00.000Z","cwd":"/home/user/project","originator":"Codex Desktop","cli_version":"0.142.3","model_provider":"openai"}}
+{"timestamp":"2026-06-02T09:00:01.000Z","type":"turn_context","payload":{"turn_id":"turn_fixture_142","cwd":"/home/user/project","model":"gpt-5.5"}}
+{"timestamp":"2026-06-02T09:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Search the web then list the directory."}]}}
+{"timestamp":"2026-06-02T09:00:03.000Z","type":"response_item","payload":{"type":"reasoning","summary":[],"encrypted_content":"REDACTED-FIXTURE-CIPHERTEXT"}}
+{"timestamp":"2026-06-02T09:00:04.000Z","type":"response_item","payload":{"type":"web_search_call","status":"completed","action":{"type":"search","query":"fixture query","queries":["fixture query"]}}}
+{"timestamp":"2026-06-02T09:00:05.000Z","type":"event_msg","payload":{"type":"web_search_end","call_id":"call_fixture_142","query":"fixture query","results":[]}}
+{"timestamp":"2026-06-02T09:00:06.000Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\":\"ls -1\"}"}}
+{"timestamp":"2026-06-02T09:00:07.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_fixture_142b","output":"alpha.txt\nbeta.txt\n"}}
+{"timestamp":"2026-06-02T09:00:08.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Two files, and the search returned nothing useful."}]}}
+{"timestamp":"2026-06-02T09:00:09.000Z","type":"compacted","payload":{"summary":"Earlier turns compacted."}}

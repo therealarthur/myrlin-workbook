@@ -1,0 +1,12 @@
+{"timestamp":"2026-08-10T14:00:00.000Z","type":"session_meta","payload":{"id":"019f0000-0000-7000-8000-000000000147","timestamp":"2026-08-10T14:00:00.000Z","cwd":"/home/user/project","originator":"Codex Desktop","cli_version":"0.147.0-alpha.6.6","model_provider":"openai","thread_source":"user","forked_from_id":null,"parent_thread_id":null,"history_mode":"full","context_window":258400}}
+{"timestamp":"2026-08-10T14:00:01.000Z","type":"world_state","payload":{"full":false,"state":{"environments":[]}}}
+{"timestamp":"2026-08-10T14:00:02.000Z","type":"turn_context","payload":{"turn_id":"turn_fixture_147","cwd":"/home/user/project","model":"gpt-5.6-sol","reasoning_effort":"ultra","approval_policy":"never","sandbox_policy":{"type":"disabled"},"collaboration_mode":"solo"}}
+{"timestamp":"2026-08-10T14:00:03.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Spawn a worker and have it patch the fixture."}]}}
+{"timestamp":"2026-08-10T14:00:04.000Z","type":"response_item","payload":{"type":"custom_tool_call","id":"ctc_fixture_147a","call_id":"call_fixture_147a","name":"exec","input":"{\"command\":\"cat alpha.txt\"}","status":"completed"}}
+{"timestamp":"2026-08-10T14:00:05.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","id":"ctco_fixture_147a","call_id":"call_fixture_147a","output":[{"type":"input_text","text":"old line"}]}}
+{"timestamp":"2026-08-10T14:00:06.000Z","type":"response_item","payload":{"type":"function_call","name":"spawn_agent","arguments":"{\"role\":\"worker\"}","namespace":"multi_agent"}}
+{"timestamp":"2026-08-10T14:00:07.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_fixture_147b","output":"agent /root/fixture_worker started"}}
+{"timestamp":"2026-08-10T14:00:08.000Z","type":"inter_agent_communication_metadata","payload":{"trigger_turn":true}}
+{"timestamp":"2026-08-10T14:00:09.000Z","type":"response_item","payload":{"type":"agent_message","id":"am_fixture_147","author":"/root/fixture_worker","recipient":"/root","content":[{"type":"input_text","text":"Patch complete."}]}}
+{"timestamp":"2026-08-10T14:00:10.000Z","type":"event_msg","payload":{"type":"sub_agent_activity","agent":"/root/fixture_worker","activity":"finished"}}
+{"timestamp":"2026-08-10T14:00:11.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The worker finished the patch."}]}}

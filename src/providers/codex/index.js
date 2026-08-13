@@ -36,7 +36,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const discover = require('./discover');
-const { parseTranscript, parseLine } = require('./parse');
+const { parseTranscript, parseTranscriptDetailed, parseLine } = require('./parse');
 const { spawnCommand } = require('./spawn');
 const { accountsCapability } = require('./accounts');
 const { search } = require('./search');
@@ -419,6 +419,15 @@ module.exports = {
   cliBinary: 'codex',               // gsd:provider-literal-allowed
   discover: discover,
   parseTranscript: parseTranscript,
+  // BUILD-CONTRACT P9.2: OPTIONAL member. Same parse, plus the counters that
+  // say what it did NOT emit. NOT added to REQUIRED_METHODS, so a provider
+  // without one still validates; callers probe with
+  // `typeof provider.parseTranscriptDetailed === 'function'`.
+  //
+  // Exists because a message list cannot express "43 percent of this file was
+  // an unrecognised shape and was dropped", which is precisely what was
+  // happening, silently, before P9.1. `stats.unknown > 0` is the drift signal.
+  parseTranscriptDetailed: parseTranscriptDetailed,
   spawnCommand: spawnCommand,
   search: search,
   init: init,
