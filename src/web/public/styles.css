@@ -12517,16 +12517,20 @@ html {
   padding: 3px 8px;
 }
 
+/* These three override the shared .btn family at (0,2,0) and would otherwise
+   pin the paired-devices row to the pre-restyle palette and the old 0.4
+   disabled opacity. Re-pointed to the same tokens P3.1 gives .btn-danger and
+   .btn:disabled, so this region cannot drift from the family it belongs to. */
 .device-actions .btn-danger {
-  color: var(--red);
+  color: var(--app-text-red);
 }
 
 .device-actions .btn-danger:hover {
-  background: rgba(243, 139, 168, 0.1);
+  background: var(--app-bg-red);
 }
 
 .device-actions .btn:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
