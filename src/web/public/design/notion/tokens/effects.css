@@ -1,0 +1,305 @@
+/* ==========================================================================
+   Notion / effects tokens: shadow, ring, border treatment, blur
+   --------------------------------------------------------------------------
+   Notion's depth language, in one sentence: almost nothing casts a shadow,
+   and when something does, the shadow is so soft you have to look for it.
+
+   Numbers that constrain everything in this file:
+     - Only 11 elements on the entire homepage carry any shadow at all.
+     - The strongest marketing shadow tops out at 4 percent black.
+     - The pricing page uses ZERO shadows. Plan cards are separated by a 2px
+       gray-200 border and a blue-100 fill.
+     - The editor canvas has zero depth. No shadow on blocks, on the page, or
+       on the cover. All depth lives in overlays: menus, popovers, peeks,
+       modals.
+     - backdrop-filter appears on exactly two components across the whole
+       marketing site, both of them small circular carousel arrows.
+     - There are no gradients in the token layer, and no noise or grain
+       texture in any captured stylesheet, on either surface.
+
+   Anything at 10 percent black or above, anything with a hue in it, any glass
+   nav, any gradient and any grain overlay is on the rejection list.
+
+   Source: raw/css/2280490c7edd474a.css --shadow-* for marketing;
+   raw/css/app-59116-929b222db82f090f.css --c-sha* for the editor.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Marketing shadows.
+   Four tokens. Each is a multi layer stack whose layers grow in blur and in
+   alpha together, which is what makes them read as light rather than as a
+   drop shadow. Copy the stacks whole; a single layer approximation loses the
+   effect entirely.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css --shadow-* */
+
+:root {
+  --shadow-0: 0px 0px 0px 0px rgb(0% 0% 0% / 0);
+
+  --shadow-100:
+    0px 0.7px 1.462px 0px rgb(0% 0% 0% / 0.015),
+    0px 3px 9px 0px rgb(0% 0% 0% / 0.03);
+
+  --shadow-200:
+    0px 0.175px 1.041px 0px rgb(0% 0% 0% / 0.013),
+    0px 0.8px 2.925px 0px rgb(0% 0% 0% / 0.02),
+    0px 2.025px 7.847px 0px rgb(0% 0% 0% / 0.027),
+    0px 4px 18px 0px rgb(0% 0% 0% / 0.04);
+
+  --shadow-300:
+    0px 0.667px 3.502px 0px rgb(0% 0% 0% / 0.0096),
+    0px 2.933px 7.252px 0px rgb(0% 0% 0% / 0.0157),
+    0px 7.2px 14.462px 0px rgb(0% 0% 0% / 0.02),
+    0px 13.867px 28.348px 0px rgb(0% 0% 0% / 0.0243),
+    0px 23.333px 52.123px 0px rgb(0% 0% 0% / 0.0304),
+    0px 36px 89px 0px rgb(0% 0% 0% / 0.04);
+
+  /* Both of the named marketing roles resolve to the same stack. */
+  --shadow-card: var(--shadow-200);
+  --shadow-screenshot: var(--shadow-200);
+
+  /* The nav carries a transparent 1px hairline that becomes visible on
+     scroll. It is a box-shadow, not a border, so it never takes up layout. */
+  --shadow-nav-rest: rgba(0, 0, 0, 0) 0 1px 0 0;
+  --shadow-nav-scrolled: var(--mkt-border) 0 1px 0 0; /* inferred: the rest state is captured, the scrolled color is read from the hairline token it animates toward */
+}
+
+/* --------------------------------------------------------------------------
+   2. Editor shadows.
+   Two families. "Bas" is the shadow alone. "Out" is the same shadow plus a
+   1px hairline ring, and Out is what elevated surfaces actually use. In dark
+   mode the ring becomes a solid #383836 because the shadow alone is invisible
+   on a #191919 ground; that is the whole reason the Out family exists.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-59116-929b222db82f090f.css .notion-light-theme --c-sha* */
+
+:root {
+  --app-shadow-sm:
+    0px 4px 12px 0px rgba(25, 25, 25, 0.027),
+    0px 1px 2px 0px rgba(25, 25, 25, 0.02);
+  --app-shadow-md:
+    0px 8px 12px 0px rgba(25, 25, 25, 0.027),
+    0px 2px 6px 0px rgba(25, 25, 25, 0.027);
+  --app-shadow-lg:
+    0px 20px 24px 0px rgba(25, 25, 25, 0.05),
+    0px 5px 8px 0px rgba(25, 25, 25, 0.027);
+  --app-shadow-diffuse: 0px 12px 32px 0px rgba(25, 25, 25, 0.027);
+  --app-shadow-scrim:
+    0px 24px 48px 0px rgba(25, 25, 25, 0.24),
+    0px 4px 12px 0px rgba(25, 25, 25, 0.14);
+
+  --app-shadow-outlined-sm:
+    0px 2px 4px 0px rgba(0, 0, 0, 0.04),
+    0px 0px 0px 1px rgba(42, 28, 0, 0.07);
+  --app-shadow-outlined-md:
+    0px 8px 12px 0px rgba(25, 25, 25, 0.027),
+    0px 2px 6px 0px rgba(25, 25, 25, 0.027),
+    0px 0px 0px 1px rgba(42, 28, 0, 0.07);
+  --app-shadow-outlined-lg:
+    0px 20px 24px 0px rgba(25, 25, 25, 0.05),
+    0px 5px 8px 0px rgba(25, 25, 25, 0.027),
+    0px 0px 0px 1px rgba(42, 28, 0, 0.07);
+  --app-shadow-outlined-diffuse:
+    0px 12px 32px 0px rgba(25, 25, 25, 0.027),
+    0px 0px 0px 1px rgba(42, 28, 0, 0.07);
+  --app-shadow-outlined-scrim:
+    0px 24px 48px 0px rgba(25, 25, 25, 0.24),
+    0px 4px 12px 0px rgba(25, 25, 25, 0.14),
+    0px 0px 0px 1px rgba(42, 28, 0, 0.07);
+
+  /* Menus and modals. Thicker ring, deeper lift. */
+  --app-shadow-menu:
+    0px 14px 28px -6px rgba(0, 0, 0, 0.1),
+    0px 2px 4px -1px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(28, 19, 1, 0.11);
+  --app-shadow-menu-thick:
+    0px 14px 28px -6px rgba(0, 0, 0, 0.1),
+    0px 2px 4px -1px rgba(0, 0, 0, 0.06),
+    0 0 0 2px rgba(84, 72, 49, 0.08);
+  --app-shadow-small-thick:
+    0px 4px 12px -2px rgba(0, 0, 0, 0.08),
+    0 0 0 2px rgba(84, 72, 49, 0.08);
+
+  /* Small chrome */
+  --app-shadow-button: inset 0 0 0 1px rgba(15, 15, 15, 0.1), 0 1px 2px rgba(15, 15, 15, 0.1);
+  --app-shadow-avatar: 0 2px 4px rgba(15, 15, 15, 0.1);
+  --app-shadow-topbar: rgba(15, 15, 15, 0.1) 0px 2px 4px, rgba(15, 15, 15, 0.15) 0px 2px 8px;
+  --app-shadow-topbar-rest: rgba(15, 15, 15, 0.1) 0px 1px 0px, transparent 0px 0px 0px;
+  --app-shadow-bottom-bar: 0 -1px 0 1px rgba(15, 15, 15, 0.05), 0 -3px 6px rgba(15, 15, 15, 0.1);
+
+  /* THE SIDEBAR EDGE. Not a border and not a conventional shadow. It is a 1px
+     INSET hairline at the right edge, in --app-border-secondary. Using a
+     border here shifts layout by 1px and using an outset shadow makes it
+     float; neither is what Notion does. */
+  --app-sidebar-edge: rgb(240, 239, 237) -1px 0 0 0 inset;
+
+  /* Table header row: a white left mask plus a 1px inset underline. */
+  --app-table-header-shadow: rgb(255, 255, 255) -3px 0 0 0, rgba(42, 28, 0, 0.07) 0 -1px 0 0;
+  --app-calendar-header-shadow: rgb(230, 229, 227) 0 1px 0 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --app-shadow-sm: 0px 2px 4px 0px rgba(25, 25, 25, 0.08);
+    --app-shadow-md: 0px 4px 12px -2px rgba(25, 25, 25, 0.08);
+    --app-shadow-lg:
+      0px 14px 28px -6px rgba(25, 25, 25, 0.2),
+      0px 2px 4px -1px rgba(25, 25, 25, 0.118);
+    --app-shadow-diffuse: 0px 12px 32px 0px rgba(25, 25, 25, 0.4);
+    --app-shadow-scrim:
+      0px 24px 48px 0px rgba(25, 25, 25, 0.64),
+      0px 4px 12px 0px rgba(25, 25, 25, 0.56);
+    --app-shadow-outlined-sm: 0px 0px 0px 1px #383836, 0px 2px 4px 0px rgba(25, 25, 25, 0.08);
+    --app-shadow-outlined-md: 0px 0px 0px 1px #383836, 0px 4px 12px -2px rgba(25, 25, 25, 0.08);
+    --app-shadow-outlined-lg:
+      0px 0px 0px 1px #383836,
+      0px 14px 28px -6px rgba(25, 25, 25, 0.2),
+      0px 2px 4px -1px rgba(25, 25, 25, 0.118);
+    --app-shadow-outlined-diffuse: 0px 0px 0px 1px #383836, 0px 12px 32px 0px rgba(25, 25, 25, 0.4);
+    --app-shadow-outlined-scrim:
+      0px 0px 0px 1px #383836,
+      0px 24px 48px 0px rgba(25, 25, 25, 0.64),
+      0px 4px 12px 0px rgba(25, 25, 25, 0.56);
+    --app-shadow-menu:
+      inset 0 0 0 1px rgba(255, 255, 235, 0.1),
+      0px 14px 28px -6px rgba(0, 0, 0, 0.2),
+      0px 2px 4px -1px rgba(0, 0, 0, 0.12);
+    --app-shadow-menu-thick:
+      0 0 0 2px #383836,
+      0px 14px 28px -6px rgba(0, 0, 0, 0.2),
+      0px 2px 4px -1px rgba(0, 0, 0, 0.12);
+    --app-shadow-small-thick: 0 0 0 2px #383836, 0px 4px 12px -2px rgba(0, 0, 0, 0.16);
+    --app-shadow-button: inset 0 0 0 1px rgba(15, 15, 15, 0.2), 0 1px 2px rgba(15, 15, 15, 0.1);
+    --app-shadow-avatar: 0 2px 4px rgba(15, 15, 15, 0.2);
+    --app-sidebar-edge: #2c2c2b -1px 0 0 0 inset; /* inferred: same inset pattern, recolored to the dark --app-border-secondary */
+  }
+}
+
+:root[data-theme="dark"],
+.app-theme-dark {
+  --app-shadow-sm: 0px 2px 4px 0px rgba(25, 25, 25, 0.08);
+  --app-shadow-md: 0px 4px 12px -2px rgba(25, 25, 25, 0.08);
+  --app-shadow-lg:
+    0px 14px 28px -6px rgba(25, 25, 25, 0.2),
+    0px 2px 4px -1px rgba(25, 25, 25, 0.118);
+  --app-shadow-diffuse: 0px 12px 32px 0px rgba(25, 25, 25, 0.4);
+  --app-shadow-scrim:
+    0px 24px 48px 0px rgba(25, 25, 25, 0.64),
+    0px 4px 12px 0px rgba(25, 25, 25, 0.56);
+  --app-shadow-outlined-sm: 0px 0px 0px 1px #383836, 0px 2px 4px 0px rgba(25, 25, 25, 0.08);
+  --app-shadow-outlined-md: 0px 0px 0px 1px #383836, 0px 4px 12px -2px rgba(25, 25, 25, 0.08);
+  --app-shadow-outlined-lg:
+    0px 0px 0px 1px #383836,
+    0px 14px 28px -6px rgba(25, 25, 25, 0.2),
+    0px 2px 4px -1px rgba(25, 25, 25, 0.118);
+  --app-shadow-outlined-diffuse: 0px 0px 0px 1px #383836, 0px 12px 32px 0px rgba(25, 25, 25, 0.4);
+  --app-shadow-outlined-scrim:
+    0px 0px 0px 1px #383836,
+    0px 24px 48px 0px rgba(25, 25, 25, 0.64),
+    0px 4px 12px 0px rgba(25, 25, 25, 0.56);
+  --app-shadow-menu:
+    inset 0 0 0 1px rgba(255, 255, 235, 0.1),
+    0px 14px 28px -6px rgba(0, 0, 0, 0.2),
+    0px 2px 4px -1px rgba(0, 0, 0, 0.12);
+  --app-shadow-menu-thick:
+    0 0 0 2px #383836,
+    0px 14px 28px -6px rgba(0, 0, 0, 0.2),
+    0px 2px 4px -1px rgba(0, 0, 0, 0.12);
+  --app-shadow-small-thick: 0 0 0 2px #383836, 0px 4px 12px -2px rgba(0, 0, 0, 0.16);
+  --app-shadow-button: inset 0 0 0 1px rgba(15, 15, 15, 0.2), 0 1px 2px rgba(15, 15, 15, 0.1);
+  --app-shadow-avatar: 0 2px 4px rgba(15, 15, 15, 0.2);
+  --app-sidebar-edge: #2c2c2b -1px 0 0 0 inset; /* inferred: same inset pattern, recolored */
+}
+
+/* --------------------------------------------------------------------------
+   3. Focus rings.
+   The two surfaces disagree about the mechanism, not just the color.
+
+   Marketing focuses with a real CSS OUTLINE at 1 or 2px with a 1 or 2px
+   offset, and it transitions outline-color so the ring fades in rather than
+   snapping. The editor focuses with a layered BOX-SHADOW, usually an inset
+   hairline plus an outer ring, because an outline would be clipped by the
+   overflow on editor surfaces.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css --dimension-interaction-focus-ring-* and app --c-*FocRin */
+
+:root {
+  --focus-ring-width: 2px;
+  --focus-ring-width-tight: 1px;
+  --focus-ring-offset: 2px;
+  --focus-ring-offset-tight: 1px;
+  --focus-ring-style: solid;
+
+  /* Marketing double ring, used on dark surfaces where a blue outline dies. */
+  --focus-ring-double: 0 0 0 2px var(--mkt-black), 0 0 0 4px var(--mkt-white);
+
+  /* Editor rings, verbatim. */
+  --app-focus-shadow:
+    rgba(35, 131, 226, 0.57) 0px 0px 0px 1px inset,
+    rgba(35, 131, 226, 0.35) 0px 0px 0px 2px;
+  --app-input-focus-ring: 0px 0px 0px 1px #2383e2 inset, 0px 0px 0px 1px #2383e2;
+  --app-input-error-ring: 0px 0px 0px 1px #cd3c3a inset, 0px 0px 0px 1px #cd3c3a;
+  --app-button-focus-ring:
+    0px 0px 0px 2px #f8f8f7,
+    0px 0px 0px 4px #2383e2,
+    0px 0px 0px 6px rgba(255, 255, 255, 0.25);
+  --app-mention-hover-ring: 0 0 0 3px rgba(148, 148, 148, 0.15);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --app-button-focus-ring: 0px 0px 0px 2px #191919, 0px 0px 0px 4px #2383e2, 0px 0px 0px 6px #191919;
+  }
+}
+:root[data-theme="dark"],
+.app-theme-dark {
+  --app-button-focus-ring: 0px 0px 0px 2px #191919, 0px 0px 0px 4px #2383e2, 0px 0px 0px 6px #191919;
+}
+
+/* --------------------------------------------------------------------------
+   4. Blur.
+   The only blur on the entire marketing site. A 34px circular carousel arrow
+   with a 75 percent black fill, a 2px white border and --shadow-200 behind a
+   4px backdrop blur. The nav does not blur. The editor does not blur anything.
+   If you find yourself reaching for backdrop-filter, you are leaving the
+   brand.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/*.css .TemplateGalleryCategoryEditorial_arrow, .marketplaceScreenshots_arrow */
+
+:root {
+  --blur-carousel-arrow: 4px;
+  --carousel-arrow-size: 34px;
+  --carousel-arrow-fill: rgba(0, 0, 0, 0.75);
+  --carousel-arrow-border: 2px solid var(--mkt-white);
+}
+
+/* --------------------------------------------------------------------------
+   5. Deliberate absences, encoded so nobody has to guess.
+   These exist so that a component author who reaches for a gradient or a
+   grain gets a no-op rather than inventing one.
+   -------------------------------------------------------------------------- */
+/* @source absence across all 20 captured marketing stylesheets and 3 app stylesheets */
+
+:root {
+  --gradient-none: none;   /* there are no gradients anywhere on either surface */
+  --noise-none: none;      /* no grain, no paper texture, no noise overlay */
+  --glass-none: none;      /* no frosted nav, no glass panel */
+}
+
+/* --------------------------------------------------------------------------
+   6. Semantic aliases for the contract layer.
+   -------------------------------------------------------------------------- */
+/* @source derived: semantic alias over the two effect systems above */
+
+:root {
+  --shadow-raised: var(--shadow-200);
+  --shadow-overlay: var(--shadow-300);
+  --shadow-none: var(--shadow-0);
+}
+
+:root[data-surface="app"],
+[data-surface="app"] {
+  --shadow-card: var(--shadow-0);          /* editor blocks never carry a shadow */
+  --shadow-raised: var(--app-shadow-outlined-sm);
+  --shadow-overlay: var(--app-shadow-menu);
+}

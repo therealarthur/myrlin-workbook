@@ -1,0 +1,434 @@
+/* ==========================================================================
+   Notion / spacing, radius, container and grid tokens
+   --------------------------------------------------------------------------
+   Marketing and the editor both count in 4px, and then diverge completely.
+
+   Marketing spends space in big pieces: a 96px section band, a 64px gap
+   inside a section, a 1252px content cap, and a fluid horizontal gutter that
+   is a percentage of the viewport snapped to a 3.2px grid.
+
+   The editor spends space in 6px and 2px, and gets all of its air from ONE
+   number: the 96px minimum margin either side of a 720px text column. Nothing
+   in the editor has a margin. Every gap you see between two blocks is padding
+   on the block wrappers, and that is why Notion documents feel the way they do.
+
+   Source: raw/css/2280490c7edd474a.css :root for marketing (mirrored in
+   raw/notes/root_nonclr.txt); raw/css/app-main-8c7c82d491839ed3.css .layout
+   and computed block padding on thirteen public editor pages for the app.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. The spacing scale.
+   A token set, not a multiplier function. Note the odd members 28, 30 and 100.
+   They exist because the line-height tokens reuse this scale, so a 28px and a
+   30px line-height need spacing entries to point at.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css --dimension-spacing-* */
+
+:root {
+  --space-0: 0;
+  --space-4: 0.25rem;
+  --space-8: 0.5rem;
+  --space-12: 0.75rem;
+  --space-16: 1rem;
+  --space-20: 1.25rem;
+  --space-24: 1.5rem;
+  --space-28: 1.75rem;
+  --space-30: 1.875rem;
+  --space-32: 2rem;
+  --space-40: 2.5rem;
+  --space-48: 3rem;
+  --space-56: 3.5rem;
+  --space-64: 4rem;
+  --space-72: 4.5rem;
+  --space-80: 5rem;
+  --space-96: 6rem;
+  --space-100: 6.25rem;
+  --space-128: 8rem;
+  --space-160: 10rem;
+
+  /* Short aliases for the APPLY.md mapping table. --space-2 is the base unit. */
+  --space-1: var(--space-0);
+  --space-2: var(--space-4);
+  --space-3: var(--space-8);
+  --space-5: var(--space-16);
+  --space-6: var(--space-24);
+  --space-7: var(--space-32);
+}
+
+/* --------------------------------------------------------------------------
+   2. Radius.
+   Live census on the homepage counted 8px on 91 elements, 4px on 30, 12px on
+   18 and the pill on 13. Everything else is a rounding error. The marketing
+   site is essentially 4 / 8 / 12 / pill.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css --border-radius-* and .base_theme --border-*-radius */
+
+:root {
+  --radius-0: 0;
+  --radius-4: 0.25rem;
+  --radius-5: 0.3125rem;
+  --radius-6: 0.375rem;
+  --radius-8: 0.5rem;
+  --radius-10: 0.625rem;
+  --radius-12: 0.75rem;
+  --radius-14: 0.875rem;
+  --radius-16: 1rem;
+  --radius-round: 624.9375rem;
+
+  /* Marketing component assignments */
+  --radius-button: var(--radius-8);
+  --radius-button-lg: var(--radius-10);
+  --radius-icon-button: var(--radius-4);
+  --radius-menu-button: var(--radius-round);
+  --radius-menu-item: var(--radius-8);
+  --radius-card: var(--radius-12);
+  --radius-popover: var(--radius-12);
+  --radius-banner: var(--radius-12);
+  --radius-media: var(--radius-12);
+  --radius-screenshot: var(--radius-12);
+  --radius-badge: var(--radius-round);
+
+  /* Editor component assignments. These are px, not rem, because the editor
+     has no rem scale. Chips are 4px while cards and callouts are 10px, and
+     matching them up is on the rejection list because it reads as a generic
+     design system rather than as Notion. */
+  --radius-page-icon: 4px;
+  --radius-row-icon: 3.5px;
+  --radius-callout: 10px;
+  --radius-bookmark: 10px;
+  --radius-block-hover: 6px;
+  --radius-property-chip: 4px;
+  --radius-status-chip: 10px;
+  --radius-app-button: 6px;
+  --radius-collection-card: 10px;
+  --radius-avatar: 100%;
+  --radius-cover: 0;
+
+  /* Generic aliases for the semantic contract. */
+  --radius-sm: var(--radius-4);
+  --radius-md: var(--radius-8);
+  --radius-lg: var(--radius-12);
+  --radius-full: var(--radius-round);
+}
+
+/* Notion's own way of getting a square cornered page: the academic and serif
+   section themes zero every radius token. This is the only sanctioned route. */
+.mkt-theme-academic,
+.mkt-theme-serif {
+  --radius-4: 0;
+  --radius-5: 0;
+  --radius-6: 0;
+  --radius-8: 0;
+  --radius-10: 0;
+  --radius-12: 0;
+  --radius-14: 0;
+  --radius-16: 0;
+  --radius-round: 0;
+}
+
+/* --------------------------------------------------------------------------
+   3. Border widths.
+   Everything is 1px except pricing plan cards, which use 2px, and focus
+   rings, which use 2px.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css --dimension-thickness-* and computed pricing card border */
+
+:root {
+  --border-1: 0.0625rem;  /* 1px */
+  --border-2: 0.125rem;   /* 2px */
+  --border-hairline: 1px;
+  --border-pricing-card: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   4. Marketing layout.
+   The horizontal gutter is a fluid percentage snapped to a 3.2px grid. At
+   1280 it computes to 92.8px, at 1440 to 105.6px, at 1600 to 115.2px. A fixed
+   pixel gutter at large viewports is on the rejection list.
+   -------------------------------------------------------------------------- */
+/* @source computed .homepage_main and .homepage_section on notion.com/ */
+
+:root {
+  --mkt-container: 78.25rem;      /* 1252px, the real content cap */
+  --mkt-container-narrow: 60rem;  /* 960px */
+  --mkt-container-story: 1280px;  /* customer story content sections */
+  --mkt-container-help: 1200px;   /* help center */
+
+  --mkt-nav-height: 64px;         /* constant from 375 to 1600, measured */
+  --mkt-page-gutter: 24px;        /* 24px at 1280 and up, 16px below */
+
+  /* Section band vertical padding and the fluid horizontal gutter. */
+  --mkt-section-padding: 2rem;    /* 32px below 600 */
+  --mkt-section-padding-horizontal: 1rem; /* 16px below 400 */
+  --mkt-section-gap: 2rem;        /* 32px below 600, the flex column gap */
+  --mkt-section-gap-tight: 1rem;  /* .homepage_tightSpacing */
+
+  /* Template gallery rhythm, a different beat from the rest of the site. */
+  --mkt-gallery-row-gap: 72px;
+  --mkt-gallery-card-width: 406px;
+  --mkt-gallery-arrow: 34px;
+
+  /* Hero image pile. Seven overlapping 72px round avatars on a diagonal. */
+  --mkt-avatar-pile-size: 72px;
+  --mkt-avatar-pile-rise: 43;
+  --mkt-avatar-pile-run: 180;
+
+  /* Social proof logo row. Every wordmark normalized to one height. */
+  --mkt-logo-height: 24px;
+}
+
+@media (min-width: 400px) {
+  :root { --mkt-section-padding-horizontal: 2rem; }
+}
+
+@media (min-width: 600px) {
+  :root {
+    --mkt-section-padding: 4rem;   /* 64px default band */
+    --mkt-section-gap: 4rem;       /* 64px inside a section */
+    --mkt-section-gap-tight: 2rem;
+    /* The fluid gutter, verbatim. round() is supported in current Chrome,
+       Safari and Firefox; the fallback below covers older engines. */
+    --mkt-section-padding-horizontal: 7.22223vw;
+    --mkt-section-padding-horizontal: round(up, 7.22223vw, 0.2rem);
+  }
+}
+
+/* .mainLoose is the taller band variant, 96px rather than 64px. */
+.mkt-band-loose { --mkt-section-padding: 6rem; }
+
+/* --------------------------------------------------------------------------
+   5. Breakpoints.
+   Ranked by frequency of use in the marketing CSS: 600 (322 uses), 840 (287),
+   1080 (258), 1280 (180), 1440 (169). Everything else is noise. Custom
+   properties cannot be used inside a media query condition, so these are
+   documentation values for tooling and for tailwind.config.js.
+   -------------------------------------------------------------------------- */
+/* @source frequency count across raw/css/*.css */
+
+:root {
+  --bp-sm: 600px;
+  --bp-md: 840px;
+  --bp-lg: 1080px;
+  --bp-xl: 1280px;
+  --bp-2xl: 1440px;
+}
+
+/* --------------------------------------------------------------------------
+   6. THE EDITOR GRID.
+   This is the single most recognizable thing about a Notion screen: a narrow
+   document floating in a lot of nothing. A 720px text column, centered, with
+   a hard 96px minimum gutter on each side. It never grows past 720. Below
+   roughly 912px viewport the gutters win and the column shrinks.
+
+   Verified by stripping .layout-wide and measuring the resolved
+   grid-template-columns: 1600 gives 416.45 / 720 / 416.47, 1440 gives
+   375.80 / 720 / 375.80, 1280 gives 303.55 / 720 / 303.55, 1024 gives
+   206.30 / 720 / 206.31, 900 gives 108.22 / 720 / 108.22, and then 768 gives
+   96 / 602.08 / 96.
+
+   Full bleed elements span full-start to full-end. Everything else sits in
+   the implicit "content" area created by the content-start and content-end
+   line names. That one grid is the entire page architecture.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-main-8c7c82d491839ed3.css .layout */
+
+:root {
+  --app-content-width: 720px;
+  --app-margin-width: 96px;
+  --app-comments-margin: 468px; /* what an open comment panel takes off the right */
+  --app-sidebar-width: 240px;
+  --app-sidebar-peek: 20px;     /* what stays visible when collapsed */
+  --app-topbar-height: 44px;
+  --app-cover-height: min(30vh, 280px);
+  --app-page-icon-size: 78px;
+  --app-page-icon-offset-cover: -42px;   /* icon overlaps the cover bottom edge */
+  --app-page-icon-offset-plain: 96px;    /* icon position with no cover */
+  --app-page-icon-inset: 8px;            /* from the content column left edge */
+  --app-controls-height: 12px;
+  --app-page-bottom-dead-zone: 270px;    /* the click to append area */
+}
+
+/* --------------------------------------------------------------------------
+   7. THE BLOCK BOX MODEL.
+   Every block is a wrapper with padding, wrapping a 6px radius text row,
+   wrapping a 2px padded editable leaf. There are ZERO margins between blocks.
+
+     .nt-block            padding: 0; margin: 0
+       > .nt-block-inner  padding: 6px            <- the block rhythm
+         > .nt-block-row  border-radius: 6px      <- the hover and selection box
+           > .nt-leaf     padding: 2px            <- the text
+
+   At 16px / 24px body, a one line paragraph is exactly 40px tall:
+   24 line box + 2 + 2 leaf + 6 + 6 wrapper. At 14px / 21px small text it is
+   37px. Two consecutive paragraphs therefore leave 16px of whitespace between
+   their line boxes, and that number comes from padding, never from margin.
+   -------------------------------------------------------------------------- */
+/* @source computed block padding on 13 public editor pages (raw/probes/head_probe_output.txt) */
+
+:root {
+  --app-block-pad: 6px;
+  --app-leaf-pad: 2px;
+  --app-block-pad-media: 8px;   /* callout, bookmark, image, and the page title */
+  --app-block-pad-collapsed: 1px; /* consecutive list and toggle items */
+  --app-block-inner-pad: 12px;  /* inside a callout or a quote */
+  --app-block-height-1line: 40px;
+  --app-block-height-1line-small: 37px;
+
+  /* Heading air comes from padding-top on the wrapper, never from margin,
+     and it is suppressed to a plain 6px when the heading is the first block
+     in its container. That suppression is why a Notion page never starts with
+     a gap under the title. */
+  --app-h1-pad-top: 30px;
+  --app-h2-pad-top: 26px;
+  --app-h3-pad-top: 22px;
+  --app-h4-pad-top: 18px;
+
+  /* Lists. The marker box is a fixed 24px, which is also the indent step. */
+  --app-list-marker-width: 24px;
+  --app-indent-step: 24px;
+  --app-indent-callout: 21px;  /* 8 wrapper + 12 inner + 1 border */
+
+  /* Divider is a 1px rule inset 8px, in a 13px tall block. */
+  --app-divider-inset: 8px;
+  --app-divider-block-height: 13px;
+
+  /* Columns. Measured content edges 96, 430, 743, 1056 on a 4 column layout
+     at 1248px content width. */
+  --app-column-gutter: 22px;
+  --app-column-block-pad: 12px;
+}
+
+/* --------------------------------------------------------------------------
+   8. Editor chrome and database metrics.
+   -------------------------------------------------------------------------- */
+/* @source computed on masteryos.notion.site/inventory and byabdo.notion.site */
+
+:root {
+  --app-chip-height: 20px;
+  --app-chip-pad: 0 6px;
+  --app-status-chip-pad: 0 9px 0 7px;
+  --app-table-header-height: 36px;
+  --app-view-tab-height: 40px;
+  --app-gallery-pad: 104px;    /* 96 margin + 8 block padding */
+  --app-gallery-card-width: 296px;
+  --app-calendar-header-height: 24px;
+  --app-row-icon-size: 18px;
+  --app-callout-icon-width: 24px;
+  --app-callout-icon-offset: 7.5px;
+
+  /* Alternate layout margins, all real classes in the shipped CSS. */
+  --app-margin-phone: 18px;
+  --app-margin-form: 40px;
+  --app-margin-side-peek: 76px;
+  --app-margin-center-peek: 126px;
+}
+
+/* --------------------------------------------------------------------------
+   9. Semantic container aliases for the contract layer.
+   -------------------------------------------------------------------------- */
+/* @source derived: semantic alias over the two layout systems above */
+
+:root {
+  --container: var(--mkt-container);
+  --gutter: var(--mkt-section-padding-horizontal);
+  --section-y: var(--mkt-section-padding);
+}
+
+:root[data-surface="app"],
+[data-surface="app"] {
+  --container: var(--app-content-width);
+  --gutter: var(--app-margin-width);
+  --section-y: var(--app-block-pad);
+}
+
+/* --------------------------------------------------------------------------
+   10. COMPONENT METRICS.
+   Added by the component build so that components/ can be written without a
+   single hardcoded number. Split into two halves on purpose.
+
+   MEASURED. Read off computed styles on the captured pages, same provenance as
+   everything above.
+
+   INFERRED. Every value carrying an inferred marker is a considered
+   reconstruction, not an observation. Four editor affordances (the slash menu,
+   the inline selection toolbar, the block hover handles and the comment
+   thread) only exist inside an authenticated session, and public
+   *.notion.site pages render the sidebar at width 0 and expose no hover
+   affordances at all. The BEHAVIOR of each of those is captured in the CSS and
+   is reproduced exactly; the pixel geometry is not, and is reconstructed from
+   the proportions of the surrounding chrome that was measurable. They are
+   listed again in readme.md under Gaps and inferences, so that nobody mistakes
+   a reconstruction for a measurement.
+   -------------------------------------------------------------------------- */
+/* @source computed on notion.com for the mkt-* values; reconstructed for the app-* values, see per token markers */
+
+:root {
+  /* Marketing control heights. Measured from the rendered CTA row. */
+  --mkt-btn-height: 36px;            /* primary, padding 4px 14px at 16/24 */
+  --mkt-btn-height-secondary: 38px;  /* tinted secondary, padding 6px 15px */
+  --mkt-btn-height-ghost: 30px;      /* nav ghost, padding 5px 10px */
+  --mkt-search-height: 56px;         /* help center search pill */
+  --mkt-search-pad: 16px 16px 16px 24px;
+  --mkt-input-height: 40px;          /* inferred: form fields set 15px/20px text; the height is not published */
+  --mkt-input-pad: 9px 12px;         /* inferred: derived from the 40px height and the 20px line box */
+
+  /* Editor controls. */
+  --app-icon-button-size: 28px;      /* inferred: matches the 28px in-app button height, which IS measured */
+  --app-icon-button-size-sm: 24px;   /* inferred */
+  --app-icon-button-size-lg: 32px;   /* inferred */
+  --app-sidebar-item-height: 27px;   /* inferred: public pages render the sidebar at width 0, so this is read from proportions */
+  --app-input-height: 28px;          /* inferred: sized to the same 28px control height */
+  --app-input-height-lg: 32px;       /* inferred: the search field variant */
+  --app-input-pad: 0 8px;            /* inferred: matches the measured in-app button padding */
+
+  /* Block hover affordances. The plus button and the six dot drag handle live
+     in the LEFT GUTTER, outside the text column, so revealing them never
+     shifts the text. That behavior is captured. The sizes are not. */
+  --app-handle-width: 18px;          /* inferred */
+  --app-handle-height: 24px;         /* inferred */
+  --app-handle-gap: 1px;             /* inferred: gap between the plus and the drag handle */
+  --app-handle-offset: 4px;          /* inferred: gap between the handle cluster and the block row */
+
+  /* Overlays. */
+  --app-menu-width: 320px;           /* inferred: the slash menu and the block context menu */
+  --app-menu-row-height: 28px;       /* inferred */
+  --app-menu-pad: 4px;               /* inferred: menu container padding around the rows */
+  --app-menu-row-pad: 0 10px;        /* inferred */
+  --app-toolbar-height: 33px;        /* inferred: the inline selection toolbar */
+  --app-modal-width: 480px;          /* inferred */
+  --app-toast-width: 300px;          /* inferred */
+
+  /* Block level controls. */
+  --app-todo-box-size: 16px;         /* inferred */
+  --app-toggle-caret-size: 18px;     /* inferred: the caret sits inside the measured 24px marker box */
+  --app-switch-width: 26px;          /* inferred */
+  --app-switch-height: 16px;         /* inferred */
+  --app-switch-knob: 12px;           /* inferred */
+  --app-quote-rule-width: 3px;       /* inferred: no captured public page carried a quote block */
+  --app-quote-pad: 14px;             /* inferred: as above */
+
+  /* Avatars. Row icons at 18px ARE measured; the rest step from there. */
+  --app-avatar-sm: 20px;             /* inferred */
+  --app-avatar-md: 24px;             /* inferred */
+  --app-avatar-lg: 32px;             /* inferred */
+
+  /* Database view metrics that the measured set did not cover. */
+  --app-table-row-height: 32px;      /* inferred: the 36px header IS measured, rows read one step tighter */
+  --app-board-column-width: 260px;   /* inferred: no captured page rendered a board with measurable columns */
+  --app-board-gap: 16px;             /* inferred */
+  --app-board-card-gap: 8px;         /* inferred */
+  --app-gallery-gap: 16px;           /* inferred: the 296px card width IS measured, the gap is not */
+  --app-gallery-preview-height: 118px; /* inferred: chosen so a card lands inside the measured 130 to 186px height range */
+
+  /* Code block chrome. The fill #f5f2f0 and the sticky header #f7f6f3 are
+     measured; the geometry around them is not. */
+  --app-code-header-height: 32px;    /* inferred */
+  --app-code-pad: 12px 16px 16px;    /* inferred */
+
+  /* The side peek panel width, derived rather than guessed: the measured
+     720px content column plus the measured 76px side peek margin on each
+     side. Deriving it keeps the peek and the full page column identical,
+     which is what makes a peek feel like the same document. */
+  --app-peek-width: calc(var(--app-content-width) + var(--app-margin-side-peek) * 2);
+}
