@@ -47,13 +47,40 @@ const SAFE_ID_RE = /^[a-zA-Z0-9_-]+$/;
 // outer gate; we keep the local copy so this module is testable standalone.
 const SHELL_UNSAFE_RE = /[;&|`$(){}[\]<>!#*?\n\r\\'"]/;
 
-// Enum allow-lists. Conservative on purpose: only values the Codex CLI
-// accepts today. Unknown values get dropped with a console.warn instead of
+// Enum allow-lists. Unknown values get dropped with a console.warn instead of
 // crashing the spawn so a stale frontend cache never blocks a pane.
+//
+// BUILD-CONTRACT P8.7 / CODEX-PARITY B5, B16, B17. These sets used to be
+// "conservative on purpose", which sounded prudent and was in fact a silent
+// data-loss bug: they were written from the CLI's documented options rather
+// than from what the app actually records, and the two had diverged badly.
+//
+// Measured across 3002 real threads on a live machine:
+//
+//   reasoning_effort  ultra 2849, xhigh 90, high 36, low 20, medium 2, max 1
+//   sandbox_policy    disabled 2904, managed ~55, danger-full-access 33,
+//                     workspace-write 4
+//   approval_mode     never 2971, on-request 31
+//
+// So the old effort set covered 58 of 2998 threads, roughly 2 percent, and
+// every other value was dropped with nothing but a console.warn. A user whose
+// actual default is `ultra` could not express it, and a saved template carrying
+// it silently lost the field on every round trip.
+//
+// Widened to the union of the documented options and the observed reality.
+// Documented-but-unobserved values are RETAINED rather than pruned: their
+// absence from one machine's history is not evidence the CLI rejects them.
+
+/**
+ * Sandbox policy names. `disabled` and `managed` are the two the app actually
+ * writes; the other three are the CLI's documented set.
+ */
 const SANDBOX_VALUES = new Set([
   'read-only',
   'workspace-write',
   'danger-full-access',
+  'disabled',
+  'managed',
 ]);
 
 const APPROVAL_VALUES = new Set([
@@ -63,11 +90,34 @@ const APPROVAL_VALUES = new Set([
   'never',
 ]);
 
+/**
+ * Reasoning effort names, ordered from least to most for presentation. `ultra`
+ * is the real-world default and accounts for 95 percent of observed threads.
+ */
 const EFFORT_VALUES = new Set([
   'minimal',
   'low',
   'medium',
   'high',
+  'xhigh',
+  'ultra',
+  'max',
+]);
+
+/**
+ * Model ids observed in real thread records, offered as launcher suggestions.
+ *
+ * NOT an allow-list: model validation stays regex-based (MODEL_ID_RE) so a
+ * model released tomorrow works today. This exists so a picker can be populated
+ * from observed reality instead of a frozen literal set that cannot express
+ * `gpt-5.6-sol`, which is the actual default.
+ */
+const OBSERVED_MODEL_IDS = Object.freeze([
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.5',
+  'gpt-5.4',
+  'codex-auto-review',
 ]);
 
 // Feature name format: short alphanumeric + dash/underscore. Matches Codex
@@ -207,4 +257,24 @@ function spawnCommand({ providerSessionId = null, cwd = null, providerSettings =
   };
 }
 
-module.exports = { spawnCommand, buildFlagsFromSettings };
+module.exports = {
+  spawnCommand,
+  buildFlagsFromSettings,
+  isSafeProviderSessionId,
+  /**
+   * The enum allow-lists, exported so every other layer validates against ONE
+   * definition instead of keeping its own copy.
+   *
+   * BUILD-CONTRACT P8.7 / CODEX-PARITY B16: a saved template must round-trip.
+   * It cannot if the spawn layer accepts `ultra` while the persistence route
+   * that stores the template rejects it, so the route imports these rather than
+   * re-declaring them. Duplicating an enum across layers is exactly how the two
+   * percent coverage bug above survived unnoticed.
+   */
+  SANDBOX_VALUES,
+  APPROVAL_VALUES,
+  EFFORT_VALUES,
+  OBSERVED_MODEL_IDS,
+  MODEL_ID_RE,
+  FEATURE_NAME_RE,
+};

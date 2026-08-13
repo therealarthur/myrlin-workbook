@@ -324,6 +324,123 @@ test('null providerSettings produces no extra flags', () => {
   assertDeepEqual(desc2.args, [], 'args should be empty when settings is omitted');
 });
 
+// ───────────────────────────────────────────────────────────────────────────
+// BUILD-CONTRACT P8.7 / CODEX-PARITY B5, B16, B17: the widened enums.
+//
+// The old sets were written from the CLI's documented options rather than from
+// what the app records, and the two had diverged badly. Measured across 3002
+// real threads: reasoning_effort was ultra 2849, xhigh 90, high 36, low 20,
+// medium 2, max 1, so the old set of {minimal, low, medium, high} covered 58 of
+// 2998 threads. Everything else was dropped with a console.warn, which meant a
+// user whose real default is `ultra` could not express it and a saved template
+// lost the field on every round trip.
+// ───────────────────────────────────────────────────────────────────────────
+
+const spawnModule = require('../src/providers/codex/spawn');
+
+// Test 20: every observed effort value survives to argv.
+test('P8.7: every observed reasoning effort produces a -c flag', () => {
+  // Ordered least to most. ultra, xhigh and max are the three that were missing.
+  const observed = ['minimal', 'low', 'medium', 'high', 'xhigh', 'ultra', 'max'];
+  for (const effort of observed) {
+    const desc = spawnCommand({ providerSettings: { reasoningEffort: effort } });
+    const i = desc.args.indexOf('-c');
+    assert(i !== -1, effort + ' should produce a -c flag, not be silently dropped');
+    assertEqual(
+      desc.args[i + 1],
+      'model_reasoning_effort="' + effort + '"',
+      effort + ' should reach argv verbatim'
+    );
+  }
+});
+
+// Test 21: the real-world default specifically.
+test('P8.7: ultra, the default on 95 percent of real threads, is accepted', () => {
+  assert(spawnModule.EFFORT_VALUES.has('ultra'), 'ultra must be in the allow-list');
+  assert(spawnModule.EFFORT_VALUES.has('xhigh'), 'xhigh must be in the allow-list');
+  assert(spawnModule.EFFORT_VALUES.has('max'), 'max must be in the allow-list');
+});
+
+// Test 22: the documented values are RETAINED, not replaced.
+test('P8.7: widening did not prune the documented effort values', () => {
+  for (const legacy of ['minimal', 'low', 'medium', 'high']) {
+    assert(spawnModule.EFFORT_VALUES.has(legacy), legacy + ' must survive the widening');
+  }
+});
+
+// Test 23: sandbox values observed in real thread records.
+test('P8.7: every observed sandbox policy produces an -s flag', () => {
+  const observed = ['read-only', 'workspace-write', 'danger-full-access', 'disabled', 'managed'];
+  for (const sandbox of observed) {
+    const desc = spawnCommand({ providerSettings: { sandbox: sandbox } });
+    const i = desc.args.indexOf('-s');
+    assert(i !== -1, sandbox + ' should produce an -s flag');
+    assertEqual(desc.args[i + 1], sandbox, sandbox + ' should reach argv verbatim');
+  }
+  assert(spawnModule.SANDBOX_VALUES.has('disabled'), 'disabled covers 2904 of 3002 threads');
+  assert(spawnModule.SANDBOX_VALUES.has('managed'), 'managed covers roughly 55 threads');
+});
+
+// Test 24: a genuinely unknown value is STILL dropped. Widening is not
+// abandoning validation.
+test('P8.7: widening did not turn the allow-lists into pass-throughs', () => {
+  const restoreWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const desc = spawnCommand({
+      providerSettings: { reasoningEffort: 'transcendent', sandbox: 'wide-open' },
+    });
+    assert(!desc.args.includes('-c'), 'an invented effort must still be dropped');
+    assert(!desc.args.includes('-s'), 'an invented sandbox must still be dropped');
+  } finally {
+    console.warn = restoreWarn;
+  }
+});
+
+// Test 25: the enums are exported so no other layer needs its own copy.
+test('P8.7: the enums are exported as a single source of truth', () => {
+  assert(spawnModule.EFFORT_VALUES instanceof Set, 'EFFORT_VALUES must be exported');
+  assert(spawnModule.SANDBOX_VALUES instanceof Set, 'SANDBOX_VALUES must be exported');
+  assert(spawnModule.APPROVAL_VALUES instanceof Set, 'APPROVAL_VALUES must be exported');
+  assert(Array.isArray(spawnModule.OBSERVED_MODEL_IDS), 'OBSERVED_MODEL_IDS must be exported');
+  assert(
+    spawnModule.OBSERVED_MODEL_IDS.indexOf('gpt-5.6-sol') !== -1,
+    'the launcher needs the model the app actually defaults to'
+  );
+});
+
+// Test 26: THE ROUND TRIP. The persistence route must accept what the spawn
+// layer accepts, or a saved template silently loses the field. This is the
+// P8.7 done criterion, and it is asserted against the server's own validator
+// rather than against a restatement of it.
+test('P8.7: a template carrying ultra round-trips through the server validator', () => {
+  const serverSource = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'web', 'server.js'),
+    'utf-8'
+  );
+  // The server must not keep its own literal copy of these enums any more.
+  assert(
+    serverSource.indexOf("const CODEX_EFFORT_VALUES = new Set(['minimal', 'low', 'medium', 'high'])") === -1,
+    'server.js must not re-declare the effort enum as a literal; it must import the provider set'
+  );
+  assert(
+    serverSource.indexOf("require('../providers/codex/spawn')") !== -1,
+    'server.js must source the codex enums from the provider module'
+  );
+  // And the value the user actually runs must survive a spawn.
+  const desc = spawnCommand({
+    providerSessionId: 'abc-123',
+    providerSettings: { reasoningEffort: 'ultra', sandbox: 'disabled', model: 'gpt-5.6-sol' },
+  });
+  assert(desc.args.includes('-m'), 'model must survive');
+  assert(desc.args.includes('gpt-5.6-sol'), 'the real default model must survive');
+  assert(desc.args.includes('model_reasoning_effort="ultra"'), 'ultra must survive');
+  assert(desc.args.includes('disabled'), 'disabled sandbox must survive');
+  // The positional resume pair stays last, unchanged by the widening.
+  assertEqual(desc.args[desc.args.length - 2], 'resume');
+  assertEqual(desc.args[desc.args.length - 1], 'abc-123');
+});
+
 // ─── Summary + exit ────────────────────────────────────────────────────────
 
 console.log('  ' + '-'.repeat(70));

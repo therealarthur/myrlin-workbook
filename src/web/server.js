@@ -1641,9 +1641,41 @@ app.delete('/api/sessions/:id', requireAuth, (req, res) => {
  * spawn, so a setting change takes effect the next time the pane is
  * (re)started. The frontend surfaces a toast hint after a successful PUT.
  */
-const CODEX_SANDBOX_VALUES = new Set(['read-only', 'workspace-write', 'danger-full-access']);
-const CODEX_APPROVAL_VALUES = new Set(['untrusted', 'on-failure', 'on-request', 'never']);
-const CODEX_EFFORT_VALUES = new Set(['minimal', 'low', 'medium', 'high']);
+// BUILD-CONTRACT P8.7 / CODEX-PARITY B5, B16, B17.
+//
+// These three used to be literal copies of the sets in
+// src/providers/codex/spawn.js. Two copies of one enum in two layers is how the
+// following bug survived: measured across 3002 real threads, the effort set
+// covered about 2 percent of actual usage, so a session whose real effort is
+// `ultra` could neither be launched with it nor persist it, and a saved
+// template silently lost the field on every round trip.
+//
+// They now re-point at the provider's definition, which is the single source of
+// truth, so widening an enum is one edit in one file. Loaded defensively: this
+// route's validation must not be what takes the server down if a provider
+// module ever fails to load, so a require failure falls back to the original
+// literal sets rather than throwing at startup.
+const CODEX_SPAWN_ENUMS = (() => {
+  const fallback = {
+    SANDBOX_VALUES: new Set(['read-only', 'workspace-write', 'danger-full-access']),
+    APPROVAL_VALUES: new Set(['untrusted', 'on-failure', 'on-request', 'never']),
+    EFFORT_VALUES: new Set(['minimal', 'low', 'medium', 'high']),
+  };
+  try {
+    const spawnModule = require('../providers/codex/spawn');
+    return {
+      SANDBOX_VALUES: spawnModule.SANDBOX_VALUES instanceof Set ? spawnModule.SANDBOX_VALUES : fallback.SANDBOX_VALUES,
+      APPROVAL_VALUES: spawnModule.APPROVAL_VALUES instanceof Set ? spawnModule.APPROVAL_VALUES : fallback.APPROVAL_VALUES,
+      EFFORT_VALUES: spawnModule.EFFORT_VALUES instanceof Set ? spawnModule.EFFORT_VALUES : fallback.EFFORT_VALUES,
+    };
+  } catch (_) {
+    return fallback;
+  }
+})();
+
+const CODEX_SANDBOX_VALUES = CODEX_SPAWN_ENUMS.SANDBOX_VALUES;
+const CODEX_APPROVAL_VALUES = CODEX_SPAWN_ENUMS.APPROVAL_VALUES;
+const CODEX_EFFORT_VALUES = CODEX_SPAWN_ENUMS.EFFORT_VALUES;
 const CODEX_FEATURE_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const CODEX_MODEL_ID_RE = /^[a-zA-Z0-9._:-]{1,128}$/;
 const CODEX_ALLOWED_KEYS = new Set([
