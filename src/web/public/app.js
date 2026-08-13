@@ -22876,7 +22876,18 @@ class CWMApp {
     }
 
     title.textContent = pane.sessionName || 'Terminal Output';
-    content.textContent = lines.join('\n');
+    // P11.8, MOBILE-EXPERIENCE E.3: the Reader is capped at 200k characters,
+    // tail-biased. Unbounded, this line built one string and one text node the
+    // size of the whole buffer, which at a desktop-owned 200 columns by 10000
+    // rows is about 2 MB of each, on a phone, to read the last screen. The cap
+    // itself lives in terminal.js beside the buffer readers it belongs with;
+    // this is the one call site. Feature-detected so a page served without a
+    // matching terminal.js keeps the previous behaviour rather than breaking.
+    const readerText = lines.join('\n');
+    content.textContent = (typeof TerminalPane === 'function' &&
+      typeof TerminalPane.capReaderText === 'function')
+      ? TerminalPane.capReaderText(readerText)
+      : readerText;
     overlay.hidden = false;
 
     // Scroll to the bottom (most recent output) by default

@@ -8352,6 +8352,29 @@ body.cwm-dragging .sidebar-backdrop {
   -webkit-user-select: text;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  /* P11.7, MOBILE-EXPERIENCE B.4 rules 1 and 2, made explicit rather than
+     inherited by accident.
+
+     touch-action: pan-y says exactly what this surface does with a finger:
+     it scrolls vertically, and nothing else. It is NOT `none`, which would
+     hand every touch to script and take the platform's own scrolling,
+     momentum and selection with it, and it is not left at `auto`, which also
+     offers a horizontal pan on a document that is `overflow-x: hidden`.
+
+     -webkit-touch-callout: default is the line that keeps the iOS callout
+     bar (Copy, Look Up, Share) over a long-press selection here. It is
+     `default` by specification, and it is written anyway because the value
+     that breaks B.4 rule 1 is one word away and is a common copy-paste from
+     any "stop the browser interfering with my gesture" recipe. The rule is
+     "do not reimplement handles"; this is what not reimplementing them looks
+     like in a stylesheet.
+
+     The overscroll-behavior line above is the pull-to-refresh half: an
+     overscroll that does not chain to the root scroller cannot trigger the
+     browser's own refresh gesture, so a reader who pulls down at the top of
+     their history never reloads the page out from under themselves. */
+  touch-action: pan-y;
+  -webkit-touch-callout: default;
   outline: none;
   color: var(--term-ink, var(--app-text-primary));
   /* The document draws its own quiet scrollbar (P7.4), so the engine's is
@@ -8372,6 +8395,22 @@ body.cwm-dragging .sidebar-backdrop {
   color: inherit;
   white-space: inherit;
   overflow-wrap: inherit;
+}
+/* THE WINDOWED CHUNK (P11.8, MOBILE-EXPERIENCE E.3 last row).
+ *
+ * A block span so that a collapsed chunk can carry a pinned pixel height
+ * while an expanded one is laid out exactly as the plain text it replaced.
+ * It inherits everything, declares nothing about type, and is invisible in
+ * the rendered result: a document rendered as one text node and the same
+ * document rendered as chunks are the same pixels, which is the property
+ * that lets the renderer switch between them at a threshold.
+ *
+ * `contain: content` is what keeps a chunk's layout from being recomputed
+ * because a sibling above it changed size, which is the cost windowing exists
+ * to remove and would otherwise reintroduce on every page load. */
+.terminal-history-chunk {
+  display: block;
+  contain: content;
 }
 /* THE SEAM. One hairline in the palette's own rule colour, no label and no
    banner: TERMINAL-ARCHITECTURE 7.4 makes the overlap between the newest
@@ -8446,6 +8485,58 @@ body.cwm-dragging .sidebar-backdrop {
     animation: none;
     opacity: 0.6;
   }
+}
+/* ─── THE JUMP PILLS (Notion restyle P11b, P11.7) ───────────────
+ *
+ * MOBILE-EXPERIENCE B.4 rule 4 asks for a "Jump to live" pill "once the user
+ * is more than one viewport above the bottom", and calls it "the tap
+ * equivalent required by R4". Its twin, "Oldest", is the tap equivalent of
+ * Ctrl+Shift+Home, which 8.4 gives this surface and which a phone has no way
+ * to press at all.
+ *
+ * WHY THIS IS NOT THE FLOATING BUTTON B.6 BANS. B.6 removes floating action
+ * buttons from phones because they land on the key toolbar and the input row:
+ * both live at the bottom of the PANE, and an absolutely positioned control
+ * at `bottom: 12px` of the pane sits on top of them. This group is positioned
+ * inside the history layer, whose rect is measured from `.terminal-container`
+ * and therefore stops above the input row. It also clears every other test
+ * B.6 applies: 44px rather than 32, visible at rest rather than on a hover a
+ * phone never delivers, and present only when it has somewhere to go.
+ *
+ * It is drawn on the TERMINAL palette, not the chrome palette, for the same
+ * reason everything else in this layer is: inside the terminal region the
+ * terminal's colours win, and a Notion-grey pill over a Mocha ground would be
+ * the one element in the surface announcing that it is an overlay. */
+.terminal-history-jump {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.terminal-history-jump-btn {
+  /* The 44px floor, per P10.6: the floor wins over a tidier pill. */
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--term-rule, var(--app-border-secondary));
+  border-radius: var(--radius-pill);
+  background: var(--term-bg, var(--app-bg-primary));
+  color: var(--term-ink, var(--app-text-primary));
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: normal;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.terminal-history-jump-btn:hover {
+  /* A wash, never a lift: G8 forbids hover translates and the rejection list
+     forbids shadows. The ink is mixed into the ground so the hover state is
+     correct in all thirteen palettes without a token per palette. */
+  background: color-mix(in srgb, var(--term-ink, var(--app-text-primary)) 8%, var(--term-bg, var(--app-bg-primary)));
 }
 
 /* ─── THE PANE INPUT ROW (Notion restyle P5.5) ──────────────────

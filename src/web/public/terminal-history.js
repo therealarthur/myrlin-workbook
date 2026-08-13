@@ -172,9 +172,61 @@
   // transcript. Same value and same reasoning as the Copy view.
   var HISTORY_TRANSCRIPT_TOOL_CHARS = 120;
 
+  /* ═══════════════════════════════════════════════════════════════════
+     TOUCH AND WINDOWED RENDERING (P11b, work packages P11.7 and P11.8)
+     MOBILE-EXPERIENCE.md B.4 rules 1 to 4, and E.3's last row.
+
+     P7 shipped this surface as a native scroller and recorded the touch
+     half as P11's (DECISIONS 16.3 item 5, 16.6 item 1). These are that
+     half's numbers, plus the one E.3 reserves for the windowed
+     renderer. Every one of them is named here rather than written at
+     its use site, for the reason the block above gives.
+     ═══════════════════════════════════════════════════════════════════ */
+
+  // B.4 rule 4: the "Jump to live" pill appears once the reader is more than
+  // this many viewports above the bottom. One, exactly as the rule states: the
+  // pill is the tap equivalent of Ctrl+Shift+End, and an affordance that shows
+  // up while the live screen is still on screen would be noise.
+  var HISTORY_JUMP_PILL_VIEWPORTS = 1;
+
+  // Downward overscroll past the bottom of the document, in pixels, before a
+  // gesture that STARTED inside the surface closes it. The same threshold the
+  // pane's touch engine uses for the crossing in the other direction, so the
+  // boundary feels symmetrical whichever side the finger started on.
+  var HISTORY_TOUCH_EXIT_PX = 28;
+
+  // E.3, last row: "Windowed rendering, 200 rows in DOM, recycled ... the
+  // window must be maintained by an IntersectionObserver sentinel, not by a
+  // scroll handler". 200 lines is one chunk element.
+  var HISTORY_WINDOW_CHUNK_LINES = 200;
+
+  // Below this many lines in the whole document the renderer stays exactly as
+  // P7 shipped it: one text node per segment, no chunks, no observer. A
+  // threshold rather than "always on" because windowing has a real cost (an
+  // observer, a measurement per chunk) that buys nothing on the documents most
+  // panes actually produce, and because it keeps the P7 behaviour reachable
+  // and provable rather than replaced.
+  var HISTORY_WINDOW_MIN_LINES = 2000;
+
+  // How far outside the visible document a chunk stays hydrated. Generous on
+  // purpose: it is the budget that decides whether a fast fling ever shows a
+  // blank band, and a phone viewport of terminal rows is roughly 400px, so
+  // this is about three screens of runway in each direction.
+  var HISTORY_WINDOW_ROOT_MARGIN_PX = 1200;
+
   // The four segment ids, oldest first. The order is fixed and is the same for
   // both routes, which is what lets one document serve a shell and an agent.
   var SEGMENT_IDS = ['deep', 'ring', 'transcript', 'live'];
+
+  // The segments the windowed renderer is allowed to chunk.
+  //
+  // NOT `live`, deliberately. The live segment is rewritten on every frame the
+  // application produces output, it is already bounded at
+  // HISTORY_LIVE_SEGMENT_MAX_LINES, and it is the segment the reader is
+  // looking at when the surface opens. Chunking it would put the window
+  // machinery in the path of the mirror for no memory gain. The 50000-line
+  // document E.3 is worried about is archive, and archive is these three.
+  var WINDOWED_SEGMENT_IDS = ['deep', 'ring', 'transcript'];
 
   // The two history sources the router chooses between (7.2).
   var SOURCE_TRANSCRIPT = 'transcript';
@@ -568,6 +620,30 @@
     this._wheelForwardedAt = 0;
     this._lastOutputAt = 0;
     this._wheelExhaustedAt = 0;
+
+    /* ── P11b state ──────────────────────────────────────────────── */
+
+    // B.4 rule 4's pill group and its two buttons.
+    this.jumpEl = null;
+    this.jumpTopBtn = null;
+    this.jumpLiveBtn = null;
+
+    // The touch gesture that starts INSIDE the surface. Native scrolling owns
+    // everything except the one decision the browser cannot make for us:
+    // leaving at the bottom. Only the overscroll past the bottom is tracked.
+    this._touchLastY = 0;
+    this._touchExitAccum = 0;
+
+    // Windowed rendering (E.3). `_chunks[id]` is an ordered list of
+    // `{ el, text, hydrated, height }` for a windowed segment; empty for a
+    // segment currently rendered the P7 way.
+    this._chunks = { deep: [], ring: [], transcript: [], live: [] };
+    this._chunkObserver = null;
+    this._chunkByEl = null;
+    this._windowActive = false;
+    // Set while a select-all is holding the whole document hydrated, so the
+    // observer cannot dehydrate a node the user's selection is anchored in.
+    this._windowSuspended = false;
   }
 
   /** @returns {boolean} Whether the layer is currently open. */
@@ -692,8 +768,44 @@
     thumb.className = 'terminal-history-thumb';
     scrollbar.appendChild(thumb);
 
+    // ── B.4 rule 4, and the two keys a phone has no way to press ──
+    //
+    // THE PILL IS THE TAP EQUIVALENT OF A KEYBOARD SHORTCUT, which is the
+    // whole reason it exists on this surface rather than in the pane sheet.
+    // 8.4 gives the surface Ctrl+Shift+Home (jump to the oldest loaded output)
+    // and Ctrl+Shift+End (jump back to live). A phone has neither key. B.4
+    // rule 4 names the second one as a pill; the first needs the same
+    // treatment or the capability is simply absent on touch.
+    //
+    // WHY THIS IS NOT THE FLOATING ACTION BUTTON B.6 BANS. B.6's rule is
+    // about controls that float over the PANE and land on the key toolbar and
+    // the input row, because those live at the bottom of the pane and an
+    // absolutely positioned control at `bottom: 12px` sits on top of them.
+    // This group is inside the history layer, and the layer's rect is measured
+    // from `.terminal-container`, so it covers the pane BODY and stops above
+    // the input row. It cannot reach either. It is also 44px, discoverable at
+    // rest, and appears only when it has something to do.
+    var jump = document.createElement('div');
+    jump.className = 'terminal-history-jump';
+    jump.hidden = true;
+    var jumpTop = document.createElement('button');
+    jumpTop.type = 'button';
+    jumpTop.className = 'terminal-history-jump-btn terminal-history-jump-top';
+    jumpTop.textContent = 'Oldest';
+    jumpTop.setAttribute('aria-label', 'Jump to the oldest loaded output');
+    jumpTop.hidden = true;
+    var jumpLive = document.createElement('button');
+    jumpLive.type = 'button';
+    jumpLive.className = 'terminal-history-jump-btn terminal-history-jump-live';
+    jumpLive.textContent = 'Jump to live';
+    jumpLive.setAttribute('aria-label', 'Jump to the live screen');
+    jumpLive.hidden = true;
+    jump.appendChild(jumpTop);
+    jump.appendChild(jumpLive);
+
     root.appendChild(doc);
     root.appendChild(scrollbar);
+    root.appendChild(jump);
     host.appendChild(root);
 
     this.root = root;
@@ -701,6 +813,9 @@
     this.pagingEl = paging;
     this.scrollbarEl = scrollbar;
     this.thumbEl = thumb;
+    this.jumpEl = jump;
+    this.jumpTopBtn = jumpTop;
+    this.jumpLiveBtn = jumpLive;
 
     this._bindDomEvents();
     return root;
@@ -757,10 +872,104 @@
       self._onDocKey(e);
     });
 
+    // ── P11.7: the touch gesture that starts INSIDE the surface ──
+    //
+    // Native scrolling owns everything here, which is B.4 rule 2 and is why
+    // there is no touchmove-to-scrollTop translation anywhere below. These
+    // three listeners make exactly ONE decision the browser cannot make for
+    // us, and it is the same decision `_onDocWheel` makes for the wheel:
+    // pulling past the bottom of the document means "give me the terminal
+    // back". Everything else falls through untouched, which is what leaves the
+    // platform's momentum, its selection handles and its callout bar intact.
+    //
+    // Passive, all three. A non-passive listener on a scroller costs a frame
+    // on every touch on some engines, and nothing here calls preventDefault:
+    // the overscroll is already contained by `overscroll-behavior` in the
+    // stylesheet, so the browser is not going to act on it either way.
+    this.doc.addEventListener('touchstart', function onTouchStart(e) {
+      self._onDocTouchStart(e);
+    }, { passive: true });
+    this.doc.addEventListener('touchmove', function onTouchMove(e) {
+      self._onDocTouchMove(e);
+    }, { passive: true });
+    this.doc.addEventListener('touchend', function onTouchEnd() {
+      self._touchExitAccum = 0;
+    }, { passive: true });
+    this.doc.addEventListener('touchcancel', function onTouchCancel() {
+      self._touchExitAccum = 0;
+    }, { passive: true });
+
+    // B.4 rule 4's pill, and its Ctrl+Shift+Home twin.
+    if (this.jumpTopBtn) {
+      this.jumpTopBtn.addEventListener('click', function onJumpTop(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        self.scrollToTop();
+      });
+    }
+    if (this.jumpLiveBtn) {
+      this.jumpLiveBtn.addEventListener('click', function onJumpLive(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        self.close('jump-to-live');
+      });
+    }
+
     // A click inside the layer must not reach the pane's own click handling
     // (which refocuses the terminal and would fight a selection drag).
     this.root.addEventListener('mousedown', function onDown(e) { e.stopPropagation(); });
     this.root.addEventListener('click', function onClick(e) { e.stopPropagation(); });
+  };
+
+  /**
+   * Record where a touch inside the surface began.
+   *
+   * @param {TouchEvent} e - The touchstart.
+   * @returns {void}
+   */
+  TerminalHistoryLayer.prototype._onDocTouchStart = function _onDocTouchStart(e) {
+    this._touchExitAccum = 0;
+    try {
+      var touch = e && e.touches && e.touches[0];
+      this._touchLastY = touch ? touch.clientY : 0;
+    } catch (_) {
+      this._touchLastY = 0;
+    }
+  };
+
+  /**
+   * Watch a native scroll for the one thing native scrolling cannot express:
+   * the reader pulling past the bottom to get the terminal back.
+   *
+   * The accumulator only ever grows while the document is ALREADY at its
+   * bottom, so an ordinary scroll down through the document cannot trip it;
+   * only travel the scroller has refused to consume counts.
+   *
+   * @param {TouchEvent} e - The touchmove.
+   * @returns {void}
+   */
+  TerminalHistoryLayer.prototype._onDocTouchMove = function _onDocTouchMove(e) {
+    if (!this._open) return;
+    var y = 0;
+    try {
+      var touch = e && e.touches && e.touches[0];
+      if (!touch) return;
+      y = touch.clientY;
+    } catch (_) {
+      return;
+    }
+    var delta = y - this._touchLastY;
+    this._touchLastY = y;
+    // Finger moving UP the screen means "toward newer", which is the direction
+    // that leaves the surface. Anything else resets the bank.
+    if (delta >= 0 || !this._atBottom()) {
+      this._touchExitAccum = 0;
+      return;
+    }
+    this._touchExitAccum += -delta;
+    if (this._touchExitAccum < HISTORY_TOUCH_EXIT_PX) return;
+    this._touchExitAccum = 0;
+    this.close('touch-bottom');
   };
 
   /* ── metrics (P7.2) ──────────────────────────────────────────── */
@@ -932,6 +1141,7 @@
     this._scrollToBottom();
     this._animateIn();
     this._updateScrollbar(true);
+    this._updateJumpAffordance();
     this._notify();
 
     // Real sources are fetched AFTER the surface is up, so opening is never
@@ -964,10 +1174,23 @@
       cancelAnimationFrame(this._refreshRaf);
     }
     this._refreshRaf = null;
+    this._touchExitAccum = 0;
     if (this.root) {
+      // P11.7: strip the inline transition BEFORE hiding. Two reasons, and the
+      // second is the one that makes this a reduced-motion fix rather than
+      // tidying. First, a close that lands mid-open would otherwise leave a
+      // half-applied translate on a hidden element, and the next open would
+      // start from it. Second, the close is instantaneous by construction, so
+      // clearing the transition here is what guarantees it stays instantaneous
+      // for a user who has asked for reduced motion: there is no exit
+      // animation to skip, on any path, ever.
+      this.root.style.transition = '';
+      this.root.style.transform = '';
+      this.root.style.opacity = '';
       this.root.hidden = true;
       this.root.style.display = 'none';
     }
+    this._updateJumpAffordance();
     // Pin live. scrollToBottom is what makes wheel-down at the bottom of the
     // document hand back a terminal that is showing the newest output rather
     // than wherever it was left.
@@ -1000,17 +1223,51 @@
     } catch (_) { /* advisory only */ }
   };
 
-  /** Animate the surface in over one row, honouring reduced motion. */
-  TerminalHistoryLayer.prototype._animateIn = function _animateIn() {
-    if (!this.root) return;
-    var duration = HISTORY_ANIMATION_MS;
+  /**
+   * Whether the platform is asking for reduced motion, read DIRECTLY.
+   *
+   * P7 inferred this from `TerminalPane.getSmoothScrollDuration() === 0`,
+   * which is a proxy with two holes: it is also 0 when the user simply turned
+   * smooth scrolling off (so the open animation vanished for a reason that had
+   * nothing to do with accessibility), and it answers nothing at all when the
+   * layer is loaded without `window.TerminalPane`. P11.7 asks for reduced
+   * motion to be honoured on open and close, so the query is asked of the
+   * platform. The proxy is KEPT as a second condition rather than replaced,
+   * because a user who turned smooth scrolling off has expressed the same
+   * preference in the same region.
+   *
+   * @returns {boolean} True when motion should be skipped.
+   */
+  TerminalHistoryLayer.prototype._reducedMotion = function _reducedMotion() {
+    try {
+      if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+        var query = window.matchMedia('(prefers-reduced-motion: reduce)');
+        if (query && query.matches) return true;
+      }
+    } catch (_) { /* an engine without matchMedia falls through to the proxy */ }
     try {
       var Pane = (typeof window !== 'undefined') ? window.TerminalPane : null;
       if (Pane && typeof Pane.getSmoothScrollDuration === 'function' &&
           Pane.getSmoothScrollDuration() === 0) {
-        duration = 0;
+        return true;
       }
     } catch (_) { /* keep the default */ }
+    return false;
+  };
+
+  /**
+   * The duration the open and close transitions should use right now.
+   *
+   * @returns {number} Milliseconds, 0 under reduced motion.
+   */
+  TerminalHistoryLayer.prototype._animationDuration = function _animationDuration() {
+    return this._reducedMotion() ? 0 : HISTORY_ANIMATION_MS;
+  };
+
+  /** Animate the surface in over one row, honouring reduced motion. */
+  TerminalHistoryLayer.prototype._animateIn = function _animateIn() {
+    if (!this.root) return;
+    var duration = this._animationDuration();
     if (!duration) {
       this.root.style.transform = '';
       this.root.style.opacity = '';
@@ -1177,6 +1434,8 @@
     var el = this.segments[id];
     if (!el) return false;
     var lines = this._lines[id] || [];
+    if (this._shouldWindowSegment(id)) return this._renderSegmentWindowed(id, el, lines);
+    if (this._chunks[id] && this._chunks[id].length) this._unwindowSegment(id);
     var text = lines.join('\n');
     if (el.textContent === text) {
       el.hidden = lines.length === 0;
@@ -1185,6 +1444,351 @@
     el.textContent = text;
     el.hidden = lines.length === 0;
     return true;
+  };
+
+  /* ── windowed rendering (P11.8, MOBILE-EXPERIENCE E.3) ────────────
+   *
+   * THE PROBLEM E.3 NAMES, and the one it does not.
+   *
+   * E.3's last row asks for "windowed rendering, 200 rows in DOM, recycled",
+   * maintained by "an IntersectionObserver sentinel, not by a scroll handler".
+   * It was written expecting one DOM row per line, which is how xterm's own
+   * renderer works. This surface never did that: P7 renders each segment as a
+   * single `<pre>` holding one text node, so a 50000-line document has always
+   * been four ELEMENTS, not 50000. The element count E.3 is afraid of was
+   * never reachable here.
+   *
+   * What IS reachable is the other half of the same cost: a single text node
+   * of several megabytes, laid out as one box hundreds of thousands of pixels
+   * tall, re-laid-out whenever anything above it changes. That is what this
+   * windows.
+   *
+   * THE ONE THING THAT MAKES IT SAFE. A chunk is only ever collapsed AFTER it
+   * has been rendered and measured, and it is pinned to its own MEASURED
+   * height rather than to a computed one. The document is `pre-wrap`, so a
+   * logical line can occupy several visual rows and `lines x rowHeight` is a
+   * guess; a windowed list that guesses heights moves the reader, which on a
+   * surface whose entire promise is "the reader's position never moves" would
+   * be worse than not windowing at all. A chunk that cannot be measured stays
+   * hydrated forever, which costs memory and breaks nothing.
+   *
+   * BOUNDARIES ARE MEASURED FROM THE END. The archive grows at the TOP (every
+   * page is prepended), so end-relative boundaries leave every existing chunk
+   * byte-identical across a page load, which is what lets hydration state and
+   * measured heights survive paging.
+   */
+
+  /**
+   * Whether this segment should render through the windowed path right now.
+   *
+   * @param {string} id - Segment id.
+   * @returns {boolean} True to chunk it.
+   */
+  TerminalHistoryLayer.prototype._shouldWindowSegment = function _shouldWindowSegment(id) {
+    if (WINDOWED_SEGMENT_IDS.indexOf(id) === -1) return false;
+    if (typeof document === 'undefined') return false;
+    if (typeof window === 'undefined' || typeof window.IntersectionObserver !== 'function') return false;
+    return this._documentLineCount() >= HISTORY_WINDOW_MIN_LINES;
+  };
+
+  /**
+   * Total lines across every segment.
+   * @returns {number} Line count.
+   */
+  TerminalHistoryLayer.prototype._documentLineCount = function _documentLineCount() {
+    var total = 0;
+    for (var i = 0; i < SEGMENT_IDS.length; i++) {
+      var lines = this._lines[SEGMENT_IDS[i]];
+      total += lines ? lines.length : 0;
+    }
+    return total;
+  };
+
+  /**
+   * Render one segment as a list of chunk elements, reusing what it can.
+   *
+   * @param {string} id - Segment id.
+   * @param {HTMLElement} el - The segment element.
+   * @param {string[]} lines - The segment's lines.
+   * @returns {boolean} Whether the DOM was rewritten.
+   */
+  TerminalHistoryLayer.prototype._renderSegmentWindowed = function _renderSegmentWindowed(id, el, lines) {
+    var existing = this._chunks[id] || [];
+    var total = lines.length;
+    el.hidden = total === 0;
+    if (total === 0) {
+      if (existing.length) this._unwindowSegment(id);
+      return true;
+    }
+
+    // End-relative boundaries, oldest chunk first.
+    var starts = [];
+    for (var end = total; end > 0; end -= HISTORY_WINDOW_CHUNK_LINES) {
+      starts.unshift(Math.max(0, end - HISTORY_WINDOW_CHUNK_LINES));
+    }
+
+    var next = [];
+    var offset = starts.length - existing.length;
+    var changed = starts.length !== existing.length;
+    for (var i = 0; i < starts.length; i++) {
+      var from = starts[i];
+      var to = (i + 1 < starts.length) ? starts[i + 1] : total;
+      // The joiner belongs to the chunk that precedes the break, so the
+      // concatenation of every chunk is byte-identical to lines.join('\n').
+      var text = lines.slice(from, to).join('\n') + (i + 1 < starts.length ? '\n' : '');
+      var priorIndex = i - offset;
+      var prior = (priorIndex >= 0 && priorIndex < existing.length) ? existing[priorIndex] : null;
+      if (prior && prior.text === text) {
+        next.push(prior);
+        continue;
+      }
+      changed = true;
+      // A brand new chunk is always born HYDRATED and unmeasured, which is the
+      // invariant that keeps a rebuild from ever moving the reader.
+      next.push(this._makeChunk(text));
+    }
+
+    if (!changed) return false;
+
+    for (var d = 0; d < existing.length; d++) {
+      if (next.indexOf(existing[d]) === -1) this._releaseChunk(existing[d]);
+    }
+    try {
+      el.textContent = '';
+      for (var a = 0; a < next.length; a++) el.appendChild(next[a].el);
+    } catch (_) { /* a stubbed element cannot hold children; nothing is lost */ }
+    this._chunks[id] = next;
+    this._observeChunks(next);
+    return true;
+  };
+
+  /**
+   * Build one chunk element, hydrated.
+   *
+   * @param {string} text - The chunk's text.
+   * @returns {object} The chunk record.
+   */
+  TerminalHistoryLayer.prototype._makeChunk = function _makeChunk(text) {
+    var el = document.createElement('span');
+    el.className = 'terminal-history-chunk';
+    el.textContent = text;
+    var chunk = { el: el, text: text, hydrated: true, height: 0 };
+    el.__cwmHistoryChunk = chunk;
+    return chunk;
+  };
+
+  /**
+   * Stop observing a chunk and unlink it.
+   *
+   * @param {object} chunk - The chunk record.
+   * @returns {void}
+   */
+  TerminalHistoryLayer.prototype._releaseChunk = function _releaseChunk(chunk) {
+    if (!chunk || !chunk.el) return;
+    if (this._chunkObserver) {
+      try { this._chunkObserver.unobserve(chunk.el); } catch (_) { /* already gone */ }
+    }
+    try { chunk.el.__cwmHistoryChunk = null; } catch (_) { /* frozen stub */ }
+  };
+
+  /**
+   * Return a segment to the P7 single-text-node rendering.
+   *
+   * @param {string} id - Segment id.
+   * @returns {void}
+   */
+  TerminalHistoryLayer.prototype._unwindowSegment = function _unwindowSegment(id) {
+    var chunks = this._chunks[id] || [];
+    for (var i = 0; i < chunks.length; i++) this._releaseChunk(chunks[i]);
+    this._chunks[id] = [];
+    var el = this.segments[id];
+    if (el) {
+      try { el.textContent = ''; } catch (_) { /* stub */ }
+    }
+  };
+
+  /**
+   * The IntersectionObserver that maintains the window.
+   *
+   * Rooted on the scrolling document with a generous margin, which is what
+   * makes this a SENTINEL rather than a scroll handler: the browser decides
+   * when a chunk has come near the viewport, off the main thread, and calls
+   * back once per crossing instead of once per scroll event.
+   *
+   * @returns {object|null} The observer, or null where the API is absent.
+   */
+  TerminalHistoryLayer.prototype._ensureChunkObserver = function _ensureChunkObserver() {
+    if (this._chunkObserver) return this._chunkObserver;
+    if (typeof window === 'undefined' || typeof window.IntersectionObserver !== 'function') return null;
+    if (!this.doc) return null;
+    var self = this;
+    try {
+      this._chunkObserver = new window.IntersectionObserver(function onChunks(entries) {
+        self._onChunkIntersection(entries);
+      }, {
+        root: this.doc,
+        rootMargin: HISTORY_WINDOW_ROOT_MARGIN_PX + 'px 0px',
+      });
+    } catch (_) {
+      this._chunkObserver = null;
+    }
+    return this._chunkObserver;
+  };
+
+  /**
+   * Observe every chunk in a list. Observing twice is a documented no-op in
+   * the IntersectionObserver specification, so this needs no bookkeeping.
+   *
+   * @param {Array<object>} chunks - Chunk records.
+   * @returns {void}
+   */
+  TerminalHistoryLayer.prototype._observeChunks = function _observeChunks(chunks) {
+    var observer = this._ensureChunkObserver();
+    if (!observer) return;
+    this._windowActive = true;
+    for (var i = 0; i < chunks.length; i++) {
+      try { observer.observe(chunks[i].el); } catch (_) { /* a stub element cannot be observed */ }
+    }
+  };
+
+  /**
+   * Hydrate what has come near the viewport, collapse what has left it.
+   *
+   * @param {Array<object>} entries - IntersectionObserverEntry list.
+   * @returns {void}
+   */
+  TerminalHistoryLayer.prototype._onChunkIntersection = function _onChunkIntersection(entries) {
+    if (!entries || !entries.length) return;
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i];
+      var target = entry && entry.target;
+      var chunk = target ? target.__cwmHistoryChunk : null;
+      if (!chunk) continue;
+      if (entry.isIntersecting) {
+        // Hydration is allowed even while a selection is held. Adding text
+        // cannot detach the nodes a selection is anchored to, and a drag that
+        // auto-scrolls into a collapsed region has to find text there or it
+        // selects a blank band.
+        this._hydrateChunk(chunk);
+        continue;
+      }
+      this._dehydrateChunk(chunk);
+    }
+  };
+
+  /**
+   * Put a chunk's text back and release its pinned height.
+   *
+   * @param {object} chunk - The chunk record.
+   * @returns {boolean} Whether it changed.
+   */
+  TerminalHistoryLayer.prototype._hydrateChunk = function _hydrateChunk(chunk) {
+    if (!chunk || chunk.hydrated || !chunk.el) return false;
+    try {
+      chunk.el.textContent = chunk.text;
+      if (chunk.el.style) chunk.el.style.height = '';
+      chunk.hydrated = true;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  /**
+   * Collapse a chunk to its measured height and drop its text.
+   *
+   * Refuses in three cases, each of which would otherwise be a defect:
+   * while a selection is held (the mirror freeze, extended to the window),
+   * while a select-all is holding the document open, and when the element
+   * reports no measurable height, because pinning a height that was never
+   * measured is what makes a windowed list jump.
+   *
+   * @param {object} chunk - The chunk record.
+   * @returns {boolean} Whether it changed.
+   */
+  TerminalHistoryLayer.prototype._dehydrateChunk = function _dehydrateChunk(chunk) {
+    if (!chunk || !chunk.hydrated || !chunk.el) return false;
+    if (this._frozen || this._windowSuspended) return false;
+    var height = 0;
+    try {
+      height = chunk.el.offsetHeight || 0;
+    } catch (_) {
+      height = 0;
+    }
+    if (!height) return false;
+    try {
+      chunk.height = height;
+      if (chunk.el.style) chunk.el.style.height = height + 'px';
+      chunk.el.textContent = '';
+      chunk.hydrated = false;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  /**
+   * Hydrate every chunk in the document.
+   *
+   * @returns {number} How many chunks changed.
+   */
+  TerminalHistoryLayer.prototype._hydrateAllChunks = function _hydrateAllChunks() {
+    var changed = 0;
+    for (var s = 0; s < WINDOWED_SEGMENT_IDS.length; s++) {
+      var chunks = this._chunks[WINDOWED_SEGMENT_IDS[s]] || [];
+      for (var i = 0; i < chunks.length; i++) {
+        if (this._hydrateChunk(chunks[i])) changed++;
+      }
+    }
+    return changed;
+  };
+
+  /**
+   * Forget every measured height and hydrate, after a geometry change.
+   *
+   * A resize rewraps every line, so every pinned height is now wrong by an
+   * unknown amount. Rather than guess a correction, the window is rebuilt from
+   * scratch: everything comes back, the observer re-fires, and each chunk is
+   * re-measured against the new width before it is allowed to collapse again.
+   *
+   * @returns {void}
+   */
+  TerminalHistoryLayer.prototype._remeasureWindow = function _remeasureWindow() {
+    for (var s = 0; s < WINDOWED_SEGMENT_IDS.length; s++) {
+      var chunks = this._chunks[WINDOWED_SEGMENT_IDS[s]] || [];
+      for (var i = 0; i < chunks.length; i++) {
+        chunks[i].height = 0;
+        this._hydrateChunk(chunks[i]);
+      }
+    }
+  };
+
+  /**
+   * How many chunk elements exist and how many hold text right now.
+   *
+   * Published for the suite and for anyone measuring the surface on a real
+   * document: "the window is working" is a claim about numbers, and a claim
+   * about numbers needs a way to read them.
+   *
+   * @returns {{chunks: number, hydrated: number, domChars: number, lines: number}}
+   *   Chunk totals across every windowed segment, the characters those chunks
+   *   currently hold in the DOM, and the document's total line count.
+   */
+  TerminalHistoryLayer.prototype.windowStats = function windowStats() {
+    var chunks = 0;
+    var hydrated = 0;
+    var domChars = 0;
+    for (var s = 0; s < WINDOWED_SEGMENT_IDS.length; s++) {
+      var list = this._chunks[WINDOWED_SEGMENT_IDS[s]] || [];
+      for (var i = 0; i < list.length; i++) {
+        chunks++;
+        if (list[i].hydrated) {
+          hydrated++;
+          domChars += list[i].text.length;
+        }
+      }
+    }
+    return { chunks: chunks, hydrated: hydrated, domChars: domChars, lines: this._documentLineCount() };
   };
 
   /**
@@ -1436,6 +2040,7 @@
       } catch (_) { /* a detached document has no scroll to preserve */ }
     }
     this._updateScrollbar(true);
+    this._updateJumpAffordance();
     return true;
   };
 
@@ -1471,9 +2076,10 @@
     return (this.doc.scrollTop + this.doc.clientHeight) >= (this.doc.scrollHeight - 1);
   };
 
-  /** React to a scroll: prefetch near the top, update the affordance. */
+  /** React to a scroll: prefetch near the top, update both affordances. */
   TerminalHistoryLayer.prototype._onScroll = function _onScroll() {
     this._updateScrollbar(true);
+    this._updateJumpAffordance();
     if (!this.doc) return;
     var threshold = this.doc.clientHeight * HISTORY_PREFETCH_VIEWPORTS;
     if (this.doc.scrollTop <= threshold) this._pageOlder();
@@ -1808,6 +2414,98 @@
     if (!this.doc) return;
     try { this.doc.scrollTop = 0; } catch (_) { /* detached */ }
     this._pageOlder();
+    this._updateJumpAffordance();
+  };
+
+  /**
+   * Scroll the document by a pixel delta and report what it could not absorb.
+   *
+   * The pane's touch engine calls this, and ONLY for the one gesture that
+   * crossed the boundary from the live terminal into the surface. See the long
+   * comment on that engine for why an in-flight touch cannot be handed to the
+   * native scroller: the browser will not retarget a gesture that is already
+   * running. Every gesture that starts inside the surface uses native
+   * scrolling and never reaches this method, which is B.4 rule 2 intact.
+   *
+   * The sign convention matches the engine's: positive px moves toward OLDER
+   * content, which is the direction a finger dragging down moves a page.
+   *
+   * @param {number} px - Signed pixel delta.
+   * @returns {number} Unconsumed travel: positive past the TOP of the
+   *   document, negative past the BOTTOM, 0 when the scroll was absorbed.
+   */
+  TerminalHistoryLayer.prototype.scrollByPixels = function scrollByPixels(px) {
+    if (!this.doc || typeof px !== 'number' || !isFinite(px)) return 0;
+    var delta = -px;
+    try {
+      var before = this.doc.scrollTop;
+      var max = Math.max(0, (this.doc.scrollHeight || 0) - (this.doc.clientHeight || 0));
+      var wanted = before + delta;
+      var applied = Math.max(0, Math.min(max, wanted));
+      if (applied !== before) this.doc.scrollTop = applied;
+      this._updateJumpAffordance();
+      // Convert the unconsumed scrollTop back into the caller's sign: travel
+      // the document refused at the top is positive, at the bottom negative.
+      // Normalised so a fully absorbed scroll returns 0 rather than negative
+      // zero, which is the same number to a comparison and a different one to
+      // a strict-equality assertion.
+      var unconsumed = wanted - applied;
+      return unconsumed === 0 ? 0 : -unconsumed;
+    } catch (_) {
+      return 0;
+    }
+  };
+
+  /**
+   * Whether the document is at its bottom, which is where the live screen is.
+   *
+   * Public because the pane's touch engine and any later chrome need the same
+   * answer the internal boundary rules use, and two readings of "at the
+   * bottom" is exactly how a boundary starts feeling unreliable.
+   *
+   * @returns {boolean} True at the bottom.
+   */
+  TerminalHistoryLayer.prototype.atBottom = function atBottom() {
+    return this._atBottom();
+  };
+
+  /**
+   * Show or hide B.4 rule 4's pill group.
+   *
+   * TWO CONTROLS, TWO DIFFERENT RULES, because they answer two different
+   * questions.
+   *
+   *   "Jump to live" follows B.4 rule 4 literally: it appears once the reader
+   *   is more than one viewport above the bottom. Above that the live screen
+   *   is still on screen and a control offering to take you there would be
+   *   describing something you can already see.
+   *
+   *   "Oldest" appears whenever the document has anything above the current
+   *   viewport at all. It is the tap equivalent of Ctrl+Shift+Home, and unlike
+   *   its twin it is needed AT the bottom, which is exactly where the reader
+   *   is when the surface opens. Gating it on distance would hide it in the
+   *   only position it is useful from.
+   *
+   * @returns {void}
+   */
+  TerminalHistoryLayer.prototype._updateJumpAffordance = function _updateJumpAffordance() {
+    var group = this.jumpEl;
+    if (!group) return;
+    var doc = this.doc;
+    if (!this._open || !doc) {
+      group.hidden = true;
+      return;
+    }
+    var extent = doc.scrollHeight || 0;
+    var view = doc.clientHeight || 0;
+    var top = doc.scrollTop || 0;
+    var scrollable = extent > view + 1;
+    var aboveLive = scrollable && (extent - view - top) > (view * HISTORY_JUMP_PILL_VIEWPORTS);
+    if (this.jumpTopBtn) this.jumpTopBtn.hidden = !(scrollable && top > 0);
+    if (this.jumpLiveBtn) this.jumpLiveBtn.hidden = !aboveLive;
+    var anyVisible = !!((this.jumpTopBtn && !this.jumpTopBtn.hidden) ||
+      (this.jumpLiveBtn && !this.jumpLiveBtn.hidden));
+    group.hidden = !anyVisible;
   };
 
   /* ── selection, freeze and copy (P7.3, P7.6) ─────────────────── */
@@ -1854,6 +2552,12 @@
     if (held === this._frozen) return this._frozen;
     this._frozen = held;
     if (!held) {
+      // P11.8: a select-all holds the whole windowed document hydrated so the
+      // Range can reach it. The moment the selection goes away that hold is
+      // released and the observer is free to collapse again on its own
+      // schedule; nothing is forced here, because forcing a collapse while the
+      // reader has not moved would be work with no benefit.
+      this._windowSuspended = false;
       // Catch up in one write the moment the selection goes away.
       this._refreshLiveSegment(true);
     }
@@ -1889,6 +2593,16 @@
     try {
       if (typeof document === 'undefined' || typeof window === 'undefined') return false;
       if (!this.doc || typeof document.createRange !== 'function') return false;
+      // P11.8: a windowed document keeps only the reader's neighbourhood in
+      // the DOM, and a Range cannot select text that is not there. Select-all
+      // is a deliberate action with a deliberate cost, so it puts the whole
+      // document back and HOLDS it until the selection collapses. Without
+      // this, Ctrl+Shift+A followed by Ctrl+C on a 50000-line document would
+      // copy the few screens that happened to be rendered while looking like
+      // it had copied everything, which is the silent-wrong-answer class of
+      // failure the whole surface exists to remove.
+      this._windowSuspended = true;
+      this._hydrateAllChunks();
       var range = document.createRange();
       // Deliberately NOT the whole layer: the paging bar is chrome, so it must
       // not land in the clipboard.
@@ -1995,7 +2709,12 @@
         // A held selection must survive a resize: the document is pre-wrap, so
         // it reflows as text and the metrics are all that need re-applying.
         self.applyMetrics();
+        // P11.8: every pinned chunk height was measured at the OLD width, and
+        // pre-wrap text rewraps, so they are all wrong now. Rebuild rather
+        // than correct.
+        self._remeasureWindow();
         self._updateScrollbar(false);
+        self._updateJumpAffordance();
       });
       this._resizeObserver.observe(container);
     } catch (_) {
@@ -2045,6 +2764,22 @@
     this._refreshRaf = null;
     if (this._scrollbarTimer) { clearTimeout(this._scrollbarTimer); this._scrollbarTimer = null; }
     if (this._wheelProbeTimer) { clearTimeout(this._wheelProbeTimer); this._wheelProbeTimer = null; }
+    // P11.8: the chunk observer is a document-level resource exactly like the
+    // selection watch above it. A cached pane that kept one would keep calling
+    // back for elements nobody can see.
+    if (this._chunkObserver) {
+      try { this._chunkObserver.disconnect(); } catch (_) {}
+    }
+    this._chunkObserver = null;
+    this._windowActive = false;
+    this._windowSuspended = false;
+    for (var w = 0; w < WINDOWED_SEGMENT_IDS.length; w++) {
+      var stale = this._chunks[WINDOWED_SEGMENT_IDS[w]] || [];
+      for (var c = 0; c < stale.length; c++) {
+        try { stale[c].el.__cwmHistoryChunk = null; } catch (_) {}
+      }
+    }
+    this._chunks = { deep: [], ring: [], transcript: [], live: [] };
     if (this.root) {
       try { this.root.remove(); } catch (_) {}
     }
@@ -2054,6 +2789,9 @@
     this.ruleEl = null;
     this.scrollbarEl = null;
     this.thumbEl = null;
+    this.jumpEl = null;
+    this.jumpTopBtn = null;
+    this.jumpLiveBtn = null;
     this.segments = {};
     this._lines = { deep: [], ring: [], transcript: [], live: [] };
   };
@@ -2092,5 +2830,14 @@
     WHEEL_EXHAUSTION_MS: WHEEL_EXHAUSTION_MS,
     WHEEL_ESCALATION_TTL_MS: WHEEL_ESCALATION_TTL_MS,
     HISTORY_BLANK_RUN_LIMIT: HISTORY_BLANK_RUN_LIMIT,
+    // P11b: the touch boundary and the windowed renderer, published on the
+    // same terms as everything above them so the suite asserts the shipped
+    // numbers rather than its own copies of them.
+    HISTORY_JUMP_PILL_VIEWPORTS: HISTORY_JUMP_PILL_VIEWPORTS,
+    HISTORY_TOUCH_EXIT_PX: HISTORY_TOUCH_EXIT_PX,
+    HISTORY_WINDOW_CHUNK_LINES: HISTORY_WINDOW_CHUNK_LINES,
+    HISTORY_WINDOW_MIN_LINES: HISTORY_WINDOW_MIN_LINES,
+    HISTORY_WINDOW_ROOT_MARGIN_PX: HISTORY_WINDOW_ROOT_MARGIN_PX,
+    WINDOWED_SEGMENT_IDS: WINDOWED_SEGMENT_IDS,
   };
 }));

@@ -312,6 +312,79 @@ const HISTORY_DEEP_PAGE_LINES = 2000;
 // tracking and never again on any pane.
 const SELECT_STRIP_SEEN_KEY = 'cwm_selectstrip_v1';
 
+/* ═══════════════════════════════════════════════════════════════════
+   TOUCH BOUNDARY AND PERFORMANCE BUDGET
+   Notion restyle phase P11b, work packages P11.7 and P11.8.
+   MOBILE-EXPERIENCE.md B.4 (selection and the history surface), E.3
+   (scrollback and history caps) and E.4 item 4 (background flushes).
+
+   P7 shipped the boundary for the WHEEL and left the touch half
+   explicitly unshipped (DECISIONS 16.3 item 5, 16.6 item 1). These are
+   the numbers that half needs. Every one of them is a named constant
+   rather than a literal at its use site, because B.4 and E.3 both
+   specify behaviour a device test has to be able to reason about, and
+   a magic number inside a gesture handler is not reviewable.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Upward touch travel past the top of the xterm buffer before the history
+// surface opens under the finger. Deliberately larger than the 8px scroll slop
+// and smaller than one row of a phone terminal's viewport: below this a lazy
+// overscroll at the top of a short buffer would open a surface nobody asked
+// for, above it the gesture stalls against the boundary and reads as a bug.
+const HISTORY_TOUCH_OPEN_PX = 28;
+
+// Downward touch travel past the BOTTOM of the history document before the
+// surface closes again and hands the terminal back. The same number in the
+// other direction, so the boundary feels symmetrical under a finger.
+const HISTORY_TOUCH_CLOSE_PX = 28;
+
+// E.3: xterm's client ring on a phone. The desktop keeps P5.3's 10000 (roughly
+// 8 MB per pane at this cell size); a phone at 48 columns keeps 2000, which is
+// roughly 5 MB worst case and is a LIVE WINDOW rather than the archive. The
+// archive is the transcript on disk, which the Copy view and the history
+// surface both read through the mirror API, so nothing is lost by the cap.
+const PHONE_SCROLLBACK_LINES = 2000;
+const DESKTOP_SCROLLBACK_LINES = 10000;
+
+// E.3: how many panes stay on the live write cadence at phone widths. The
+// third and later panes fall to the dormant cadence below. Two rather than one
+// because switching back to the pane you just left must not cost a repaint.
+const PHONE_MAX_LIVE_PANES = 2;
+
+// Upper bound on the pane recency list. A long session that opens and closes
+// many panes must not grow a static array without limit; anything past this is
+// dormant by definition, so truncating changes no answer.
+const LIVE_PANE_ORDER_MAX = 64;
+
+// The three write-flush cadences, slowest last.
+//   LIVE      the focused pane, which flushes on the animation frame instead.
+//   BACKGROUND an unfocused pane on the Terminal tab (the pre-P11b behaviour).
+//   IDLE      E.4 item 4: the Terminal tab is not the surface being looked at.
+//   DORMANT   the pane is unhosted (a cached tab group) or is past the phone
+//             live-pane budget. Its output is still consumed, so nothing is
+//             ever dropped and the queue cannot grow without bound; it simply
+//             stops competing for frames with the pane the user can see.
+const BACKGROUND_FLUSH_MS = 150;
+const IDLE_FLUSH_MS = 500;
+const DORMANT_FLUSH_MS = 1000;
+
+// E.3: the Reader overlay's text cap, tail-biased. `openTerminalReader`
+// concatenates a whole buffer into one string and one text node; at a
+// desktop-owned 200 columns by 10000 rows that is a 2 MB string plus a 2 MB
+// text node, on a phone, to read the last screen and a half. The tail is the
+// part anybody opens the Reader for.
+const READER_MAX_CHARS = 200000;
+
+// What the Reader puts at the top when it has dropped the head of the buffer.
+// An explicit line, because silently showing a suffix while looking like the
+// whole buffer is the silent-wrong-answer failure this program removes.
+const READER_TRUNCATION_NOTICE = '[ earlier output trimmed; open Copy view for the full transcript ]';
+
+// How far into the retained tail the cap will look for a line break before it
+// gives up and keeps the fragment. Bounded so one enormous line (a minified
+// bundle echoed into the terminal) cannot eat the whole budget.
+const READER_LINE_ALIGN_MAX_CHARS = 4096;
+
 /**
  * Prepare clipboard text for delivery to a PTY.
  *
@@ -1421,6 +1494,243 @@ class TerminalPane {
   }
 
   /**
+   * Read one number from the mobile driver's published constant table.
+   *
+   * MOBILE-EXPERIENCE's appendix names `mobile-viewport.js` as the home of
+   * every measurement the mobile program introduces, and its own comment says
+   * why: "two different long-press durations on adjacent elements is exactly
+   * what makes a gesture feel unreliable". Before P11b this file carried its
+   * own 400, its own 8 and its own 25, so a change to the table would have
+   * moved the app's gesture and left the terminal's behind.
+   *
+   * The fallback is what a build without the driver uses, which is every
+   * source sandbox in the suite and any stripped deployment, so reading the
+   * table can never be a new hard dependency.
+   *
+   * @param {string} name - Constant name in `MyrlinMobileViewport.constants`.
+   * @param {number} fallback - Value to use when the table is absent.
+   * @returns {number} The published value, or the fallback.
+   */
+  static mobileConstant(name, fallback) {
+    try {
+      if (typeof window === 'undefined') return fallback;
+      const driver = window.MyrlinMobileViewport;
+      const table = driver && driver.constants;
+      const value = table ? table[name] : undefined;
+      return (typeof value === 'number' && isFinite(value)) ? value : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE PERFORMANCE BUDGET (P11.8)
+     MOBILE-EXPERIENCE E.3 and E.4 item 4.
+
+     Three levers, in descending order of what they are worth: the
+     client ring's size, how many panes compete for frames, and how
+     often a pane nobody is looking at is allowed to take one. None of
+     them changes what a pane DOES; they change what it costs while it
+     is not the pane on screen.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Whether the shell is at phone width right now.
+   *
+   * Reads the mobile driver's single breakpoint reader, which exists so that
+   * "phone" cannot mean one thing in a media query and another in a guard.
+   * Falls back to the driver's own published constant through matchMedia, and
+   * finally to false, because desktop is the non-restrictive answer.
+   *
+   * @returns {boolean} True at MW_PHONE_MAX_WIDTH_PX and below.
+   */
+  static isPhoneLayout() {
+    try {
+      if (typeof window === 'undefined') return false;
+      const driver = window.MyrlinMobileViewport;
+      if (driver && typeof driver.isPhone === 'function') return !!driver.isPhone();
+      const max = TerminalPane.mobileConstant('MW_PHONE_MAX_WIDTH_PX', 768);
+      if (typeof window.matchMedia === 'function') {
+        return !!window.matchMedia('(max-width: ' + max + 'px)').matches;
+      }
+      return (window.innerWidth || 0) <= max;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * The client ring size for the layout this pane is mounting into (E.3).
+   *
+   * @returns {number} Scrollback lines.
+   */
+  static resolveScrollbackLines() {
+    return TerminalPane.isPhoneLayout() ? PHONE_SCROLLBACK_LINES : DESKTOP_SCROLLBACK_LINES;
+  }
+
+  /**
+   * The live-pane recency list, lazily created.
+   *
+   * A static rather than an app-layer registry because the ONLY consumer is
+   * the pane's own write cadence, and a pane must be able to answer "am I one
+   * of the two the user is working with" without a dependency on app.js. Kept
+   * bounded so a long session that opens and closes many panes cannot grow it.
+   *
+   * @returns {Array<object>} Panes, most recently active first.
+   */
+  static _livePaneOrder() {
+    if (!TerminalPane.__livePaneOrder) TerminalPane.__livePaneOrder = [];
+    return TerminalPane.__livePaneOrder;
+  }
+
+  /**
+   * Move a pane to the front of the recency list.
+   *
+   * Called on mount and whenever the app layer focuses a pane, which are
+   * exactly the two events that mean "the user is working with this one".
+   *
+   * @param {object} pane - The TerminalPane.
+   * @returns {void}
+   */
+  static noteLivePane(pane) {
+    if (!pane) return;
+    const order = TerminalPane._livePaneOrder();
+    const at = order.indexOf(pane);
+    if (at !== -1) order.splice(at, 1);
+    order.unshift(pane);
+    if (order.length > LIVE_PANE_ORDER_MAX) order.length = LIVE_PANE_ORDER_MAX;
+  }
+
+  /**
+   * Drop a pane from the recency list. Called from dispose().
+   *
+   * @param {object} pane - The TerminalPane.
+   * @returns {void}
+   */
+  static forgetLivePane(pane) {
+    const order = TerminalPane._livePaneOrder();
+    const at = order.indexOf(pane);
+    if (at !== -1) order.splice(at, 1);
+  }
+
+  /**
+   * Whether a pane is inside the phone live-pane budget (E.3).
+   *
+   * The desktop has no budget: every pane there is on screen simultaneously,
+   * which is what the grid is for. On a phone exactly one pane is visible and
+   * the rest are behind a swipe, so the budget is two: the one being looked at
+   * and the one before it, so switching back costs nothing.
+   *
+   * @param {object} pane - The TerminalPane.
+   * @returns {boolean} True when the pane keeps the live write cadence.
+   */
+  static isWithinLivePaneBudget(pane) {
+    if (!TerminalPane.isPhoneLayout()) return true;
+    const order = TerminalPane._livePaneOrder();
+    const at = order.indexOf(pane);
+    if (at === -1) return false;
+    return at < PHONE_MAX_LIVE_PANES;
+  }
+
+  /**
+   * Whether this pane is dormant, in E.3's sense.
+   *
+   * TWO WAYS TO BE DORMANT, and the first is the one the brief names:
+   *
+   *   1. UNHOSTED. `_getOwnedContainer()` returns null exactly when this pane
+   *      no longer renders into its slot, which is what `detachHostBindings()`
+   *      leaves behind for a cached tab group or a pane mid-move. That is the
+   *      host-ownership model's own definition of detached, so "dormant means
+   *      detached" needs no second mechanism and no second source of truth.
+   *      It is also why this is a READ of that model rather than a writer to
+   *      it: app.js owns which panes are hosted, and a pane that detached
+   *      itself would break the coherence its pinned suite exists to protect.
+   *
+   *   2. PAST THE PHONE BUDGET. Third and later panes on a phone.
+   *
+   * A dormant pane still consumes its socket and still writes into xterm, just
+   * on the slowest cadence, so nothing is dropped, the queue cannot grow
+   * without bound, and a swipe back to it shows real output rather than a
+   * reconnect. What it stops doing is competing for animation frames with the
+   * pane the user is actually reading.
+   *
+   * @returns {boolean} True when the pane is dormant.
+   */
+  _isDormantPane() {
+    try {
+      if (typeof this._getOwnedContainer === 'function' && !this._getOwnedContainer()) return true;
+      return !TerminalPane.isWithinLivePaneBudget(this);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Whether the Terminal tab is the surface the user is looking at.
+   *
+   * Reads the attribute the app shell already publishes (`setViewMode` writes
+   * `document.documentElement.dataset.viewMode`), so this adds no new contract
+   * and no listener. No signal at all means the classic shell or a page that
+   * never set it, where the grid is always on screen, and the honest answer
+   * there is "active".
+   *
+   * @returns {boolean} True when panes are on screen.
+   */
+  static terminalTabActive() {
+    try {
+      if (typeof document === 'undefined' || !document.documentElement) return true;
+      const data = document.documentElement.dataset;
+      const mode = data ? data.viewMode : undefined;
+      return !mode || mode === 'terminal';
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /**
+   * How long an unfocused pane waits before flushing its write queue.
+   *
+   * E.4 item 4 asks for one of these three numbers and E.3's dormancy asks for
+   * the other, so they are resolved together at the single site that schedules
+   * the timer. Evaluated only when a timer is actually being armed, which is
+   * at most once per window, never once per chunk.
+   *
+   * @returns {number} Delay in milliseconds.
+   */
+  _backgroundFlushDelay() {
+    if (this._isDormantPane()) return DORMANT_FLUSH_MS;
+    if (!TerminalPane.terminalTabActive()) return IDLE_FLUSH_MS;
+    return BACKGROUND_FLUSH_MS;
+  }
+
+  /**
+   * Cap Reader text at E.3's budget, keeping the TAIL.
+   *
+   * Tail-biased because the Reader is opened to read what just happened. The
+   * dropped head is not lost: the Copy view and the history surface both reach
+   * the full transcript through the mirror API, and the notice says so rather
+   * than presenting a suffix as if it were the whole buffer.
+   *
+   * Pure and static, so the cap is unit-testable without a DOM.
+   *
+   * @param {string} text - The composed buffer text.
+   * @returns {string} Text at most READER_MAX_CHARS long, plus the notice when
+   *   anything was dropped.
+   */
+  static capReaderText(text) {
+    const raw = typeof text === 'string' ? text : '';
+    if (raw.length <= READER_MAX_CHARS) return raw;
+    let tail = raw.slice(raw.length - READER_MAX_CHARS);
+    // Start on a line boundary so the first visible row is a whole line rather
+    // than a fragment. Bounded so a single enormous line cannot eat the cap.
+    const firstBreak = tail.indexOf('\n');
+    if (firstBreak !== -1 && firstBreak < READER_LINE_ALIGN_MAX_CHARS) {
+      tail = tail.slice(firstBreak + 1);
+    }
+    return READER_TRUNCATION_NOTICE + '\n' + tail;
+  }
+
+  /**
    * Resolve the fixed DOM container only while it still renders this exact
    * TerminalPane. Cached groups keep their WebSocket alive while the same
    * container id hosts another session, so id lookup alone is never proof of
@@ -1567,7 +1877,14 @@ class TerminalPane {
         // gone for good. 10000 lines at this cell size measures roughly 8 MB
         // per pane in xterm 6's buffer, which is the figure VG-5 exists to
         // confirm against a heap snapshot rather than an estimate.
-        scrollback: 10000,
+        //
+        // P11.8 splits that by layout (MOBILE-EXPERIENCE E.3): the desktop
+        // keeps 10000, a phone takes 2000. The cap is affordable there for a
+        // reason P5.3 did not have when it raised the number: since P7 the
+        // archive is reachable without the ring at all, because the history
+        // surface pages the transcript and the sidecar's line log from the
+        // server. xterm's buffer is a live window, not the archive.
+        scrollback: TerminalPane.resolveScrollbackLines(),
         // Issue #41: animate wheel and Shift+PageUp/Down scrolling instead of
         // jumping in discrete row blocks. Resolves to 0 (instant) when the
         // setting is off or the OS requests reduced motion.
@@ -1584,6 +1901,10 @@ class TerminalPane {
       }
 
       this.term.open(container);
+      // P11.8: a freshly mounted pane is one the user just asked for, so it
+      // enters the recency list at the front. Without this a first pane on a
+      // phone would be outside its own budget until something focused it.
+      TerminalPane.noteLivePane(this);
       // Stamp the live xterm root with its owning TerminalPane. Fixed grid
       // slots can be reused while cached panes and deferred mounts overlap;
       // event routing must follow the terminal that actually rendered the
@@ -2980,6 +3301,29 @@ class TerminalPane {
    */
   _requestActivate(reason) {
     if (!this.term || !this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    // MOBILE-EXPERIENCE B.9 rule 1, the ONE line DEVIATIONS DV-P11-3 recorded
+    // as post-P7 mop-up: P11 could not place it, because this file belonged to
+    // the P7 track for the whole of that phase, so it published the predicate
+    // instead and named this call site. The gate answers "is this device
+    // genuinely foreground, on the Terminal tab, outside a keyboard settle,
+    // and does this session still follow this device" in one place, so the
+    // pane consults an answer rather than re-deriving four conditions.
+    //
+    // It sits ABOVE the freeze branch on purpose: a denied claim is not a
+    // deferred one. Deferring would replay it the moment the freeze lifts,
+    // which is precisely the claim the user did not ask for.
+    //
+    // The typeof guard is not decoration. terminal.js is evaluated in source
+    // sandboxes that bind window as a parameter (the pinned suites) and in one
+    // that slices a single method body and binds nothing, and a claim path
+    // that throws would be worse than a claim path that fires.
+    try {
+      if (typeof window !== 'undefined' &&
+          window.MyrlinClaimGate && !window.MyrlinClaimGate.canClaim(this.sessionId)) return false;
+    } catch (_) {
+      // A broken gate must not disable the width claim. Failing open is the
+      // pre-P11b behaviour, which is the conservative direction here.
+    }
     if (this._isWriteFrozen()) { this._activatePending = true; return false; }
     const now = Date.now();
     if (now < this._activateBlockedUntil) {
@@ -3218,10 +3562,111 @@ class TerminalPane {
     let longPressTimer = null;
     let scrollAccum = 0;     // Sub-line pixel accumulator for smooth scrolling
     let lastMomentumTime = 0;
-    const LONG_PRESS_MS = 400;
-    const MOVE_THRESHOLD = 8;  // px — must move this far to be a scroll
+    // P11b item 5: the gesture's two numbers come from the ONE table that
+    // owns them (MOBILE-EXPERIENCE appendix, mobile-viewport.js), with the
+    // previous literals kept as the no-driver fallback so nothing changes for
+    // a build that loads terminal.js alone. Both values are unchanged today;
+    // what changes is that a future edit to the table moves the terminal too.
+    const LONG_PRESS_MS = TerminalPane.mobileConstant('MW_LONGPRESS_MS', 400);
+    // px of travel before the gesture counts as a scroll rather than a hold.
+    const MOVE_THRESHOLD = TerminalPane.mobileConstant('MW_LONGPRESS_MOVE_PX', 8);
     const FRICTION = 0.92;     // Momentum deceleration (per 16ms equivalent)
     const MIN_VELOCITY = 0.1;  // Stop momentum below this (px/ms)
+
+    /* ── P11.7: the boundary, on touch ──────────────────────────────
+     *
+     * P7 shipped the boundary for the wheel and left touch explicitly
+     * unshipped (DECISIONS 16.3 item 5). What was missing is not the surface,
+     * which already scrolls natively and is already exempt from this engine
+     * (`_isInsideHistoryLayer` guards all four handlers). What was missing is
+     * the CROSSING: a flick that reaches the top of the xterm buffer used to
+     * stall there, because xterm has nothing above row 0 and the layer only
+     * opened on a wheel or a key.
+     *
+     * WHY THIS ENGINE HAS TO DRIVE THE LAYER FOR THE REST OF THE GESTURE, and
+     * why that does not contradict MOBILE-EXPERIENCE B.4 rule 2. A touch
+     * sequence is delivered to the element that was hit at `touchstart` for
+     * its whole life; the browser will not retarget an in-flight gesture onto
+     * a layer that appeared underneath the finger halfway through. So the
+     * crossing gesture, and only the crossing gesture, keeps being applied by
+     * this engine, to `doc.scrollTop` instead of to `term.scrollLines`. The
+     * moment the finger lifts and the momentum tail decays, the layer is an
+     * ordinary native scroller again and EVERY subsequent gesture inside it is
+     * native, on the compositor thread, with the platform's own momentum and
+     * the platform's own selection handles. Rule 2 governs the surface, and
+     * the surface is native. This is one gesture's worth of hand-off.
+     */
+    let historyDriving = false;   // this gesture is scrolling the history doc
+    let boundaryAccum = 0;        // upward travel banked past the buffer top
+    let exitAccum = 0;            // downward travel banked past the doc bottom
+
+    /** @returns {boolean} Whether the pane's history surface is open. */
+    const historyOpen = () => !!(this._historyLayer && this._historyLayer.isOpen());
+
+    /**
+     * Whether xterm is showing the very top of its buffer, which is the only
+     * place the history boundary exists. Read live rather than cached: output
+     * arriving mid-gesture moves it.
+     *
+     * @returns {boolean} True at the top of the ring.
+     */
+    const atBufferTop = () => {
+      try {
+        const buf = this.term && this.term.buffer && this.term.buffer.active;
+        if (!buf) return false;
+        // The alternate buffer has no scrollback at all, so its viewport is
+        // always simultaneously the top and the bottom. That is the case the
+        // whole surface exists for: an agent CLI's conversation is not in the
+        // terminal, so wheeling or flicking up must reach the transcript.
+        if (buf.type === 'alternate') return true;
+        return (typeof buf.viewportY === 'number' ? buf.viewportY : 0) <= 0;
+      } catch (_) {
+        return false;
+      }
+    };
+
+    /**
+     * Try to open the surface under a finger that has run out of buffer.
+     *
+     * @param {number} px - Upward travel available in this frame.
+     * @returns {number} Pixels left over for the layer to consume, 0 when the
+     *   surface did not open.
+     */
+    const crossIntoHistory = (px) => {
+      boundaryAccum += px;
+      if (boundaryAccum < HISTORY_TOUCH_OPEN_PX) return 0;
+      const banked = boundaryAccum;
+      boundaryAccum = 0;
+      if (!this.openHistory('touch-boundary')) return 0;
+      historyDriving = true;
+      // Everything banked while the buffer was stalling is handed to the
+      // layer, so the document arrives already scrolled by the distance the
+      // finger travelled. That is what removes the hitch: no frame of the
+      // gesture is spent doing nothing.
+      return banked;
+    };
+
+    /**
+     * Apply one frame of the gesture to the open history document.
+     *
+     * @param {number} px - Signed pixels; positive is toward older content.
+     * @returns {void}
+     */
+    const driveHistory = (px) => {
+      const layer = this._historyLayer;
+      if (!layer || typeof layer.scrollByPixels !== 'function') { historyDriving = false; return; }
+      const leftover = layer.scrollByPixels(px);
+      if (leftover >= 0) { exitAccum = 0; return; }
+      // Negative leftover means the document is at its bottom and the finger
+      // is still pulling toward live. Past the same threshold the other
+      // direction used, the surface closes and the terminal comes back, which
+      // is the touch spelling of the wheel-down rule P7 already shipped.
+      exitAccum += -leftover;
+      if (exitAccum < HISTORY_TOUCH_CLOSE_PX) return;
+      exitAccum = 0;
+      historyDriving = false;
+      this.closeHistory('touch-boundary');
+    };
 
     /**
      * Hand scroll control back to xterm once the touch engine stops driving
@@ -3237,6 +3682,12 @@ class TerminalPane {
     const stopMomentum = () => {
       if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = null; }
       velocity = 0;
+      // P11.7: the momentum tail is the last frame of the gesture that crossed
+      // the boundary, so its end is where this engine stops driving the layer
+      // and the surface goes back to being an ordinary native scroller.
+      historyDriving = false;
+      boundaryAccum = 0;
+      exitAccum = 0;
       // Momentum decay (or teardown) is a gesture-end path: restore xterm's
       // own smooth scrolling for subsequent wheel/keyboard scrolls.
       restoreSmoothScroll();
@@ -3258,6 +3709,31 @@ class TerminalPane {
       }
     };
 
+    /**
+     * Route one frame of gesture travel to whichever surface owns it.
+     *
+     * ONE router for the finger and for the momentum tail, so a flick and a
+     * drag cross the boundary identically. That equivalence is the whole
+     * reason this is a function rather than two copies of the branch: a
+     * boundary that only the slow gesture can cross is worse than no boundary,
+     * because it teaches the user that flicking is broken.
+     *
+     * @param {number} px - Signed pixels; positive is toward older content.
+     * @returns {void}
+     */
+    const applyGestureScroll = (px) => {
+      if (historyDriving || historyOpen()) { driveHistory(px); return; }
+      if (px > 0 && atBufferTop()) {
+        const banked = crossIntoHistory(px);
+        if (banked > 0) driveHistory(banked);
+        return;
+      }
+      // Any travel that is not against the top boundary discards the bank: a
+      // user who scrolls back down has withdrawn the intent to cross.
+      boundaryAccum = 0;
+      scrollByPixels(px);
+    };
+
     /** Animate momentum scroll after finger lifts (time-based, works at any Hz) */
     const animateMomentum = (timestamp) => {
       if (lastMomentumTime === 0) lastMomentumTime = timestamp;
@@ -3265,7 +3741,12 @@ class TerminalPane {
       lastMomentumTime = timestamp;
       velocity *= Math.pow(FRICTION, dt / 16); // scale decay to actual frame time
       if (Math.abs(velocity) < MIN_VELOCITY) { stopMomentum(); return; }
-      scrollByPixels(velocity * dt);
+      // P11.7: the tail carries THROUGH the boundary. Before this, a fling that
+      // ran out of buffer spent the rest of its momentum against row 0 and the
+      // gesture died on a wall; now the same fling opens the surface and keeps
+      // travelling into the transcript, which is the "momentum carried through
+      // the boundary" the work package names.
+      applyGestureScroll(velocity * dt);
       momentumRaf = requestAnimationFrame(animateMomentum);
     };
 
@@ -3297,6 +3778,12 @@ class TerminalPane {
       velocity = 0;
       isScrolling = false;
       scrollAccum = 0;
+      // P11.7: every gesture starts on the terminal side of the boundary with
+      // an empty bank. stopMomentum() above has already released any tail that
+      // was still driving the layer.
+      historyDriving = false;
+      boundaryAccum = 0;
+      exitAccum = 0;
 
       // Start long-press timer for text selection
       longPressTimer = setTimeout(() => {
@@ -3330,11 +3817,20 @@ class TerminalPane {
       }
 
       if (isScrolling) {
-        // Prevent default browser scroll (e.g. pull-to-refresh on Chrome mobile/tablet)
+        // Prevent default browser scroll (e.g. pull-to-refresh on Chrome mobile/tablet).
+        // P11.7 restates this as a contract rather than an aside: while THIS
+        // engine is driving, the browser's overscroll gestures are suppressed
+        // for the whole gesture, including the frames that are scrolling the
+        // history document, so a flick that crosses the boundary can never
+        // trigger a page refresh on the way past it. The layer's own half of
+        // the same suppression is `overscroll-behavior: contain` in styles.css,
+        // which covers every gesture that starts inside the surface.
         if (e.cancelable) e.preventDefault();
-        
-        // Scroll via xterm.js API so ydisp stays in sync (prevents snap-back on output)
-        scrollByPixels(deltaY);
+
+        // Scroll via xterm.js API so ydisp stays in sync (prevents snap-back on
+        // output), or hand the frame to the history surface once the buffer's
+        // top boundary has been crossed.
+        applyGestureScroll(deltaY);
         // Track velocity for momentum (smoothed exponential average)
         if (dt > 0) {
           const instantV = deltaY / dt;
@@ -3414,8 +3910,13 @@ class TerminalPane {
     }
     this._mobileSelecting = true;
     if (this._xtermScreen) this._xtermScreen.style.pointerEvents = 'auto';
-    // Haptic feedback if available (subtle vibration signals selection mode)
-    if (navigator.vibrate) navigator.vibrate(25);
+    // Haptic feedback if available (subtle vibration signals selection mode).
+    // P11b item 5: the duration is the shared one, so a long press confirms
+    // itself identically here and on every app-layer host bound by
+    // `_mwBindLongPress`. 25 remains the value; it is now read, not repeated.
+    if (navigator.vibrate) {
+      navigator.vibrate(TerminalPane.mobileConstant('MW_LONGPRESS_HAPTIC_MS', 25));
+    }
   }
 
   /**
@@ -3516,13 +4017,18 @@ class TerminalPane {
         this._writeRaf = requestAnimationFrame(() => this._flushWriteBuffer());
       }
     } else {
-      // Background terminal: throttled flush to yield main thread to focused pane
+      // Background terminal: throttled flush to yield main thread to focused
+      // pane. P11.8 makes the throttle three-valued instead of one: 150ms on
+      // the Terminal tab (unchanged), 500ms when the user is looking at some
+      // other tab entirely (E.4 item 4), 1000ms for a dormant pane (E.3). The
+      // delay is resolved HERE rather than in _enqueueWrite's hot path, so it
+      // costs one read per armed timer rather than one per chunk.
       if (!this._bgFlushTimer) {
         this._bgFlushTimer = setTimeout(() => {
           this._bgFlushTimer = null;
           if (this._writeRaf) { cancelAnimationFrame(this._writeRaf); this._writeRaf = null; }
           this._flushWriteBuffer();
-        }, 150);
+        }, this._backgroundFlushDelay());
       }
     }
   }
@@ -3535,6 +4041,11 @@ class TerminalPane {
    */
   setFocused(focused) {
     this._isFocused = focused;
+    // P11.8: focusing a pane is the app layer saying "this is the one the user
+    // is working with", which is exactly the event the phone live-pane budget
+    // is a recency list of. Recorded before the freeze early-return below, so
+    // a pane focused while a selection is held still counts as live.
+    if (focused) TerminalPane.noteLivePane(this);
     // Select mode v2: focusing a frozen pane must not schedule a flush. The
     // flush-side gate would refuse to consume the queue anyway, so this only
     // saves a wasted animation frame per focus change, but it also keeps the
@@ -6397,6 +6908,10 @@ class TerminalPane {
 
   dispose() {
     this._disposed = true;
+    // P11.8: leave the phone live-pane recency list before anything else, so a
+    // disposed pane can neither hold a budget slot nor be retained by a static
+    // array for the life of the page.
+    TerminalPane.forgetLivePane(this);
     this._mountGeneration++;
     if (this._mountRafOuter) cancelAnimationFrame(this._mountRafOuter);
     if (this._mountRafInner) cancelAnimationFrame(this._mountRafInner);
