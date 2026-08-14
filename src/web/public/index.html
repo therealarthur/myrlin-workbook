@@ -117,8 +117,8 @@
     almost entirely CSS-only changes, which makes that a real defect rather
     than a theoretical one. See BUILD-CONTRACT risk R7.
   -->
-  <link rel="stylesheet" href="styles.css?v=20260813-notion-r1">
-  <link rel="stylesheet" href="styles-mobile.css?v=20260813-notion-r1">
+  <link rel="stylesheet" href="styles.css?v=20260814-notion-r2">
+  <link rel="stylesheet" href="styles-mobile.css?v=20260814-notion-r2">
   <link rel="stylesheet" href="semantic-theme.css?v=20260813-notion-p5">
   <link rel="stylesheet" href="focused-shell.css?v=20260813-notion-p5">
   <script src="theme-registry.js?v=20260813-notion-p5"></script>
@@ -2360,15 +2360,15 @@
        app.js fetchProviderSpecs() (called from _initializeApp) merges the
        server-side /api/providers metadata onto these locals to build the
        runtime map window.CWMProviderSpecs. -->
-  <script src="provider-specs.js"></script>
+  <script src="provider-specs.js?v=20260814-notion-r2"></script>
   <!-- Notion restyle P5.4: the single terminal surface projection. MUST load
        before terminal.js, because TerminalPane.getCurrentTheme() consults
        window.MyrlinTerminalSurface and the module-scope publication at the
        bottom of terminal.js runs at parse time. It is loaded in the BODY
        rather than the head so the four head assets keep their relative order,
        which test/experience-ux-contract.test.js pins. -->
-  <script src="terminal-surface.js?v=20260813-notion-r1"></script>
-  <script src="terminal.js?v=20260813-notion-r1"></script>
+  <script src="terminal-surface.js?v=20260814-notion-r2"></script>
+  <script src="terminal.js?v=20260814-notion-r2"></script>
   <!-- Notion restyle P7: the Unified Scrollback Surface. Loaded AFTER
        terminal.js because it is optional to it: every P7 entry point in
        TerminalPane is gated on window.TerminalHistory existing, so a
@@ -2390,8 +2390,8 @@
        reason terminal-surface.js is: the four head assets keep their relative
        order, which test/experience-ux-contract.test.js pins. -->
   <script src="mobile-viewport.js?v=20260813-notion-p10"></script>
-  <script src="app.js?v=20260813-notion-r1"></script>
-  <script src="schedules.js"></script>
+  <script src="app.js?v=20260814-notion-r2"></script>
+  <script src="schedules.js?v=20260814-notion-r2"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));

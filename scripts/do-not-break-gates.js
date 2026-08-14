@@ -900,6 +900,61 @@ countGate('G14', 'animated status marks (dots, pills, badges, and any animated c
     : 'DECISIONS 13.1: a status mark is a static shape; only transient operations may move, never as a dot',
 });
 
+// ── G15: one reference per asset, and every app asset is versioned ─────────
+//
+// Round 2. The user reported "the mobile view is still the old layout" after a
+// deploy that had already landed, and the first hypothesis was a duplicate
+// stylesheet link: one bare `styles-mobile.css` shadowing the busted one. That
+// turned out to be a false positive (the extra matches were HTML COMMENTS that
+// discuss the file by name), but the class of bug it describes is real and
+// nothing in this repo was watching for it. Two rules, both structural:
+//
+//   1. NO DUPLICATES. Exactly one <link> or <script> per local asset path.
+//      Two references to one file mean the second silently wins, and if they
+//      carry different `?v=` values the browser holds two copies of the same
+//      module and one of them is stale.
+//   2. NO BARE APP ASSETS. Every local, first-party asset carries a `?v=`.
+//      Without one, a deploy cannot evict it: the browser and any shared cache
+//      keep serving the copy they already have, forever.
+//
+// Vendored third-party bundles are exempt, and deliberately so: they are
+// pinned by their own directory and version, they change only when the vendor
+// directory is replaced, and busting them on every app release would evict
+// megabytes of unchanged xterm and icon payload from every client.
+//
+// The scan strips HTML comments FIRST, which is the whole reason the original
+// report was a false alarm. A gate that reads commentary as markup is a gate
+// that cries wolf.
+const assetHtml = indexHtml.replace(/<!--[\s\S]*?-->/g, '');
+const assetRefs = [];
+for (const m of assetHtml.matchAll(/<link\b[^>]*\bhref="([^"]+)"[^>]*>/g)) {
+  if (/rel="stylesheet"/.test(m[0])) assetRefs.push(m[1]);
+}
+for (const m of assetHtml.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)) {
+  assetRefs.push(m[1]);
+}
+// Local means "served out of this tree": not absolute, not protocol relative.
+const localRefs = assetRefs.filter((href) => !/^(https?:)?\/\//i.test(href));
+const VENDOR_EXEMPT = /^vendor\//;
+
+const seenRefs = new Map();
+const assetProblems = [];
+for (const href of localRefs) {
+  const base = href.split('?')[0];
+  seenRefs.set(base, (seenRefs.get(base) || 0) + 1);
+}
+for (const [base, count] of seenRefs) {
+  if (count > 1) assetProblems.push(base + ' referenced ' + count + ' times');
+}
+for (const href of localRefs) {
+  const base = href.split('?')[0];
+  if (VENDOR_EXEMPT.test(base)) continue;
+  if (!/\?v=[A-Za-z0-9._-]+$/.test(href)) assetProblems.push(base + ' has no ?v= cachebuster');
+}
+setGate('G15', 'index.html references each app asset once, and versions all of them',
+  assetProblems, localRefs.length,
+  'a duplicate or unbusted reference is how a deploy fails to reach a phone');
+
 // ── Report ─────────────────────────────────────────────────────────────────
 
 const RED = '\x1b[31m';

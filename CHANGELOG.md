@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0-alpha.29] - 2026-08-14
+
+### Fixed
+
+- **A new version now actually reaches your phone.** Every file the app loads is stamped with a version so that a new release replaces the old one, but the page that lists those stamps was itself allowed to be stored by any cache along the way, including the one in front of the tunnel your phone connects through. One stored copy of that page pins every file it names to the old version, so the phone kept loading the entire old app however many times you refreshed it, and the mobile layout stayed as it was. That page is now marked as never-store, so the phone always reads the current list. Two scripts that shipped without a version stamp have one, and the release checks now fail if any file the app loads is listed twice or listed without a stamp.
+
 ## [1.3.0-alpha.28] - 2026-08-13
 
 The first round of fixes after the restyle went live, all four of them reported from actual use.

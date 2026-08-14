@@ -314,7 +314,41 @@ app.use((req, res, next) => {
 
 // ─── Static Files ──────────────────────────────────────────
 
-app.use(express.static(path.join(__dirname, 'public')));
+/**
+ * Static asset serving, with ONE header rule added in round 2.
+ *
+ * THE BUG THIS EXISTS FOR. The user reported "the mobile view is still the old
+ * layout" after a deploy that had already landed. Every asset in this tree is
+ * cache-busted through a `?v=` query in index.html, so a fresh document always
+ * pulls fresh assets. The document ITSELF was the hole: express.static's
+ * default is `Cache-Control: public, max-age=0`, and `public` invites a SHARED
+ * cache to store it. This app is reached from a phone through a Cloudflare
+ * tunnel, and a shared cache holding one stale index.html pins every asset URL
+ * inside it at the old version. The whole application then stays old, forever,
+ * no matter how many times the phone is refreshed, because the refresh is
+ * answered from the edge.
+ *
+ * The fix is to make the DOCUMENT uncacheable while leaving the versioned
+ * assets exactly as they were:
+ *
+ *   .html  ->  no-store, must-revalidate. It is small, it carries the version
+ *              map, and it is the one file that must never be served stale.
+ *   others ->  untouched. They are already keyed by `?v=`, and G10 plus the
+ *              new G15 gate guarantee that key moves whenever they change.
+ *
+ * `private` is set alongside `no-store` for defence in depth: no-store already
+ * forbids storage, and `private` additionally tells any intermediary that this
+ * response belongs to one user, which is true for an authenticated shell.
+ */
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (/\.html?$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  },
+}));
 
 // ─── Request Logging ─────────────────────────────────────────
 
