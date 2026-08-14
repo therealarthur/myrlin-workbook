@@ -97,6 +97,69 @@ window.addEventListener('error', function _cwmFallbackHandler(e) {
   });
 });
 
+/* ─── The icon family, Notion restyle P12 (DESIGN-SPEC 11) ─────────────────
+ *
+ * DESIGN-SPEC 11 is unambiguous about the recipe and about who owns it:
+ * "Icons are generated centrally... Reproduce that: one sprite or one helper,
+ * one stroke recipe, no per-call overrides." This is that helper.
+ *
+ * Every glyph is a 16-unit viewBox regardless of rendered size, stroked at
+ * 1.5 with round caps and joins, never filled, and always currentColor. The
+ * parent sets the ink; the icon never carries its own.
+ *
+ * Provenance of the paths. `trash`, `copy`, `close`, `check`, `plus` and the
+ * rest of the keys that appear in DESIGN-SPEC 11's dictionary are VERBATIM
+ * from it, so the set stays coherent with the mock. Four keys are authored
+ * here because the application draws things the mock does not: `pencil`,
+ * `pin`, `phone` and `desktop`. Each is drawn to the same 16-unit grid at the
+ * same 1.5 weight with the same round joins, which is the whole point of
+ * having one recipe. They are named in DECISIONS 19 as additions rather than
+ * smuggled in as if the mock had shipped them.
+ *
+ * @param {string} name - Key in NT_ICON_PATHS.
+ * @param {number} [size=16] - Rendered px size. The viewBox never changes.
+ * @param {string} [extraClass=''] - Optional class on the root svg.
+ * @returns {string} SVG markup, safe to interpolate into a template string.
+ */
+const NT_ICON_PATHS = Object.freeze({
+  trash: ['M3.5 4.5h9', 'M6.5 4.5V3h3v1.5', 'M4.75 4.5l.6 8h5.3l.6-8'],
+  copy: ['M5.5 5.5h7v7h-7z', 'M10.5 5.5V4a.5.5 0 0 0-.5-.5H4a.5.5 0 0 0-.5.5v6a.5.5 0 0 0 .5.5h1.5'],
+  close: ['M4 4l8 8', 'M12 4l-8 8'],
+  check: ['M3.5 8.5l3 3 6-7'],
+  plus: ['M8 3.25v9.5', 'M3.25 8h9.5'],
+  clock: ['M8 13.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11z', 'M8 5v3.25l2 1.25'],
+  user: ['M8 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z', 'M3.5 13.5c0-2.2 2-3.75 4.5-3.75s4.5 1.55 4.5 3.75'],
+  // Authored for this application, same grid and same weight as the above.
+  pencil: ['M11.25 3.25l1.5 1.5', 'M10.25 4.25l1.5 1.5-6 6H4.25v-1.5z'],
+  pin: ['M8 9.5v3.75', 'M5.25 3h5.5l-.75 3 1.5 1.75v.75H4.5v-.75L6 6z'],
+  phone: ['M5.25 2.5h5.5v11h-5.5z', 'M7.25 11.75h1.5'],
+  desktop: ['M2.75 3.5h10.5v6.5H2.75z', 'M6.5 13h3', 'M8 10v3'],
+});
+
+/**
+ * Build one icon from the shared recipe. See NT_ICON_PATHS above.
+ *
+ * @param {string} name - Icon key.
+ * @param {number} [size=16] - Rendered px size.
+ * @param {string} [extraClass=''] - Optional class on the root svg.
+ * @returns {string} SVG markup, or an invisible spacer for an unknown key so a
+ *   typo leaves a hole in the alignment rather than an exception in the render.
+ */
+function ntIcon(name, size = 16, extraClass = '') {
+  const paths = NT_ICON_PATHS[name] || [];
+  const cls = extraClass ? ` class="${extraClass}"` : '';
+  return `<svg${cls} width="${size}" height="${size}" viewBox="0 0 16 16" fill="none"`
+    + ' stroke="currentColor" stroke-width="1.5" stroke-linecap="round"'
+    + ' stroke-linejoin="round" aria-hidden="true" focusable="false">'
+    + paths.map((d) => `<path d="${d}"/>`).join('')
+    + '</svg>';
+}
+
+if (typeof window !== 'undefined') {
+  window.ntIcon = ntIcon;
+  window.NT_ICON_PATHS = NT_ICON_PATHS;
+}
+
 class CWMApp {
   /** Maximum number of terminal pane slots in the grid */
   static MAX_PANES = 6;
@@ -5409,8 +5472,8 @@ class CWMApp {
         const wsId = moreBtn.dataset.id;
         const rect = moreBtn.getBoundingClientRect();
         this._renderContextItems('Workspace', [
-          { icon: '✏️', label: 'Rename', action: () => this.renameWorkspace(wsId) },
-          { icon: '🗑️', label: 'Delete', danger: true, action: () => this.deleteWorkspace(wsId) },
+          { icon: ntIcon('pencil', 15), label: 'Rename', action: () => this.renameWorkspace(wsId) },
+          { icon: ntIcon('trash', 15), label: 'Delete', danger: true, action: () => this.deleteWorkspace(wsId) },
         ], rect.right, rect.bottom);
         return;
       }
@@ -9531,9 +9594,20 @@ class CWMApp {
         const r = await fetch('/api/tunnel/named', { headers: { Authorization: 'Bearer ' + this.state.token } });
         const d = await r.json();
         if (ntStatus) {
-          const dot = d.running ? (d.status === 'connected' ? '🟢' : '🟡') : (d.configured ? '⚫' : '⚪');
+          /* P12: the tunnel state is a status DOT, not four emoji from
+             whatever the platform font happens to ship. Same 7px block-palette
+             mark the rest of the application uses, so a state means the same
+             SHAPE here as it does in the sidebar, and the not-configured case
+             lands on the ring rather than on a white circle that disappears on
+             a light canvas. The label is appended as a TEXT NODE rather than
+             interpolated, so a server-supplied status string never reaches the
+             HTML parser. */
+          const dotClass = d.running
+            ? (d.status === 'connected' ? 'status-dot-running' : 'status-dot-idle')
+            : (d.configured ? 'status-dot-stopped' : 'status-dot-idle');
           const label = d.running ? d.status : (d.configured ? 'stopped (token saved)' : 'not configured');
-          ntStatus.textContent = dot + ' ' + label;
+          ntStatus.innerHTML = '<span class="status-dot ' + dotClass + '"></span>';
+          ntStatus.append(' ' + label);
         }
         if (ntAutoStart) ntAutoStart.checked = !!d.autoStart;
         if (ntStartBtn) ntStartBtn.disabled = d.running;
@@ -16693,8 +16767,13 @@ class CWMApp {
         // Update status display if the settings panel is currently open
         const ntEl = document.getElementById('named-tunnel-status');
         if (ntEl) {
-          const dot = data.running ? (data.status === 'connected' ? '🟢' : '🟡') : '⚫';
-          ntEl.textContent = dot + ' ' + (data.running ? data.status : 'stopped');
+          /* P12: same status DOT vocabulary as the settings-panel path, and
+             the same text-node append, for the same two reasons. */
+          const dotClass = data.running
+            ? (data.status === 'connected' ? 'status-dot-running' : 'status-dot-idle')
+            : 'status-dot-stopped';
+          ntEl.innerHTML = '<span class="status-dot ' + dotClass + '"></span>';
+          ntEl.append(' ' + (data.running ? data.status : 'stopped'));
           const startBtn = document.getElementById('named-tunnel-start-btn');
           const stopBtn = document.getElementById('named-tunnel-stop-btn');
           if (startBtn) startBtn.disabled = data.running;
@@ -24320,7 +24399,7 @@ class CWMApp {
 
           const pinBtn = document.createElement('button');
           pinBtn.className = 'doc-pin-btn btn btn-ghost btn-icon btn-sm';
-          pinBtn.textContent = '📌';
+          pinBtn.innerHTML = ntIcon('pin', 14);
           pinBtn.title = 'Pin to focused terminal session';
           pinBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -30840,7 +30919,14 @@ class CWMApp {
       }
 
       listEl.innerHTML = devices.map(d => {
-        const platformIcon = d.platform === 'ios' ? '\uD83D\uDCF1' : '\uD83E\uDD16';
+        /* P12: the context sheet's platform mark joins the one icon family.
+           It was a phone emoji and a robot emoji, which are two different
+           vendor illustration sets rendered at whatever the platform font
+           decides, next to chrome drawn on a 16-unit stroked grid. DESIGN-SPEC
+           11's rule is that all icons come from one family; a paired device is
+           either a handset or a machine, so it takes the handset or the
+           machine glyph at the sheet's 20px scale. */
+        const platformIcon = ntIcon(d.platform === 'ios' ? 'phone' : 'desktop', 20);
         const onlineClass = d.isOnline ? 'online' : '';
         const pairedTime = d.pairedAt ? this.relativeTime(d.pairedAt) : 'unknown';
         const lastSeen = d.isOnline ? 'Online' : (d.lastSeenAt ? this.relativeTime(d.lastSeenAt) : 'never');

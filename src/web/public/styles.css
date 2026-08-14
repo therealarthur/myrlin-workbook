@@ -5867,6 +5867,24 @@ textarea.input {
     padding: 12px 16px 8px;
   }
 
+  /*
+   * The Sessions panel title at phone scale, Notion restyle P12.3.
+   *
+   * The base rule takes --app-h1-size, which is 30px over a 39px line. That
+   * is the desktop application's page title and it is correct there, over a
+   * 1100px measure. On a 390px phone the same declaration puts a 30px title
+   * under a 44px header and above a list of 14px rows, so the screen's
+   * loudest element is its own name. MOBILE-EXPERIENCE 931 keeps this as the
+   * screen's single h1, so it stays the title and only its SIZE steps down,
+   * to the captured --app-h2 pair. No invented value: 24px over 31.2px is the
+   * next rung of the same scale, and the weight and tracking are untouched so
+   * the title still reads as a title rather than as a section label.
+   */
+  .panel-title {
+    font-size: var(--app-h2-size);
+    line-height: var(--app-h2-line);
+  }
+
   .session-list {
     padding: 0 8px 8px;
   }
