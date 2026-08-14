@@ -450,7 +450,7 @@ This is `PROCEDURE.md` 3.3 rule 5 and `DESIGN-SPEC.md` 16.2. Splitting them is a
 
 | Current class | Where | Becomes |
 |---|---|---|
-| `.session-badge-model`, `-cost`, `-agents`, `-pr`, `-port`, `-warn` | `styles.css:456-514` | `nt-chip` property chips. **`.session-badge-cost` and `.session-badge-cost-na` markup is pinned character-for-character by `cost-display.test.js`, including the `&mdash;` entity and the exact `title` text.** Restyle the class, do not touch the template. |
+| `.session-badge-model`, `-cost`, `-agents`, `-pr`, `-port`, `-warn` | `styles.css:456-514` | `nt-chip` property chips. **`.session-badge-cost` and `.session-badge-cost-na` markup is pinned character-for-character by `cost-display.test.js`, including the `&ndash;` entity and the exact `title` text.** Restyle the class, do not touch the template. |
 | `.session-badge-tag`, `_tagColor` output | `app.js:7697` | named block colours, per 1.8 |
 | `.status-dot`, `.status-badge-*` | `styles.css:395-455` | 7px block-palette circle, `background: var(--app-text-<hue>)`, **no glow shadow**. `mwPulse 2s ease-in-out infinite` when running or needs-input, inside `@media (prefers-reduced-motion: no-preference)` |
 | `.nt-chip-dot` | new | 8px, `border-radius: 50%`, `background: currentColor`, so it inherits the **chip ink**, not the block palette |

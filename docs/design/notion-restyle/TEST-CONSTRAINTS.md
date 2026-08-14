@@ -506,8 +506,8 @@ and `@openai/codex`.
 ## `test/cost-display.test.js` (13, FUNCTIONAL, HIGH risk)
 
 Pins in `app.js`: `session-badge-cost">$${Number(cachedCost).toFixed(2)}` and
-`session-badge-cost-na" title="Cost not tracked for this provider">&mdash;<` (exact class,
-exact title text, exact `&mdash;` entity, exact single-space attribute separation), the marker
+`session-badge-cost-na" title="Cost not tracked for this provider">&ndash;<` (exact class,
+exact title text, exact `&ndash;` entity, exact single-space attribute separation), the marker
 comment `Phase 18-04 (COST-02)`, `_getProviderById(id) {`, `_sessionProviderLacksCost`,
 `${claudeOnlySuffix}` in two card labels, the literal `" (Claude only)"`, and
 `Codex cost tracking not yet supported`.
@@ -677,7 +677,7 @@ three templates.
 
 ### 6. Replacing emoji and entity icons with an icon system
 `copy-secure-context-fallback.test.js` anchors on `label: 'Copy', icon: '&#128203;'`.
-`cost-display.test.js` requires `&mdash;` and `&middot;` in
+`cost-display.test.js` requires `&ndash;` and `&middot;` in
 `settings-providers.test.js` status strings. `credential-delete-ui.test.js` requires the delete
 button to use an inline SVG and NOT an emoji. `mobile-ux-fixes.test.js` requires
 `showMoreMenu()` to contain no `icon:` key at all.

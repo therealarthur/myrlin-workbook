@@ -384,7 +384,7 @@ Bash returned no hits, which looked like a clean tree. It was a false negative: 
 Node finds **147 em dashes across 30 files**, including `styles.css`, `app.js`, `schedules.js`,
 `store.js` and `supervisor.js`. Most are in code comments, but not all: `schedules.js:336` builds
 the user-facing string `Skipped ${count} - ${reason}` with a real em dash, and `app.js:13090`
-renders `&mdash;` as the content of the no-cost session badge. Do not trust a `grep -P` for a
+renders `&ndash;` as the content of the no-cost session badge. Do not trust a `grep -P` for a
 non-ASCII codepoint on this machine.
 
 So G12 has two halves, because a single repo-wide zero rule cannot pass today.

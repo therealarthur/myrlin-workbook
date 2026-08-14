@@ -530,6 +530,31 @@ function walkText(dir, out) {
   return out;
 }
 
+/*
+ * What counts as an em dash, P12 edition.
+ *
+ * The literal codepoints, U+2014 and U+2015, AND the HTML entity spellings of
+ * the same two. P12 found four entity-encoded ones in app.js that had survived
+ * every ratchet reading of this gate: they render a real em dash into the
+ * Sessions cost column, so a gate that only read literals was reporting a
+ * number the product disagreed with. Named, decimal and hex forms are all
+ * covered, because a copy rule that only knows one spelling is a copy rule
+ * somebody routes around by accident rather than by intent.
+ *
+ * The alternation is ASSEMBLED from pieces rather than written out, because
+ * this file is itself inside a scanned tree: a literal entity in the source of
+ * the gate would make the gate count itself and never reach zero. Same reason
+ * the codepoints are \u escapes.
+ */
+const EM_DASH_ENTITY_NAMES = ['mdash', 'horbar'];
+const EM_DASH_ENTITY_NUMS = ['8212', '8213', 'x2014', 'x2015'];
+const EM_DASH_PATTERN = new RegExp(
+  '[\\u2014\\u2015]|&(?:'
+  + EM_DASH_ENTITY_NAMES.concat(EM_DASH_ENTITY_NUMS.map((n) => '#' + n)).join('|')
+  + ');',
+  'gi'
+);
+
 let emDashOccurrences = 0;
 const emDashFiles = [];
 for (const tree of EM_DASH_TREES) {
@@ -540,7 +565,7 @@ for (const tree of EM_DASH_TREES) {
     } catch (_) {
       continue;
     }
-    const hits = text.match(/[\u2014\u2015]/g);
+    const hits = text.match(EM_DASH_PATTERN);
     if (hits) {
       emDashOccurrences += hits.length;
       emDashFiles.push(path.relative(ROOT, file).replace(/\\/g, '/'));

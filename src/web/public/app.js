@@ -17120,7 +17120,7 @@ class CWMApp {
           if (supportsTokens && typeof cachedTokens === 'number' && cachedTokens > 0) {
             badges += `<span class="session-badge session-badge-cost-na" title="Token usage. This provider has no price model, so no cost is shown.">${this.escapeHtml(this.formatTokenTotal(cachedTokens))}</span>`;
           } else {
-            badges += `<span class="session-badge session-badge-cost-na" title="Cost not tracked for this provider">&mdash;</span>`;
+            badges += `<span class="session-badge session-badge-cost-na" title="Cost not tracked for this provider">&ndash;</span>`;
           }
         }
         // Subagent badge (from cached data)
@@ -18478,7 +18478,7 @@ class CWMApp {
         return '<span title="Token usage. This provider has no price model, so no cost is shown.">' +
           this.escapeHtml(this.formatTokenTotal(tokens)) + '</span>';
       }
-      return '<span title="Cost not tracked for this provider">&mdash;</span>';
+      return '<span title="Cost not tracked for this provider">&ndash;</span>';
     }
     const cached = this._getSessionCostCached ? this._getSessionCostCached(s.id) : null;
     if (cached === null || cached === undefined) return '';
@@ -27068,7 +27068,7 @@ class CWMApp {
         const rowLacksCost = this._sessionProviderLacksCost(s);
         const rowProvider = this.escapeHtml(s.provider || 'claude'); /* gsd:provider-literal-allowed */
         const costCell = rowLacksCost
-          ? `<td class="cost-cell cost-cell-na" title="Cost not tracked for this provider">&mdash;</td>`
+          ? `<td class="cost-cell cost-cell-na" title="Cost not tracked for this provider">&ndash;</td>`
           : `<td class="cost-cell">${fmtCost(s.cost)}</td>`;
         html += `<tr data-session-id="${s.id}" data-provider="${rowProvider}" class="costs-session-row">
           <td class="name-cell" title="${this.escapeHtml(s.name)}">${this.escapeHtml(s.name)}</td>
@@ -27202,7 +27202,7 @@ class CWMApp {
       const rowLacksCost = this._sessionProviderLacksCost(s);
       const rowProvider = this.escapeHtml(s.provider || 'claude'); /* gsd:provider-literal-allowed */
       const costCell = rowLacksCost
-        ? `<td class="cost-cell cost-cell-na" title="Cost not tracked for this provider">&mdash;</td>`
+        ? `<td class="cost-cell cost-cell-na" title="Cost not tracked for this provider">&ndash;</td>`
         : `<td class="cost-cell">${fmtCost(s.cost)}</td>`;
       rowsHtml += `<tr data-session-id="${s.id}" data-provider="${rowProvider}" class="costs-session-row" style="cursor:pointer">
         <td class="name-cell" title="${this.escapeHtml(s.name)}">${this.escapeHtml(s.name)}</td>

@@ -848,8 +848,8 @@ anchors on `this.renderUsageMeter()`, `usageMeter`, `accountPanelMeter`.
 
 **`test/cost-display.test.js`** - the rendered badge markup:
 `session-badge-cost">$${Number(cachedCost).toFixed(2)}` and
-`session-badge-cost-na" title="Cost not tracked for this provider">&mdash;<`, plus
-`cost-cell cost-cell-na" title="Cost not tracked for this provider">&mdash;<`.
+`session-badge-cost-na" title="Cost not tracked for this provider">&ndash;<`, plus
+`cost-cell cost-cell-na" title="Cost not tracked for this provider">&ndash;<`.
 
 **`test/terminal-select-mode.test.js`** - among 34 anchors: `terminal-pane-selectmode`,
 `terminal-pane-header`, `terminal-selectmode-strip`, `cwm_copyhint_v1`, `SELECT_MODE_STORAGE_PREFIX`,
