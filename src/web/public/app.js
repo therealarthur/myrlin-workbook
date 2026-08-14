@@ -164,6 +164,17 @@ class CWMApp {
   /** Maximum number of terminal pane slots in the grid */
   static MAX_PANES = 6;
 
+  // ── Provider filter scopes (round 1 post-launch) ──
+  //
+  // The sidebar's provider switcher governs ONE region. Naming the regions
+  // turns "which list does this filter" from a thing you infer by reading two
+  // render methods into a thing you look up in _providerFilterFor.
+  /** The Discovered section (#projects-list). The switcher's only scope. */
+  static PROVIDER_FILTER_SCOPE_DISCOVERED = 'discovered';
+  /** The tracked Projects section (#workspace-list). Never filtered; rows
+   *  carry their own provider chip instead. */
+  static PROVIDER_FILTER_SCOPE_WORKSPACES = 'workspaces';
+
   // ── Completion-notification gating constants (notification-storm fix) ──
   /** Per-session dedupe window: a session can toast/ding at most once per
    *  this window, unless genuine new activity resets its entry first. */
@@ -6153,6 +6164,9 @@ class CWMApp {
     if (this.state.token) {
       const valid = await this.checkAuth();
       if (valid) {
+        // The stored token survived a reload and the server still knows it,
+        // which is as much an auth-ready moment as a fresh login.
+        this._announceAuthReady();
         await this._initializeApp();
       } else {
         this.state.token = null;
@@ -6220,6 +6234,36 @@ class CWMApp {
     }
   }
 
+  /**
+   * Announce that a usable bearer token now exists.
+   *
+   * Round 1 post-launch fix for the "No auth token. Please log in again."
+   * dead end. Auth tokens live in an in-memory Set on the server, so a server
+   * restart invalidates every one of them. The SPA recovers on its own (its
+   * 401 branch clears the key and shows the login screen), but terminal panes
+   * attach over a WebSocket whose token is read outside that flow, and before
+   * this event they had no way to learn that a new token had arrived.
+   *
+   * TerminalPane parks itself on this event (terminal.js AUTH_READY_EVENT)
+   * and retries its attach once, with the same spawn options, when it fires.
+   * The event name is duplicated as a literal here rather than imported
+   * because app.js and terminal.js are plain scripts with no module graph;
+   * test/terminal-auth-recovery.test.js pins the two spellings together.
+   *
+   * @returns {void}
+   */
+  _announceAuthReady() {
+    try {
+      if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+      window.dispatchEvent(new CustomEvent('cwm:auth-ready', {
+        detail: { at: Date.now() },
+      }));
+    } catch (_) {
+      // A browser without CustomEvent still logs in fine; only the retro
+      // retry is lost, and a reload recovers that.
+    }
+  }
+
   async login(password) {
     this.els.loginError.textContent = '';
     this.els.loginBtn.classList.add('loading');
@@ -6230,6 +6274,9 @@ class CWMApp {
       if (data.success && data.token) {
         this.state.token = data.token;
         localStorage.setItem('cwm_token', data.token);
+        // Announce BEFORE _initializeApp so panes parked from a previous
+        // server generation retry while the shell is rebuilding, not after.
+        this._announceAuthReady();
         await this._initializeApp();
       } else {
         this.els.loginError.textContent = 'Invalid password. Please try again.';
@@ -6247,6 +6294,7 @@ class CWMApp {
     if (data.success && data.token) {
       this.state.token = data.token;
       localStorage.setItem('cwm_token', data.token);
+      this._announceAuthReady();
       await this._initializeApp();
     } else {
       throw new Error(data.error || 'Token login failed');
@@ -16991,7 +17039,16 @@ class CWMApp {
     // through; any other value filters to sessions matching that provider.
     // The filter is applied to allWsSessions BEFORE the hidden-set filter
     // so hidden counts reflect the visible (per-tab) subset.
-    const activeTab = this.state.activeProviderTab || 'all';
+    //
+    // Round 1 post-launch: the scope resolver, not state.activeProviderTab
+    // directly. The switcher moved into the Discovered section header and now
+    // governs that list alone, so the WORKSPACES scope always resolves to
+    // 'all' and this section is never provider-filtered. The helper below is
+    // kept intact and still runs, because the seam has to stay reversible: a
+    // future scope table entry re-enables it here without touching this code.
+    // Tracked rows carry their provider as a per-row chip instead (Feature
+    // Inventory: provider chips per row).
+    const activeTab = this._providerFilterFor(CWMApp.PROVIDER_FILTER_SCOPE_WORKSPACES);
     const matchesActiveProvider = (s) => activeTab === 'all'
       || (s && (s.provider || 'claude')) === activeTab; /* gsd:provider-literal-allowed */
 
@@ -19049,10 +19106,10 @@ class CWMApp {
       try { localStorage.setItem('cwm_activeProviderTab', 'all'); } catch (_) {}
     }
 
-    let html = `<button class="sidebar-tab${resolvedActive === 'all' ? ' active' : ''}" role="tab" data-provider="all" type="button">All<span class="sidebar-tab-badge">${this._countAllSessions()}</span></button>`;
+    let html = `<button class="sidebar-tab${resolvedActive === 'all' ? ' active' : ''}" role="tab" data-provider="all" type="button">All<span class="sidebar-tab-badge">${this._providerTabBadgeCount('all')}</span></button>`;
     for (const p of enabled) {
       const isActive = resolvedActive === p.id;
-      const count = this._countSessionsByProvider(p.id);
+      const count = this._providerTabBadgeCount(p.id);
       html += `<button class="sidebar-tab${isActive ? ' active' : ''}" role="tab" data-provider="${this.escapeHtml(p.id)}" type="button">${this.escapeHtml(p.displayName || p.id)}<span class="sidebar-tab-badge">${count}</span></button>`;
     }
     host.innerHTML = html;
@@ -19137,6 +19194,88 @@ class CWMApp {
   }
 
   /**
+   * Resolve the provider filter that applies to one region of the sidebar.
+   *
+   * Round 1 post-launch fix. The switcher used to sit at the top of the
+   * sidebar and filter BOTH the tracked Projects section and the Discovered
+   * section. That read as a global scope control, and because tracked
+   * sessions are overwhelmingly Claude, choosing ChatGPT Codex left the
+   * tracked project rows on screen with no sessions under them, which the
+   * user read as "codex is showing claude sessions". The switcher now lives
+   * in the Discovered section header and governs that list alone.
+   *
+   * The scope table is the single place that mapping lives, so re-enabling
+   * the filter for another region is a one-line change here rather than an
+   * edit inside two render methods.
+   *
+   * @param {string} scope One of the PROVIDER_FILTER_SCOPE_* constants.
+   * @returns {string} The active provider id for that scope, or 'all'.
+   */
+  _providerFilterFor(scope) {
+    // Read the constant through a guarded lookup so the method also runs
+    // inside the test suite's extracted-method harness, which evaluates
+    // these bodies on a bare class with no CWMApp statics in scope.
+    const discovered = (typeof CWMApp !== 'undefined' && CWMApp.PROVIDER_FILTER_SCOPE_DISCOVERED) || 'discovered';
+    if (scope !== discovered) return 'all';
+    return this.state.activeProviderTab || 'all';
+  }
+
+  /**
+   * Count discovered sessions, optionally for a single provider.
+   *
+   * The badges on the switcher have to describe the list the switcher
+   * filters. Before the move they counted TRACKED sessions while sitting
+   * above a discovered list, which is the same category error the placement
+   * itself made.
+   *
+   * Source of truth is state.projectsByProvider (the raw per-provider map
+   * from GET /api/discover), with the flattened state.projects as fallback
+   * for a cached or legacy payload. When discovery has not answered yet the
+   * caller falls back to the tracked counters, so the strip is never blank
+   * on first paint.
+   *
+   * @param {string|null} id Provider id, or null/'all' for every provider.
+   * @returns {number} Session count, 0 when nothing has been discovered.
+   */
+  _countDiscoveredSessions(id) {
+    const wanted = (!id || id === 'all') ? null : id;
+    let n = 0;
+    const byProvider = this.state.projectsByProvider;
+    if (byProvider && typeof byProvider === 'object' && !Array.isArray(byProvider)) {
+      for (const [providerId, arr] of Object.entries(byProvider)) {
+        if (wanted && providerId !== wanted) continue;
+        if (!Array.isArray(arr)) continue;
+        for (const p of arr) n += (p && Array.isArray(p.sessions)) ? p.sessions.length : 0;
+      }
+      return n;
+    }
+    const flat = Array.isArray(this.state.projects) ? this.state.projects : [];
+    for (const p of flat) {
+      if (!p || !Array.isArray(p.sessions)) continue;
+      if (wanted && (p.provider || 'claude') !== wanted) continue; /* gsd:provider-literal-allowed */
+      n += p.sessions.length;
+    }
+    return n;
+  }
+
+  /**
+   * The number a switcher badge should show for one tab.
+   *
+   * Prefers the discovered count (what the tab filters). Falls back to the
+   * tracked count when discovery has produced nothing at all, so a slow or
+   * failed /api/discover shows the old, still-meaningful number instead of a
+   * row of zeros.
+   *
+   * @param {string} id Provider id, or 'all'.
+   * @returns {number} Badge count.
+   */
+  _providerTabBadgeCount(id) {
+    const discoveredTotal = this._countDiscoveredSessions('all');
+    if (discoveredTotal > 0) return this._countDiscoveredSessions(id);
+    return id === 'all' ? this._countAllSessions() : this._countSessionsByProvider(id);
+  }
+
+  /**
    * Patch the .sidebar-tab-badge text on existing tab buttons in-place.
    * Mirrors _patchCostBadges (app.js:16742): SSE-driven updates must NOT
    * trigger a full renderProviderTabs (which would rebind click handlers
@@ -19151,7 +19290,7 @@ class CWMApp {
       const id = btn.dataset.provider;
       const badge = btn.querySelector('.sidebar-tab-badge');
       if (!badge) return;
-      const count = id === 'all' ? this._countAllSessions() : this._countSessionsByProvider(id);
+      const count = this._providerTabBadgeCount(id);
       const text = String(count);
       if (badge.textContent !== text) badge.textContent = text;
     });
@@ -19403,7 +19542,10 @@ class CWMApp {
     // Phase 18-02: render-time provider filter. Projects from pre-v1.2
     // servers lack p.provider; the v1.1 default is the Claude provider id
     // (a back-compat value, not a UI assumption), so the marker stays.
-    const activeTab = this.state.activeProviderTab || 'all';
+    //
+    // Round 1 post-launch: this is the ONE list the switcher governs, and it
+    // now sits directly above it in the Discovered section header.
+    const activeTab = this._providerFilterFor(CWMApp.PROVIDER_FILTER_SCOPE_DISCOVERED);
     if (activeTab !== 'all') {
       projects = projects.filter(p => (p && (p.provider || 'claude')) === activeTab); /* gsd:provider-literal-allowed */
     }
@@ -19442,7 +19584,15 @@ class CWMApp {
       const missingClass = !p.dirExists ? ' missing' : '';
       const hiddenClass = isProjectHidden ? ' project-hidden' : '';
       const sizeStr = p.totalSize ? this.formatSize(p.totalSize) : '';
-      const allSessions = p.sessions || [];
+      // Round 1 post-launch: filter the ROW's sessions by the same scope, not
+      // only the row itself. Today the server hands back one bucket per
+      // provider, so this is a no-op; the moment a folder-merge puts two
+      // providers' threads in one project row (the projectKey merge the
+      // Feature Inventory describes), the Codex filter must show that row with
+      // its Codex threads only, never with the Claude ones underneath it.
+      const allSessions = (p.sessions || []).filter(
+        s => activeTab === 'all' || (s && (s.provider || p.provider || 'claude')) === activeTab /* gsd:provider-literal-allowed */
+      );
       // Filter out hidden project sessions (unless showHidden is on)
       let sessions = allSessions.filter(s => this.state.showHidden || !this.state.hiddenProjectSessions.has(s.claudeSessionId));
 
@@ -19529,6 +19679,10 @@ class CWMApp {
       this.els.projectsList,
       document.getElementById('projects-search-bar'),
       document.getElementById('sidebar-section-resize'),
+      // Round 1: the provider switcher moved INTO this section, so it
+      // collapses with it. A filter strip left on screen above a hidden list
+      // is the same category error the old top-of-sidebar placement made.
+      this.els.sidebarProviderTabs || document.getElementById('sidebar-provider-tabs'),
     ];
     targets.forEach(element => {
       if (element) element.hidden = this.state.projectsCollapsed;

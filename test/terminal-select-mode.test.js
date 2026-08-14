@@ -177,7 +177,7 @@ check('index.html cache-busts the native-copy terminal fix', () => {
   // two new shortcuts, so its token moves to -p5. app.js is untouched by P5
   // and keeps -p4r, which is the independent-versioning mechanism this comment
   // block has described since the beginning working as intended.
-  assert.ok(/terminal\.js\?v=20260813-notion-p5/.test(indexSrc),
+  assert.ok(/terminal\.js\?v=20260813-notion-r1/.test(indexSrc),
     'expected the current terminal.js cache token');
 });
 
@@ -193,7 +193,7 @@ check('index.html cache-busts the app pane-focus/host fix', () => {
   // holding a cached copy would show the old four-tab bar against the new
   // stylesheet. terminal.js keeps -p5, which is the independent versioning
   // working as intended.
-  assert.ok(/app\.js\?v=20260813-notion-p10/.test(indexSrc),
+  assert.ok(/app\.js\?v=20260813-notion-r1/.test(indexSrc),
     'expected the current app.js cache token');
 });
 

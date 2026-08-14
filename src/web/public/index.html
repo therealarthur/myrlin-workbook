@@ -117,8 +117,8 @@
     almost entirely CSS-only changes, which makes that a real defect rather
     than a theoretical one. See BUILD-CONTRACT risk R7.
   -->
-  <link rel="stylesheet" href="styles.css?v=20260813-notion-p5">
-  <link rel="stylesheet" href="styles-mobile.css?v=20260813-notion-p10">
+  <link rel="stylesheet" href="styles.css?v=20260813-notion-r1">
+  <link rel="stylesheet" href="styles-mobile.css?v=20260813-notion-r1">
   <link rel="stylesheet" href="semantic-theme.css?v=20260813-notion-p5">
   <link rel="stylesheet" href="focused-shell.css?v=20260813-notion-p5">
   <script src="theme-registry.js?v=20260813-notion-p5"></script>
@@ -576,14 +576,24 @@
           <button class="sidebar-view-btn active" data-sidebar-view="projects">Projects</button>
           <button class="sidebar-view-btn" data-sidebar-view="tasks">Agent Tasks</button>
         </div>
-        <div class="sidebar-tabs" id="sidebar-provider-tabs" role="tablist"></div>
         <!--
+          THE PROVIDER SWITCHER USED TO STAND HERE, at the top of the sidebar,
+          above every section. Round 1 post-launch moved it (user, verbatim:
+          "put the claude code chatgpt all switcher under discover - thats why
+          it was confusing"). Read from the top of the sidebar it looked like a
+          global scope control, but the Projects section below it lists TRACKED
+          sessions, which are overwhelmingly Claude, so selecting ChatGPT Codex
+          appeared to show Claude sessions. It never filtered what it looked
+          like it filtered. The same node, with the same id, the same class and
+          the same tablist role, now sits inside the Discovered section header
+          where its actual scope is visible. See app.js _providerFilterFor.
+
           RECENT SECTION (BUILD-CONTRACT 2.13.3, recency surface 2).
-          Placed above Projects, below the provider tabs, so it does not sit
-          between any two of the siblings focused-shell.test.js pins
-          (#sidebar-provider-tabs, #projects-header, #projects-search-bar,
-          #projects-list, #sidebar-section-resize, .sidebar-footer) and their
-          relative order is unchanged. Rows are rendered by renderRecentSection.
+          Placed above Projects so it does not sit between any two of the
+          siblings focused-shell.test.js pins (#sidebar-provider-tabs,
+          #projects-header, #projects-search-bar, #projects-list,
+          #sidebar-section-resize, .sidebar-footer) in a way that changes their
+          relative order. Rows are rendered by renderRecentSection.
         -->
         <section class="sidebar-recent-section" id="sidebar-recent-section" hidden>
           <h2 class="sidebar-section-label">
@@ -645,6 +655,16 @@
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 6l3.5 4 3.5-4z"/></svg>
           </button>
         </div>
+        <!--
+          Provider switcher, scoped to Discovered. Same node that used to sit
+          at the top of the sidebar: same id, same class, same role, same
+          renderProviderTabs output, so every JS hook (els.sidebarProviderTabs,
+          the click binding, _patchProviderTabBadges) is untouched. Only the
+          mount point and the stylesheet changed, plus the filter scope in
+          app.js. It reads as a filter for the list directly beneath it now,
+          which is the only list it has ever actually filtered.
+        -->
+        <div class="sidebar-tabs" id="sidebar-provider-tabs" role="tablist"></div>
         <div class="projects-search-bar" id="projects-search-bar">
           <input type="text" id="projects-search-input" class="projects-search-input" placeholder="Filter projects or session IDs..." spellcheck="false" autocomplete="off" />
           <button class="btn btn-ghost btn-sm find-conversation-btn" id="find-conversation-btn" title="Search inside conversation content">
@@ -2347,8 +2367,8 @@
        bottom of terminal.js runs at parse time. It is loaded in the BODY
        rather than the head so the four head assets keep their relative order,
        which test/experience-ux-contract.test.js pins. -->
-  <script src="terminal-surface.js?v=20260813-notion-p5"></script>
-  <script src="terminal.js?v=20260813-notion-p5"></script>
+  <script src="terminal-surface.js?v=20260813-notion-r1"></script>
+  <script src="terminal.js?v=20260813-notion-r1"></script>
   <!-- Notion restyle P7: the Unified Scrollback Surface. Loaded AFTER
        terminal.js because it is optional to it: every P7 entry point in
        TerminalPane is gated on window.TerminalHistory existing, so a
@@ -2370,7 +2390,7 @@
        reason terminal-surface.js is: the four head assets keep their relative
        order, which test/experience-ux-contract.test.js pins. -->
   <script src="mobile-viewport.js?v=20260813-notion-p10"></script>
-  <script src="app.js?v=20260813-notion-p10"></script>
+  <script src="app.js?v=20260813-notion-r1"></script>
   <script src="schedules.js"></script>
   <script>
     if ('serviceWorker' in navigator) {

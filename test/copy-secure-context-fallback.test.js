@@ -391,8 +391,8 @@ async function main() {
     // -p5, which is the same independent versioning the paragraph above
     // describes, now demonstrated in the other direction.
     assert.ok(
-      /terminal\.js\?v=20260813-notion-p5/.test(indexSrc) &&
-        /app\.js\?v=20260813-notion-p10/.test(indexSrc),
+      /terminal\.js\?v=20260813-notion-r1/.test(indexSrc) &&
+        /app\.js\?v=20260813-notion-r1/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
   });

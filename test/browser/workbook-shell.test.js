@@ -377,14 +377,14 @@ async function run() {
     // untouched and keeps -p4r. Gate G10b watches exactly these two lines and
     // was PASS after P1.6; leaving them stale would hand the next phase a
     // warning that costs more to diagnose than it does to keep current.
-    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260813-notion-p5');
+    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260813-notion-r1');
     // app.js moved to -p10 with the concurrent mobile track. Carried here by
     // P5 rather than left stale: gate G10b watches these two lines, this file
     // is the FIFTH file of the atomic bump SE-11 records, and a red browser
     // lane costs the next reader more to diagnose than the token costs to
     // track. Neither value is this phase's to choose; both simply follow
     // index.html.
-    assert.strictEqual(shell.appScript, 'app.js?v=20260813-notion-p10');
+    assert.strictEqual(shell.appScript, 'app.js?v=20260813-notion-r1');
     assert.strictEqual(shell.terminalClass, 'function', 'production TerminalPane must load');
     assert.strictEqual(shell.selectInterceptor, 'function', 'Select-mode interceptor must be present');
     assert.strictEqual(shell.themeRegistry, 'object', 'canonical theme registry must load before the app');
