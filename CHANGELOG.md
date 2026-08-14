@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0-alpha.28] - 2026-08-13
+
+The first round of fixes after the restyle went live, all four of them reported from actual use.
+
+### Fixed
+
+- **A terminal that lost its connection now comes back when you sign in again.** Every restart of the server invalidates every sign-in it had issued, because it keeps them in memory. The app itself handled that: it noticed, cleared the old one and showed you the login screen. Your open terminals did not. Each one looked for a sign-in, found none, printed "No auth token. Please log in again." and stopped there for good, so signing back in left a screen full of dead panes and only a full page reload fixed it. A pane in that position now waits for the sign-in instead of giving up, says so in plain words, and reconnects itself the moment you are back in. A panel full of them asks you to sign in once, not once per pane, and a pane whose connection is refused stops retrying instead of hammering the server ten times on its way to closing itself.
+- **The ChatGPT Codex filter was in a place that made it look like it was lying.** The All / Claude Code / ChatGPT Codex switcher sat at the very top of the sidebar, above everything, so it read as if it filtered the whole rail. It never did. It filtered the Discovered list at the bottom, and choosing ChatGPT Codex emptied the sessions out from under your tracked projects while leaving the project rows on screen, which looks exactly like a Codex tab full of Claude projects. The switcher now lives inside the Discovered section, directly above the list it filters, its counts describe that list, and it hides itself when that section is collapsed. Your tracked projects are no longer filtered by it at all.
+- **Codex terminal output is no longer broken up and misaligned.** The terminal's default typeface has no box-drawing characters, no block shapes and no braille dots in it at all, and those are exactly what the Codex interface draws its panels, its bars and its spinner with. Each of those characters was being borrowed from some other typeface at that typeface's width, inside a grid measured for the first one, so every framed row drifted out of line. The terminal now starts from a typeface that has the full set. The original face is still there, still available, and still the app's face for code, ids and file paths; it is simply no longer the one the terminal measures itself against.
+
+### Changed
+
+- **The left sidebar has more room to breathe and larger, clearer names.** Rows were built to a measurement taken from a sidebar that carries page titles and nothing else. This one carries a name, a status mark, a provider, a size, a time and tags, and at that density it read as a wall. Rows are taller, session and project names are a size up and a weight bolder, section labels have real space above them, counts are quieter, and the Discovered section is now separated from your projects by a clear line and its own heading.
+- **The login screen was rebuilt.** The logo was set wider than the card that held it, so it spilled out of the box on the first screen the app shows, and the text on it was still coloured from the terminal palette rather than the app's own. It is now a narrow centred card with the mark sized to fit it, the app's own type, field and button, and a quiet footer, in both the light and dark themes.
+
 ## [Unreleased]
 
 ### Added
