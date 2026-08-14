@@ -1271,6 +1271,95 @@ class TerminalPane {
     } catch (_) {}
   }
 
+  /* ─── AUTH TOKEN SOURCE ────────────────────────────────────────────────
+   *
+   * Round 1 post-launch fix. The server holds issued bearer tokens in an
+   * in-memory Set (src/web/auth.js), so every server restart invalidates
+   * every token that was ever issued. The pane's WebSocket attach carries
+   * that token as a query param and the upgrade handler rejects a stale one
+   * with a bare 401, which the browser surfaces only as an abnormal close.
+   *
+   * Before this fix the failure was terminal, in both senses: connect() read
+   * localStorage directly, and when the SPA's own 401 handler had already
+   * cleared the key it printed "No auth token. Please log in again." and
+   * RETURNED. Nothing re-armed the pane, so a successful re-login left every
+   * open pane dead until a full page reload.
+   *
+   * Three named pieces replace that dead end:
+   *   getAuthToken()        one source of truth, app state first, storage second
+   *   AUTH_READY_EVENT      the app announces a fresh token on this window event
+   *   requestReauthOnce()   at most one re-auth prompt per window, per cooldown
+   */
+
+  // The single storage key the login flow writes and the pane reads. Declared
+  // here so a rename can never drift between the two files again.
+  static AUTH_TOKEN_STORAGE_KEY = 'cwm_token';
+
+  // Dispatched on `window` by CWMApp after any successful authentication
+  // (password login, startup-token login, or a validated stored token).
+  // Panes parked on a missing token listen for exactly this.
+  static AUTH_READY_EVENT = 'cwm:auth-ready';
+
+  // A page full of panes must not fire a re-auth check each. One check per
+  // this window is enough to make the app clear a stale token and show login.
+  static REAUTH_PROBE_COOLDOWN_MS = 5000;
+
+  // Timestamp of the last re-auth probe. Static because the debounce is
+  // page-wide, not per pane.
+  static _lastReauthProbeAt = 0;
+
+  /**
+   * Resolve the bearer token panes attach with.
+   *
+   * Order matters. `window.cwm.state.token` is the live value the SPA just
+   * wrote, and it is authoritative during the tick between a successful
+   * login and any storage read. localStorage is the durable fallback that
+   * survives a reload. Both are read defensively: a private-mode storage
+   * throw or a partially constructed app must degrade to "no token", never
+   * to an exception inside connect().
+   *
+   * @returns {string|null} A non-empty token, or null when unauthenticated.
+   */
+  static getAuthToken() {
+    let token = null;
+    try {
+      if (typeof window !== 'undefined' && window.cwm && window.cwm.state && window.cwm.state.token) {
+        token = window.cwm.state.token;
+      }
+    } catch (_) { token = null; }
+    if (!token) {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          token = localStorage.getItem(TerminalPane.AUTH_TOKEN_STORAGE_KEY);
+        }
+      } catch (_) { token = null; }
+    }
+    return (typeof token === 'string' && token.length > 0) ? token : null;
+  }
+
+  /**
+   * Ask the application to re-validate its session, at most once per
+   * REAUTH_PROBE_COOLDOWN_MS across the whole page.
+   *
+   * checkAuth() routes through CWMApp.api(), whose 401 branch clears the
+   * stored token, shows the login screen and drops SSE. That is the ONE
+   * prompt the user should see after a server restart, no matter how many
+   * panes noticed the drop. Failures are swallowed: this is a nudge, and a
+   * pane must never depend on it to make progress.
+   *
+   * @returns {void}
+   */
+  static requestReauthOnce() {
+    const now = Date.now();
+    if (now - TerminalPane._lastReauthProbeAt < TerminalPane.REAUTH_PROBE_COOLDOWN_MS) return;
+    TerminalPane._lastReauthProbeAt = now;
+    try {
+      if (typeof window !== 'undefined' && window.cwm && typeof window.cwm.checkAuth === 'function') {
+        Promise.resolve(window.cwm.checkAuth()).catch(() => {});
+      }
+    } catch (_) { /* a nudge that throws is still only a nudge */ }
+  }
+
   constructor(containerId, sessionId, sessionName, spawnOpts) {
     this.containerId = containerId;
     this.sessionId = sessionId;
@@ -1283,6 +1372,13 @@ class TerminalPane {
     this.reconnectTimer = null;
     this._reconnectAttempts = 0;
     this._maxReconnectAttempts = 10;
+    // Auth-recovery state (round 1 post-launch fix). _awaitingAuth is true
+    // while this pane is parked waiting for a fresh token; _authReadyHandler
+    // holds the single window listener that un-parks it; _sawOpenThisAttempt
+    // records whether the current socket ever completed its upgrade.
+    this._awaitingAuth = false;
+    this._authReadyHandler = null;
+    this._sawOpenThisAttempt = false;
     this._gotFirstData = false;
     // Completion detection: track whether Claude is actively producing output
     this._isWorking = false;
@@ -2374,6 +2470,51 @@ class TerminalPane {
     }
   }
 
+  /**
+   * Park this pane until the application authenticates again, then retry the
+   * attach exactly once per login.
+   *
+   * Called from connect() when no token is resolvable, and from the close
+   * handler when a socket that never opened coincides with a cleared token
+   * (the shape a server restart takes: every in-memory token is invalidated,
+   * the SPA's first 401 clears storage, and the pane's ladder would otherwise
+   * burn ten attempts against a 401 upgrade and then close the pane).
+   *
+   * Idempotent by design. The listener is stored on the instance so repeated
+   * calls cannot stack handlers, and it removes itself before reconnecting so
+   * a second login cannot double-attach the same session.
+   *
+   * @returns {void}
+   */
+  _waitForAuth() {
+    this._awaitingAuth = true;
+    // Amber, not red: this is a recoverable wait with a known remedy, and the
+    // pane text is the only place the user is told what the remedy is.
+    this._status('Signed out. Waiting for sign-in to reconnect...', 'yellow');
+    // Clear the loading shimmer; there is nothing in flight while parked.
+    try {
+      const paneEl = this._getOwnedContainer()?.closest('.terminal-pane');
+      if (paneEl) paneEl.classList.remove('terminal-pane-loading');
+    } catch (_) { /* pane may be unmounted mid-teardown */ }
+
+    TerminalPane.requestReauthOnce();
+
+    if (this._authReadyHandler || typeof window === 'undefined') return;
+    this._authReadyHandler = () => {
+      try { window.removeEventListener(TerminalPane.AUTH_READY_EVENT, this._authReadyHandler); } catch (_) {}
+      this._authReadyHandler = null;
+      if (!this._awaitingAuth) return;
+      this._awaitingAuth = false;
+      // A fresh session deserves a fresh ladder: the attempts burned against
+      // the dead server must not count against the reconnect budget.
+      this._reconnectAttempts = 0;
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.connect();
+    };
+    try { window.addEventListener(TerminalPane.AUTH_READY_EVENT, this._authReadyHandler); } catch (_) {}
+  }
+
   connect() {
     this._log('connect() entered, ws=' + (this.ws ? 'exists(state=' + this.ws.readyState + ')' : 'null'));
 
@@ -2417,13 +2558,18 @@ class TerminalPane {
       this.term.reset();
     }
 
-    const token = localStorage.getItem('cwm_token');
-    this._log('Token from localStorage: ' + (token ? token.substring(0, 12) + '...' : 'NULL'));
+    const token = TerminalPane.getAuthToken();
+    this._log('Token from auth source: ' + (token ? token.substring(0, 12) + '...' : 'NULL'));
 
     if (!token) {
-      this._status('No auth token. Please log in again.', 'red');
+      // Park the pane instead of killing it. _waitForAuth arms a one-shot
+      // listener for AUTH_READY_EVENT, so the next successful login retries
+      // this exact attach with the same spawn options.
+      this._waitForAuth();
       return;
     }
+    // A token exists, so any parked state from an earlier attempt is stale.
+    this._awaitingAuth = false;
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     let wsUrl = protocol + '//' + location.host + '/ws/terminal?token=' + encodeURIComponent(token) + '&sessionId=' + this.sessionId;
@@ -2454,6 +2600,12 @@ class TerminalPane {
     const paneEl = container ? container.closest('.terminal-pane') : null;
     if (paneEl) paneEl.classList.add('terminal-pane-loading');
 
+    // Tracks whether THIS attempt's socket ever reached onopen. A socket that
+    // closes without opening is the exact signature of a rejected upgrade
+    // (the 401 the pty server writes before destroying the socket), which the
+    // browser does not expose to script any other way.
+    this._sawOpenThisAttempt = false;
+
     try {
       this.ws = new WebSocket(wsUrl);
       // Select mode v2: make this socket self-unfreezing for input frames.
@@ -2472,6 +2624,10 @@ class TerminalPane {
 
       this.connected = true;
       this._reconnectAttempts = 0;
+      // The upgrade was accepted, so the token was good: retire both auth
+      // flags for this pane.
+      this._sawOpenThisAttempt = true;
+      this._awaitingAuth = false;
       // Mute idle notifications during the scrollback replay burst the
       // server sends right after (re)connect. Without this window, every
       // pane sitting at a prompt fires "ready for input" ~2s after a tab
@@ -2618,6 +2774,24 @@ class TerminalPane {
         // Auto-close this pane after a brief delay so user sees the error
         if (this.onFatalError) setTimeout(() => this.onFatalError(this.sessionId), 2000);
         return; // No reconnect
+      }
+
+      // Auth-aware close handling (round 1 post-launch fix).
+      //
+      // A socket that closed without ever opening was rejected at the upgrade,
+      // and after a server restart the reason is always the same: the token
+      // that survived in this tab is no longer in the server's in-memory set.
+      // Two branches, both of which end the retry storm:
+      //   token already gone  -> park on AUTH_READY_EVENT, retry after login
+      //   token still present -> ask the app to validate it ONCE; its 401
+      //                          handler clears it and shows login, and the
+      //                          next close lands in the branch above.
+      if (!this._sawOpenThisAttempt) {
+        if (!TerminalPane.getAuthToken()) {
+          this._waitForAuth();
+          return; // No ladder: a dead token does not get better with backoff.
+        }
+        TerminalPane.requestReauthOnce();
       }
 
       if (this._reconnectAttempts < this._maxReconnectAttempts) {
@@ -6972,6 +7146,13 @@ class TerminalPane {
     // the answer would have nowhere to go anyway once the socket is closed.
     this._dismissPasteConfirm();
     if (this._copyViewBtn) { try { this._copyViewBtn.remove(); } catch (_) {} this._copyViewBtn = null; }
+    // A parked pane holds a window listener. Disposing without removing it
+    // would resurrect a destroyed pane on the next successful login.
+    if (this._authReadyHandler) {
+      try { window.removeEventListener(TerminalPane.AUTH_READY_EVENT, this._authReadyHandler); } catch (_) {}
+      this._authReadyHandler = null;
+    }
+    this._awaitingAuth = false;
     if (this.ws) { this.ws.onmessage = null; this.ws.onclose = null; this.ws.close(); }
     if (this.term && this.term.element &&
         this.term.element.__cwmTerminalPane === this) {
