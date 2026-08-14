@@ -20,6 +20,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **The protections around your saved accounts are now checked automatically, every test run.** Five of them exist because something went wrong once: a hang that took the account switcher and the usage meter down for a day, accounts being declared dead when a firewall answered oddly, one account's tokens being written onto another account's record after a switch, this computer refreshing a token the Mac was using and quietly logging the Mac out, and a second program being allowed to write to the same account files at the same time. Those fixes arrived through several separate routes, and were verified once, by hand. They are now pinned by tests that fail if any of them is dropped, including one that fails if a new action is added that can change your saved accounts without checking first whether something else owns them. Nothing about how the app behaves changes; what changes is that it can no longer quietly stop behaving that way.
 
+## [1.3.0-alpha.27] - 2026-08-13
+
+The Notion restyle's last build phase: small text you can actually read, one set of icons instead of three, and an installable app whose icon is the right shape.
+
+### Fixed
+
+- **Small grey text across the app is now dark enough to read.** Labels, hints, timestamps, directory paths, meter captions and column headings were all painted in a grey that measures about 2.7 to 1 against a white page. The readable minimum for text that size is 3 to 1 and the comfortable one is 4.5. Roughly a hundred and twenty places moved onto a darker grey that measures 4.27 to 1 on the light page and 7.52 to 1 on the dark one, in every theme, without changing any layout. Nothing that is purely decorative moved; this is the copy you were meant to be able to read.
+- **Text fields and switches now have a visible edge.** A field's outline was so pale it effectively vanished on a white page, and a switch in its off position was a barely-there capsule, so on some screens you could not tell where a field started or that a switch was there at all. Both now carry a real boundary. It is a heavier line than the design it is based on draws, and that is deliberate: an invisible edge is not a style choice for anyone with low vision.
+- **The running and waiting marks agreed with each other.** Two different parts of the app described the same five session states with opposite shapes: the dots you see in the sidebar use a filled circle for "working" and a hollow ring for "waiting on you", and a second internal table had them the other way around, with a media-player triangle for running. The hollow ring is not decoration; it is the second signal for the one state whose colour is hardest to see, so having it point at the wrong state removed that signal. They now match.
+- **The installed app's icon was the wrong shape and the wrong size.** Adding the workbook to a phone or desktop home screen used a wide 691 by 361 logo declared, twice, as if it were two different square sizes. Launchers squashed it. There are now real icons at every size, including a properly padded one for Android's circular masks, and the splash screen no longer flashes dark before repainting.
+- **Em dashes are gone from the whole product and cannot come back.** Every one in the code, the comments, the scripts and the documentation, including four that were hiding as HTML entities and rendering a real dash into the Sessions cost column. The check that guards this used to only ever ask that the number not grow; it now fails on a single one, and it can see the spellings it used to miss.
+
+### Changed
+
+- **One set of icons, everywhere in the app's own chrome.** Emoji had crept into the chrome next to hand-drawn line icons: a phone and a robot on paired devices, a pencil and a bin in the project menu, a pin on notes, a bin and two clocks in the schedule popover, and four coloured circles for tunnel status. Emoji are drawn by the operating system, so they never matched the rest of the interface and looked different on every device. They are now the same line icons as everything else, and the tunnel status uses the same status dot the sidebar does.
+- **The Sessions title is sized for a phone.** It was set at the desktop's 30 pixels, which on a 390 pixel screen made the name of the screen the loudest thing on it. It steps down to 24.
+- **Adding the workbook to an iPhone home screen now opens it as an app.** The tags Safari reads for that were missing, so it opened as a bookmark in a browser tab with all of the browser's chrome, on a page whose own manifest had been promising a standalone app to every other platform.
+
 ## [1.3.0-alpha.26] - 2026-08-13
 
 Scrolling up on a phone now reaches your history instead of stopping dead at the top of the terminal, and a very long history stops costing what it used to.

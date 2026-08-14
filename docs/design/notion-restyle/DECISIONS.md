@@ -3393,3 +3393,292 @@ remains the only thing that verifies those, and it has still not been run.
    deferred to the first Terminal navigation.
 4. **`alpha.27` is P12's number**, per DV-P11b-4.
 5. **Two harness traps worth knowing before writing another suite** (18.2.6).
+
+## 19. Phase P12, contrast, art direction, PWA and the copy debt
+
+P12 is the last build phase. It owns the four debts the previous eleven named
+honestly and deferred deliberately, plus the consolidation two deviations
+flagged for it by name. Nothing here is new product surface; all of it is
+something already shipped being made to keep a promise it was making.
+
+### 19.1 The contrast reconciliation, and the two role tokens
+
+`BUILD-CONTRACT.md` 5.5.4 hands P12 "the full contrast reckoning". The
+orchestrator's ruling sets the bar: at or above 3:1 in BOTH chromes everywhere
+the tertiary or boundary families carry genuine text or an essential UI
+boundary, purely decorative uses stay tertiary, and no P3 or P4R measurement
+regresses.
+
+Two role tokens ship, defined at `:root` in `styles.css` and re-declared in the
+`[data-ui-shell="focused"]` block in `focused-shell.css` for the reason
+DECISIONS 9.3.1 gives: `data-ui-shell` is always set, so a value that block is
+expected to own has to be authored there too.
+
+| Token | Resolves to | Role | Consumers |
+| --- | --- | --- | --- |
+| `--ink-meta` | `var(--app-text-secondary)` | Meta, hint and label copy: text subordinate to the body that a person still reads. | `--text-muted` and all 29 of DV-10's sites, plus every other `color:` use of the tertiary inks. |
+| `--edge-control` | `var(--app-text-secondary)` | A 1px line that is the only thing identifying a control. | Exactly two: the application field's hairline and the switch's off-state track. |
+
+Neither is an invented colour and neither is a darkened capture, both of which
+`PROCEDURE.md` 4.2 forbids. Both are RE-PAIRINGS, which is 4.2's own prescribed
+move, onto `--app-text-secondary`. That ink is not a preference: it is the ONLY
+captured ink that clears 3:1 against every ground this application paints in
+both chromes. The two names carry one value today because one ink satisfies
+both roles; they are separate names because a text decision and a boundary
+decision must be able to move independently later.
+
+### 19.2 The table: every changed pairing, both chromes
+
+Light chrome grounds: canvas `#ffffff`, secondary `#f9f8f7`, tertiary `#f0efed`.
+Dark chrome grounds: canvas `#191919`, secondary/elevated `#202020`, tertiary
+`#383836`. All ratios are WCAG 2.x relative luminance, computed rather than
+eyeballed. Floors: 4.5:1 body text, 3:1 large text and non-text UI.
+
+| # | Site | Property | Was | Now | Light before | Light after | Dark before | Dark after | Floor |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | DV-10's 29-site family, via `--text-muted` | `color` on canvas | `--app-text-tertiary` | `--ink-meta` | **2.67** | **4.27** | 4.11 | **7.52** | 4.5 |
+| 2 | The same family, on a hovered or banded row | `color` on secondary | `--app-text-tertiary` | `--ink-meta` | **2.52** | **4.03** | **3.81** | **6.97** | 4.5 |
+| 3 | The same family, inside a tertiary block | `color` on tertiary | `--app-text-tertiary` | `--ink-meta` | **2.32** | **3.72** | **2.75** | **5.03** | 3 to 4.5 |
+| 4 | 94 further `color:` sites across the three sheets | `color` | `--app-text-tertiary` / `--text-tertiary` | `--ink-meta` | **2.67** | **4.27** | 4.11 | **7.52** | 4.5 |
+| 5 | `.input::placeholder` | `color` on the field ground | `--app-text-tertiary` | `--ink-meta` | **2.67** | **4.27** | 4.11 | **7.52** | 4.5 |
+| 6 | `.input` | `border` on canvas | `--app-border-primary` `#e6e5e3` | `--edge-control` | **1.26** | **4.27** | **1.50** | **6.97** | 3 |
+| 7 | `.input:hover` | `border-color` | `--app-border-strong` | `--app-text-accent-primary` | **1.50** | **6.50** | **2.71** | **9.07** | 3 |
+| 8 | `.settings-toggle-track` (off) | inset hairline against the card | `--app-border-strong` | `--edge-control` | **1.50** | **4.27** | **2.51** | **6.97** | 3 |
+| 9 | The same hairline, against the track it encloses | inset hairline vs `--app-bg-tertiary` | `--app-border-strong` | `--edge-control` | **1.30** | **3.72** | **1.81** | **5.03** | 3 |
+
+Bold marks a value that was below its floor or a value that crossed it. Rows 1
+to 5 and 6 to 9 are the two families the ruling named. Every one of the nine
+clears 3:1 in both chromes after the change; seven of the nine also clear 4.5.
+Row 3 is the honest exception on the light side, at 3.72 against a 4.5 body
+floor, and it is the only ground in the set where no captured ink reaches 4.5
+without becoming primary ink.
+
+**Nothing regressed.** The change is monotone by construction: every pairing
+moved from a lighter ink to a darker one in light chrome and from a darker to a
+lighter in dark chrome, on the same grounds, so no P3 or P4R measurement can
+have fallen. The P3 field value ink (13.98:1 / 14.18:1), the P3.2 status dots,
+the P3 chips and the P4R chip pairs are untouched: not one of them consumed
+`--text-muted` or a tertiary `color:`.
+
+### 19.3 What deliberately did NOT change, and the arithmetic for each
+
+**DV-12, the primary button label.** The ruling allowed moving the fill to the
+4.5-clearing pressed blue "ONLY if it does not muddy the pressed state, else
+record". The condition fails, on a number DV-12 did not have.
+`--app-ui-blue-pressed` is not one colour: it is `#105fad` in light chrome and
+`#4fa7ff` in dark, because a pressed state darkens on a light ground and
+lightens on a dark one. White on `#105fad` measures 6.44:1, which is the number
+the ruling wanted. White on `#4fa7ff` measures **2.53:1**, which is worse than
+the 3.90:1 it would replace and under even the 3:1 UI floor. Taking only the
+light half would make the rest fill chrome-dependent for the first time in the
+system and still leave the press with nowhere to go. Recorded as DV-P12-2; the
+label stays at 3.90:1, clearing the UI floor and missing the body floor by 0.6.
+
+**DV-13, danger ink.** Unchanged and still the counterexample it always was:
+4.27:1 on the canvas light and 4.12:1 dark, and re-pairing onto its matching
+wash makes it WORSE (3.65:1), because the red wash raises the ground without
+darkening the ink. Danger is never signalled by ink alone.
+
+**DV-14, the block palette.** Unchanged, and out of scope by construction: a
+dot and a meter fill are filled shapes, not text on a ground, and the palette's
+theme invariance is on the rejection list. The yellow dot stays at 2.68:1 light,
+and P12.2 below is what protects it, by making the SHAPE channel consistent.
+
+**Tertiary as a decorative mark.** Every non-`color:` use of
+`--app-text-tertiary` is untouched: washes, fills, tracks and rules. The ink
+survives; what it stopped doing is carrying text.
+
+### 19.4 P12.2, the glyph reconciliation (SE-17)
+
+Two vocabularies described the same five states in opposite shapes. The drawn
+one, settled in 13.1 and shipped across `.status-dot-*`, `.task-item-dot.*` and
+the sidebar tristate dot, is DISC for busy and RING for waiting. That ordering
+is deliberately the opposite of "filled equals on", and 13.1's reason is DV-14's
+measurement: the needs-input hue is the one of the ten under the 3:1 graphic
+floor, so it is the one dot given a unique shape.
+
+`experience-model.js` said the reverse: a filled disc for `needs-input`, a
+media-player triangle for `running` that appears nowhere else in the system, and
+the ring spent on `stale`. The glyphs moved, not the drawn dots, because the
+drawn dots are what a person has been reading for nine phases.
+
+| State | Was | Now | Matches |
+| --- | --- | --- | --- |
+| `running` | U+25B6 play | U+25CF disc | `.status-dot-running`, `.task-item-dot.busy` |
+| `needs-input` | U+25CF disc | U+25CB ring | `.status-dot-idle`, `.task-item-dot.waiting` |
+| `stale` | U+25CB ring | U+25CC dotted ring | the waiting shape gone intermittent |
+| `failed` | U+00D7 | U+00D7 | a cross is not a dot |
+| `complete` | U+2713 | U+2713 | a check is not a dot |
+
+What held the old table was "icon is a non-empty string", which is how an
+accessibility channel got inverted with every test green. The suite now pins
+the two load-bearing shapes by codepoint and asserts the five are distinct.
+
+### 19.5 P12.3, one icon family
+
+`DESIGN-SPEC.md` 11 names the recipe and its owner. `ntIcon(name, size)` plus
+`NT_ICON_PATHS` in `app.js`, exposed on `window` so sibling scripts share the
+recipe instead of growing their own. Paths for `trash`, `copy`, `close`,
+`check`, `plus`, `clock` and `user` are verbatim from the spec's dictionary.
+Four are authored: `pencil`, `pin`, `phone`, `desktop`, on the same 16-unit grid
+at the same 1.5 weight with the same round joins. Named here as additions rather
+than passed off as captured.
+
+Swept: the context sheet's platform mark (a phone emoji and a robot emoji, two
+different vendor illustration sets), Rename and Delete in the project menu, the
+pinned-notes button in `app.js` and its six copies in `index.html`, the schedule
+popover's delete and its once/repeat marks, and the named-tunnel state's four
+coloured emoji circles, which became the 7px block-palette status dot so a state
+means the same SHAPE there as in the sidebar. Both tunnel paths now append their
+label as a TEXT NODE, because the dot needs `innerHTML` and a server-supplied
+status string must not reach the HTML parser through it.
+
+Also the Sessions panel title at phone scale: `--app-h1-size` (30px/39px) is
+right over an 1100px measure and wrong under a 44px phone header above 14px
+rows, so it steps to the captured `--app-h2` pair (24px/31.2px). It remains the
+screen's single `h1` per MOBILE-EXPERIENCE 931; only the size moved, and only
+onto the next rung of the same scale.
+
+**Two emoji families deliberately left, both recorded here rather than in a
+deviation row because neither is a departure from the capture.** The terminal
+context menu's Copy glyph, whose `&#128203;` entity is pinned character-for-
+character by `copy-secure-context-fallback.test.js`, which is a G10 pinning
+suite. And the entity-encoded dingbat vocabulary the rest of the menus use
+(`&#9654;`, `&#9888;`, `&#9632;`, `&#8635;`, `&#9881;`, `&#9873;` and the two
+folder marks): those are geometric and dingbat characters rather than vendor
+emoji, and converting them is a family migration through a pinned suite rather
+than the emoji sweep this package is.
+
+### 19.6 P12.4, the copy debt, and the hole the gate had in it
+
+G12a spent nine phases as a ratchet with no target, which was the right shape:
+149 inherited em dashes are a copy problem, and all a restyle phase can honestly
+promise is that the number never grows. `PROCEDURE.md` step 11 owns the
+cleaning.
+
+  149 at the baseline, 113 at the start of this phase, **0** now.
+
+Nothing was deleted. Each dash took the punctuation its sentence was already
+asking for: a comma for an appositive or a trailing clause, a colon in a file
+header and in the handful of user-facing strings labelling a value, a semicolon
+where a comma would have spliced. Code identifiers were exempt and none needed
+changing, because no identifier in the tree carries one.
+
+**Then the p12 capture caught what the gate could not.** G12a read zero and the
+Sessions cost column still rendered an em dash: four named-entity em dashes in
+`app.js`, spelled as HTML rather than as a codepoint, in a gate whose regex only
+matched literal characters. The number was true about the source and false about
+the product. The gate now matches the named, decimal and hex entity forms as
+well, and assembles that alternation from pieces, because the gate's own file is
+inside a scanned tree and a literal entity in it would make it count itself
+forever. The four sites take `&ndash;`, which is the correct mark for an empty
+numeric cell. The entity was pinned by `cost-display.test.js` and copied into
+three doc tables; all five moved in one commit as SE-19.
+
+G12a's target is now a HARD FLOOR of zero rather than a ratchet. One occurrence
+anywhere fails it.
+
+### 19.7 P12.5, the two relocations
+
+DV-P10-5 and DV-P11-4 record the same thing and both name P12.
+
+**DV-P11-4, the desktop composer box.** Moved verbatim from
+`styles-mobile.css` into `styles.css`, beside the P5 palette contract for the
+same row, so the two halves sit in one sheet for the first time. The cascade
+cannot have moved: it is a `min-width: 769px` block, every `styles-mobile.css`
+rule touching that row is inside a `max-width: 768px` one, and no pair is ever
+live at the same viewport. Confirmed against the p12 capture and the full suite.
+
+**DV-P10-5's two qualifiers, and neither is fixed by a better tiebreaker.**
+
+| Qualifier | Why it existed | What P12 did instead |
+| --- | --- | --- |
+| `:root[data-ui-shell] nav.mobile-tab-bar` | The `nav` element bought exactly the one specificity point needed to beat `focused-shell.css`'s 60px, which loads afterwards. | The DISAGREEMENT was the bug. `focused-shell.css` now names `--mw-tabbar-h`, the mock's and C.7's 64px plus the home-indicator inset, so the two sheets agree by construction and there is one definition of the height instead of two and a referee. |
+| `:root[data-ui-shell] .app-header .account-chip` | The prefix on a MOBILE rule existed only to out-specify the sheet that authors the base `min-height`. | The floor moved to that sheet, in that sheet's own selector form. Same two controls, same 44px on both axes, same phone-WIDTH condition, which is deliberate: a narrow desktop window gets this layout with a mouse attached and the coarse-pointer block never fires there. |
+
+Both sites keep a comment where the rule was, naming its new home.
+
+### 19.8 P12.6, the PWA, and the service worker that is not here
+
+`BUILD-CONTRACT.md` P12.1 names the bug: "both entries currently point at the
+same `/logo.png` with different declared sizes, so one is a lie". It was worse
+than one lie. `logo.png` is 691x361, so both declarations were false, and the
+asset is not square, so no launcher or splash could use it without distorting
+the mark.
+
+Shipped: a real 512 and a real maskable 512 padded to the 80% safe zone, five
+entries over five distinct files with every declared size equal to the file's
+own IHDR, a stable `id`, `orientation`, three shortcuts, and a
+background/theme colour matching the `data-chrome="light"` that `index.html`
+stamps pre-paint instead of the Catppuccin `#1e1e2e` that flashed dark and
+repainted white. Plus the iOS tags Safari reads for a standalone launch, since
+it does not consult the manifest for that. `status-bar-style` stays `default`:
+`black-translucent` takes the status bar out of the flow and would slide the
+44px header under the clock, and P12.2's deferral holds until the G.5 device
+script has run.
+
+theme-color needed no work, and that is worth stating rather than assuming. P1.4
+already ships the `prefers-color-scheme` PAIR for first paint plus
+`syncThemeColorMeta`, which rewrites BOTH tags off `--app-bg-primary` on every
+`setTheme` and `setChrome`. The new suite pins it, including the
+`querySelectorAll`, because a `querySelector` leaves the other tag stale and the
+operating system keeps honouring it.
+
+The service worker is NOT built. DV-P12-3 records it: every clause of P12.3 is a
+caching policy, and caching would make the cachebusters load-bearing for the
+first time, which is a change to the deployment contract rather than to the
+restyle. The registered no-op stub stays, because unregistering a worker that
+installed clients hold is a migration; the suite proves it can neither touch the
+Cache API nor answer a request.
+
+### 19.9 The numbers
+
+| Counter | Before P12 | After P12 |
+| --- | --- | --- |
+| Suite files | 99 | **101** |
+| Suite assertions | 1854 | **1866** |
+| Suite failures | 0 | 0 |
+| Gates passing | 18/18 | 18/18 |
+| G12a | 113, no target | **0, hard floor** |
+| Pinned select-mode suites edited | 0 | **0** |
+| Text pairings under 3:1 in either chrome | 9 families | **0** |
+| Emoji-as-icon sites in chrome | 15 | **1**, the G10-pinned Copy glyph |
+| Manifest icons whose declared size is a lie | 2 of 2 | **0 of 5** |
+
+### 19.10 The p12 capture, and what it is honest about
+
+Eight shots in `screenshots/notion-restyle/p12/`: desktop 1280x800 and phone
+390x844, Sessions and Workbench, in both chromes. Looked at, not merely taken.
+
+**What they show.** Meta copy in the sidebar, the recency list, the project
+tree and the session table is legibly darker in both chromes with no layout
+shift anywhere. The phone Sessions title reads as a title at 24px instead of
+dominating the screen. The tab bar is at its 64px. The line icons are
+indistinguishable in weight from the ones already there, which is the point of
+having one recipe.
+
+**What they cannot show, and why the numbers above matter more.** No form is
+open in any of the eight, so the field hairline and the switch off-track, the
+largest visual departure in this phase, appear in none of them. Those are
+asserted arithmetically in 19.2 and visually only on the settings surface, which
+this harness does not route to. A verifier should open Settings in both chromes
+before accepting DV-P12-1.
+
+**One artefact worth naming so nobody reads it as a defect.** The harness pairs
+Latte with light chrome and Mocha with dark, so the terminal palette in the
+Workbench shots is the harness's pairing rather than a product default.
+
+### 19.11 What acceptance inherits
+
+1. **The 5.5 acceptance sweep itself (P12.5 in the contract), not run here.**
+   This phase built its rows; it did not sign them off.
+2. **G.5's seventeen-step device script**, still the only thing that can verify
+   momentum feel, real keyboard geometry, safe-area insets and the platform's
+   own selection handles. Unchanged from 15.6, 17.6 and 18.4. It gates
+   `black-translucent`.
+3. **DV-P12-1 needs eyes on a real settings surface**, per 19.10.
+4. **Four gates still short of a later phase target** (G4, G5a, G5b, G9a), all
+   pre-existing and all outside this phase's packages.
+5. **`alpha.27` is spent.** The map is P4r=21, P5=22, P6=17, P7=24, P8=19,
+   P9=20, P10=23, P11=25, P11b=26, **P12=27**, with 16 and 18 permanent gaps.
+
