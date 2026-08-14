@@ -2199,6 +2199,91 @@ const LIVE_THRESHOLD_MS = (() => {
  * @param {Object} provider - The provider object (used for provider.id tagging).
  * @returns {Array} Project accordion array, sorted by lastActive descending.
  */
+/**
+ * The observed per-thread configuration fields a provider may expose, carried
+ * verbatim into the discovery payload.
+ *
+ * Round 2. An ALLOW-LIST rather than a spread of the whole ProviderSession:
+ * the record also holds absolute rollout paths and raw project paths, and a
+ * discovery payload that grows by accident is how a path leak ships. Adding a
+ * field here is a deliberate act.
+ *
+ * Provider-agnostic by construction. Claude sessions simply do not carry these
+ * keys, so nothing is added to their records and no Claude-shaped placeholder
+ * can ever appear on a Codex row, or the reverse.
+ */
+const PROVIDER_DETAIL_FIELDS = Object.freeze([
+  'model',
+  'modelProvider',
+  'reasoningEffort',
+  'approvalMode',
+  'sandboxPolicy',
+  'tokensUsed',
+  'gitBranch',
+  'gitSha',
+  'cliVersion',
+  'threadSource',
+  'agentNickname',
+  'agentRole',
+]);
+
+/**
+ * Sandbox policy arrives as a JSON STRUCT, not a scalar.
+ *
+ * Measured across the 128 real threads on this machine, sandbox_policy holds
+ * values such as {"type":"disabled"} (58), a {"type":"managed",...} object
+ * carrying a whole file_system entry list (34), {"type":"danger-full-access"}
+ * (33) and {"type":"workspace-write","writable_roots":[...]} (3). Rendering
+ * that raw would print JSON, complete with absolute writable roots, into a
+ * status chip. The scalar the UI needs is the discriminant.
+ *
+ * Both are carried: the reduced `sandboxPolicyType` for display, and the raw
+ * string untouched for anything that needs the whole policy later.
+ *
+ * @param {*} value - Raw sandbox_policy value from the provider.
+ * @returns {string|null} The policy type, or null when it cannot be read.
+ */
+function normalizeSandboxPolicyType(value) {
+  if (value == null) return null;
+  if (typeof value === 'object' && typeof value.type === 'string') return value.type;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  // A bare word is already the type ("workspace-write"); only JSON needs work.
+  if (trimmed[0] !== '{') return trimmed;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return (parsed && typeof parsed.type === 'string') ? parsed.type : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Copy the allow-listed detail fields off a ProviderSession.
+ *
+ * Absent fields are omitted rather than set to null, so a session record never
+ * grows a key its provider does not know about, and the frontend can tell
+ * "this provider has no such concept" from "this thread has no value".
+ *
+ * @param {Object} session - ProviderSession from provider.discover().
+ * @returns {Object} A new object holding only the fields that are present.
+ */
+function pickProviderDetailFields(session) {
+  const out = {};
+  if (!session || typeof session !== 'object') return out;
+  for (const key of PROVIDER_DETAIL_FIELDS) {
+    const value = session[key];
+    if (value === undefined || value === null) continue;
+    out[key] = value;
+  }
+  if (out.sandboxPolicy !== undefined) {
+    const type = normalizeSandboxPolicyType(out.sandboxPolicy);
+    if (type) out.sandboxPolicyType = type;
+  }
+  return out;
+}
+
 function groupProviderSessionsForUI(sessions, provider) {
   const byProject = new Map();
   // Read-time title merge: a rename persisted via PUT /api/session-titles is
@@ -2245,6 +2330,21 @@ function groupProviderSessionsForUI(sessions, provider) {
     // into the JSON payload (JSON.stringify would silently null it).
     const lastActiveMs = s.lastActive ? new Date(s.lastActive).getTime() : NaN;
     bucket.sessions.push({
+      // Round 2: the OBSERVED per-thread configuration, carried through.
+      //
+      // The user asked that "the codex details actually trace properly and
+      // show accurate values". They could not: provider.discover() has always
+      // returned model, modelProvider, reasoningEffort, approvalMode,
+      // sandboxPolicy, tokensUsed, gitBranch, gitSha and cliVersion straight
+      // out of the P8 state-db reader, and THIS function dropped every one of
+      // them. The frontend, with nothing to render, invented four defaults
+      // ("gpt-5-codex", "workspace-write", "on-request", "medium"), none of
+      // which appears even once in the 128 real threads on this machine.
+      //
+      // Spread FIRST so the explicit fields below always win: this is a
+      // widening of the payload, never a rewrite of the eight keys the v1.1
+      // frontend already reads.
+      ...pickProviderDetailFields(s),
       claudeSessionId: s.providerSessionId, // legacy field name; v1.1 frontend uses this key
       provider: provider.id,
       modified: s.lastActive,

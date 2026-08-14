@@ -21323,6 +21323,17 @@ class CWMApp {
     const sess = allSessions.find(s => s && s.id === sessionId) || {};
     const codexSettings = (sess.providerSettings && sess.providerSettings.codex) /* gsd:provider-literal-allowed */ || {};
 
+    // Round 2: the submenu hints show what the thread is ACTUALLY running when
+    // there is no override, rather than the word "default". "default" is not a
+    // value: it told the user nothing about what they were about to change,
+    // and in the four cases the strip guessed at it was actively misleading.
+    const observedDetail = this._codexObservedDetail(tp && tp.sessionId, sess);
+    const hintFor = (overrideValue, observedValue) => {
+      if (overrideValue) return overrideValue;
+      if (observedValue) return observedValue + ' (in use)';
+      return 'unset';
+    };
+
     // alpha.6: include `provider` in the body so the server's ad-hoc
     // fallback can persist settings for Codex Desktop panes that were
     // right-click-opened (no Myrlin store record yet). When a store record
@@ -21356,16 +21367,47 @@ class CWMApp {
       }
     };
 
-    // Catalog of accepted values per setting. Mirrors backend allow-lists.
+    // Catalog of accepted values per setting. Mirrors the backend allow-lists
+    // in src/providers/codex/spawn.js, and test/codex-detail-trace.test.js
+    // parses BOTH files and fails if the two ever disagree again.
+    //
+    // ROUND 2: THESE LISTS WERE STALE, AND MEASURABLY WRONG.
+    //
+    // The comment above already claimed to mirror the backend. It did not.
+    // P8.7 widened the backend enums and this catalog was never updated, so
+    // the menu could not express the configuration most threads actually run.
+    // Counted across the 128 real Codex threads on this machine:
+    //
+    //   model    gpt-5.6-sol 66, gpt-5.5 43, codex-auto-review 17,
+    //            gpt-5.6-terra 1, gpt-5.4 1.
+    //            The three options offered here were gpt-5-codex, gpt-5 and
+    //            o3, which between them appear ZERO times. Every model the
+    //            user could pick was one they were not running, and the one
+    //            they WERE running could not be picked at all.
+    //   effort   ultra 52, xhigh 28, high 23, low 20, medium 2, max 1.
+    //            The menu stopped at high, so 81 of 128 threads ran an effort
+    //            the menu could not name, let alone restore.
+    //   sandbox  disabled 58, managed 34, danger-full-access 33,
+    //            workspace-write 3. Two of those four were missing.
+    //   approval never 125, on-request 3. The four offered cover both.
+    //
+    // The model list is SUGGESTIONS, not an allow-list: the backend validates
+    // models by shape (MODEL_ID_RE), so a model released tomorrow works today.
+    // These are the ids observed in real threads, which is the only honest
+    // basis for a picker.
     const MODEL_OPTIONS = [
-      { id: 'gpt-5-codex', label: 'gpt-5-codex' },
-      { id: 'gpt-5', label: 'gpt-5' },
-      { id: 'o3', label: 'o3' },
+      { id: 'gpt-5.6-sol', label: 'gpt-5.6-sol' },
+      { id: 'gpt-5.6-terra', label: 'gpt-5.6-terra' },
+      { id: 'gpt-5.5', label: 'gpt-5.5' },
+      { id: 'gpt-5.4', label: 'gpt-5.4' },
+      { id: 'codex-auto-review', label: 'codex-auto-review' },
     ];
     const SANDBOX_OPTIONS = [
       { id: 'read-only', label: 'read-only' },
       { id: 'workspace-write', label: 'workspace-write' },
       { id: 'danger-full-access', label: 'danger-full-access (risky)' },
+      { id: 'disabled', label: 'disabled' },
+      { id: 'managed', label: 'managed' },
     ];
     const APPROVAL_OPTIONS = [
       { id: 'untrusted', label: 'untrusted (prompt for unknown commands)' },
@@ -21378,6 +21420,9 @@ class CWMApp {
       { id: 'low', label: 'low' },
       { id: 'medium', label: 'medium' },
       { id: 'high', label: 'high' },
+      { id: 'xhigh', label: 'xhigh' },
+      { id: 'ultra', label: 'ultra' },
+      { id: 'max', label: 'max' },
     ];
     const FEATURE_OPTIONS = [
       { id: 'web_search', label: 'Web search' },
@@ -21392,7 +21437,7 @@ class CWMApp {
     codexItems.push({
       label: 'Model',
       icon: '&#129504;',
-      hint: codexSettings.model || 'default',
+      hint: hintFor(codexSettings.model, observedDetail.model),
       submenu: MODEL_OPTIONS.map(opt => ({
         label: opt.label,
         action: () => putSettings({ model: opt.id }),
@@ -21404,7 +21449,7 @@ class CWMApp {
     codexItems.push({
       label: 'Sandbox',
       icon: '&#128274;',
-      hint: codexSettings.sandbox || 'default',
+      hint: hintFor(codexSettings.sandbox, observedDetail.sandboxPolicyType),
       submenu: SANDBOX_OPTIONS.map(opt => ({
         label: opt.label,
         action: () => putSettings({ sandbox: opt.id }),
@@ -21417,7 +21462,7 @@ class CWMApp {
     codexItems.push({
       label: 'Approval Policy',
       icon: '&#9989;',
-      hint: codexSettings.approvalPolicy || 'default',
+      hint: hintFor(codexSettings.approvalPolicy, observedDetail.approvalMode),
       submenu: APPROVAL_OPTIONS.map(opt => ({
         label: opt.label,
         action: () => putSettings({ approvalPolicy: opt.id }),
@@ -21430,7 +21475,7 @@ class CWMApp {
     codexItems.push({
       label: 'Reasoning Effort',
       icon: '&#128173;',
-      hint: codexSettings.reasoningEffort || 'default',
+      hint: hintFor(codexSettings.reasoningEffort, observedDetail.reasoningEffort),
       submenu: EFFORT_OPTIONS.map(opt => ({
         label: opt.label,
         action: () => putSettings({ reasoningEffort: opt.id }),
@@ -21542,11 +21587,36 @@ class CWMApp {
       </span>`;
     };
 
+    // Round 2: OBSERVED values, never invented ones.
+    //
+    // These four chips used to fall back to the literals 'gpt-5-codex',
+    // 'workspace-write', 'on-request' and 'medium' whenever the session had no
+    // stored override, which is almost always. Not one of those four strings
+    // occurs in the 128 real Codex threads on this machine: the models in use
+    // are gpt-5.6-sol, gpt-5.5, codex-auto-review, gpt-5.6-terra and gpt-5.4,
+    // and the efforts are ultra, xhigh, high, low, medium and max. The strip
+    // was therefore stating a configuration the session was not running.
+    //
+    // The resolution order is now: a user override, then the value the thread
+    // actually recorded (carried through GET /api/discover as of round 2),
+    // then an explicit "unset". A value the app does not know is named as
+    // unknown; it is never filled in with a plausible guess.
+    const observed = this._codexObservedDetail(sessionId, sess);
+    const resolve = (overrideValue, observedValue) => {
+      if (overrideValue) return { value: overrideValue, source: 'override' };
+      if (observedValue) return { value: observedValue, source: 'observed' };
+      return { value: 'unset', source: 'unknown' };
+    };
+    const modelR = resolve(settings.model, observed.model);
+    const sandboxR = resolve(settings.sandbox, observed.sandboxPolicyType);
+    const approvalR = resolve(settings.approvalPolicy, observed.approvalMode);
+    const effortR = resolve(settings.reasoningEffort, observed.reasoningEffort);
+
     const chips = [];
-    chips.push(chip('model', 'model', settings.model || 'gpt-5-codex', !settings.model));
-    chips.push(chip('sandbox', 'sandbox', settings.sandbox || 'workspace-write', !settings.sandbox));
-    chips.push(chip('approval', 'approval', settings.approvalPolicy || 'on-request', !settings.approvalPolicy));
-    chips.push(chip('effort', 'effort', settings.reasoningEffort || 'medium', !settings.reasoningEffort));
+    chips.push(chip('model', 'model', modelR.value, modelR.source !== 'override'));
+    chips.push(chip('sandbox', 'sandbox', sandboxR.value, sandboxR.source !== 'override'));
+    chips.push(chip('approval', 'approval', approvalR.value, approvalR.source !== 'override'));
+    chips.push(chip('effort', 'effort', effortR.value, effortR.source !== 'override'));
     if (settings.bypassApprovalsAndSandbox === true) {
       chips.push(`<span class="codex-status-chip codex-status-chip-bypass" data-chip="bypass">BYPASS</span>`);
     }
@@ -21555,6 +21625,52 @@ class CWMApp {
       chips.push(chip('features', 'features', String(activeFeatures.length), false));
     }
     strip.innerHTML = chips.join('');
+  }
+
+  /**
+   * Look up the configuration a Codex thread ACTUALLY recorded.
+   *
+   * Round 2. GET /api/discover carries the P8 state-db reading for every
+   * discovered thread: model, modelProvider, reasoningEffort, approvalMode,
+   * sandboxPolicy (plus the reduced sandboxPolicyType), tokensUsed, gitBranch,
+   * gitSha and cliVersion. This resolves the record for a pane, so the status
+   * strip and the peek can show what the thread is running instead of what a
+   * hardcoded fallback guessed.
+   *
+   * A pane's sessionId is a Myrlin id for a tracked session and the upstream
+   * thread id for an ad-hoc one, so both are matched, plus the session's
+   * resumeSessionId, which is the upstream id a tracked session resumes.
+   *
+   * @param {string} sessionId Pane session id.
+   * @param {Object} [sess] The store session record, when there is one.
+   * @returns {Object} The observed fields, or an empty object when unknown.
+   */
+  _codexObservedDetail(sessionId, sess) {
+    const wanted = new Set();
+    if (sessionId) wanted.add(String(sessionId));
+    if (sess && sess.resumeSessionId) wanted.add(String(sess.resumeSessionId));
+    if (sess && sess.claudeSessionId) wanted.add(String(sess.claudeSessionId));
+    if (wanted.size === 0) return {};
+
+    // Prefer the per-provider map, which is the raw discovery response; fall
+    // back to the flattened list so a cached payload still resolves.
+    const buckets = [];
+    const byProvider = this.state.projectsByProvider;
+    if (byProvider && typeof byProvider === 'object' && !Array.isArray(byProvider)) {
+      for (const arr of Object.values(byProvider)) {
+        if (Array.isArray(arr)) buckets.push(...arr);
+      }
+    }
+    if (buckets.length === 0 && Array.isArray(this.state.projects)) {
+      buckets.push(...this.state.projects);
+    }
+    for (const project of buckets) {
+      if (!project || !Array.isArray(project.sessions)) continue;
+      for (const record of project.sessions) {
+        if (record && wanted.has(String(record.claudeSessionId))) return record;
+      }
+    }
+    return {};
   }
 
   /**
