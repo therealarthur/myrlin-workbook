@@ -252,7 +252,7 @@ console.log('  ' + '-'.repeat(70));
     await withFreshHome(async (home) => {
       // Stage 200 fixtures. On a fast Linux+Node20 runner the prior count of 12
       // could be searched in <1ms entirely, leaving timedOut=false AND
-      // searchedFiles=12 — both early-termination signals false despite the
+      // searchedFiles=12, both early-termination signals false despite the
       // code working correctly. 200 forces I/O time > 1ms on any platform.
       const STAGED = 200;
       for (let i = 0; i < STAGED; i++) {

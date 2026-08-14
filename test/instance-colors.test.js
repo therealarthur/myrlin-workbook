@@ -31,11 +31,11 @@ const InstanceColors = require(path.join(__dirname, '..', 'src', 'web', 'public'
 let passed = 0, failed = 0;
 function check(name, ok, detail) {
   if (ok) { passed++; console.log('  PASS  ' + name); }
-  else    { failed++; console.log('  FAIL  ' + name + (detail ? '  — ' + detail : '')); }
+  else    { failed++; console.log('  FAIL  ' + name + (detail ? ', ' + detail : '')); }
 }
 function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
-// Fixture — folderIds preserved on tabs to confirm they don't influence tab color.
+// Fixture, folderIds preserved on tabs to confirm they don't influence tab color.
 const tabs = [
   { id: 't1', name: 'Main',    folderId: 'f1', panes: [
     { slot: 0, sessionId: 'sA' }, { slot: 1, sessionId: 'sB' },

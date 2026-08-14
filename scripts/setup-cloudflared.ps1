@@ -68,7 +68,7 @@ if (Test-Path $ConfigFile) {
         $i++
     }
     if (-not $patched) {
-        # Hostname not yet in config — insert a new ingress block before the
+        # Hostname not yet in config, insert a new ingress block before the
         # final catch-all 404.
         $newLines = @()
         foreach ($line in $lines) {
@@ -81,7 +81,7 @@ if (Test-Path $ConfigFile) {
     }
     ($newLines -join "`n") | Out-File -FilePath $ConfigFile -Encoding utf8 -NoNewline
 } else {
-    # No existing config — write a minimal one with just this hostname.
+    # No existing config, write a minimal one with just this hostname.
     @"
 tunnel: $tunnelId
 credentials-file: $(Join-Path $CfDir ($tunnelId + '.json'))
@@ -98,7 +98,7 @@ Write-Host "Patched $ConfigFile to point $Hostname -> http://localhost:$Upstream
 & cloudflared tunnel ingress validate
 if ($LASTEXITCODE -ne 0) { Write-Error 'ingress validate failed'; exit 1 }
 
-# Route DNS (idempotent — no-ops if the CNAME already exists)
+# Route DNS (idempotent, no-ops if the CNAME already exists)
 Write-Host "Routing DNS $Hostname (idempotent)..." -ForegroundColor Gray
 try { & cloudflared tunnel route dns $TunnelName $Hostname } catch {
     Write-Warning "route dns: $_  (often safe to ignore if CNAME already exists)"

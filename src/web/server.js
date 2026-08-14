@@ -1056,7 +1056,7 @@ function resolveTdRepoDir(store, workspaceId) {
   const inferredDir = sorted[0][0];
 
   // If the inferred dir is a git worktree (not the main repo), resolve to the
-  // main repo root — that's where .todos/ lives, not inside the worktree.
+  // main repo root, that's where .todos/ lives, not inside the worktree.
   // `git rev-parse --git-common-dir` returns the shared .git dir for both the
   // main repo and any linked worktree, so dirname() gives the main repo root.
   try {
@@ -1072,7 +1072,7 @@ function resolveTdRepoDir(store, workspaceId) {
     if (mainRepoRoot && mainRepoRoot !== inferredDir && require('fs').existsSync(mainRepoRoot)) {
       return mainRepoRoot;
     }
-  } catch (_) { /* not a git repo or git unavailable — fall through */ }
+  } catch (_) { /* not a git repo or git unavailable, fall through */ }
 
   return inferredDir;
 }
@@ -1095,7 +1095,7 @@ app.get('/api/workspaces/:id/td/status', requireAuth, async (req, res) => {
 /**
  * POST /api/workspaces/:id/td/init
  * Run `td init` in the workspace repo directory.
- * Body: { repoDir? } — optionally set/override the repo dir at the same time.
+ * Body: { repoDir? }, optionally set/override the repo dir at the same time.
  */
 app.post('/api/workspaces/:id/td/init', requireAuth, async (req, res) => {
   const store = getStore();
@@ -1270,7 +1270,7 @@ app.get('/api/td/binary', requireAuth, async (req, res) => {
 /**
  * PUT /api/td/binary
  * Persist the td binary path in the store settings.
- * Body: { binary } — empty string clears it (falls back to env/default).
+ * Body: { binary }, empty string clears it (falls back to env/default).
  */
 app.put('/api/td/binary', requireAuth, async (req, res) => {
   const binary = ((req.body && req.body.binary) || '').trim();
@@ -5736,7 +5736,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
 
     fs.closeSync(fd);
 
-    // Parse head messages — collect first 10 user messages
+    // Parse head messages, collect first 10 user messages
     const headContent = headBuf.toString('utf-8');
     const headLines = headContent.split('\n').filter(l => l.trim());
     const firstUserMessages = [];
@@ -5748,7 +5748,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
       }
     }
 
-    // Parse tail messages — collect last 15 user + last 15 assistant messages
+    // Parse tail messages, collect last 15 user + last 15 assistant messages
     const tailContent = tailBuf.toString('utf-8');
     const tailLines = tailContent.split('\n').filter(l => l.trim());
     // Drop partial first line if we started mid-file
@@ -5788,7 +5788,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     mdParts.push(`_Generated: ${timestamp} | This file will be auto-deleted after ingestion._`);
     mdParts.push('');
 
-    // Project Overview — the original request/goal
+    // Project Overview, the original request/goal
     mdParts.push('## Project Overview');
     if (firstUserMessages.length > 0) {
       const overview = firstUserMessages[0].length > 3000
@@ -5800,7 +5800,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // What Was Accomplished — last 3-5 assistant messages summarized
+    // What Was Accomplished, last 3-5 assistant messages summarized
     mdParts.push('## What Was Accomplished');
     if (lastAssistantMessages.length > 0) {
       const workMsgs = lastAssistantMessages.slice(-5);
@@ -5815,7 +5815,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // Key Decisions & Context — early user follow-ups (decisions, clarifications)
+    // Key Decisions & Context, early user follow-ups (decisions, clarifications)
     mdParts.push('## Key Decisions & Context');
     if (firstUserMessages.length > 1) {
       const decisions = firstUserMessages.slice(1, 8);
@@ -5841,7 +5841,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // Current State — last assistant message
+    // Current State, last assistant message
     mdParts.push('## Current State');
     if (lastAssistantMessages.length > 0) {
       const lastMsg = lastAssistantMessages[lastAssistantMessages.length - 1];
@@ -5854,7 +5854,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // Open Issues — scan recent messages for TODO/FIXME/error/issue/bug patterns
+    // Open Issues, scan recent messages for TODO/FIXME/error/issue/bug patterns
     mdParts.push('## Open Issues');
     const issuePatterns = /\b(?:TODO|FIXME|HACK|BUG|ERROR|ISSUE|PROBLEM|BROKEN|FAILING|BLOCKED)\b/i;
     const issues = [];
@@ -5873,7 +5873,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // Next Steps — derived from recent user messages
+    // Next Steps, derived from recent user messages
     mdParts.push('## Next Steps');
     if (lastUserMessages.length > 0) {
       const recentUserMsgs = lastUserMessages.slice(-3);
@@ -5888,7 +5888,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // Important Notes — environment info from the session
+    // Important Notes, environment info from the session
     mdParts.push('## Important Notes');
     mdParts.push(`- Working directory: \`${workingDir}\``);
     if (session.model) mdParts.push(`- Model: ${session.model}`);
@@ -7416,20 +7416,19 @@ app.post('/api/worktree-tasks', requireAuth, async (req, res) => {
     } catch {}
 
     // Check existing worktrees to avoid two fatal git errors:
-    //   1. "already exists"  — target path is already a registered worktree
-    //   2. "already checked out" — the branch is checked out in a different worktree
+    //   1. "already exists", target path is already a registered worktree
+    //   2. "already checked out", the branch is checked out in a different worktree
     // Parse `git worktree list --porcelain` once and handle both cases.
     let skipWorktreeAdd = false;
     try {
       const listOut = await gitExec(['worktree', 'list', '--porcelain'], root);
 
-      // Case 1: exact path already registered — reuse it as-is
+      // Case 1: exact path already registered, reuse it as-is
       if (listOut.includes(`worktree ${worktreePath}`)) {
         skipWorktreeAdd = true;
       }
 
-      // Case 2: branch already checked out in a *different* worktree path —
-      // redirect worktreePath to that existing location so the rest of task
+      // Case 2: branch already checked out in a *different* worktree path, // redirect worktreePath to that existing location so the rest of task
       // creation (session, record) still succeeds pointing at the right dir.
       if (!skipWorktreeAdd) {
         const branchRef = `refs/heads/${branch}`;
@@ -8296,7 +8295,7 @@ function startNamedTunnel(token) {
   const { spawn } = require('child_process');
   let proc;
   try {
-    // Token passed as array arg — no shell injection possible regardless of content
+    // Token passed as array arg, no shell injection possible regardless of content
     proc = spawn('cloudflared', ['tunnel', 'run', '--token', token], {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,

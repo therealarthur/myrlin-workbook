@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * terminal-interaction.test.js — Real Chromium/xterm copy-paste acceptance.
+ * terminal-interaction.test.js: Real Chromium/xterm copy-paste acceptance.
  * Modified: 2026-07-25
  *
  * Starts the hermetic fixture server as a child, drives checked-in xterm and

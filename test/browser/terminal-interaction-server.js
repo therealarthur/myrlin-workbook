@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * terminal-interaction-server.js — Hermetic browser fixture for xterm input.
+ * terminal-interaction-server.js: Hermetic browser fixture for xterm input.
  * Modified: 2026-07-25
  *
  * Serves only checked-in terminal assets plus an in-memory WebSocket endpoint.

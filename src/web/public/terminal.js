@@ -1312,7 +1312,7 @@ class TerminalPane {
     this._needsInput = false;        // Whether a question was detected that wasn't auto-answered
     this._needsInputTimer = null;    // Timer to clear needsInput after new output
     this._autoTrustEnabled = false;  // Set by app layer for worktree task terminals
-    // Write batching buffers — must be initialized here so _status() calls in
+    // Write batching buffers, must be initialized here so _status() calls in
     // mount() (before connectWs runs) don't produce "undefined" prefixes.
     this._writeBuf = '';
     this._activitySample = '';
@@ -3169,7 +3169,7 @@ class TerminalPane {
   /**
    * Visibility-safe fit: only calls fitAddon.fit() when the container is visible.
    * Hidden panes (display:none from tab switching) report 0×0 dimensions, which
-   * causes fitAddon to resize the PTY to 1×1 — permanently garbling scrollback.
+   * causes fitAddon to resize the PTY to 1×1, permanently garbling scrollback.
    * All external callers should use safeFit() instead of fitAddon.fit() directly.
    */
   safeFit() {
@@ -3540,7 +3540,7 @@ class TerminalPane {
     // bubble from viewport to .xterm where xterm.js intercepts them).
     //
     // This handler intercepts touches at our container level (capture phase)
-    // and uses term.scrollLines() — xterm.js's own scroll API — so that
+    // and uses term.scrollLines(), xterm.js's own scroll API, so that
     // internal scroll state (ydisp) stays in sync. Without this, xterm.js
     // doesn't know the user has scrolled up and snaps back to the bottom
     // on every new PTY output line.
@@ -3810,7 +3810,7 @@ class TerminalPane {
       const now = Date.now();
       const dt = now - lastTime;
 
-      // Once movement exceeds threshold, it's a scroll — cancel long-press
+      // Once movement exceeds threshold, it's a scroll, cancel long-press
       if (!isScrolling && totalDelta > MOVE_THRESHOLD) {
         isScrolling = true;
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
@@ -3974,14 +3974,14 @@ class TerminalPane {
      WRITE BATCHING
      Accumulates WebSocket data and flushes to xterm.js once per
      animation frame. Prevents main-thread thrashing when multiple
-     terminals output rapidly — the primary cause of input freezes.
+     terminals output rapidly, the primary cause of input freezes.
      ═══════════════════════════════════════════════════════════ */
 
   /**
    * Enqueue data for batched writing to xterm.
    * Focused terminal: flushes every animation frame for responsive input.
    * Background terminals: flush every 150ms to avoid blocking the active pane's
-   * main thread — this is what prevents cursor freezes with multiple sessions.
+   * main thread; this is what prevents cursor freezes with multiple sessions.
    * @param {string} data - Raw terminal output
    */
   _enqueueWrite(data) {
@@ -4294,7 +4294,7 @@ class TerminalPane {
      Analyzes terminal output for interactive prompts (Y/n, trust,
      permission dialogs). When auto-trust is enabled, automatically
      accepts safe prompts. Dangerous prompts (delete, credentials)
-     are never auto-accepted — they raise a "needs input" event
+     are never auto-accepted; they raise a "needs input" event
      so the app layer can alert the user.
      ═══════════════════════════════════════════════════════════ */
 
@@ -4342,7 +4342,7 @@ class TerminalPane {
 
     if (!matched) return;
 
-    // Check for danger keywords — never auto-accept these
+    // Check for danger keywords, never auto-accept these
     const dangerKeywords = /\b(delete|remove|credential|secret|password|key|token|destroy|format|drop|wipe|overwrite)\b/i;
     const contextWindow = tail; // Check entire tail for danger context
     const isDangerous = dangerKeywords.test(contextWindow);

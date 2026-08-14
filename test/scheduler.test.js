@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Tests for src/web/scheduler.js — engine with injected clock + fake ptyManager.
+ * Tests for src/web/scheduler.js: engine with injected clock + fake ptyManager.
  * Usage: node test/scheduler.test.js
  */
 const fs = require('fs');
@@ -56,10 +56,10 @@ function makeScheduler({ clock = makeClock(), ptyManager = makePtyManager(), sto
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sched-test-'));
     dataFile = path.join(dir, 'schedules.json');
   }
-  // Lazy-require so each test gets a fresh module (caches no state — but be safe).
+  // Lazy-require so each test gets a fresh module (caches no state, but be safe).
   delete require.cache[require.resolve('../src/web/scheduler')];
   const { Scheduler } = require('../src/web/scheduler');
-  // schedule(fn, ms) is the timer abstraction — tests pass a stub that records calls.
+  // schedule(fn, ms) is the timer abstraction, tests pass a stub that records calls.
   const armed = [];
   const schedule = (fn, ms) => {
     const handle = { fn, ms, cancelled: false };
@@ -73,7 +73,7 @@ function makeScheduler({ clock = makeClock(), ptyManager = makePtyManager(), sto
   };
 }
 
-console.log('\n  Scheduler — surface + persistence');
+console.log('\n  Scheduler, surface + persistence');
 
 test('create() returns full schedule with id, persists', () => {
   const { sched, clock, dataFile } = makeScheduler();
@@ -163,7 +163,7 @@ test('round-trip: persisted schedules survive reload', () => {
   assertEqual(fresh.listActive('sess-A')[0].command, 'persist me');
 });
 
-console.log('\n  Scheduler — fire flow (success path)');
+console.log('\n  Scheduler, fire flow (success path)');
 
 test('start() arms a timer for every active schedule', () => {
   const f = makeScheduler();
@@ -256,7 +256,7 @@ test('successful fire appends a success history row', () => {
   assertEqual(hist[0].scheduledAt, s.nextFireAt);
 });
 
-console.log('\n  Scheduler — skip handling');
+console.log('\n  Scheduler, skip handling');
 
 test('stopped pty fires skipped row, recurring re-arms', () => {
   const f = makeScheduler();
@@ -300,7 +300,7 @@ test('three consecutive same-id skip rows collapse to one with skipCount=3', () 
   assertEqual(hist[0].status, 'skipped');
 });
 
-test('success between skips breaks collapse — 3 distinct rows', () => {
+test('success between skips breaks collapse, 3 distinct rows', () => {
   const f = makeScheduler();
   f.ptyManager.setSession('sess-A', false);
   const s = f.sched.create('sess-A', { command: 'x', kind: 'recurring', delayMs: 5000 });
@@ -351,7 +351,7 @@ test('history cap: 51 appends → 50 newest retained', () => {
   assertEqual(hist[hist.length - 1].command, 'c-1');
 });
 
-console.log('\n  Scheduler — boot recovery');
+console.log('\n  Scheduler, boot recovery');
 
 test('start(): missed once → skipped+deleted, no timer armed', () => {
   // Build a state file directly so the next instance boots with stale state
@@ -409,7 +409,7 @@ test('start(): future once → timer armed for the remaining delay', () => {
   assert(f.armed.some(h => h.ms === 30_000), 'expected 30s timer armed');
 });
 
-console.log('\n  Scheduler — store cleanup');
+console.log('\n  Scheduler, store cleanup');
 
 test('session:deleted clears that session\'s schedules and history', () => {
   const f = makeScheduler();

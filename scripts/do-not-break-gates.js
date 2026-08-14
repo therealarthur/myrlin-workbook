@@ -547,15 +547,27 @@ for (const tree of EM_DASH_TREES) {
     }
   }
 }
-// Pre-existing em dashes are a copy problem, not a restyle problem: 149 of them
-// across 31 files predate this program, mostly in code comments but including
-// user-facing strings such as the schedules.js skip reason. Cleaning them
-// belongs to the copy pass (PROCEDURE step 11), so this gate has no phase
-// target. What it does enforce is that the number can never grow, which is the
-// half of the rule this program is responsible for.
+// CLOSED IN P12. 149 em dashes across 31 files predated this program, mostly
+// in code comments but including user-facing strings such as the schedules.js
+// skip reason and the DESIGN-SPEC copy vocabulary. The gate spent nine phases
+// as a RATCHET with no target, because cleaning inherited copy is the copy
+// pass's job and not a restyle work package, and all it enforced was that the
+// number could never grow.
+//
+// P12.4 is that copy pass. The count went 149 -> 113 -> 0: every occurrence in
+// src, test, scripts and this program's own docs is gone, replaced by a comma,
+// a colon or a semicolon according to what the sentence was actually doing.
+// Code identifiers were exempt and none needed changing, because no identifier
+// in this tree contains one.
+//
+// The target is now a HARD FLOOR of zero rather than a ratchet. A single em
+// dash anywhere in the scanned trees fails the gate, which is the only form of
+// this rule that cannot decay.
 countGate('G12a', 'em dash and horizontal bar occurrences in the scanned trees', emDashOccurrences, {
-  direction: 'down', target: null, phase: 'P11 copy pass',
-  note: emDashFiles.length + ' files, e.g. ' + emDashFiles.slice(0, 4).join(' '),
+  direction: 'down', target: 0, phase: 'always',
+  note: emDashFiles.length
+    ? emDashFiles.length + ' files, e.g. ' + emDashFiles.slice(0, 4).join(' ')
+    : 'zero, and the floor is hard: see the note above this gate',
 });
 
 /**

@@ -1,5 +1,5 @@
 /**
- * Schedule popover — anchors under a pane's clock button and shows a small
+ * Schedule popover, anchors under a pane's clock button and shows a small
  * Active / History form + list. One shared instance, repositioned on each open.
  *
  * Usage: SchedulePopover.toggle(anchorEl, sessionId)
@@ -117,7 +117,7 @@ const SCHEDULE_ICON_REPEAT = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 1
         body.innerHTML = `<div class="schedule-list" data-history></div>`;
         this._refreshHistory();
       }
-      // Reposition after content drops in — the popover height changes,
+      // Reposition after content drops in, the popover height changes,
       // and we anchor the bottom above the button.
       this._reposition();
     },
@@ -335,7 +335,7 @@ const SCHEDULE_ICON_REPEAT = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 1
           r.skipReason === 'session-not-running' ? 'session not running'
           : r.skipReason === 'missed-while-down' ? 'missed while server down'
           : 'skipped';
-        const count = r.skipCount > 1 ? `Skipped ${r.skipCount} — ${reason}` : `Skipped — ${reason}`;
+        const count = r.skipCount > 1 ? `Skipped ${r.skipCount}: ${reason}` : `Skipped: ${reason}`;
         return `<div class="schedule-row">
           <span class="glyph" style="color:var(--peach)">⊘</span>
           <span class="label" style="color:var(--subtext0)">${escapeHtml(count)}</span>

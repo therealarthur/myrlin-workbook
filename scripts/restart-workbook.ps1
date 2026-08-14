@@ -23,12 +23,12 @@ Write-Host '== 2. Stop existing workbook processes on 3456 / 3457 ==' -Foregroun
 $ports = @(3456, 3457)
 foreach ($p in $ports) {
     $listeners = Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction SilentlyContinue
-    if (-not $listeners) { Write-Host "  port $p — no listener" -ForegroundColor Gray; continue }
+    if (-not $listeners) { Write-Host "  port $p, no listener" -ForegroundColor Gray; continue }
     foreach ($conn in $listeners) {
         $procId = $conn.OwningProcess
         $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
         $name = if ($proc) { $proc.ProcessName } else { 'unknown' }
-        Write-Host "  port $p — stopping PID $procId ($name)..." -ForegroundColor Yellow
+        Write-Host "  port $p, stopping PID $procId ($name)..." -ForegroundColor Yellow
         try {
             Stop-Process -Id $procId -Force -ErrorAction Stop
             Write-Host "    stopped." -ForegroundColor Green
@@ -51,7 +51,7 @@ $listener = Get-NetTCPConnection -State Listen -LocalPort 3457 -ErrorAction Sile
 if ($listener) {
     $procId = $listener.OwningProcess
     $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
-    Write-Host "  Listener on 3457 — PID $procId ($($proc.ProcessName))" -ForegroundColor Green
+    Write-Host "  Listener on 3457, PID $procId ($($proc.ProcessName))" -ForegroundColor Green
     # Probe locally:
     try {
         $r = Invoke-WebRequest -Uri 'http://127.0.0.1:3457' -UseBasicParsing -Method Head -TimeoutSec 5
@@ -66,7 +66,7 @@ if ($listener) {
     } catch {
         # Cloudflare Access 302 is expected for unauthenticated; Invoke-WebRequest throws.
         if ($_.Exception.Response.StatusCode -eq 302) {
-            Write-Host '  Public probe: HTTP 302 (Cloudflare Access OAuth gate — expected)' -ForegroundColor Green
+            Write-Host '  Public probe: HTTP 302 (Cloudflare Access OAuth gate, expected)' -ForegroundColor Green
         } else {
             Write-Warning "  Public probe failed: $($_.Exception.Message)"
         }

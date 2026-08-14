@@ -5824,7 +5824,7 @@ textarea.input {
    Long-press activates text selection (handled in terminal.js).
    Also prevent the page itself from scrolling under the terminal. */
 @media (max-width: 768px) {
-  /* Show a thin scrollbar on mobile — touch-draggable for precise positioning */
+  /* Show a thin scrollbar on mobile, touch-draggable for precise positioning */
   .xterm .xterm-viewport {
     overflow-y: scroll;
     scrollbar-width: thin;                /* Firefox: thin scrollbar */
@@ -5853,7 +5853,7 @@ textarea.input {
     overscroll-behavior: contain;    /* don't chain to parent */
   }
 
-  /* Ensure the app never exceeds viewport — no page-level scrollbar */
+  /* Ensure the app never exceeds viewport, no page-level scrollbar */
   .app {
     overflow: hidden;
     position: fixed;
@@ -8221,12 +8221,12 @@ body.cwm-dragging .sidebar-backdrop {
   color: var(--green);
   opacity: 1;
 }
-/* Stage 2: expand button hidden — already at max, no further expansion */
+/* Stage 2: expand button hidden, already at max, no further expansion */
 .terminal-pane-expand-stage2 {
   display: none !important;
 }
 
-/* Collapse button — inward arrows, always red, shown at stage1 + stage2 */
+/* Collapse button, inward arrows, always red, shown at stage1 + stage2 */
 .terminal-pane-collapse {
   color: var(--red);
   opacity: 0.8;
@@ -8890,7 +8890,7 @@ html.pane-colors-enabled .terminal-pane:not(.terminal-pane-empty)[data-slot="5"]
 .instance-indicator:hover .instance-indicator-square {
   transform: scale(1.1);
 }
-/* Hover ring around the visible square — disabled for now.
+/* Hover ring around the visible square, disabled for now.
 .instance-indicator:hover .instance-indicator-square {
   box-shadow: 0 0 0 1.5px var(--c-outer);
 }
@@ -8909,7 +8909,7 @@ html:not(.pane-colors-enabled) .instance-indicator-row {
   display: none;
 }
 
-/* Pane pulse — short flash when navigating from a sidebar pip */
+/* Pane pulse, short flash when navigating from a sidebar pip */
 @keyframes pane-nav-pulse {
   0%   { background-color: var(--app-bg-blue); box-shadow: inset 0 0 0 2px var(--app-ui-blue); }
   100% { background-color: transparent; box-shadow: none; }
@@ -9013,7 +9013,7 @@ html.activity-indicators-disabled .terminal-pane-activity {
   transition: background 0.15s ease;
   touch-action: none;
 }
-/* Wider invisible hit area for touch — visual stays at the handle's own width. */
+/* Wider invisible hit area for touch, visual stays at the handle's own width. */
 .terminal-resize-handle::before {
   content: "";
   position: absolute;
@@ -14161,7 +14161,7 @@ html {
 }
 
 /* ═══════════════════════════════════════════════════════════ */
-/* NORD (Dark — Polar Night & Aurora)                         */
+/* NORD (Dark, Polar Night & Aurora)                         */
 /* ═══════════════════════════════════════════════════════════ */
 
 :root[data-theme="nord"] {
@@ -14203,7 +14203,7 @@ html {
 :root[data-theme="nord"] .nt-enable-hover .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════ */
-/* DRACULA (Dark — Iconic Purple & Neon)                      */
+/* DRACULA (Dark, Iconic Purple & Neon)                      */
 /* ═══════════════════════════════════════════════════════════ */
 
 :root[data-theme="dracula"] {
@@ -14245,7 +14245,7 @@ html {
 :root[data-theme="dracula"] .nt-enable-hover .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════ */
-/* TOKYO NIGHT (Dark — Neon City Lights)                      */
+/* TOKYO NIGHT (Dark, Neon City Lights)                      */
 /* ═══════════════════════════════════════════════════════════ */
 
 :root[data-theme="tokyo-night"] {
@@ -14287,7 +14287,7 @@ html {
 :root[data-theme="tokyo-night"] .nt-enable-hover .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════ */
-/* ROSE PINE DAWN (Light — Soft Warm Rose)                    */
+/* ROSE PINE DAWN (Light, Soft Warm Rose)                    */
 /* ═══════════════════════════════════════════════════════════ */
 
 :root[data-theme="rose-pine-dawn"] {
@@ -14329,7 +14329,7 @@ html {
 :root[data-theme="rose-pine-dawn"] .nt-enable-hover .terminal-resize-handle:hover { background: color-mix(in srgb, var(--app-ui-blue) 28%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════ */
-/* GRUVBOX LIGHT (Light — Warm Retro Earthy)                  */
+/* GRUVBOX LIGHT (Light, Warm Retro Earthy)                  */
 /* ═══════════════════════════════════════════════════════════ */
 
 :root[data-theme="gruvbox-light"] {
@@ -15368,7 +15368,7 @@ html {
 /* alpha.7 follow-up: per-provider stripes on the workspace sidebar
    session items only. User asked to drop the per-provider markers from
    the Discovered Projects section (project accordions and their session
-   items) — that section already conveys provider via tab filtering, so
+   items), that section already conveys provider via tab filtering, so
    the stripes there were noise. Theme-safe via --provider-*-accent. */
 /* The provider stripe was a 3px inset bar down the left edge of every session
    row: the same one-side accent idiom BUILD-CONTRACT 2.12 removes from this
@@ -15596,16 +15596,16 @@ html {
    Three render surfaces consume the :root provider tokens from
    Plan 18-01:
 
-   1. .session-badge-cost-na — the em-dash badge rendered in place of
+   1. .session-badge-cost-na, the em-dash badge rendered in place of
       a $-value when a session's provider does not support cost
       tracking (Codex today). The dashed border + tertiary color
       signal a deliberate "not tracked" state; cursor:help cues the
       native tooltip from the title attribute.
 
-   2. .cost-cell-na — the cost-table column mirror of the badge,
+   2. .cost-cell-na, the cost-table column mirror of the badge,
       same semantics applied to the Costs dashboard sessions table.
 
-   3. .search-result-provider — the uppercase chip rendered inside
+   3. .search-result-provider, the uppercase chip rendered inside
       every search-result header. Color is driven by the parent
       .search-result[data-provider="..."] selector so every theme
       cascades the right accent through the provider token layer. */

@@ -807,7 +807,7 @@ trigger and keep the widths.
 **Account / usage popover** (`data-screen-label="Account usage popover"`):
 
 - Head: `display:flex; justify-content:space-between; padding: 12px 14px 6px`, title
-  `Claude usage — Gayane` at `font-size:14px; font-weight:600`, and a 26px refresh icon button.
+  `Claude usage: Gayane` at `font-size:14px; font-weight:600`, and a 26px refresh icon button.
 - Meters: `display:flex; flex-direction:column; gap:8px; padding: 4px 14px 12px`. Each meter is a
   label row plus a track:
   - label row `display:flex; justify-content:space-between; font-size:12px`, key at
@@ -842,7 +842,7 @@ trigger and keep the widths.
 - Reason strings are generated: Codex sessions read `Codex is waiting for command approval`, Claude
   sessions read `Held by auto-trust: prompt mentions overwrite`.
 - Empty state: `padding:18px; text-align:center; color: var(--app-text-tertiary); font-size:13px`, text
-  `All clear — nothing is waiting on you.`
+  `All clear. Nothing is waiting on you.`
 - Footer: `padding: 8px 14px; border-top: 1px solid var(--app-border-secondary); font-size:11px;
   color: var(--app-text-tertiary)`, text
   `Auto-trust answers safe prompts; anything touching deletes or credentials waits here for you.`
@@ -934,7 +934,7 @@ Note the scrim is `rgba(15,15,15,0.55)`, darker than the design system's `--app-
 - Footer: `display:flex; align-items:center; gap:8px; padding: 9px 16px;
   border-top: 1px solid var(--app-border-secondary); font-size:12px; color: var(--app-text-tertiary)`,
   a 14px sparkle icon, the text
-  `Find in conversations — full-text search across every transcript`, a spacer, and
+  `Find in conversations: full-text search across every transcript`, a spacer, and
   `⌘K search · ⌘P switcher`.
 
 Matching is `title` or project name, case-insensitive, capped at 6 results.
@@ -1286,17 +1286,17 @@ bottom right. One line, one optional action (`.nt-toast-action`). Auto dismisses
 toast clears the previous timer, so only one toast is ever on screen.
 
 The mock fires a toast for essentially every mutation. The full copy set, which doubles as the app's
-confirmation vocabulary: `Session opened in pane {n}`, `Session started`, `Pane closed — session keeps
+confirmation vocabulary: `Session opened in pane {n}`, `Session started`, `Pane closed, session keeps
 running` (or `Pane closed` when the confirm-close setting is off), `Transcript copied`,
 `Session ID copied`, `Last output copied`, `Moved to {project}`, `Stopped {title}`, `Resuming {title}`,
 `Restarted {title}`, `Titled from conversation content`, `Summary added to notes`, `Session hidden`,
-`Session unhidden`, `Removed — back in Discovered`, `Branch + worktree + session created`,
+`Session unhidden`, `Removed, back in Discovered`, `Branch + worktree + session created`,
 `{project} hidden`, `Sessions return to Discovered`, `Group duplicated`, `Task moved to {column}`,
-`Squash-merged {branch} into main`, `Pushed {branch} — open a PR on GitHub`,
-`Worktree created — agent running`, `Task added to backlog`, `Task and worktree removed`,
-`Saved as template`, `Switched to {name} — applies to new sessions`,
+`Squash-merged {branch} into main`, `Pushed {branch}, open a PR on GitHub`,
+`Worktree created, agent running`, `Task added to backlog`, `Task and worktree removed`,
+`Saved as template`, `Switched to {name}, applies to new sessions`,
 `Usage refreshed from provider APIs`, `Stopped {n} sessions`, `Voice input off`,
-`Listening — speak your prompt`, `Attach an image — drop a file or paste from the clipboard`,
+`Listening, speak your prompt`, `Attach an image: drop a file or paste from the clipboard`,
 `Model set to {model}`.
 
 **Empty states.** The mock draws exactly three, and none of them uses the design system's `.nt-empty`
@@ -1395,7 +1395,7 @@ border-radius:6px; cursor:pointer` with hover wash: a 28px `nt-avatar` in a hue 
 (name at 14px / 500 plus a `nt-chip nt-chip-gray` plan chip on the same line, meta at 12px secondary),
 and a trailing `Active` or `Re-login` status chip. A warning row is `opacity: 0.7`. Footer line at
 `padding: 8px; font-size:12px; color: var(--app-text-tertiary)`:
-`Usage of the active account — Session 42% · Opus 67% · Fable 12%, resets 2h 14m`.
+`Usage of the active account: Session 42% · Opus 67% · Fable 12%, resets 2h 14m`.
 
 **Providers and Integrations have no body.** The mock's `settingsNav` select handler explicitly refuses
 to switch to them:

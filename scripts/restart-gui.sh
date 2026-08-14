@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# restart-gui.sh — Kill the running Myrlin GUI, wait, relaunch.
+# restart-gui.sh: Kill the running Myrlin GUI, wait, relaunch.
 # Works on Windows (MINGW/Git Bash) and Unix.
 
 set -e
@@ -11,13 +11,13 @@ echo "[restart] Finding processes on port $PORT..."
 
 # Find PIDs listening on the port (Windows netstat + Unix lsof)
 if command -v netstat &>/dev/null && [[ "$OSTYPE" == "msys" || "$OSTYPE" == "mingw"* || "$OSTYPE" == "cygwin"* ]]; then
-  # Windows: netstat output format — extract PIDs listening on our port
+  # Windows: netstat output format, extract PIDs listening on our port
   PIDS=$(netstat -ano 2>/dev/null | grep ":${PORT} " | grep "LISTENING" | awk '{print $5}' | sort -u)
 elif command -v lsof &>/dev/null; then
   # Unix/Mac
   PIDS=$(lsof -ti :"$PORT" 2>/dev/null || true)
 else
-  echo "[restart] Cannot detect processes — neither netstat nor lsof available"
+  echo "[restart] Cannot detect processes, neither netstat nor lsof available"
   exit 1
 fi
 
@@ -37,7 +37,7 @@ else
   # Verify port is free
   REMAINING=$(netstat -ano 2>/dev/null | grep ":${PORT} " | grep "LISTENING" | awk '{print $5}' | sort -u || true)
   if [ -n "$REMAINING" ]; then
-    echo "[restart] Port still in use by PID(s): $REMAINING — force killing..."
+    echo "[restart] Port still in use by PID(s): $REMAINING, force killing..."
     for PID in $REMAINING; do
       if [ "$PID" = "0" ]; then continue; fi
       taskkill //PID "$PID" //F 2>/dev/null || kill -9 "$PID" 2>/dev/null || true

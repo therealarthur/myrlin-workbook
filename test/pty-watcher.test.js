@@ -13,7 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-// Skip node-pty's runtime helper checks — we don't spawn anything here.
+// Skip node-pty's runtime helper checks, we don't spawn anything here.
 process.env.PTY_SKIP_HELPER_FIX = '1';
 
 const { __test } = require('../src/web/pty-manager');
