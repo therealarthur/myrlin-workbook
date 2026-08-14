@@ -1322,10 +1322,17 @@
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Login form mobile */
+  /* Login form mobile. Round 1: the phone card loses a little side padding so
+     the 216px identity and the field both breathe inside a 390px viewport,
+     and the brand block tightens by the same amount the desktop card did. */
   .login-card {
     margin: 16px;
     max-width: calc(100vw - 32px);
+    padding: 28px 20px 24px;
+  }
+
+  .login-brand {
+    margin-bottom: 24px;
   }
 
   .login-card input {

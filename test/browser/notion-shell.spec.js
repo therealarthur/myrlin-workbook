@@ -145,6 +145,52 @@ const REGION_ROUTES = [
     },
   },
   {
+    // THE CODEX PANE REGION, added round 1 post-launch, for the report
+    // "codex/chatgpt terminal output is not formatted properly". The Codex
+    // TUI frames every panel with box-drawing runs and animates with braille,
+    // which is the exact repertoire the vendored terminal face does not
+    // contain (measured in test/terminal-font-coverage.test.js: 0/128, 0/32,
+    // 0/256). A picture of a real codex pane is the only way to see what a
+    // per-glyph fallback does to a monospace grid.
+    //
+    // Safe by construction, the same way the shell probe is: the child server
+    // runs with USERPROFILE, APPDATA, TEMP and every CWM_* path inside the
+    // disposable sandbox, so the CLI reads no real profile. No prompt text is
+    // ever sent; the pane is opened, allowed to paint, photographed, killed.
+    id: 'codex-terminal',
+    apply: async (page) => {
+      await page.evaluate(() => {
+        window.cwm.setViewMode('terminal');
+        window.cwm.openTerminalInPane(0, 'r1-codex-probe', 'Codex', { provider: 'codex' });
+      });
+      await waitForPaintedTerminal(page, 45000);
+      // The TUI paints its frame after the first prompt draw; give it a beat
+      // so the shutter catches the framed state rather than the bare line.
+      await page.waitForTimeout(3500);
+    },
+    cleanup: killProbePane,
+  },
+  {
+    // THE SIDEBAR REGION, added round 1 post-launch. The rail is the surface
+    // the user called "really really clustered", and the Discovered section
+    // now owns the provider switcher, so both halves of the round 1 sidebar
+    // work have to be in one picture. The Discovered section defaults to
+    // COLLAPSED in the focused shell, which is why this region exists at all:
+    // without expanding it, no capture in the harness ever shows the switcher
+    // in the place it was moved to.
+    id: 'sidebar',
+    apply: async (page) => {
+      await page.evaluate(() => {
+        window.cwm.setViewMode('workspace');
+        if (typeof window.cwm.setProjectsCollapsed === 'function') {
+          window.cwm.setProjectsCollapsed(false, false);
+        }
+        if (typeof window.cwm.renderProjects === 'function') window.cwm.renderProjects();
+        if (typeof window.cwm.renderProviderTabs === 'function') window.cwm.renderProviderTabs();
+      });
+    },
+  },
+  {
     // THE TERMINAL REGION, added by P5. The other three regions are reachable
     // by switching a view; this one needs a LIVE PTY, because a terminal pane
     // with nothing attached is a drop slot and shows none of what P5 changed:
@@ -1787,6 +1833,83 @@ async function run() {
     );
 
     assert.deepStrictEqual(pageErrors, [], 'the application raised browser errors during capture');
+    // Opt-in login pass, `--login`. LAST, because it signs the page out and
+    // every pass above it needs the authenticated shell. Both chromes, both
+    // viewports, into login/ and a separate manifest key, so the standard shot
+    // list is unchanged (same rule the region and mobile passes follow).
+    //
+    // It also MEASURES the one thing that made the shipped login screen wrong:
+    // the identity image was 420px wide inside a 400px card, so it overflowed
+    // its own container. The assertion is on the rendered boxes, not on the
+    // stylesheet, so it holds whatever a future card measures.
+    if (process.argv.includes('--login')) {
+      const loginDir = path.join(outputDir, 'login');
+      fs.mkdirSync(loginDir, { recursive: true });
+      manifest.loginShots = [];
+      // Drop the token and reload: the app boots straight to #login-screen.
+      await page.evaluate(() => {
+        try { localStorage.removeItem('cwm_token'); } catch (_) {}
+      });
+      await page.goto(started.url.split('?')[0], { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.locator('#login-screen').waitFor({ state: 'visible', timeout: 30000 });
+
+      for (const viewport of [VIEWPORTS[0], VIEWPORTS[1]]) {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        for (const chrome of CHROMES) {
+          // window.cwm exists pre-auth (it is constructed at script load), so
+          // the real chrome switch drives this pass too; the dataset fallback
+          // is here because a login screen must never depend on app state.
+          await page.evaluate(({ chromeId }) => {
+            if (window.cwm && typeof window.cwm.setChrome === 'function') window.cwm.setChrome(chromeId);
+            else document.documentElement.dataset.chrome = chromeId;
+          }, { chromeId: chrome.chrome });
+          await page.waitForTimeout(250);
+
+          const name = ['login', viewport.id, chrome.id].join('-') + '.png';
+          const file = path.join(loginDir, name);
+          await page.screenshot({ path: file, fullPage: false });
+          const dims = pngDimensions(file);
+          assert.ok(dims.bytes > MIN_PNG_BYTES, 'captured login PNG is suspiciously small: ' + file);
+
+          const boxes = await page.evaluate(() => {
+            const rect = (sel) => {
+              const el = document.querySelector(sel);
+              if (!el) return null;
+              const b = el.getBoundingClientRect();
+              return { width: Math.round(b.width), height: Math.round(b.height), left: Math.round(b.left) };
+            };
+            const styleOf = (sel) => {
+              const el = document.querySelector(sel);
+              return el ? getComputedStyle(el) : null;
+            };
+            const title = styleOf('.login-title');
+            return {
+              card: rect('.login-card'),
+              logo: rect('.login-logo-img'),
+              button: rect('#login-btn'),
+              input: rect('#login-password'),
+              titleSize: title ? title.fontSize : null,
+              titleWeight: title ? title.fontWeight : null,
+              ground: getComputedStyle(document.querySelector('.login-screen')).backgroundColor,
+            };
+          });
+          assert.ok(boxes.card && boxes.logo, 'the login card and its identity must render');
+          assert.ok(
+            boxes.logo.width <= boxes.card.width,
+            'the identity overflows its card (' + boxes.logo.width + 'px in ' + boxes.card.width + 'px): ' + name
+          );
+          manifest.loginShots.push({
+            name, viewport: viewport.id, chrome: chrome.id,
+            width: dims.width, height: dims.height, bytes: dims.bytes, boxes,
+          });
+          console.log('  captured login/' + name + '  card=' + boxes.card.width +
+            ' logo=' + boxes.logo.width + ' title=' + boxes.titleSize + '/' + boxes.titleWeight);
+        }
+      }
+      await page.setViewportSize({ width: VIEWPORTS[0].width, height: VIEWPORTS[0].height });
+    }
+
+
 
     // Google Fonts is the one external origin the app requests today. P1.2
     // removes it, and this assertion is what proves it: after P1.2 the list must

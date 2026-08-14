@@ -143,6 +143,27 @@
      focus ring becomes the Notion blue with no call-site edit. */
   --accent: var(--app-ui-blue);
 
+  /* ─── Sidebar density, round 1 post-launch ───────────────────
+     The user, on the shipped sidebar: "the left navbar is really really
+     clustered. does not look super clean. we need more purposeful spacing
+     and bolder/bigger text". P2.2 built the rail on the captured
+     --app-sidebar-item-height of 27px, which is what Notion's own sidebar
+     measures. Notion's sidebar carries page names and nothing else. This one
+     carries a name, a status mark, a provider identity, a size, a time and
+     up to three tags per row, and at 27px those stack into a wall.
+
+     The captured token is NOT edited: it is a measurement of Notion and it
+     stays true. These are the app's own row measures, defined here so the
+     rail's density is three numbers in one place instead of nine literals
+     spread across four hundred lines.
+
+       --app-sidebar-row-height     top-level rows: projects, discovered folders
+       --app-sidebar-subrow-height  nested rows: sessions under either parent
+       --app-sidebar-section-gap    the air between one section and the next */
+  --app-sidebar-row-height: 32px;
+  --app-sidebar-subrow-height: 30px;
+  --app-sidebar-section-gap: 14px;
+
   /* ─── Compatibility aliases ──────────────────────────────────
      These tokens were consumed across the stylesheet (context menus,
      the settings nav rail, Codex status chips, the workspace group
@@ -257,8 +278,27 @@
      terminal face before P5 and P1.2 removed the webfont link that loaded it:
      a user who has it installed locally keeps exactly what they had, which is
      what "JetBrains Mono stays a selectable token" means. Everything after
-     that is --font-code verbatim, so OQ-2's default is still the floor. */
-  --font-terminal: "iA Writer Mono", "JetBrains Mono", var(--font-code);
+     that is --font-code verbatim, so OQ-2's default is still the floor.
+
+     ROUND 1 POST-LAUNCH REORDER, and the measurement that forced it. The user
+     reported "codex/chatgpt terminal output is not formatted properly". The
+     cause is glyph coverage, measured off the vendored woff2 cmaps by
+     test/terminal-font-coverage.test.js: iA Writer Mono S maps 746 code
+     points and covers 0 of the 128 box-drawing characters (U+2500-257F), 0 of
+     the 32 block elements (U+2580-259F) and 0 of the 256 braille patterns
+     (U+2800-28FF). The Codex TUI draws its frames out of box-drawing runs and
+     its spinner out of braille, so every one of those glyphs fell through to
+     whatever face the browser picked next, at that face's advance width, on a
+     grid measured from iA Writer's. Rows tore. A terminal grid cannot be
+     built on a face that does not cover the characters the programs in it
+     draw, so the terminal leads with a coverage-complete mono now.
+
+     iA Writer Mono is NOT removed: it stays in the chain, it stays the app's
+     --font-mono for code, ids and diffs, and a per-theme fontFamily override
+     can still select it. Only the terminal's default order changed, and only
+     because correctness beats art direction inside a PTY. DEVIATIONS.md
+     carries the record. */
+  --font-terminal: "JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, "iA Writer Mono", var(--font-code);
 
   /* THE TERMINAL SURFACE PADDING, Notion restyle P5.5, DESIGN-SPEC 5.5.
      Tokens rather than literals for two reasons: the phone floor overrides
@@ -1920,32 +1960,57 @@ textarea.input {
   background-image: none;
 }
 
+/* ─── THE LOGIN CARD, RETURNED TO THE NOTION LANGUAGE (round 1) ───────────
+ *
+ * The user, on the shipped screen: "the login screen is a step back". It was,
+ * and the reason was measurable rather than a matter of taste: .login-logo-img
+ * was 420px wide inside a 400px card with 36px of side padding, so the
+ * wordmark overflowed its own container by 92px in both directions and the
+ * first screen the product shows was a picture bleeding out of a box. On top
+ * of that the type still read from the TERMINAL palette (--text-primary,
+ * --text-muted, --overlay0) on a CHROME surface, which is the one mixing rule
+ * DESIGN-SPEC 10.1 asks the restyle never to break.
+ *
+ * What ships now: a narrow centred card on the warm ground, the identity
+ * sized to the measure it sits in, chrome inks throughout, the app's own
+ * field and primary button, and a quiet footer. Nothing decorative is added.
+ * The card is the only elevated surface on the screen and it earns that by
+ * being the only thing on it. */
 .login-card {
   position: relative;
   width: 100%;
-  max-width: 400px;
-  padding: 40px 36px;
+  max-width: 380px;
+  padding: 36px 32px 32px;
   background: var(--app-bg-elevated);
   border: 1px solid var(--app-border-primary);
   border-radius: var(--radius-callout);
-  box-shadow: var(--app-shadow-scrim);
+  /* The scrim is the modal shadow: 24px of blur at 24 percent, which on the
+     dark ground painted a visible smudge around the card. A card that is the
+     only thing on screen does not need to be lifted off a scrim, it needs to
+     be lifted off the ground, which is what the md shadow is for. */
+  box-shadow: var(--app-shadow-md);
   animation: mwFadein var(--duration-150) var(--ease-out);
 }
 
 .login-brand {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
+/* The asset is 691x361 with generous transparent margins of its own, so the
+   gap under it is smaller than the optical gap it produces. */
 .login-logo {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 20px;
+  margin-bottom: 6px;
 }
 
+/* The identity is sized to the card, not to a number picked before the card
+   had a width. min() keeps it inside the measure at every viewport this
+   screen can be shown at, including the 390px phone. */
 .login-logo-img {
-  width: 420px;
+  width: min(100%, 240px);
   height: auto;
   object-fit: contain;
   filter: none;
@@ -1977,28 +2042,47 @@ textarea.input {
   }
 }
 
+/* Chrome inks and the OS stack, like every other title in the shell. 700 was
+   the heaviest weight anywhere in the app; the wordmark carries the brand and
+   the line under it only has to name the product. */
 .login-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
+  font-family: var(--font-app-ui);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+  letter-spacing: -0.01em;
 }
 
 .login-subtitle {
+  font-family: var(--font-app-ui);
   font-size: 13px;
-  color: var(--text-muted);
+  line-height: 1.45;
+  color: var(--app-text-secondary);
   margin-top: 6px;
 }
 
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+}
+
+/* The field label above the password input. Small, secondary, sentence case:
+   the same treatment the settings rows use, so the one field on this screen
+   is recognisably the same control as every field behind it. */
+.login-form .input-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-text-secondary);
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .login-error {
   font-size: 13px;
-  color: var(--red);
+  /* Chrome red, not the terminal palette's --red: this is chrome copy on a
+     chrome surface (DESIGN-SPEC 10.1, the two-axis rule). */
+  color: var(--app-text-red);
   min-height: 0;
   overflow: hidden;
   transition: all var(--transition-normal);
@@ -2008,18 +2092,24 @@ textarea.input {
   display: none;
 }
 
+/* The two rgba() literals here were the retired Catppuccin red at 8 and 20
+   percent, hardcoded, so they did not move when the chrome changed and did
+   not exist in the light chrome's vocabulary at all. color-mix on the chrome
+   red gives the same wash in both chromes from one token. */
 .login-error:not(:empty) {
-  padding: 10px 14px;
-  background: rgba(243, 139, 168, 0.08);
-  border: 1px solid rgba(243, 139, 168, 0.2);
-  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--app-text-red) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-text-red) 22%, transparent);
+  border-radius: var(--radius-property-chip);
+  color: var(--app-text-red);
 }
 
 .login-footer {
   text-align: center;
-  font-size: 11px;
-  color: var(--overlay0);
-  margin-top: 24px;
+  font-family: var(--font-app-ui);
+  font-size: 12px;
+  color: var(--ink-meta);
+  margin-top: 22px;
 }
 
 
@@ -2571,20 +2661,46 @@ textarea.input {
   font-weight: 600;
 }
 
+/* Round 1: a section header now opens with air above it. 4px of padding on a
+   27px stack of rows meant every label sat as close to the list above it as
+   the rows sat to each other, which is the specific thing the user read as
+   "clustered". The gap is a token so all three headers move together. */
 .sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px;
+  padding: 4px 8px 6px;
+  margin-top: var(--app-sidebar-section-gap);
+}
+
+/* The first header in the rail has the launch row and the view toggle above
+   it, which already provide the separation, so it does not double up. */
+#sidebar-projects-header {
+  margin-top: 6px;
+}
+
+/* Round 1: "the Discovered section clearly separated". It is a different KIND
+   of list from the tracked projects above it (found on disk, not adopted into
+   a workspace) and it now owns the provider switcher, so it opens with a
+   hairline and the full section gap above its label. The hairline is the
+   secondary border, the quietest rule in the system: separation here is a
+   change of altitude, not a divider bar. */
+#projects-header {
+  border-top: 1px solid var(--app-border-secondary);
+  padding-top: 10px;
 }
 
 /* Section label, DESIGN-SPEC.md 3.3. Sentence case at 12px/500 in the
    captured section-label ink. The old 11px/600 uppercase with 0.08em tracking
    was the loudest surviving instance of the treatment this design reserves for
    exactly one label in the whole app. */
+/* Round 1: the label stays small, which is the Notion idiom, but it gains
+   weight so it reads as a section marker rather than as another quiet row.
+   Size unchanged at 12px on purpose: the ask was for bolder titles, and the
+   titles are the ROWS. A louder section label would compete with them. */
 .sidebar-title {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
   color: var(--app-sidebar-section-label);
@@ -2623,14 +2739,15 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: var(--app-sidebar-item-height);
-  padding: 4px 8px;
+  /* Round 1: 32px, up from the captured 27px. See --app-sidebar-row-height. */
+  min-height: var(--app-sidebar-row-height);
+  padding: 5px 8px;
   border-radius: var(--radius-block-hover);
   cursor: pointer;
   transition: var(--motion-hover-reveal), color var(--transition-fast);
   position: relative;
   border: 1px solid transparent;
-  margin-bottom: 1px;
+  margin-bottom: 2px;
   color: var(--app-text-secondary);
   font-size: 14px;
   font-weight: 500;
@@ -2728,9 +2845,12 @@ textarea.input {
   min-width: 0;
 }
 
+/* Round 1: a project name is the loudest thing in the rail, so it carries
+   weight rather than borrowing the row's. 14px/600 reads as a heading at the
+   sidebar's measure without becoming a second typeface. */
 .workspace-name {
   font-size: 14px;
-  font-weight: inherit;
+  font-weight: 600;
   color: inherit;
   white-space: nowrap;
   overflow: hidden;
@@ -2816,13 +2936,16 @@ textarea.input {
   padding-left: 12px;
 }
 
+/* Round 1: 30px and 4px of vertical padding, up from 26px and 3px. The row
+   holds a dot, a name, a size, a time and its tags; at 26px they touched the
+   rows above and below and the rail read as one block of text. */
 .ws-session-item {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
-  min-height: 26px;
-  padding: 3px 8px 3px 22px;
+  min-height: var(--app-sidebar-subrow-height);
+  padding: 4px 8px 4px 22px;
   border-radius: var(--radius-block-hover);
   cursor: pointer;
   transition: var(--motion-hover-reveal), color var(--transition-fast);
@@ -2867,13 +2990,17 @@ textarea.input {
   background: var(--app-text-green);
 }
 
+/* Round 1: 14px/500. A session name is what the user is actually looking for
+   in this rail, so it sits one weight below its project header and at the
+   same size, rather than a size below it in the same weight. */
 .ws-session-name {
   flex: 1;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .ws-session-size {
@@ -2913,20 +3040,24 @@ textarea.input {
    27px row geometry, section label and hover wash, so it reads as part of
    the tree rather than as a widget bolted above it.
    ═══════════════════════════════════════════════════════════ */
+/* Round 1: the Recent list is the first thing in the rail and it needs air
+   under it, or the Projects label that follows reads as its last row. */
 .sidebar-recent-section {
   flex-shrink: 0;
-  padding-bottom: 2px;
+  padding-bottom: 6px;
 }
 
 .sidebar-recent-section[hidden] {
   display: none;
 }
 
+/* Round 1: 600, matching .sidebar-title. Both are section markers in the same
+   rail, so they carry the same treatment. */
 .sidebar-section-label {
   margin: 0;
   padding: 0;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--app-sidebar-section-label);
 }
 
@@ -2965,11 +3096,14 @@ textarea.input {
 
 /* 27px, 4px 8px, 8px gap, 6px radius: BUILD-CONTRACT 2.12's sidebar row,
    with zero left borders, zero bars and zero underlines. */
+/* Round 1: a recent row is a SESSION row, so it takes the session row's
+   measure. It kept 27px while the rows below it grew, which left the
+   most-used list in the rail as the tightest thing on the screen. */
 .sidebar-recent-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 27px;
+  min-height: var(--app-sidebar-subrow-height);
   padding: 4px 8px;
   border-radius: var(--radius-block-hover);
   cursor: pointer;
@@ -2989,8 +3123,11 @@ textarea.input {
 /* In a 240px sidebar the title is 13px, so its own row chip rule applies and
    the trailing time drops to 11px: a timestamp is the least important thing
    on the row and must never compete with the name. */
+/* Round 1: 14px/500, the same title treatment every other session row in the
+   rail now carries. */
 .sidebar-recent-row .recent-row-title {
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .sidebar-recent-row .recent-row-time {
@@ -6779,19 +6916,27 @@ body.cwm-dragging .sidebar-backdrop {
 .project-accordion { margin: 0 4px; }
 .project-accordion.missing { opacity: 0.4; }
 .project-accordion.project-hidden { opacity: 0.45; }
+/* Round 1: the discovered folder header matches the tracked project row it
+   sits below, 32px and 14px/600, so the two halves of the rail read as one
+   system at one density instead of two lists at two sizes. */
 .project-accordion-header {
   display: flex; align-items: center; gap: 8px;
-  min-height: var(--app-sidebar-item-height);
-  padding: 4px 8px; border-radius: var(--radius-block-hover);
+  min-height: var(--app-sidebar-row-height);
+  padding: 5px 8px; border-radius: var(--radius-block-hover);
   cursor: pointer; transition: var(--motion-hover-reveal), color var(--transition-fast);
-  font-size: 13px; color: var(--app-text-secondary); font-weight: 500;
+  font-size: 14px; color: var(--app-text-secondary); font-weight: 600;
 }
 .nt-enable-hover .project-accordion-header:hover { background: var(--app-wash-hover); color: var(--app-text-primary); }
-.project-accordion-header .project-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
-.project-accordion-header .project-size { font-size: 11px; color: var(--ink-meta); font-family: var(--font-mono); }
+.project-accordion-header .project-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.project-accordion-header .project-size { font-size: 11px; color: var(--ink-meta); font-family: var(--font-mono); font-weight: 400; }
+/* A count is the quietest thing in the row (round 1: "count badges quieter").
+   Quiet is bought with size and weight, NOT with --app-text-tertiary: P12
+   measured that ink at 2.67:1 on the light ground and reserved it for
+   non-text marks. --ink-meta is the semantic meta ink and clears the floor. */
 .project-accordion-header .project-session-count {
   font-size: 12px; color: var(--ink-meta); background: transparent;
   padding: 1px 2px; border-radius: var(--radius-property-chip); font-family: inherit;
+  font-weight: 400;
 }
 .project-accordion-chevron {
   font-size: 8px; color: var(--app-icon-secondary); transition: transform var(--transition-fast);
@@ -6804,13 +6949,15 @@ body.cwm-dragging .sidebar-backdrop {
    row, and indented rather than bracketed. */
 .project-session-item {
   display: flex; align-items: center; gap: 8px;
-  min-height: 26px;
-  padding: 3px 8px 3px 22px; border-radius: var(--radius-block-hover);
+  min-height: var(--app-sidebar-subrow-height);
+  padding: 4px 8px 4px 22px; border-radius: var(--radius-block-hover);
   cursor: grab; transition: var(--motion-hover-reveal), color var(--transition-fast);
   font-size: 13px; color: var(--app-text-secondary);
 }
 .nt-enable-hover .project-session-item:hover { background: var(--app-wash-hover); color: var(--app-text-primary); }
-.project-session-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Round 1: same treatment as a tracked session name, because it is the same
+   kind of thing and the eye should not have to learn two scales. */
+.project-session-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; font-weight: 500; }
 .project-session-size { font-size: 11px; color: var(--ink-meta); font-family: var(--font-mono); }
 .project-session-time { font-size: 11px; color: var(--ink-meta); }
 /* Archived thread badge (e.g. Codex archived_sessions/): muted pill so ended threads stay visible but distinct */
@@ -9049,9 +9196,13 @@ html.activity-indicators-disabled .terminal-pane-activity {
 /* PHASE 2: Nested Session Display (Project Groups)           */
 /* ═══════════════════════════════════════════════════════════ */
 
+/* Round 1: the indent rail moves onto the chrome border token. --surface1 is
+   a TERMINAL palette token and this line is chrome, so it changed hue with the
+   palette instead of with the chrome (DESIGN-SPEC 10.1). Same weight, same
+   position, one axis. */
 .ws-project-group {
   margin-left: 8px;
-  border-left: 1px solid var(--surface1);
+  border-left: 1px solid var(--app-border-secondary);
 }
 
 /*
@@ -9065,20 +9216,26 @@ html.activity-indicators-disabled .terminal-pane-activity {
  * 500, --app-sidebar-section-label, sentence case, at the sidebar's own row
  * padding (BUILD-CONTRACT 2.12).
  */
+/* Round 1: the folder label sits ABOVE the session rows it contains, and
+   those rows are now 14px/500. A 12px/500 label above them inverted the
+   hierarchy: the group read as smaller than its own contents. 13px/600 puts
+   it back one step above its children and one step below the project row that
+   owns it, and the extra top margin is what makes the groups read as separate
+   stacks rather than as one continuous list. */
 .ws-project-group-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 5px 8px;
   cursor: pointer;
   color: var(--app-sidebar-section-label);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   font-family: inherit;
   font-style: normal;
   user-select: none;
   transition: color var(--transition-fast);
-  margin: 2px 0;
+  margin: 8px 0 2px;
 }
 
 .ws-project-group-header:hover {
@@ -9114,10 +9271,14 @@ html.activity-indicators-disabled .terminal-pane-activity {
   flex: 1;
 }
 
+/* Round 1: 11px on the semantic meta ink. --overlay0 is a terminal token that
+   P12 measured at 2.5:1 on the light ground, so this count was both the wrong
+   axis and unreadable in one of the two chromes. */
 .ws-project-group-count {
-  font-size: 10px;
-  color: var(--overlay0);
+  font-size: 11px;
+  color: var(--ink-meta);
   flex-shrink: 0;
+  font-weight: 400;
 }
 
 .ws-project-group-body {
@@ -15691,12 +15852,33 @@ html {
    the theme's neutral accent. The badge bubble holds the session
    count for that provider, updated in-place by _patchProviderTabBadges
    on SSE events so scroll position is preserved (Pitfall B). */
+/* ROUND 1: THE SWITCHER MOVED, AND THE STRIP MOVED WITH IT.
+ *
+ * This strip used to sit at the very top of the sidebar, under the view
+ * toggle, where it read as a global scope control and was separated from the
+ * lists below it by a full-width rule. It now sits inside the Discovered
+ * section, between that section's header and its filter field, and it filters
+ * the list directly beneath it. Three consequences for the styling:
+ *
+ *   1. The full-width bottom rule is gone. A rule here would cut the section
+ *      it belongs to in half, and the section already opens with one.
+ *   2. The padding lost its top inset and gained a bottom one, so the chips
+ *      read as attached to the header above them.
+ *   3. The chips got quieter (see .sidebar-tab). A filter that sits inside a
+ *      section is a secondary control; the one that sat above everything was
+ *      pretending to be a primary one. */
 .sidebar-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
-  padding: 2px 8px 6px 8px;
-  border-bottom: 1px solid var(--app-border-secondary);
+  gap: 4px;
+  padding: 0 8px 8px 8px;
+  border-bottom: none;
+}
+/* `display: flex` above beats the UA sheet's [hidden] rule, so the attribute
+   needs an explicit answer. setProjectsCollapsed hides this strip with the
+   rest of the Discovered section (round 1). */
+.sidebar-tabs[hidden] {
+  display: none;
 }
 .sidebar-tabs:empty {
   /* When the tab strip is empty (initial paint, before loadProviders
@@ -15717,9 +15899,12 @@ html {
    the label rather than as a slab beneath it. */
 .sidebar-tab {
   flex: 0 0 auto;
-  padding: 4px 8px;
-  min-height: 26px;
-  border-radius: var(--radius-block-hover);
+  /* Round 1: 24px and a chip radius. A filter chip inside a section is not a
+     row and must not measure like one, or the section header, the chips and
+     the first folder all read as three consecutive rows of the same list. */
+  padding: 3px 8px;
+  min-height: 24px;
+  border-radius: var(--radius-property-chip);
   /* 12px, one step under the pill recipe's 13px, and each pill keeps its
      label and count on one line. Three provider labels plus their counts do
      not fit a 240px rail, so the STRIP wraps instead of the label: a pill
