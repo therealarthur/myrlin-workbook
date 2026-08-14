@@ -582,3 +582,16 @@ phase on this branch has hit.
 | **What it costs** | No offline shell. A reload with no network shows the browser's error page rather than the application's, which is exactly the behaviour before this program started, so nothing regressed. The stub is deliberately NOT deleted: it is registered by `index.html`, and unregistering a worker that installed clients already hold is a migration, not a cleanup. `pwa-manifest.test.js` asserts the stub can neither touch the Cache API nor call `respondWith`, so "no-op" is now a property under test rather than an assumption. |
 | **Approved by** | P12 implementation agent, under the orchestrator's explicit P12 scope ruling. |
 | **Date** | 2026-08-13 |
+
+---
+
+## DV-R1-1: the terminal no longer leads with the vendored face
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | P5.5 and the orchestrator's OQ-2 ruling make the vendored iA Writer Mono S the FIRST family of `--font-terminal`, so the terminal face is self hosted and identical on every machine. `INVENTIONS.md` records that reasoning verbatim. |
+| **What shipped** | `--font-terminal` now reads `"JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, "iA Writer Mono", var(--font-code)`. The vendored face stays in the chain and stays `--font-mono` for code, ids, branch names and diffs. Only the terminal's leading family changed. |
+| **Why** | The user reported "codex/chatgpt terminal output is not formatted properly" within minutes of launch. It is a coverage failure, and it is measured rather than judged: `test/terminal-font-coverage.test.js` reads the cmap out of the vendored woff2 files and finds 746 mapped code points, of which 0 of the 128 box-drawing characters (U+2500-257F), 0 of the 32 block elements (U+2580-259F) and 0 of the 256 braille patterns (U+2800-28FF) are present. The Codex TUI frames every panel out of box-drawing runs, draws its bars out of block elements and animates out of braille. Every one of those glyphs fell through to whatever face the browser found next, drawn at THAT face's advance, inside a cell grid xterm measured from iA Writer's. The captured before/after pane shots (`screenshots/notion-restyle/r1-before/regions/*-codex-terminal.png` against `r1/regions/*-codex-terminal.png`) show the splash art breaking into offset fragments and reassembling. A terminal cannot be built on a face that does not contain the characters the programs inside it draw. |
+| **What it costs** | The terminal face is no longer guaranteed identical on every machine: it now depends on which of JetBrains Mono, Cascadia Mono, Cascadia Code or Consolas the user has, and the cell metrics (and therefore the PTY column count) differ slightly between them. That is the price of correctness, and it is the situation this app shipped in for its whole life before P5. Art direction loses the terminal; it keeps every other mono surface in the app. |
+| **Approved by** | Round 1 orchestrator, pre-authorised in the round 1 brief: "the orchestrator pre-authorizes either, correctness first". |
+| **Date** | 2026-08-13 |

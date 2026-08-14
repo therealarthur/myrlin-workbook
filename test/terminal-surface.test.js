@@ -596,7 +596,12 @@ check('the terminal face comes from the projection, with the shipped stack retai
     'the previously shipped stack must be retained as the last resort, or a failed script load changes cell metrics');
   const { TerminalPane } = loadTerminal('mocha', true);
   const face = TerminalPane.getTerminalFontFamily();
-  assert.ok(/iA Writer Mono/.test(face), 'the default face is the vendored iA Writer Mono');
+  // Round 1 post-launch: the vendored face is still IN the chain, but it no
+  // longer leads it. It maps no box-drawing, block-element or braille code
+  // points, which tore every Codex TUI frame. terminal-font-coverage.test.js
+  // measures that and owns the ordering rule; this assertion only holds the
+  // preservation half, that nothing was removed from the stack.
+  assert.ok(/iA Writer Mono/.test(face), 'the vendored iA Writer Mono stays in the terminal chain');
   assert.ok(/JetBrains Mono/.test(face), 'JetBrains Mono stays selectable for anyone who has it installed');
   const bare = loadTerminal('mocha', false).TerminalPane.getTerminalFontFamily();
   assert.strictEqual(bare, "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",

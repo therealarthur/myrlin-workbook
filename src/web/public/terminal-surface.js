@@ -120,8 +120,13 @@
    * early boot before the stylesheet resolves, or a detached document still
    * gets a real monospace stack rather than a bare `monospace`.
    */
-  var TERMINAL_FONT = '"iA Writer Mono", "JetBrains Mono", SFMono-Regular, ' +
-    'Consolas, "Liberation Mono", Menlo, monospace';
+  // Round 1 post-launch: the order mirrors --font-terminal, which now leads
+  // with a coverage-complete mono. The vendored iA Writer Mono S covers zero
+  // box-drawing, block-element and braille code points (measured in
+  // test/terminal-font-coverage.test.js), and a TUI drawn out of those
+  // characters cannot hold a grid measured from a face that lacks them.
+  var TERMINAL_FONT = '"JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, ' +
+    '"iA Writer Mono", SFMono-Regular, "Liberation Mono", Menlo, monospace';
 
   /** The custom property `--font-terminal`, read when a document exists. */
   var FONT_PROPERTY = '--font-terminal';
