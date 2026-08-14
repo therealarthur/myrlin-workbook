@@ -1414,10 +1414,49 @@ body.appearance-open {
     min-width: min(88vw, 320px);
   }
 
+  /*
+   * P12.5, the first of DV-P10-5's two relocations.
+   *
+   * This height used to say 60px, and styles-mobile.css carried a rule whose
+   * ONLY purpose was to beat it: `:root[data-ui-shell] nav.mobile-tab-bar`,
+   * where the `nav` element qualifier bought one point of specificity because
+   * this sheet loads afterwards. That is a load-order artefact rather than a
+   * design decision, and DV-P10-5 flagged it for exactly this pass.
+   *
+   * The fix is not to move the winning rule, it is to stop disagreeing. The
+   * mock and MOBILE-EXPERIENCE C.7 both give the bar 64px of content plus the
+   * home-indicator inset, which is what --mw-tabbar-h resolves to; 60px was
+   * this shell's own pre-restyle number and it lost every time anyway. Naming
+   * the token here means the two sheets now agree by construction, the
+   * qualifier is deleted rather than carried, and there is one definition of
+   * the bar's height instead of two and a tiebreaker.
+   */
   :root[data-ui-shell="focused"] .mobile-tab-bar {
-    height: calc(60px + env(safe-area-inset-bottom, 0px));
+    height: var(--mw-tabbar-h);
     justify-content: stretch;
     padding-inline: 8px;
+  }
+
+  /*
+   * P12.5, the second relocation. styles-mobile.css carried
+   * `:root[data-ui-shell] .app-header .sidebar-toggle, ... .account-chip`
+   * at 44px, and the `[data-ui-shell]` prefix on a MOBILE sheet's rule existed
+   * only to out-specify this sheet's own `.account-chip` min-height. The floor
+   * belongs to the sheet that authors the base value, so it lives here now, in
+   * this sheet's native selector form, and the mobile rule is gone rather than
+   * qualified.
+   *
+   * D.2's reason for growing the box rather than the hit area is unchanged and
+   * still load-bearing: the header sets `overflow: hidden` and would clip a
+   * pseudo-element. The width condition is also unchanged, which matters,
+   * because a narrow desktop window gets the phone layout with a mouse
+   * attached and the coarse-pointer block at the foot of this file never
+   * fires there.
+   */
+  :root[data-ui-shell="focused"] .app-header .sidebar-toggle,
+  :root[data-ui-shell="focused"] .app-header .account-chip {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   :root[data-ui-shell="focused"] .mobile-tab {

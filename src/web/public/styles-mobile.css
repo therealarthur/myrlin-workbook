@@ -2276,18 +2276,16 @@
      their own box because the header sets `overflow: hidden` and would
      clip a pseudo-element (D.2 constraint 1).
 
-     The `[data-ui-shell]` prefix is load-bearing, not decoration.
-     focused-shell.css authors `:root[data-ui-shell="focused"]
-     .account-chip { min-height: var(--focused-control-height) }` and
-     loads AFTER this sheet, so a two-class selector here loses the tie.
-     It also raises the floor at phone WIDTH rather than only at
-     `pointer: coarse`, which matters because a narrow desktop window gets
-     this layout with a mouse attached and the coarse block never fires. */
-  :root[data-ui-shell] .app-header .sidebar-toggle,
-  :root[data-ui-shell] .app-header .account-chip {
-    min-width: 44px;
-    min-height: 44px;
-  }
+     RELOCATED IN P12.5. The rule that used to sit here carried a
+     `[data-ui-shell]` prefix whose only job was to out-specify
+     focused-shell.css, which authors the base `.account-chip` min-height and
+     loads after this sheet. DV-P10-5 flagged that qualifier as a load-order
+     artefact to drop rather than carry, so the floor now lives in the sheet
+     that owns the base value, in that sheet's own selector form, next to the
+     rule it used to fight. Search focused-shell.css for "P12.5, the second
+     relocation". Nothing about the behaviour changed: same two controls, same
+     44px on both axes, same phone-WIDTH condition rather than a coarse-pointer
+     one. */
 
   /* The workspace tile is 34px wide because the brand is a logo plus a
      label; the tile is the tap target and takes the floor on both axes. */
@@ -2386,14 +2384,17 @@
     min-height: 44px;
   }
 
-  /* The bottom bar is 64px of content per the mock and C.7. The focused
-     shell authors 60px at `:root[data-ui-shell="focused"] .mobile-tab-bar`
-     and loads after this sheet, so the tie goes to it. One element
-     qualifier settles it without `!important`, which would make the
-     height unoverridable by anything downstream. */
-  :root[data-ui-shell] nav.mobile-tab-bar {
-    height: var(--mw-tabbar-h);
-  }
+  /* RELOCATED IN P12.5. The bottom bar is 64px of content per the mock and
+     C.7, which is what --mw-tabbar-h resolves to. This used to be enforced
+     from here by `:root[data-ui-shell] nav.mobile-tab-bar`, where the `nav`
+     element qualifier bought the one specificity point needed to beat
+     focused-shell.css's own 60px. DV-P10-5 flagged that as a load-order
+     artefact, and the fix is not a better tiebreaker: focused-shell.css now
+     NAMES --mw-tabbar-h, so the two sheets agree by construction and there is
+     one definition of the bar's height instead of two and a referee. Search
+     focused-shell.css for "P12.5, the first of DV-P10-5's two relocations".
+     The token itself stays defined here, where the rest of the phone geometry
+     lives. */
 }
 
 
@@ -2802,90 +2803,3 @@
      The phone side is unchanged: everything above still applies. */
 }
 
-/* DV-26, the desktop half. DESIGN-SPEC 5.6 draws a pane input row on
-   EVERY pane: a prompt, a field, an attach button, a microphone and a
-   Send. `styles.css` hides it with `.terminal-mobile-input-row
-   { display: none }`; this sheet loads after it, so one rule at equal
-   specificity turns it back on, and the box is authored here because
-   `styles.css` has one writer per phase and it is not this one
-   (BUILD-CONTRACT 4.1 item 4, the DV-P10-5 precedent).
-
-   The composer's SEND PATH was already wired for all six panes:
-   `bindEvents` binds every `.terminal-mobile-input-row` it finds and
-   `_injectMobileInputRowControls` injects the image and microphone
-   buttons into each, neither of them gated on width. What was missing
-   was the surface, which is this. */
-@media (min-width: 769px) {
-  .terminal-pane .terminal-mobile-input-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    flex-shrink: 0;
-  }
-
-  /* A desktop composer is 32px, not the phone's 44: the touch floor is
-     a TOUCH floor, and every pixel here comes out of the terminal it
-     sits under. Six panes at 44px would cost 264px of transcript. */
-  .terminal-pane .terminal-mobile-input-row input {
-    flex: 1;
-    min-width: 0;
-    height: 32px;
-    min-height: 32px;
-    padding: 0 8px;
-    border: 1px solid var(--app-border-primary);
-    border-radius: var(--radius-app-button);
-    background: var(--app-bg-primary);
-    font-size: 13px;
-    outline: none;
-  }
-
-  .terminal-pane .terminal-mobile-input-row input:focus {
-    border-color: var(--app-accent-blue);
-    box-shadow: var(--app-input-focus-ring);
-  }
-
-  .terminal-pane .terminal-mobile-input-row .mobile-input-btn {
-    display: grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border: 1px solid var(--app-border-primary);
-    border-radius: var(--radius-app-button);
-    background: var(--app-bg-primary);
-    color: var(--app-text-secondary);
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  .terminal-pane .terminal-mobile-input-row .mobile-input-btn[hidden] {
-    display: none;
-  }
-
-  .terminal-pane .terminal-mobile-input-row .mobile-send-btn {
-    display: inline-flex;
-    align-items: center;
-    height: 28px;
-    padding: 0 10px;
-    border: none;
-    border-radius: var(--radius-app-button);
-    background: var(--app-accent-blue);
-    color: var(--app-on-accent);
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  /* An empty pane has no session to type at, and the drop slot is the
-     whole message there. */
-  .terminal-pane-empty .terminal-mobile-input-row {
-    display: none;
-  }
-
-  .terminal-pane .terminal-mobile-input-row[hidden] {
-    display: none !important;
-  }
-}

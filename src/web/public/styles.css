@@ -16186,3 +16186,99 @@ html {
     animation: none;
   }
 }
+
+/* THE DESKTOP COMPOSER, relocated here in P12 (work package P12.5).
+
+   DESIGN-SPEC 5.6 draws a pane input row on EVERY pane: a prompt, a field,
+   an attach button, a microphone and a Send. P11 turned it on above the
+   phone breakpoint and closed DV-26, but had to author the box in
+   styles-mobile.css, because styles.css had one writer that phase and it was
+   the P7 terminal track (DV-P11-4, extending the DV-P10-5 precedent).
+
+   That constraint is gone: P12 has every frontend file and no concurrent
+   track, so a desktop-only block goes in the desktop sheet where a reader
+   looking for it will actually be. The rules are moved VERBATIM. Nothing is
+   re-specified and nothing is dropped, because the block carries its own
+   min-width query and the sheets it moved between are mutually exclusive at
+   every width: this is a min-width 769px block and every rule in
+   styles-mobile.css that touches this row is inside a max-width 768px
+   one, so no pair of them is ever live at the same viewport and the cascade
+   cannot have changed. Verified against the p12 capture.
+
+   The half of DV-26 that stays in styles.css is the P5 PALETTE contract
+   above (ground, top rule, prompt); this is the BOX. The two now sit in the
+   same sheet for the first time. */
+@media (min-width: 769px) {
+  .terminal-pane .terminal-mobile-input-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    flex-shrink: 0;
+  }
+
+  /* A desktop composer is 32px, not the phone's 44: the touch floor is
+     a TOUCH floor, and every pixel here comes out of the terminal it
+     sits under. Six panes at 44px would cost 264px of transcript. */
+  .terminal-pane .terminal-mobile-input-row input {
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+    min-height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--app-border-primary);
+    border-radius: var(--radius-app-button);
+    background: var(--app-bg-primary);
+    font-size: 13px;
+    outline: none;
+  }
+
+  .terminal-pane .terminal-mobile-input-row input:focus {
+    border-color: var(--app-accent-blue);
+    box-shadow: var(--app-input-focus-ring);
+  }
+
+  .terminal-pane .terminal-mobile-input-row .mobile-input-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--app-border-primary);
+    border-radius: var(--radius-app-button);
+    background: var(--app-bg-primary);
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .terminal-pane .terminal-mobile-input-row .mobile-input-btn[hidden] {
+    display: none;
+  }
+
+  .terminal-pane .terminal-mobile-input-row .mobile-send-btn {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 10px;
+    border: none;
+    border-radius: var(--radius-app-button);
+    background: var(--app-accent-blue);
+    color: var(--app-on-accent);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  /* An empty pane has no session to type at, and the drop slot is the
+     whole message there. */
+  .terminal-pane-empty .terminal-mobile-input-row {
+    display: none;
+  }
+
+  .terminal-pane .terminal-mobile-input-row[hidden] {
+    display: none !important;
+  }
+}
