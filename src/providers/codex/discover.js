@@ -46,6 +46,43 @@ const os = require('os');
 const { _internal: parseInternal } = require('./parse');
 const wrapEnvelope = parseInternal.wrapEnvelope;
 
+// BUILD-CONTRACT P8.4: the SQLite-first source. state-db.js never throws and
+// returns null whenever the store is unavailable for any reason, so requiring
+// it cannot destabilise discovery. It does NOT require discover.js back, so
+// there is no cycle.
+const stateDb = require('./state-db');
+
+// BUILD-CONTRACT P8.3: cwd normalization and project identity, shared with the
+// SQLite path so a walk-derived session and a database-derived session in the
+// same directory produce the same grouping key.
+const { describeProject } = require('./paths');
+
+// ---------------------------------------------------------------------------
+// Discovery-source tags
+// ---------------------------------------------------------------------------
+
+/**
+ * Which on-disk source produced a session record. Carried on every result so a
+ * support question ("why is this session missing / why has it no title") is
+ * answerable from the payload rather than by re-running discovery by hand.
+ */
+const DISCOVERY_SOURCES = Object.freeze({
+  STATE_DB: 'state-db',
+  SESSION_INDEX: 'session-index',
+  WALK: 'walk',
+  ARCHIVED_WALK: 'archived-walk',
+});
+
+/**
+ * The rollout event that carries an AI-generated thread title. Present in only
+ * 2 of 796 files on the measured machine, which is exactly why scanning for it
+ * is a lazy, on-demand step and never part of the bulk discovery pass.
+ */
+const THREAD_NAME_EVENT_TYPE = 'thread_name_updated';
+
+/** Head-read budget for the lazy title scan. Titles appear early or not at all. */
+const LAZY_TITLE_SCAN_BYTES = 256 * 1024;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -399,6 +436,377 @@ function readSessionMetaFromFile(filePath) {
 }
 
 // ---------------------------------------------------------------------------
+// SQLite-first discovery helpers (BUILD-CONTRACT P8.4, P8.5, P8.8, P8.9)
+// ---------------------------------------------------------------------------
+
+/**
+ * How often the union walk re-reconciles against the SQLite view.
+ *
+ * The walk is never deleted and never stops being a source, but it costs about
+ * 3.1 seconds against a real 2863-file tree, and 319 milliseconds of that is
+ * filename enumeration alone. Paying that on every discovery would miss the
+ * sub-100ms budget by more than an order of magnitude. So when the database is
+ * available the walk becomes a throttled, asynchronous reconciliation pass whose
+ * results are unioned into every subsequent call, rather than a synchronous
+ * step on the hot path. When the database is NOT available the original
+ * synchronous walk runs exactly as it always has.
+ *
+ * Matched to the existing 5-minute fallback poll in index.js so the two agree.
+ */
+const WALK_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Sessions the union walk found that the SQLite store has never recorded.
+ * Cached between calls so the reconciliation cost is amortised.
+ * @type {{at: number, running: boolean, home: string|null, sessions: Array<object>}}
+ */
+let _walkExtras = { at: 0, running: false, home: null, sessions: [] };
+
+/**
+ * Reset the reconciliation cache. Exported for tests and for a caller that
+ * knows CODEX_HOME changed.
+ * @returns {void}
+ */
+function resetWalkExtras() {
+  _walkExtras = { at: 0, running: false, home: null, sessions: [] };
+}
+
+/**
+ * Build a thread id to AI-generated title map from session_index.jsonl.
+ *
+ * This is step 4 of the title cascade and the single highest-yield step: it
+ * covers 55 of the 125 top-level threads, where `threads.name` covers 0 and the
+ * catalog covers 1. It is also the only step that turns a 12 KB raw first
+ * message into the short label the user actually recognises.
+ *
+ * Later entries win, because the file is an append-only log and a thread can be
+ * retitled.
+ *
+ * @returns {Map<string, string>} Lowercased thread id -> title.
+ */
+function buildSessionIndexTitleMap() {
+  const map = new Map();
+  const entries = readSessionIndex();
+  if (!Array.isArray(entries)) return map;
+  for (const entry of entries) {
+    if (!entry || typeof entry.id !== 'string') continue;
+    const title = typeof entry.thread_name === 'string' ? entry.thread_name.trim() : '';
+    if (title.length === 0) continue;
+    map.set(entry.id.toLowerCase(), title);
+  }
+  return map;
+}
+
+/**
+ * Size and modification time of a file, or nulls. Never throws.
+ *
+ * @param {string} filePath
+ * @returns {{size: number, mtime: Date|null}}
+ */
+function statSizeAndMtime(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return { size: 0, mtime: null };
+    return { size: stat.size, mtime: stat.mtime };
+  } catch (_) {
+    return { size: 0, mtime: null };
+  }
+}
+
+/**
+ * Attach the shared project descriptor to a session record.
+ *
+ * Applied to BOTH database-derived and walk-derived sessions, which is the
+ * whole point: BUILD-CONTRACT P8.6 merges a Claude folder and a Codex folder
+ * when their normalized keys match, and that can only work if every Codex
+ * session, whatever produced it, carries the same key derivation.
+ *
+ * @param {object} target - Session record, mutated in place.
+ * @param {string|null} cwd - Raw working directory.
+ * @returns {object} The same record, for chaining.
+ */
+function attachProjectFields(target, cwd) {
+  const project = describeProject(cwd || '');
+  target.projectPath = project.path || null;
+  target.projectPathRaw = typeof cwd === 'string' && cwd.length > 0 ? cwd : null;
+  target.projectKey = project.key || null;
+  target.projectId = project.id || null;
+  target.projectDisplayName = project.displayName || null;
+  return target;
+}
+
+/**
+ * Convert one state-db thread record into a ProviderSession.
+ *
+ * The legacy field names are load-bearing across the frontend and are kept
+ * exactly: `providerSessionId`, `projectPath`, `lastActive`, `sizeBytes`. New
+ * fields are added alongside them, never in place of them.
+ *
+ * lastActive is fed from `recency_at_ms` (BUILD-CONTRACT P8.9), which is the
+ * app's own sort key and is deliberately distinct from `updated_at`. Falling
+ * back through updated, then created, then the transcript's mtime means a row
+ * with no timestamps at all still sorts somewhere sane instead of at the epoch.
+ *
+ * @param {object} row - A state-db thread record.
+ * @param {Map<string,string>} indexTitles - From buildSessionIndexTitleMap.
+ * @returns {object|null} ProviderSession, or null when the row is unusable.
+ */
+function sessionFromThreadRow(row, indexTitles) {
+  if (!row || typeof row.id !== 'string' || row.id.length === 0) return null;
+
+  const rolloutPath = row.rolloutPath || null;
+  const fileStat = rolloutPath ? statSizeAndMtime(rolloutPath) : { size: 0, mtime: null };
+
+  const resolved = stateDb.resolveTitle(
+    Object.assign({}, row.titleParts, { indexTitle: indexTitles.get(row.id) || null })
+  );
+
+  const lastActiveMs =
+    row.recencyAtMs ||
+    row.updatedAtMs ||
+    row.createdAtMs ||
+    (fileStat.mtime ? fileStat.mtime.getTime() : 0);
+
+  const session = {
+    provider: 'codex', // gsd:provider-literal-allowed
+    providerSessionId: row.id,
+    encodedName: null,
+    title: resolved.title,
+    lastActive: new Date(lastActiveMs),
+    sizeBytes: fileStat.size,
+    cliVersion: row.cliVersion || null,
+
+    // Provenance, so a missing or untitled session is diagnosable from the
+    // payload alone rather than by re-running discovery by hand.
+    discoverySource: DISCOVERY_SOURCES.STATE_DB,
+    titleSource: resolved.source,
+
+    // Everything the side peek and the sessions table need, straight from the
+    // store, none of which the filesystem walk can produce.
+    preview: row.preview || null,
+    rolloutPath: rolloutPath,
+    archived: row.archived === true,
+    isPinned: row.isPinned === true,
+    sectionId: row.sectionId || null,
+    recencyAtMs: row.recencyAtMs,
+    createdAtMs: row.createdAtMs,
+    updatedAtMs: row.updatedAtMs,
+    tokensUsed: row.tokensUsed,
+    model: row.model || null,
+    modelProvider: row.modelProvider || null,
+    reasoningEffort: row.reasoningEffort || null,
+    approvalMode: row.approvalMode || null,
+    sandboxPolicy: row.sandboxPolicy || null,
+    gitBranch: row.gitBranch || null,
+    gitSha: row.gitSha || null,
+    gitOriginUrl: row.gitOriginUrl || null,
+    threadSource: row.threadSource || null,
+    agentNickname: row.agentNickname || null,
+    agentRole: row.agentRole || null,
+  };
+
+  return attachProjectFields(session, row.cwdRaw || row.cwd);
+}
+
+/**
+ * Step 5 of the title cascade: scan a rollout for a `thread_name_updated`
+ * event, last one winning.
+ *
+ * Deliberately NOT called during the bulk discovery pass. The event exists in 2
+ * of 796 files on the measured machine, so scanning every rollout to recover
+ * two titles would cost seconds to gain nothing. This is the lazy, on-demand
+ * entry point BUILD-CONTRACT P8.5 asks for: call it only for a row still
+ * unresolved after step 4, and only when something actually needs that row's
+ * title.
+ *
+ * Reads a bounded head window rather than the whole file, because a rollout can
+ * be tens of megabytes and a title event, when present, is written early.
+ *
+ * @param {string} rolloutPath - Absolute path to a rollout .jsonl.
+ * @returns {string|null} The last title found in the window, or null.
+ */
+function resolveTitleFromRollout(rolloutPath) {
+  if (!rolloutPath || typeof rolloutPath !== 'string') return null;
+  let fd;
+  try {
+    fd = fs.openSync(rolloutPath, 'r');
+  } catch (_) {
+    return null;
+  }
+  try {
+    const stat = fs.fstatSync(fd);
+    const headSize = Math.min(LAZY_TITLE_SCAN_BYTES, stat.size);
+    if (headSize <= 0) return null;
+    const buf = Buffer.alloc(headSize);
+    fs.readSync(fd, buf, 0, headSize, 0);
+    const text = buf.toString('utf-8');
+
+    let found = null;
+    for (const line of text.split('\n')) {
+      // Cheap pre-filter: only pay JSON.parse on lines that mention the event.
+      if (!line || line.indexOf(THREAD_NAME_EVENT_TYPE) === -1) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(line);
+      } catch (_) {
+        continue; // a truncated tail line is expected in a bounded window
+      }
+      const envelope = wrapEnvelope(parsed);
+      if (!envelope || !envelope.payload) continue;
+      const payload = envelope.payload;
+      if (payload.type !== THREAD_NAME_EVENT_TYPE) continue;
+      const name = typeof payload.thread_name === 'string' ? payload.thread_name.trim() : '';
+      if (name.length > 0) found = name; // last one wins
+    }
+    return found;
+  } catch (_) {
+    return null;
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Asynchronous filename enumeration for the reconciliation pass.
+ *
+ * A deliberate sibling of walkSessionsTree rather than a replacement for it:
+ * the synchronous version stays exactly as it is, keeps its tests, and remains
+ * the path used when the database is unavailable. This one exists solely so the
+ * throttled reconciliation does not block the event loop for 319 milliseconds
+ * inside a server process.
+ *
+ * STRING MODE, NOT withFileTypes, and that is load-bearing rather than a style
+ * choice. Measured on this machine against the real tree:
+ *
+ *   fs.readdirSync(root, {recursive, withFileTypes})        3005 entries, 2950 files
+ *   fs.promises.readdir(root, {recursive, withFileTypes})    842 entries,  800 files
+ *   fs.promises.readdir(root, {recursive})                  3005 entries, 2863 rollouts
+ *
+ * The asynchronous Dirent form silently returned 26 entries it could classify
+ * as neither file nor directory and then failed to descend into them, losing
+ * 2063 of 2863 rollouts with no error. Enumerating names and filtering on the
+ * basename avoids type resolution entirely and matches the synchronous walk
+ * exactly. This mattered nowhere today only because every id it did find was
+ * already known to the store; it would have bitten precisely when the union
+ * walk was the only thing that could surface a session.
+ *
+ * @param {string} root - Directory to enumerate.
+ * @returns {Promise<string[]>} Absolute rollout paths, [] on any failure.
+ */
+async function enumerateRolloutFilesAsync(root) {
+  const out = [];
+  let relativePaths;
+  try {
+    relativePaths = await fs.promises.readdir(root, { recursive: true });
+  } catch (_) {
+    return out;
+  }
+  for (const relative of relativePaths) {
+    const lower = path.basename(relative).toLowerCase();
+    if (!lower.startsWith('rollout-') || !lower.endsWith('.jsonl')) continue;
+    out.push(path.join(root, relative));
+  }
+  return out;
+}
+
+/**
+ * The union pass: find rollouts on disk that the SQLite store has never
+ * recorded, and turn them into sessions.
+ *
+ * This is what keeps the contract's "union, not replacement" honest. It is
+ * throttled and asynchronous rather than removed, so the walk remains a
+ * permanent source without taxing every call. The distinction it relies on is
+ * the id census from state-db: an id the store KNOWS but excluded was excluded
+ * on purpose by the app's own visibility model, and re-adding it here would
+ * undo that verdict; an id the store has never seen is one only the walk can
+ * surface.
+ *
+ * @param {string} codexHome
+ * @param {Set<string>|null} knownIds - Every id the store knows, or null.
+ * @returns {Promise<Array<object>>} Sessions for unknown ids only.
+ */
+async function reconcileWalkExtras(codexHome, knownIds) {
+  const sessionsRoot = path.join(codexHome, 'sessions');
+  const archivedRoot = getArchivedSessionsDir(codexHome);
+  const files = [];
+  files.push.apply(files, await enumerateRolloutFilesAsync(sessionsRoot));
+  files.push.apply(files, await enumerateRolloutFilesAsync(archivedRoot));
+
+  const extras = [];
+  const seen = new Set();
+  for (const filePath of files) {
+    const id = extractIdFromFilename(path.basename(filePath));
+    if (!id || seen.has(id)) continue;
+    if (knownIds && knownIds.has(id)) continue; // the store has a verdict; respect it
+    seen.add(id);
+
+    const stat = statSizeAndMtime(filePath);
+    if (!stat.mtime) continue;
+    const meta = readSessionMetaFromFile(filePath);
+    // Keep the walk's own subagent filter for walk-derived rows. It is more
+    // aggressive than the store's spawn-edge filter, and loosening it here
+    // would surface agent fan-outs the sidebar has never shown.
+    if (meta && meta.isSubagent) continue;
+
+    const isArchived = filePath.toLowerCase().indexOf(archivedRoot.toLowerCase()) === 0;
+    const session = {
+      provider: 'codex', // gsd:provider-literal-allowed
+      providerSessionId: id,
+      encodedName: null,
+      title: null,
+      lastActive: stat.mtime,
+      sizeBytes: stat.size,
+      cliVersion: meta ? meta.cliVersion : null,
+      discoverySource: isArchived ? DISCOVERY_SOURCES.ARCHIVED_WALK : DISCOVERY_SOURCES.WALK,
+      titleSource: null,
+      rolloutPath: filePath,
+    };
+    if (isArchived) session.archived = true;
+    extras.push(attachProjectFields(session, meta ? meta.cwd : null));
+  }
+  return extras;
+}
+
+/**
+ * Kick the reconciliation pass if it is stale, without waiting for it.
+ *
+ * Fire and forget by design: the caller returns the database view immediately
+ * and the extras appear on the next discovery, which the existing watcher and
+ * the 5-minute poll both trigger. Every failure is swallowed, because a
+ * reconciliation problem must never degrade a discovery that already succeeded.
+ *
+ * @param {string} codexHome
+ * @param {Set<string>|null} knownIds
+ * @param {boolean} awaitCompletion - When true, wait for the pass. Used by
+ *   tests and by an explicit deep refresh.
+ * @returns {Promise<void>}
+ */
+async function maybeReconcileWalkExtras(codexHome, knownIds, awaitCompletion) {
+  const stale =
+    _walkExtras.home !== codexHome || Date.now() - _walkExtras.at > WALK_RECONCILE_INTERVAL_MS;
+  if (!stale && !awaitCompletion) return;
+  if (_walkExtras.running && !awaitCompletion) return;
+
+  const run = (async () => {
+    _walkExtras.running = true;
+    try {
+      const extras = await reconcileWalkExtras(codexHome, knownIds);
+      _walkExtras = { at: Date.now(), running: false, home: codexHome, sessions: extras };
+    } catch (err) {
+      _walkExtras.running = false;
+      // eslint-disable-next-line no-console
+      console.debug('[codex-discover] union walk reconciliation failed: ' + (err && err.message));
+    }
+  })();
+
+  if (awaitCompletion) await run;
+}
+
+// ---------------------------------------------------------------------------
 // Public: discover
 // ---------------------------------------------------------------------------
 
@@ -421,13 +829,39 @@ function readSessionMetaFromFile(filePath) {
  *   3. Merge, deduplicate by providerSessionId (most-recent lastActive
  *      wins on conflict), sort by lastActive descending.
  *
- * @param {{forceRefresh?: boolean}} [opts]
+ * BUILD-CONTRACT P8.4 adds a SQLite-first source in front of all of the above,
+ * WITHOUT removing any of it:
+ *
+ *   0. Read the desktop app's own thread store, `state_5.sqlite`. Its visible
+ *      set is `archived = 0 AND preview <> '' AND NOT a spawn child`, which is
+ *      125 threads on the measured machine where the walk produced 52. Every
+ *      row carries the cwd, the rollout path, the model, the token total and
+ *      the recency key, none of which the walk can produce.
+ *
+ * The walk is a UNION source, not a fallback that gets switched off. When the
+ * store is unavailable, steps 1 to 3 run exactly as they always have. When the
+ * store IS available, the walk still runs, but throttled and asynchronously,
+ * and it contributes only ids the store has never recorded: an id the store
+ * knows and excluded was excluded by the app's own visibility model, and
+ * re-adding it here would silently undo that verdict.
+ *
+ * @param {Object} [opts]
+ * @param {boolean} [opts.forceRefresh] - Bypass the state-db warm cache.
+ * @param {boolean} [opts.deep] - Wait for the union walk instead of letting it
+ *   land on the next call. Slow by design; used by tests and explicit refreshes.
+ * @param {boolean} [opts.includeArchived=true] - Include archived threads,
+ *   tagged `archived: true`. Defaults to true because that is the behaviour the
+ *   archived_sessions scan has always had, and "no tracked session is ever
+ *   lost" is an existing product rule.
  * @returns {Promise<Array<{provider:string, providerSessionId:string,
  *   projectPath:string|null, encodedName:null, title:string|null,
  *   lastActive:Date, sizeBytes:number, cliVersion?:string|null}>>}
  */
 async function discover(opts) {
-  void (opts && opts.forceRefresh); // reserved; no internal cache in v1.2
+  const options = opts || {};
+  const forceRefresh = options.forceRefresh === true;
+  const deep = options.deep === true;
+  const includeArchived = options.includeArchived !== false;
 
   const codexHome = getCodexHome();
   if (!fs.existsSync(codexHome)) return [];
@@ -437,17 +871,72 @@ async function discover(opts) {
   // CODEX_HOME with only archived threads is still fully discoverable).
   const hasSessions = fs.existsSync(sessionsRoot);
   const hasArchived = fs.existsSync(getArchivedSessionsDir(codexHome));
-  if (!hasSessions && !hasArchived) return [];
+  const hasStateDb = stateDb.isAvailable();
+  if (!hasSessions && !hasArchived && !hasStateDb) return [];
 
   /** @type {Map<string, object>} providerSessionId -> ProviderSession */
   const byId = new Map();
   /** @type {Set<string>} ids whose index entry pointed at a missing file */
   const staleIds = new Set();
 
+  // The title map is built once and shared by every source, so a walk-derived
+  // session gets the same AI-generated title a store-derived one would.
+  const indexTitles = buildSessionIndexTitleMap();
+
+  // ─── SQLite-first source (BUILD-CONTRACT P8.4) ─────────────────────────
+  // Never throws and returns null on absence, corruption, schema drift or a
+  // missing engine, at which point everything below runs exactly as before.
+  let dbThreads = null;
+  let knownIds = null;
+  if (hasStateDb) {
+    try {
+      dbThreads = await stateDb.listThreads({
+        includeArchived: includeArchived,
+        force: forceRefresh,
+      });
+      if (dbThreads) knownIds = await stateDb.getKnownThreadIds();
+    } catch (err) {
+      // Belt and braces: state-db is contractually non-throwing, but discovery
+      // is the wrong place to discover that a contract was broken.
+      dbThreads = null;
+      knownIds = null;
+      // eslint-disable-next-line no-console
+      console.debug('[codex-discover] state-db read failed, using the walk: ' + (err && err.message));
+    }
+  }
+
+  if (Array.isArray(dbThreads)) {
+    for (const row of dbThreads) {
+      const session = sessionFromThreadRow(row, indexTitles);
+      if (session) byId.set(session.providerSessionId, session);
+    }
+  }
+
+  /**
+   * Should a walk-derived id be added to the result.
+   *
+   * Three distinct situations, only the last of which is an accept:
+   *   - already produced by an earlier source: no, first source wins;
+   *   - known to the store but not in its visible set: no, that is the app's
+   *     own verdict and the walk has no better information;
+   *   - unknown to the store, or no store at all: yes, the walk is the only
+   *     source that can see it.
+   *
+   * @param {string} id - Lowercased thread id.
+   * @returns {boolean}
+   */
+  function acceptFromWalk(id) {
+    if (byId.has(id)) return false;
+    if (knownIds && knownIds.has(id)) return false;
+    return true;
+  }
+
   // ─── Fast-path: session_index.jsonl (only meaningful when sessions/ exists) ─
   const index = hasSessions ? readSessionIndex() : null;
   if (Array.isArray(index)) {
     for (const entry of index) {
+      // The store, when present, has already spoken for this id.
+      if (!acceptFromWalk(String(entry.id).toLowerCase())) continue;
       const rolloutPath = resolveIndexEntryToPath(codexHome, entry);
       if (!rolloutPath) {
         staleIds.add(entry.id.toLowerCase());
@@ -479,22 +968,43 @@ async function discover(opts) {
       const mtime = stat.mtime;
       const lastActive = !isNaN(indexUpdated.getTime()) && mtime < indexUpdated ? indexUpdated : mtime;
 
-      byId.set(entry.id.toLowerCase(), {
-        provider: 'codex', // gsd:provider-literal-allowed
-        providerSessionId: entry.id.toLowerCase(),
-        projectPath: meta ? meta.cwd : null,
-        encodedName: null,
-        title: entry.thread_name || null,
-        lastActive: lastActive,
-        sizeBytes: stat.size,
-        cliVersion: meta ? meta.cliVersion : null,
-      });
+      // P8.3/P8.6: the project descriptor is attached here too, so a session
+      // this path produced merges into the same folder row as one the store
+      // produced. attachProjectFields sets projectPath from the normalized cwd,
+      // which is the same value this line used to set directly.
+      byId.set(
+        entry.id.toLowerCase(),
+        attachProjectFields(
+          {
+            provider: 'codex', // gsd:provider-literal-allowed
+            providerSessionId: entry.id.toLowerCase(),
+            encodedName: null,
+            title: entry.thread_name || null,
+            lastActive: lastActive,
+            sizeBytes: stat.size,
+            cliVersion: meta ? meta.cliVersion : null,
+            discoverySource: DISCOVERY_SOURCES.SESSION_INDEX,
+            titleSource: entry.thread_name ? stateDb.TITLE_SOURCES.SESSION_INDEX : null,
+            rolloutPath: rolloutPath,
+          },
+          meta ? meta.cwd : null
+        )
+      );
     }
   }
 
   // ─── Walk-fallback: index missing OR has stale entries ─────────────────
+  // Unchanged when there is no store: this is still the unconditional truth
+  // and still the only path that works on a machine where the desktop app has
+  // never run. When the store IS available it is deliberately skipped here,
+  // because a synchronous full walk costs about 3.1 seconds against a real
+  // 2863-file tree and would miss the sub-100ms budget by a factor of thirty.
+  // The walk is not lost: maybeReconcileWalkExtras below runs the same union
+  // asynchronously and on a throttle, and its results are merged into every
+  // subsequent call.
   const indexUnusable = !Array.isArray(index) || index.length === 0;
-  const walkNeeded = hasSessions && (indexUnusable || staleIds.size > 0);
+  const storeDroveDiscovery = Array.isArray(dbThreads);
+  const walkNeeded = hasSessions && !storeDroveDiscovery && (indexUnusable || staleIds.size > 0);
   if (walkNeeded) {
     const files = walkSessionsTree(codexHome);
     for (const filePath of files) {
@@ -518,16 +1028,28 @@ async function discover(opts) {
       if (meta && meta.isSubagent) continue;
       // If we get here, the index either had no usable entry for this id OR
       // pointed at a missing file. Either way, walk-derived data is truth.
-      byId.set(id, {
-        provider: 'codex', // gsd:provider-literal-allowed
-        providerSessionId: id,
-        projectPath: meta ? meta.cwd : null,
-        encodedName: null,
-        title: null,
-        lastActive: stat.mtime,
-        sizeBytes: stat.size,
-        cliVersion: meta ? meta.cliVersion : null,
-      });
+      // The title still comes from session_index when it has one for this id:
+      // the walk used to hardcode null here, which is half of why only 27 of
+      // 52 discovered sessions carried a title.
+      const walkTitle = indexTitles.get(id) || null;
+      byId.set(
+        id,
+        attachProjectFields(
+          {
+            provider: 'codex', // gsd:provider-literal-allowed
+            providerSessionId: id,
+            encodedName: null,
+            title: walkTitle,
+            lastActive: stat.mtime,
+            sizeBytes: stat.size,
+            cliVersion: meta ? meta.cliVersion : null,
+            discoverySource: DISCOVERY_SOURCES.WALK,
+            titleSource: walkTitle ? stateDb.TITLE_SOURCES.SESSION_INDEX : null,
+            rolloutPath: filePath,
+          },
+          meta ? meta.cwd : null
+        )
+      );
     }
     if (staleIds.size > 0) {
       // eslint-disable-next-line no-console
@@ -567,7 +1089,11 @@ async function discover(opts) {
       const filename = path.basename(filePath);
       const id = extractIdFromFilename(filename);
       if (!id) continue;
-      if (byId.has(id)) continue; // live sessions/ record already present; keep it
+      // Was `if (byId.has(id)) continue`. acceptFromWalk is that same check
+      // plus the store's verdict, so an archived thread the store deliberately
+      // filtered out is not smuggled back in through this door. With no store
+      // present, acceptFromWalk reduces to exactly the original condition.
+      if (!acceptFromWalk(id)) continue;
       let stat;
       try {
         stat = fs.statSync(filePath);
@@ -578,17 +1104,40 @@ async function discover(opts) {
       const meta = readSessionMetaFromFile(filePath);
       // Skip subagent-spawned threads (same filter as the live paths).
       if (meta && meta.isSubagent) continue;
-      byId.set(id, {
-        provider: 'codex', // gsd:provider-literal-allowed
-        providerSessionId: id,
-        projectPath: meta ? meta.cwd : null,
-        encodedName: null,
-        title: null,
-        lastActive: stat.mtime,
-        sizeBytes: stat.size,
-        cliVersion: meta ? meta.cliVersion : null,
-        archived: true,
-      });
+      const archivedTitle = indexTitles.get(id) || null;
+      byId.set(
+        id,
+        attachProjectFields(
+          {
+            provider: 'codex', // gsd:provider-literal-allowed
+            providerSessionId: id,
+            encodedName: null,
+            title: archivedTitle,
+            lastActive: stat.mtime,
+            sizeBytes: stat.size,
+            cliVersion: meta ? meta.cliVersion : null,
+            archived: true,
+            discoverySource: DISCOVERY_SOURCES.ARCHIVED_WALK,
+            titleSource: archivedTitle ? stateDb.TITLE_SOURCES.SESSION_INDEX : null,
+            rolloutPath: filePath,
+          },
+          meta ? meta.cwd : null
+        )
+      );
+    }
+  }
+
+  // ─── The union pass (BUILD-CONTRACT P8.4: union, not replacement) ───────
+  // Sessions the store has never recorded. Merged in from the previous
+  // reconciliation, then a fresh reconciliation is kicked off if the cached one
+  // is stale. Fire and forget unless the caller explicitly asked to wait, so a
+  // 3-second walk never sits in front of a 50-millisecond read.
+  if (storeDroveDiscovery) {
+    await maybeReconcileWalkExtras(codexHome, knownIds, deep);
+    for (const extra of _walkExtras.sessions) {
+      if (byId.has(extra.providerSessionId)) continue;
+      if (!includeArchived && extra.archived === true) continue;
+      byId.set(extra.providerSessionId, extra);
     }
   }
 
@@ -619,4 +1168,35 @@ module.exports._internal = {
   getArchivedSessionsDir: getArchivedSessionsDir,
   collectRolloutFilesUnder: collectRolloutFilesUnder,
   walkArchivedSessions: walkArchivedSessions,
+  // BUILD-CONTRACT P8.4/P8.5/P8.9: the SQLite-first union, the title cascade
+  // wiring and the throttled reconciliation pass.
+  buildSessionIndexTitleMap: buildSessionIndexTitleMap,
+  sessionFromThreadRow: sessionFromThreadRow,
+  attachProjectFields: attachProjectFields,
+  enumerateRolloutFilesAsync: enumerateRolloutFilesAsync,
+  reconcileWalkExtras: reconcileWalkExtras,
+  maybeReconcileWalkExtras: maybeReconcileWalkExtras,
+  resetWalkExtras: resetWalkExtras,
+  statSizeAndMtime: statSizeAndMtime,
+  WALK_RECONCILE_INTERVAL_MS: WALK_RECONCILE_INTERVAL_MS,
+  DISCOVERY_SOURCES: DISCOVERY_SOURCES,
 };
+
+/**
+ * Step 5 of the title cascade, exported as the lazy, on-demand entry point.
+ *
+ * Not called anywhere in the bulk discovery pass, by design: the event it looks
+ * for exists in 2 of 796 rollouts, so scanning every file to find it would cost
+ * seconds and gain two labels. Call it for a single row that is still
+ * unresolved after step 4 and whose title someone is actually about to show.
+ *
+ * @param {string} rolloutPath - Absolute path to a rollout .jsonl.
+ * @returns {string|null}
+ */
+module.exports.resolveTitleFromRollout = resolveTitleFromRollout;
+
+/**
+ * The discovery-source tags carried on every session record, exported so
+ * consumers compare against the constant rather than a string literal.
+ */
+module.exports.DISCOVERY_SOURCES = DISCOVERY_SOURCES;

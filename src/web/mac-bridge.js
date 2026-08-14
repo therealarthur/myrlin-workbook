@@ -35,10 +35,24 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 const { serializeCredentialsFile } = require('./credential-manager');
+// Leaf module, required by BOTH this bridge and the credential manager, so
+// the shipped default host has exactly one definition. See mac-host.js for
+// why it is not defined here (require cycle) and why the candidate chain is
+// only ever a suggestion.
+const macHost = require('./mac-host');
 
 // Charset allowlist for ssh host/user; also rejected when starting with a
 // dash (ssh option injection guard). Matches the design section 2.3 rule.
-const MAC_TARGET_RE = /^[A-Za-z0-9._@-]+$/;
+// Sourced from mac-host.js so the validator and the candidate builder can
+// never drift apart; the local name and the exported behavior are unchanged.
+const MAC_TARGET_RE = macHost.MAC_TARGET_RE;
+// Reachability probe budget, per candidate. Short on purpose: the probe runs
+// on a path where one host has ALREADY failed, so it must not multiply the
+// operator's wait by the full ssh timeout for each address tried.
+const HOST_PROBE_TIMEOUT_SEC = 6;
+// The remote command the probe runs. Carries nothing, reads nothing, writes
+// nothing: it exists only to prove that ssh could open a session.
+const HOST_PROBE_COMMAND = 'true';
 // Default remote profile tool path when config omits it.
 const DEFAULT_PROFILE_TOOL = '$HOME/.local/bin/claude-profile';
 // Cap slugs so remote filenames stay sane.
@@ -150,6 +164,65 @@ function scpSend(cfg, localPath, remotePath, timeoutSec, opts = {}) {
       resolve(!err);
     });
   });
+}
+
+/**
+ * Probe the ordered host candidates and report which one answers (task #37).
+ *
+ * WHAT IT IS FOR. The shipped default named a tailnet node that no longer
+ * exists, so an install that never had its host typed in by hand fails every
+ * Mac operation with MAC_UNREACHABLE and no indication of why. This turns
+ * that dead end into a diagnosis: it says which of the known addresses the
+ * machine actually answers on, so the operator can accept it in one click
+ * through the existing PUT /api/credentials/mac-config.
+ *
+ * WHAT IT DELIBERATELY IS NOT. It does not switch any operation onto the
+ * host that answered. Every Mac operation either pushes a credential
+ * snapshot out or pulls the remote live token file in, and the host key
+ * policy is accept-new, so an automatic redirect would let a reassigned
+ * tailnet address both receive credentials and feed tokens into the local
+ * snapshot store from a machine nobody configured. See mac-host.js.
+ *
+ * REACHABILITY, NOT SUCCESS. Exit 255 is ssh's own client/link error and a
+ * timeout is a dead link; ANY OTHER exit code means the remote shell ran,
+ * which is exactly the thing being tested, so a non-255 nonzero counts as
+ * reachable. Nothing from stderr is carried into the result: the result is
+ * cached and broadcast, and it has no business carrying remote text.
+ *
+ * Never throws. A config with no valid candidate resolves to unreachable
+ * with an empty attempt list rather than an error.
+ *
+ * @param {{host?: string, user: string, sshTimeoutSec?: number}} cfg - Mac config.
+ * @param {{execFileImpl?: Function, timeoutSec?: number}} [opts] - Injection point for tests.
+ * @returns {Promise<{reachable: boolean, host: string|null, configuredHost: string|null, suggestedHost: string|null, attempts: Array<{host: string, code: number, timedOut: boolean, reachable: boolean}>}>}
+ */
+async function probeMacHosts(cfg, opts = {}) {
+  const configuredHost = (cfg && typeof cfg.host === 'string' && cfg.host.trim()) ? cfg.host.trim() : null;
+  const out = { reachable: false, host: null, configuredHost, suggestedHost: null, attempts: [] };
+  const user = cfg && typeof cfg.user === 'string' ? cfg.user : '';
+  if (!macHost.isValidMacTargetPart(user)) return out;
+
+  const timeoutSec = Math.max(1, Number(opts.timeoutSec) || HOST_PROBE_TIMEOUT_SEC);
+  for (const host of macHost.macHostCandidates(cfg)) {
+    let r;
+    try {
+      r = await sshExec({ host, user }, HOST_PROBE_COMMAND, timeoutSec, opts);
+    } catch (_) {
+      // sshExec never rejects, but a hostile injected fake might.
+      r = { code: 255, timedOut: false };
+    }
+    const reachable = r.code !== 255 && !r.timedOut;
+    out.attempts.push({ host, code: r.code, timedOut: !!r.timedOut, reachable });
+    if (reachable) {
+      out.reachable = true;
+      out.host = host;
+      // Only a host DIFFERENT from the configured one is worth suggesting;
+      // suggesting the value already in settings would be noise.
+      out.suggestedHost = (configuredHost && host.toLowerCase() === configuredHost.toLowerCase()) ? null : host;
+      return out;
+    }
+  }
+  return out;
 }
 
 /**
@@ -585,4 +658,14 @@ module.exports = {
   installProfileOnMac,
   applyProfileOnMac,
   mirrorToMac,
+  // Task #37: the host chain. probeMacHosts is READ-ONLY and advisory; the
+  // constants and pure helpers are re-exported so a caller does not have to
+  // know that mac-host.js exists.
+  probeMacHosts,
+  macHostCandidates: macHost.macHostCandidates,
+  isLegacyMacHost: macHost.isLegacyMacHost,
+  DEFAULT_MAC_HOST: macHost.DEFAULT_MAC_HOST,
+  MAC_HOST_FALLBACKS: macHost.MAC_HOST_FALLBACKS,
+  LEGACY_MAC_HOSTS: macHost.LEGACY_MAC_HOSTS,
+  HOST_PROBE_TIMEOUT_SEC,
 };

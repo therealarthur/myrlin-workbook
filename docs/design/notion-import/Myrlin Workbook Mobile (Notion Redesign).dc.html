@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/notion-design-system-e8b6bf37-a492-4b36-a8aa-66eb37dd9ecb/tokens/colors.css">
+  <link rel="stylesheet" href="_ds/notion-design-system-e8b6bf37-a492-4b36-a8aa-66eb37dd9ecb/tokens/typography.css">
+  <link rel="stylesheet" href="_ds/notion-design-system-e8b6bf37-a492-4b36-a8aa-66eb37dd9ecb/tokens/spacing.css">
+  <link rel="stylesheet" href="_ds/notion-design-system-e8b6bf37-a492-4b36-a8aa-66eb37dd9ecb/tokens/effects.css">
+  <link rel="stylesheet" href="_ds/notion-design-system-e8b6bf37-a492-4b36-a8aa-66eb37dd9ecb/components/components.css">
+  <link rel="stylesheet" href="_ds/notion-design-system-e8b6bf37-a492-4b36-a8aa-66eb37dd9ecb/styles.css">
+  <style>
+    html, body { margin: 0; padding: 0; }
+    a { color: var(--app-text-blue, #387dc9); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    @keyframes mwPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+  </style>
+</helmet>
+<div class="nt-enable-hover" data-screen-label="Myrlin Workbook — Notion redesign (mobile)" style="display: flex; gap: 40px; justify-content: center; align-items: flex-start; padding: 32px; background: var(--app-bg-tertiary); min-height: 100vh; font-family: var(--font-app-ui, ui-sans-serif); color: var(--app-text-primary);">
+
+  <div data-screen-label="Mobile — Home / Sessions" style="width: 390px; height: 844px; display: flex; flex-direction: column; background: var(--app-bg-primary); border-radius: 24px; overflow: hidden; border: 1px solid var(--app-border-primary); box-shadow: 0 8px 30px rgba(0,0,0,0.08); position: relative;">
+    <header style="display: flex; align-items: center; gap: 10px; height: 50px; min-height: 50px; padding: 0 12px; border-bottom: 1px solid var(--app-border-secondary);">
+      <span style="display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; background: var(--app-bg-purple); font-size: 14px;">🎩</span>
+      <span style="flex: 1; font-weight: 600; font-size: 15px;">Myrlin's Workbook</span>
+      <button style="display: grid; place-items: center; width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: var(--app-text-secondary);">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.25 12a4.75 4.75 0 1 0 0-9.5 4.75 4.75 0 0 0 0 9.5z"></path><path d="M10.75 10.75L13.5 13.5"></path></svg>
+      </button>
+      <span class="nt-avatar nt-avatar-sm nt-avatar-purple" style="width: 26px; height: 26px; font-size: 11px;">G</span>
+    </header>
+
+    <div style="flex: 1; overflow-y: auto; padding: 12px 16px 76px;">
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--app-bg-yellow); margin-bottom: 14px;">
+        <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--app-text-yellow); animation: mwPulse 2s ease-in-out infinite;"></span>
+        <span style="flex: 1; font-size: 13px; color: var(--app-text-yellow); font-weight: 500;">2 sessions need your input</span>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--app-text-yellow);"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+      </div>
+
+      <div style="font-size: 12px; font-weight: 500; color: var(--app-sidebar-section-label); padding: 2px 2px 6px;">Active now</div>
+      <sc-for list="{{ activeSessions }}" as="s" hint-placeholder-count="3">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 11px 10px; border-radius: 8px; border: 1px solid var(--app-border-primary); margin-bottom: 8px;">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: {{ s.dotColor }}; animation: {{ s.dotAnim }}; flex-shrink: 0;"></span>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ s.title }}</div>
+            <div style="font-size: 12px; color: var(--app-text-secondary); margin-top: 1px;">{{ s.emoji }} {{ s.project }} · {{ s.activity }}</div>
+          </div>
+          <span class="nt-chip {{ s.providerCls }}">{{ s.provider }}</span>
+        </div>
+      </sc-for>
+
+      <div style="font-size: 12px; font-weight: 500; color: var(--app-sidebar-section-label); padding: 12px 2px 6px;">Recent</div>
+      <sc-for list="{{ recentSessions }}" as="s" hint-placeholder-count="4">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 10px 10px; border-radius: 8px;" style-hover="background: var(--app-wash-hover);">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--app-text-gray); flex-shrink: 0;"></span>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ s.title }}</div>
+            <div style="font-size: 12px; color: var(--app-text-tertiary); margin-top: 1px;">{{ s.emoji }} {{ s.project }}</div>
+          </div>
+          <span style="font-size: 12px; color: var(--app-text-tertiary);">{{ s.last }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <nav style="position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: stretch; height: 64px; background: var(--app-bg-primary); border-top: 1px solid var(--app-border-primary);">
+      <sc-for list="{{ tabsHome }}" as="t" hint-placeholder-count="4">
+        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: {{ t.color }}; font-size: 10px; font-weight: 500; cursor: pointer; position: relative;">
+          <span style="display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center;" dangerouslySetInnerHTML="{{ t.icon }}"></span>
+          {{ t.label }}
+          <sc-if value="{{ t.badge }}" hint-placeholder-val="{{ false }}">
+            <span style="position: absolute; top: 8px; right: calc(50% - 18px); min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--app-text-red); color: #fff; font-size: 9px; font-weight: 700; display: grid; place-items: center;">{{ t.badge }}</span>
+          </sc-if>
+        </div>
+      </sc-for>
+    </nav>
+  </div>
+
+  <div data-screen-label="Mobile — Terminal" style="width: 390px; height: 844px; display: flex; flex-direction: column; background: var(--app-bg-primary); border-radius: 24px; overflow: hidden; border: 1px solid var(--app-border-primary); box-shadow: 0 8px 30px rgba(0,0,0,0.08); position: relative;">
+    <header style="display: flex; align-items: center; gap: 8px; height: 50px; min-height: 50px; padding: 0 8px; border-bottom: 1px solid var(--app-border-secondary);">
+      <button style="display: grid; place-items: center; width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: var(--app-text-secondary);">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5.5 8 10 12.5"></path></svg>
+      </button>
+      <div style="flex: 1; min-width: 0;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--app-text-green); animation: mwPulse 2s ease-in-out infinite;"></span>
+          <span style="font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">resume-retexture</span>
+        </div>
+        <div style="font-size: 11px; color: var(--app-text-tertiary);">🛠️ Myrlin Features · Opus 4.6</div>
+      </div>
+      <span class="nt-chip nt-chip-purple">Claude</span>
+      <button style="display: grid; place-items: center; width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: var(--app-text-secondary);">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="8" r="1.35" fill="currentColor"></circle><circle cx="8" cy="8" r="1.35" fill="currentColor"></circle><circle cx="12" cy="8" r="1.35" fill="currentColor"></circle></svg>
+      </button>
+    </header>
+
+    <div style="display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--app-border-secondary); overflow-x: auto;">
+      <sc-for list="{{ paneChips }}" as="pc" hint-placeholder-count="3">
+        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; background: {{ pc.bg }}; color: {{ pc.color }}; border: 1px solid {{ pc.border }};">
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: {{ pc.dot }};"></span>
+          {{ pc.name }}
+        </span>
+      </sc-for>
+    </div>
+
+    <div style="flex: 1; overflow-y: auto; padding: 12px 14px; background: {{ termBg }}; font-family: var(--font-mono, 'iA Writer Mono', ui-monospace, monospace); font-size: 12px; line-height: 1.7; color: {{ termInk }};">
+      <sc-for list="{{ termLines }}" as="ln">
+        <div style="margin-bottom: {{ ln.mb }}; padding-left: {{ ln.pad }}; color: {{ ln.color }}; white-space: pre-wrap;">{{ ln.text }}</div>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--app-border-secondary); overflow-x: auto; background: var(--app-bg-secondary);">
+      <button class="nt-btn nt-btn-app" style="flex-shrink: 0;">Enter</button>
+      <button class="nt-btn nt-btn-app-secondary" style="flex-shrink: 0;">Tab</button>
+      <button class="nt-btn nt-btn-app-secondary" style="flex-shrink: 0;">Esc</button>
+      <button class="nt-btn nt-btn-app-secondary" style="flex-shrink: 0;">Ctrl+C</button>
+      <button class="nt-btn nt-btn-app-secondary" style="flex-shrink: 0;">↑</button>
+      <button class="nt-btn nt-btn-app-secondary" style="flex-shrink: 0;">↓</button>
+      <button class="nt-btn nt-btn-app-secondary" style="flex-shrink: 0;">Copy</button>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px; padding: 8px 12px 10px; background: var(--app-bg-secondary);">
+      <input placeholder="Message Claude…" style="flex: 1; min-width: 0; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--app-border-primary); border-radius: 8px; background: var(--app-bg-primary); color: var(--app-text-primary); font-family: inherit; font-size: 14px; outline: none;">
+      <button title="Attach an image" style="display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid var(--app-border-primary); border-radius: 8px; background: var(--app-bg-primary); color: var(--app-text-secondary); cursor: pointer;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5h10v9H3z"></path><path d="M3 10.5l3-3 2.5 2.5L11 7.5l2 2"></path><path d="M6 6.5h.01"></path></svg>
+      </button>
+      <button title="Voice input" style="display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid var(--app-border-primary); border-radius: 8px; background: var(--app-bg-primary); color: var(--app-text-secondary); cursor: pointer;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="1.75" width="4" height="7" rx="2"></rect><path d="M3.75 7.5a4.25 4.25 0 0 0 8.5 0"></path><path d="M8 11.75v2.5"></path><path d="M6 14.25h4"></path></svg>
+      </button>
+      <button class="nt-btn nt-btn-app" style="height: 36px;">Send</button>
+    </div>
+
+    <nav style="display: flex; align-items: stretch; height: 64px; min-height: 64px; background: var(--app-bg-primary); border-top: 1px solid var(--app-border-primary);">
+      <sc-for list="{{ tabsTerm }}" as="t" hint-placeholder-count="4">
+        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: {{ t.color }}; font-size: 10px; font-weight: 500; cursor: pointer; position: relative;">
+          <span style="display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center;" dangerouslySetInnerHTML="{{ t.icon }}"></span>
+          {{ t.label }}
+          <sc-if value="{{ t.badge }}" hint-placeholder-val="{{ false }}">
+            <span style="position: absolute; top: 8px; right: calc(50% - 18px); min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--app-text-red); color: #fff; font-size: 9px; font-weight: 700; display: grid; place-items: center;">{{ t.badge }}</span>
+          </sc-if>
+        </div>
+      </sc-for>
+    </nav>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 940, &quot;height&quot;: 920}, &quot;theme&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;light&quot;, &quot;tsType&quot;: &quot;'light' | 'dark'&quot;, &quot;options&quot;: [&quot;light&quot;, &quot;dark&quot;], &quot;section&quot;: &quot;Appearance&quot;}}">
+class Component extends DCLogic {
+  componentDidMount() {
+    document.documentElement.dataset.surface = 'app';
+    document.documentElement.dataset.theme = this.props.theme ?? 'light';
+  }
+  componentDidUpdate() {
+    document.documentElement.dataset.theme = this.props.theme ?? 'light';
+  }
+  _icon(name) {
+    const P = {
+      home: ['M3 7.5L8 3l5 4.5', 'M4.5 6.75v6.25h7V6.75'],
+      database: ['M8 5.25c2.5 0 4.5-.62 4.5-1.38S10.5 2.5 8 2.5 3.5 3.12 3.5 3.88 5.5 5.25 8 5.25z', 'M3.5 3.88v8.24c0 .76 2 1.38 4.5 1.38s4.5-.62 4.5-1.38V3.88', 'M3.5 8c0 .76 2 1.38 4.5 1.38S12.5 8.76 12.5 8'],
+      code: ['M5.5 5L3 8l2.5 3', 'M10.5 5L13 8l-2.5 3'],
+      inbox: ['M3 3.5h10v9H3z', 'M3 9h3l.75 1.5h2.5L10 9h3'],
+      search: ['M7.25 12a4.75 4.75 0 1 0 0-9.5 4.75 4.75 0 0 0 0 9.5z', 'M10.75 10.75L13.5 13.5'],
+    };
+    const paths = (P[name] || []).map(d => '<path d="' + d + '"/>').join('');
+    return { __html: '<svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>' };
+  }
+  renderVals() {
+    const dark = (this.props.theme ?? 'light') === 'dark';
+    const termBg = dark ? '#262626' : '#f5f2f0';
+    const termInk = dark ? '#e6e5e3' : '#2c2c2b';
+    const termDim = dark ? '#9b9b9b' : '#7d7a75';
+    const mkTabs = (active) => [
+      { label: 'Home', id: 'home', icon: 'home' },
+      { label: 'Sessions', id: 'sessions', icon: 'database' },
+      { label: 'Terminal', id: 'terminal', icon: 'code' },
+      { label: 'Attention', id: 'attention', icon: 'inbox', badge: '2' },
+      { label: 'Search', id: 'search', icon: 'search' },
+    ].map(t => ({
+      label: t.label, badge: t.badge || false,
+      icon: this._icon(t.icon),
+      color: t.id === active ? 'var(--app-text-primary)' : 'var(--app-text-tertiary)',
+    }));
+    return {
+      termBg, termInk,
+      tabsHome: mkTabs('home'),
+      tabsTerm: mkTabs('terminal'),
+      activeSessions: [
+        { title: 'resume-retexture', project: 'Myrlin Features', emoji: '🛠️', provider: 'Claude', providerCls: 'nt-chip-purple', activity: 'Writing tests…', dotColor: 'var(--app-text-green)', dotAnim: 'mwPulse 2s ease-in-out infinite' },
+        { title: 'research-pass', project: 'Myrlin Research', emoji: '🔬', provider: 'Claude', providerCls: 'nt-chip-purple', activity: 'Waiting for you', dotColor: 'var(--app-text-yellow)', dotAnim: 'mwPulse 2s ease-in-out infinite' },
+        { title: 'promo-code-banner', project: 'Myrlin Features', emoji: '🛠️', provider: 'Codex', providerCls: 'nt-chip-green', activity: 'Approval requested', dotColor: 'var(--app-text-yellow)', dotAnim: 'mwPulse 2s ease-in-out infinite' },
+      ],
+      recentSessions: [
+        { title: 'state-machine-tests', project: 'Myrlin Research', emoji: '🔬', last: '32m' },
+        { title: 'workbook-shell-refactor', project: 'Myrlin Features', emoji: '🛠️', last: '15h' },
+        { title: 'landing-page-copy', project: 'Myrlin Marketing', emoji: '📣', last: '23h' },
+        { title: 'alert-pipeline', project: 'SignalSentry', emoji: '📡', last: '2d' },
+      ],
+      paneChips: [
+        { name: 'resume-retexture', bg: 'var(--app-bg-tertiary)', color: 'var(--app-text-primary)', border: 'var(--app-border-primary)', dot: 'var(--app-text-green)' },
+        { name: 'research-pass', bg: 'transparent', color: 'var(--app-text-secondary)', border: 'transparent', dot: 'var(--app-text-yellow)' },
+        { name: 'promo-code-banner', bg: 'transparent', color: 'var(--app-text-secondary)', border: 'transparent', dot: 'var(--app-text-yellow)' },
+      ],
+      termLines: [
+        { text: '✻ Conversation compacted (ctrl+o for history)', color: termDim, mb: '10px', pad: '0' },
+        { text: '● Good, tasks #34–37 are complete. Task #38 is in progress — need to write tests and commit.', color: termInk, mb: '8px', pad: '0' },
+        { text: '● Bash(python -m pytest tests/ -v --tb=short | tail -40)', color: termInk, mb: '2px', pad: '0' },
+        { text: '⎿ test_valid_transition PASSED [87%]', color: termDim, mb: '2px', pad: '14px' },
+        { text: 'test_invalid_transition PASSED', color: termDim, mb: '8px', pad: '24px' },
+        { text: '● Writing tests/unit/test_retexture_pipeline.py…', color: termInk, mb: '8px', pad: '0' },
+        { text: '✻ Worked for 4m 12s', color: termDim, mb: '0', pad: '0' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

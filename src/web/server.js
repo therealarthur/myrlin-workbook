@@ -1056,7 +1056,7 @@ function resolveTdRepoDir(store, workspaceId) {
   const inferredDir = sorted[0][0];
 
   // If the inferred dir is a git worktree (not the main repo), resolve to the
-  // main repo root — that's where .todos/ lives, not inside the worktree.
+  // main repo root, that's where .todos/ lives, not inside the worktree.
   // `git rev-parse --git-common-dir` returns the shared .git dir for both the
   // main repo and any linked worktree, so dirname() gives the main repo root.
   try {
@@ -1072,7 +1072,7 @@ function resolveTdRepoDir(store, workspaceId) {
     if (mainRepoRoot && mainRepoRoot !== inferredDir && require('fs').existsSync(mainRepoRoot)) {
       return mainRepoRoot;
     }
-  } catch (_) { /* not a git repo or git unavailable — fall through */ }
+  } catch (_) { /* not a git repo or git unavailable, fall through */ }
 
   return inferredDir;
 }
@@ -1095,7 +1095,7 @@ app.get('/api/workspaces/:id/td/status', requireAuth, async (req, res) => {
 /**
  * POST /api/workspaces/:id/td/init
  * Run `td init` in the workspace repo directory.
- * Body: { repoDir? } — optionally set/override the repo dir at the same time.
+ * Body: { repoDir? }, optionally set/override the repo dir at the same time.
  */
 app.post('/api/workspaces/:id/td/init', requireAuth, async (req, res) => {
   const store = getStore();
@@ -1270,7 +1270,7 @@ app.get('/api/td/binary', requireAuth, async (req, res) => {
 /**
  * PUT /api/td/binary
  * Persist the td binary path in the store settings.
- * Body: { binary } — empty string clears it (falls back to env/default).
+ * Body: { binary }, empty string clears it (falls back to env/default).
  */
 app.put('/api/td/binary', requireAuth, async (req, res) => {
   const binary = ((req.body && req.body.binary) || '').trim();
@@ -1641,9 +1641,41 @@ app.delete('/api/sessions/:id', requireAuth, (req, res) => {
  * spawn, so a setting change takes effect the next time the pane is
  * (re)started. The frontend surfaces a toast hint after a successful PUT.
  */
-const CODEX_SANDBOX_VALUES = new Set(['read-only', 'workspace-write', 'danger-full-access']);
-const CODEX_APPROVAL_VALUES = new Set(['untrusted', 'on-failure', 'on-request', 'never']);
-const CODEX_EFFORT_VALUES = new Set(['minimal', 'low', 'medium', 'high']);
+// BUILD-CONTRACT P8.7 / CODEX-PARITY B5, B16, B17.
+//
+// These three used to be literal copies of the sets in
+// src/providers/codex/spawn.js. Two copies of one enum in two layers is how the
+// following bug survived: measured across 3002 real threads, the effort set
+// covered about 2 percent of actual usage, so a session whose real effort is
+// `ultra` could neither be launched with it nor persist it, and a saved
+// template silently lost the field on every round trip.
+//
+// They now re-point at the provider's definition, which is the single source of
+// truth, so widening an enum is one edit in one file. Loaded defensively: this
+// route's validation must not be what takes the server down if a provider
+// module ever fails to load, so a require failure falls back to the original
+// literal sets rather than throwing at startup.
+const CODEX_SPAWN_ENUMS = (() => {
+  const fallback = {
+    SANDBOX_VALUES: new Set(['read-only', 'workspace-write', 'danger-full-access']),
+    APPROVAL_VALUES: new Set(['untrusted', 'on-failure', 'on-request', 'never']),
+    EFFORT_VALUES: new Set(['minimal', 'low', 'medium', 'high']),
+  };
+  try {
+    const spawnModule = require('../providers/codex/spawn');
+    return {
+      SANDBOX_VALUES: spawnModule.SANDBOX_VALUES instanceof Set ? spawnModule.SANDBOX_VALUES : fallback.SANDBOX_VALUES,
+      APPROVAL_VALUES: spawnModule.APPROVAL_VALUES instanceof Set ? spawnModule.APPROVAL_VALUES : fallback.APPROVAL_VALUES,
+      EFFORT_VALUES: spawnModule.EFFORT_VALUES instanceof Set ? spawnModule.EFFORT_VALUES : fallback.EFFORT_VALUES,
+    };
+  } catch (_) {
+    return fallback;
+  }
+})();
+
+const CODEX_SANDBOX_VALUES = CODEX_SPAWN_ENUMS.SANDBOX_VALUES;
+const CODEX_APPROVAL_VALUES = CODEX_SPAWN_ENUMS.APPROVAL_VALUES;
+const CODEX_EFFORT_VALUES = CODEX_SPAWN_ENUMS.EFFORT_VALUES;
 const CODEX_FEATURE_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const CODEX_MODEL_ID_RE = /^[a-zA-Z0-9._:-]{1,128}$/;
 const CODEX_ALLOWED_KEYS = new Set([
@@ -1883,6 +1915,131 @@ app.get('/api/sessions/:id/scrollback', requireAuth, (req, res) => {
 
   const result = ptyManager.getScrollbackLines(req.params.id, { lines, from });
   return res.json(result);
+});
+
+/* ──────────────────────────────────────────────────────────────
+   DEEP NORMAL-BUFFER HISTORY (Notion restyle P7.5)
+
+   The route TERMINAL-ARCHITECTURE.md stage 4 names, wrapping the read
+   API P6 left ready (`ptyManager.getHistoryLines`). It is the data
+   source for the history layer's `deep` segment, which is the half of
+   the Unified Scrollback Surface that serves NORMAL-buffer panes: a
+   shell, a build, a REPL. Alternate-buffer panes route to the session
+   transcript through /api/mirror/* instead, because a viewport that
+   never scrolls has no terminal-layer history to serve (section 2.3).
+
+   FOUR PROPERTIES, each deliberate:
+
+     READ-ONLY AND BOUNDED. The sidecar's own readLines clamps the page
+     to [1, 10000]; this route clamps harder, to HISTORY_ROUTE_MAX_LINES,
+     because the page size a browser asks for is untrusted input and a
+     10000-line page of 200-column lines is a 4 MB response. The client
+     pages instead, which is what `hasMore` and `firstLine` are for.
+
+     IT NEVER THROWS AND NEVER 404s. A session with no sidecar (the
+     default: CWM_VT_SIDECAR is off), a session that does not exist, and
+     a disposed sidecar all answer 200 with `available: false` and an
+     empty page. The layer treats "no deep history" as an ordinary state
+     rather than an error, so an error status here would turn a normal
+     condition into a red console line on every open.
+
+     IT REPORTS ITS OWN SEAMS. `lostLines` counts lines evicted before
+     capture and `reflows` counts resize seams, and the log can repeat
+     up to |delta rows| lines around a widen (vt-sidecar.js
+     _rebaselineLineLog). Both are published so the client can dedupe at
+     RENDER time with a bounded window rather than guess, and so a gap is
+     visible rather than invented. That is the same ruling section 7.4
+     makes for the transcript seam: a visible duplicate beats a silent
+     deletion.
+
+     IT CARRIES THE MODE. `getSessionMode` is free here and answers the
+     one question the client needs before it can route (alt buffer or
+     not). The WebSocket `mode` frame is still the primary signal; this
+     is the fallback for a client that attached before the sidecar had
+     an opinion, and it is null whenever the sidecar is off, which is
+     exactly when the client falls back to `buffer.active.type`.
+   ────────────────────────────────────────────────────────────── */
+
+// Hard ceiling on one page of deep history. HISTORY_PAGE_LINES in
+// TERMINAL-ARCHITECTURE.md 11.2 is 2000, which is one page of the history
+// document, so a request larger than that cannot be a page render.
+const HISTORY_ROUTE_MAX_LINES = 2000;
+
+// Default page size when the caller does not ask for one.
+const HISTORY_ROUTE_DEFAULT_LINES = 500;
+
+/**
+ * GET /api/sessions/:id/history
+ *
+ * Returns one page of committed normal-buffer lines from the session's VT
+ * sidecar, newest page first, paging backwards by absolute line index.
+ *
+ * Query params:
+ *   - beforeLine: absolute line index to page backwards FROM (exclusive).
+ *     Omitted means "the newest page".
+ *   - lines: page size, clamped to [1, HISTORY_ROUTE_MAX_LINES].
+ *
+ * Returns: {
+ *   lines: Array<{t: string, w: boolean}>,  // oldest first within the page;
+ *                                           // w is isWrapped, so a client can
+ *                                           // rejoin a wrapped logical line
+ *   firstLine, beforeLine, total, oldestAvailable, hasMore,
+ *   lostLines, reflows, available, maxLines,
+ *   mode: {altBuffer, mouseTracking, mouseTrackingActive, bracketedPaste}|null
+ * }
+ */
+app.get('/api/sessions/:id/history', requireAuth, (req, res) => {
+  // One empty shape, used for every "nothing to serve" case, so a client
+  // never has to branch on null or on a status code.
+  const empty = {
+    lines: [], firstLine: 0, beforeLine: 0, total: 0, oldestAvailable: 0,
+    hasMore: false, lostLines: 0, reflows: 0, available: false,
+    maxLines: HISTORY_ROUTE_MAX_LINES, mode: null,
+  };
+
+  try {
+    const ptyManager = getPtyManager();
+    if (!ptyManager) return res.json(empty);
+
+    const requested = parseInt(req.query.lines, 10);
+    const lines = Math.max(1, Math.min(
+      HISTORY_ROUTE_MAX_LINES,
+      Number.isFinite(requested) ? requested : HISTORY_ROUTE_DEFAULT_LINES
+    ));
+    // A missing, blank or malformed cursor means "the newest page". A negative
+    // one is clamped rather than rejected: the sidecar already clamps into
+    // [oldestAvailable, total], so an out-of-range cursor is answered with the
+    // nearest real page instead of a 400 the layer would have to handle.
+    const parsedBefore = parseInt(req.query.beforeLine, 10);
+    const options = { lines };
+    if (Number.isFinite(parsedBefore)) options.beforeLine = Math.max(0, parsedBefore);
+
+    const page = ptyManager.getHistoryLines(req.params.id, options);
+
+    // Seam counter for render-time dedupe. Read from the diagnostics surface
+    // rather than added to getHistoryLines, so P6's read API keeps the exact
+    // shape it published and this route owns its own enrichment.
+    let reflows = 0;
+    try {
+      const stats = ptyManager.getSidecarStats();
+      const list = (stats && Array.isArray(stats.sidecars)) ? stats.sidecars : [];
+      const mine = list.find((s) => s && s.sessionId === req.params.id);
+      if (mine && typeof mine.reflows === 'number') reflows = mine.reflows;
+    } catch (_) { /* diagnostics are advisory; a page without them still renders */ }
+
+    let mode = null;
+    try { mode = ptyManager.getSessionMode(req.params.id) || null; } catch (_) { mode = null; }
+
+    return res.json(Object.assign({}, empty, page, {
+      reflows,
+      mode,
+      maxLines: HISTORY_ROUTE_MAX_LINES,
+    }));
+  } catch (_) {
+    // The history layer degrades to the client-side ring on an empty page, so
+    // answering 200-with-nothing keeps a pane readable when this fails.
+    return res.json(empty);
+  }
 });
 
 /**
@@ -2385,11 +2542,20 @@ function probeAvailability(cliBinary, forceRefresh) {
  *   ?refresh=true  Bypass the 30s availability cache and re-probe.
  *
  * Response (200):
- *   [{id, displayName, accentToken, enabled, available, supportsCost}]
+ *   [{id, displayName, accentToken, enabled, available, supportsCost,
+ *     supportsTokenUsage}]
  *
  * Plan 15-03 (DISC-06). Plan 18-04 added supportsCost so the frontend can
  * disclose Codex's "cost not tracked" state with an em-dash + tooltip
  * instead of misleading "$0.00" badges (COST-02 / COST-03).
+ *
+ * BUILD-CONTRACT P9.3 added supportsTokenUsage, because the two claims are not
+ * the same one. "We know how many tokens this session burned" and "we know what
+ * it cost in money" were conflated behind a single flag, and Codex can only make
+ * the first: it bills against a ChatGPT plan and its rollouts carry a plan type
+ * and a credits block but no price. A row that is `supportsCost: false,
+ * supportsTokenUsage: true` should show a token count where a Claude row shows
+ * a dollar amount, rather than showing nothing or, worse, `$0.00`.
  */
 app.get('/api/providers', requireAuth, (req, res) => {
   const forceRefresh = req.query.refresh === 'true';
@@ -2409,8 +2575,73 @@ app.get('/api/providers', requireAuth, (req, res) => {
     // broken/misregistered provider rather than silently dropping the
     // cost badge for Claude.
     supportsCost: (typeof p.supportsCost === 'function') ? (p.supportsCost() !== false) : true,
+    // BUILD-CONTRACT P9.3: OPTIONAL capability, so an absent member reports
+    // false rather than defaulting to true. The asymmetry with supportsCost
+    // above is deliberate: defaulting cost to true preserves the pre-provider
+    // behaviour every caller already assumed, while defaulting token usage to
+    // true would promise a number no existing provider has been asked for.
+    supportsTokenUsage:
+      (typeof p.supportsTokenUsage === 'function') ? (p.supportsTokenUsage() === true) : false,
   }));
   res.json(out);
+});
+
+/**
+ * GET /api/providers/:id/usage-snapshot
+ *
+ * BUILD-CONTRACT P9.6. The plan and rate-limit windows behind the account usage
+ * meters, for any provider that can report them locally.
+ *
+ * Deliberately NOT the account switcher's feed. That one calls a live vendor
+ * endpoint with the access token out of the credential file. This one reads a
+ * line the assistant writes locally on every turn, so it needs no credential,
+ * makes no network call, works offline and cannot fail because a token expired.
+ * The two are complementary: the switcher knows about the ACCOUNT, this knows
+ * about the CURRENT LIMIT WINDOW.
+ *
+ * Response (200), when the provider can answer:
+ *   {
+ *     provider: <the provider id from the path>,
+ *     supported: true,
+ *     rateLimits: {
+ *       planType, limitId, limitName, reachedType, spendControlReached,
+ *       primary:   {usedPercent, windowMinutes, resetsAt} | null,
+ *       secondary: {usedPercent, windowMinutes, resetsAt} | null,
+ *       individual:{usedPercent, windowMinutes, resetsAt} | null,
+ *       credits:   {balance, hasCredits, unlimited} | null
+ *     },
+ *     contextWindow: number|null,
+ *     observedAt: number|null
+ *   }
+ *
+ * Response (200), otherwise: `{provider, supported: false, reason}`. A meter
+ * must render "unknown" on that, never a full or an empty bar.
+ */
+app.get('/api/providers/:id/usage-snapshot', requireAuth, (req, res) => {
+  const provider = registry.getProvider(req.params.id);
+  if (!provider) {
+    return res.status(404).json({ error: 'Unknown provider', provider: req.params.id, supported: false });
+  }
+  if (typeof provider.getUsageSnapshot !== 'function') {
+    return res.json({ provider: provider.id, supported: false, reason: 'provider-reports-no-usage' });
+  }
+  Promise.resolve()
+    .then(() => provider.getUsageSnapshot())
+    .then((snapshot) => {
+      if (!snapshot || !snapshot.rateLimits) {
+        // Nothing on this machine can answer. "Unknown" is the honest render,
+        // and it is not the same thing as a limit of zero.
+        return res.json({ provider: provider.id, supported: false, reason: 'no-observation-on-disk' });
+      }
+      return res.json({
+        provider: provider.id,
+        supported: true,
+        rateLimits: snapshot.rateLimits,
+        contextWindow: typeof snapshot.contextWindow === 'number' ? snapshot.contextWindow : null,
+        observedAt: typeof snapshot.observedAt === 'number' ? snapshot.observedAt : null,
+      });
+    })
+    .catch(() => res.json({ provider: provider.id, supported: false, reason: 'snapshot-failed' }));
 });
 
 /**
@@ -2792,12 +3023,123 @@ app.post('/api/sessions/:id/auto-title', requireAuth, (req, res) => {
 });
 
 /**
+ * Extract summary-shaped messages from a transcript using the PROVIDER's own
+ * per-line parser, for a provider whose artifact is not Claude-shaped.
+ *
+ * BUILD-CONTRACT P9 (CODEX-PARITY B12). Reads the same bounded head and tail
+ * windows the Claude path reads, for the same reason: the head carries the
+ * opening request, which is the theme, and the tail carries what is happening
+ * now. A whole-file read is not an option here; the largest rollout on the
+ * reference machine is 924 MB.
+ *
+ * Uses `provider.mirror.parseLine`, which is pure, synchronous and contractually
+ * non-throwing, so a corrupt line costs one line rather than the request.
+ *
+ * @param {object} provider - Provider exposing mirror.parseLine.
+ * @param {string} headText - First window of the file.
+ * @param {string} tailText - Last window of the file.
+ * @param {number} headLimit - Max early messages to collect.
+ * @param {number} tailLimit - Max recent messages to collect.
+ * @returns {{early: Array<{role:string,text:string}>, recent: Array<{role:string,text:string}>}}
+ */
+function extractProviderSummaryMessages(provider, headText, tailText, headLimit, tailLimit) {
+  const parseLine =
+    provider && provider.mirror && typeof provider.mirror.parseLine === 'function'
+      ? provider.mirror.parseLine
+      : null;
+  const empty = { early: [], recent: [] };
+  if (!parseLine) return empty;
+
+  /**
+   * Map one window of raw lines into {role, text} pairs, keeping only the
+   * conversational roles. Tool calls and tool results are deliberately excluded:
+   * a summary of "what is this session about" is not served by the text of a
+   * shell command.
+   *
+   * @param {string} text
+   * @param {number} limit
+   * @param {boolean} fromEnd - Collect from the end (recent) rather than the start.
+   * @returns {Array<{role:string,text:string}>}
+   */
+  const collect = (text, limit, fromEnd) => {
+    const out = [];
+    if (typeof text !== 'string' || text.length === 0) return out;
+    const lines = text.split('\n');
+    const order = fromEnd ? lines.slice().reverse() : lines;
+    for (const line of order) {
+      if (out.length >= limit) break;
+      if (!line) continue;
+      let msg = null;
+      try {
+        msg = parseLine(line);
+      } catch (_) {
+        continue; // parseLine is non-throwing by contract; belt and braces
+      }
+      if (!msg) continue;
+      if (msg.role !== 'user' && msg.role !== 'assistant') continue;
+      if (!msg.text || msg.text.length < 5) continue;
+      const cleaned = msg.text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!cleaned) continue;
+      const entry = { role: msg.role, text: cleaned.substring(0, 500) };
+      if (fromEnd) out.unshift(entry);
+      else out.push(entry);
+    }
+    return out;
+  };
+
+  return {
+    early: collect(headText, headLimit, false),
+    recent: collect(tailText, tailLimit, true),
+  };
+}
+
+/**
  * POST /api/sessions/:id/summarize
- * Reads the Claude session's .jsonl file and generates a summary
- * of the overall theme and most recent tasking.
+ * Reads the session's transcript and generates a summary of the overall theme
+ * and most recent tasking.
  * Also works for project sessions by passing claudeSessionId in body.
+ *
+ * BUILD-CONTRACT P9 (CODEX-PARITY B12). Two things were wrong here and both are
+ * fixed without deleting a line:
+ *
+ *   1. THE SHADOWED ROUTE. Two handlers were registered on this exact path, one
+ *      here and one much further down the file. Express serves the first, so the
+ *      second, the provider-aware one that appends a summary to the workspace
+ *      docs, was unreachable dead code. Two live frontend callers wanted it:
+ *      `summarizeSessionToDocs()` and the mobile client's `summarize()`, both of
+ *      which read `data.summary` and always got undefined.
+ *
+ *      Resolved by DELEGATION rather than by deleting the shadowing
+ *      registration. The docs behaviour now lives in a named function,
+ *      `summarizeSessionToDocsHandler`, which is registered on its own
+ *      unshadowed route AND invoked from here when the caller opts in. The
+ *      original second registration is retained, untouched, and is still
+ *      shadowed; it now points at the same function, so the code that was dead
+ *      is the code that runs.
+ *
+ *   2. THE HARDCODED CLAUDE WALK. Artifact resolution scanned
+ *      `~/.claude/projects` for `<id>.jsonl` and nothing else, so every Codex
+ *      session got a hard 404. Resolution now dispatches through the provider
+ *      registry first and keeps the original walk as the last fallback, which is
+ *      still needed for a project session that has no store record and therefore
+ *      no provider tag.
+ *
+ * The Claude response shape is unchanged, field for field.
  */
 app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
+  // Opt-in delegation to the previously-unreachable docs summariser. A client
+  // asks for it with `{toDocs: true}` in the body or `?toDocs=1`, and gets the
+  // `{summary}` shape plus the workspace-note append. The default is unchanged,
+  // which matters: the modal summariser must never write to a user's project
+  // docs as a side effect of being opened.
+  const wantsDocs =
+    (req.body && req.body.toDocs === true) ||
+    req.query.toDocs === '1' ||
+    req.query.toDocs === 'true';
+  if (wantsDocs) {
+    return summarizeSessionToDocsHandler(req, res);
+  }
+
   const store = getStore();
   // For store sessions, use resumeSessionId. For project sessions, accept direct ID.
   const session = store.getSession(req.params.id);
@@ -2807,12 +3149,30 @@ app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'No Claude session ID available' });
   }
 
+  // Provider-first artifact resolution (CODEX-PARITY B12). The literal walk
+  // below is retained as the final fallback because a project session carries no
+  // store record, and therefore no provider tag, yet still resolves by id.
+  const provider = getProviderForSession(session);
+  let jsonlPath = null;
+  try {
+    if (provider && typeof provider.findArtifactPath === 'function') {
+      jsonlPath = provider.findArtifactPath(claudeSessionId) || null;
+    }
+    if (!jsonlPath && provider && session && session.workingDir &&
+        typeof provider.findArtifactByWorkingDir === 'function') {
+      const byDir = provider.findArtifactByWorkingDir(session.workingDir);
+      if (byDir && byDir.jsonlPath) jsonlPath = byDir.jsonlPath;
+    }
+  } catch (_) {
+    // A provider that throws must not cost the request; the walk still runs.
+    jsonlPath = null;
+  }
+
   // Find the .jsonl file in ~/.claude/projects/
   const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
-  let jsonlPath = null;
 
   try {
-    if (fs.existsSync(claudeProjectsDir)) {
+    if (!jsonlPath && fs.existsSync(claudeProjectsDir)) {
       const projectDirs = fs.readdirSync(claudeProjectsDir, { withFileTypes: true })
         .filter(d => d.isDirectory());
       for (const dir of projectDirs) {
@@ -2883,8 +3243,32 @@ app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
       return msgs;
     };
 
-    const earlyMessages = extractMessages(headLines, 5);
-    const recentMessages = extractMessages(tailLines.slice(-20), 10);
+    let earlyMessages = extractMessages(headLines, 5);
+    let recentMessages = extractMessages(tailLines.slice(-20), 10);
+
+    // CODEX-PARITY B12: the extractor above understands ONE transcript shape,
+    // Claude's `{type, message: {role, content}}`. A Codex rollout is an
+    // envelope log and yields zero messages from it, which is how a summarize
+    // request on a Codex session produced "Unable to determine theme" even when
+    // the artifact resolved.
+    //
+    // The provider's own per-line parser is consulted only when the historical
+    // extractor found NOTHING. That ordering is deliberate: it keeps the Claude
+    // path byte-identical rather than merely equivalent, because the historical
+    // extractor always succeeds on a Claude file and therefore the fallback can
+    // never run for one. It also avoids branching on a provider id, so a future
+    // provider whose artifact happens to be Claude-shaped keeps working.
+    if (earlyMessages.length === 0 && recentMessages.length === 0) {
+      const viaProvider = extractProviderSummaryMessages(
+        provider,
+        headContent,
+        tailContent,
+        5,
+        10
+      );
+      earlyMessages = viaProvider.early;
+      recentMessages = viaProvider.recent;
+    }
 
     // Build summary
     let overallTheme = 'Unable to determine theme';
@@ -3595,10 +3979,144 @@ function calculateSessionCost(jsonlPath) {
   };
 }
 
+// ──────────────────────────────────────────────────────────
+//  COST CAPABILITY GATE (BUILD-CONTRACT P9.3, CODEX-PARITY B10)
+// ──────────────────────────────────────────────────────────
+//
+// The cost routes below run a Claude-shaped parser over whatever transcript
+// they are handed: it matches `entry.type === 'assistant' && message.usage`.
+// A Codex rollout yields ZERO matches against 618 `event_msg/token_count`
+// entries in the file CODEX-PARITY measured, so the route returned a
+// fully-formed cost object of zeroes and the UI rendered `$0.00` for a session
+// that had 226 million tokens against it.
+//
+// `$0.00` is a claim, and it was the wrong one. These helpers make the routes
+// say "this provider does not report money", with the real token counts
+// attached, instead.
+
+/**
+ * Machine-readable reasons a money figure is absent, mirrored from
+ * src/providers/codex/usage.js so a non-Codex provider that lacks cost support
+ * gets the same vocabulary without importing a provider module.
+ */
+const COST_UNAVAILABLE_REASONS = Object.freeze({
+  NO_PRICE_MODEL: 'provider-has-no-price-model',
+  NO_USAGE: 'provider-reports-no-usage',
+  NO_ARTIFACT: 'no-transcript-artifact',
+});
+
+/**
+ * Does this provider report a MONEY figure.
+ *
+ * Defensive on both ends: an absent flag means "yes" (Claude semantics, which
+ * is what every caller assumed before providers existed), and a throwing flag
+ * is treated the same way rather than failing the request. Only an explicit
+ * `false` gates.
+ *
+ * @param {object|null} provider
+ * @returns {boolean}
+ */
+function providerSupportsCost(provider) {
+  if (!provider || typeof provider.supportsCost !== 'function') return true;
+  try {
+    return provider.supportsCost() !== false;
+  } catch (_) {
+    return true;
+  }
+}
+
+/**
+ * Build the response for a provider that has no price model.
+ *
+ * Shape contract, consumed by the session peek and by any future token display:
+ *
+ *   costSupported          false. The single field a client should branch on.
+ *   costUnavailableReason  one of COST_UNAVAILABLE_REASONS.
+ *   cost                   null, NEVER a zeroed object. A client that does
+ *                          `if (!data.cost)` hides its money panel, which is
+ *                          the correct outcome and is what app.js already does.
+ *   tokens                 real counts in the SAME field names the Claude path
+ *                          uses (input, output, cacheRead, cacheWrite, total),
+ *                          plus `reasoning`, so existing token-bar arithmetic
+ *                          works unchanged. Null when nothing is known.
+ *   tokensSource           'state-db' | 'rollout' | 'state-db+rollout' | null.
+ *   usage                  the provider's full native report, for callers that
+ *                          want the context window, the last turn or the plan
+ *                          and rate-limit snapshot.
+ *
+ * @param {object|null} provider
+ * @param {string} sessionId - Workbook session id.
+ * @param {string|null} resumeSessionId - Upstream provider session id.
+ * @param {string|null} jsonlPath - Resolved artifact, when one was found.
+ * @returns {Promise<object>} Always resolves; never rejects.
+ */
+async function buildUnpricedCostResponse(provider, sessionId, resumeSessionId, jsonlPath) {
+  const base = {
+    sessionId: sessionId,
+    resumeSessionId: resumeSessionId || null,
+    provider: provider && provider.id ? provider.id : null,
+    costSupported: false,
+    cost: null,
+    modelBreakdown: {},
+    messageCount: 0,
+    firstMessage: null,
+    lastMessage: null,
+  };
+
+  const canReportUsage =
+    provider &&
+    typeof provider.parseUsage === 'function' &&
+    (typeof provider.supportsTokenUsage !== 'function' || provider.supportsTokenUsage() !== false);
+
+  if (!canReportUsage) {
+    return Object.assign(base, {
+      costUnavailableReason: COST_UNAVAILABLE_REASONS.NO_USAGE,
+      tokens: null,
+      tokensSource: null,
+      usage: null,
+    });
+  }
+
+  let report = null;
+  try {
+    report = await provider.parseUsage(resumeSessionId || sessionId, {
+      artifactPath: jsonlPath || undefined,
+    });
+  } catch (_) {
+    // parseUsage is contractually non-throwing; the guard keeps a broken
+    // contract from turning an honest disclosure into a 500.
+    report = null;
+  }
+
+  if (!report) {
+    return Object.assign(base, {
+      costUnavailableReason: COST_UNAVAILABLE_REASONS.NO_ARTIFACT,
+      tokens: null,
+      tokensSource: null,
+      usage: null,
+    });
+  }
+
+  return Object.assign(base, {
+    costUnavailableReason: COST_UNAVAILABLE_REASONS.NO_PRICE_MODEL,
+    tokens: report.tokens || null,
+    tokensSource: report.source || null,
+    contextWindow: typeof report.contextWindow === 'number' ? report.contextWindow : null,
+    lastTurn: report.lastTurn || null,
+    rateLimits: report.rateLimits || null,
+    model: report.model || null,
+    usage: report,
+  });
+}
+
 /**
  * GET /api/sessions/:id/cost
  * Reads the session's JSONL file and calculates token usage and estimated cost.
  * Results are cached for 60 seconds, invalidated when the file mtime changes.
+ *
+ * BUILD-CONTRACT P9.3: gated on provider.supportsCost(). A provider with no
+ * price model gets the explicit unsupported disclosure above, carrying its real
+ * token counts, instead of a zeroed cost object that renders as `$0.00`.
  */
 app.get('/api/sessions/:id/cost', requireAuth, (req, res) => {
   const store = getStore();
@@ -3629,6 +4147,19 @@ app.get('/api/sessions/:id/cost', requireAuth, (req, res) => {
   if (!jsonlPath && !resumeSessionId) {
     jsonlPath = provider ? provider.findArtifactPath(req.params.id) : null;
     resumeSessionId = req.params.id;
+  }
+
+  // BUILD-CONTRACT P9.3: the capability gate, placed BEFORE the missing-artifact
+  // branch on purpose. A provider whose totals live in its own store can answer
+  // with real numbers even when no transcript file was resolved, and it must
+  // never fall through to the zeroed cost object below.
+  if (!providerSupportsCost(provider)) {
+    buildUnpricedCostResponse(provider, req.params.id, resumeSessionId, jsonlPath)
+      .then((payload) => res.json(payload))
+      .catch((err) =>
+        res.status(500).json({ error: 'Failed to read usage: ' + (err && err.message ? err.message : err) })
+      );
+    return;
   }
 
   if (!jsonlPath) {
@@ -3701,6 +4232,38 @@ app.get('/api/cost/batch', requireAuth, async (req, res) => {
         if (!resumeSessionId) continue;
         // Plan 15-01 (DISC-03): dispatch through provider abstraction.
         const provider = getProviderForSession(session);
+
+        // BUILD-CONTRACT P9.3: the same capability gate the single-session route
+        // applies, applied here too and BEFORE any artifact resolution.
+        //
+        // Without it, a cost-unsupported provider's rows ran the Claude parser,
+        // matched nothing, and returned `cost: 0`, which is the false zero this
+        // phase exists to remove. `cost: null` is the honest answer, and it is
+        // also the value the frontend's badge patcher already skips, so a stale
+        // batch response can never overwrite the em-dash disclosure.
+        //
+        // The token total is a warm-cache map lookup, so this branch performs no
+        // IO at all and cannot slow a batch that spans every session on the
+        // machine. A cold cache yields null, which means "unknown", not "zero".
+        if (!providerSupportsCost(provider)) {
+          let tokenTotal = null;
+          try {
+            if (provider && typeof provider.totalTokensSync === 'function') {
+              tokenTotal = provider.totalTokensSync(resumeSessionId);
+            }
+          } catch (_) {
+            tokenTotal = null;
+          }
+          costs[session.id] = {
+            cost: null,
+            costSupported: false,
+            costUnavailableReason: COST_UNAVAILABLE_REASONS.NO_PRICE_MODEL,
+            tokens: tokenTotal,
+            lastActive: session.lastActive || null,
+          };
+          continue;
+        }
+
         const jsonlPath = provider ? provider.findArtifactPath(resumeSessionId) : null;
         if (!jsonlPath) continue;
 
@@ -5173,7 +5736,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
 
     fs.closeSync(fd);
 
-    // Parse head messages — collect first 10 user messages
+    // Parse head messages, collect first 10 user messages
     const headContent = headBuf.toString('utf-8');
     const headLines = headContent.split('\n').filter(l => l.trim());
     const firstUserMessages = [];
@@ -5185,7 +5748,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
       }
     }
 
-    // Parse tail messages — collect last 15 user + last 15 assistant messages
+    // Parse tail messages, collect last 15 user + last 15 assistant messages
     const tailContent = tailBuf.toString('utf-8');
     const tailLines = tailContent.split('\n').filter(l => l.trim());
     // Drop partial first line if we started mid-file
@@ -5225,7 +5788,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     mdParts.push(`_Generated: ${timestamp} | This file will be auto-deleted after ingestion._`);
     mdParts.push('');
 
-    // Project Overview — the original request/goal
+    // Project Overview, the original request/goal
     mdParts.push('## Project Overview');
     if (firstUserMessages.length > 0) {
       const overview = firstUserMessages[0].length > 3000
@@ -5237,7 +5800,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // What Was Accomplished — last 3-5 assistant messages summarized
+    // What Was Accomplished, last 3-5 assistant messages summarized
     mdParts.push('## What Was Accomplished');
     if (lastAssistantMessages.length > 0) {
       const workMsgs = lastAssistantMessages.slice(-5);
@@ -5252,7 +5815,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // Key Decisions & Context — early user follow-ups (decisions, clarifications)
+    // Key Decisions & Context, early user follow-ups (decisions, clarifications)
     mdParts.push('## Key Decisions & Context');
     if (firstUserMessages.length > 1) {
       const decisions = firstUserMessages.slice(1, 8);
@@ -5278,7 +5841,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // Current State — last assistant message
+    // Current State, last assistant message
     mdParts.push('## Current State');
     if (lastAssistantMessages.length > 0) {
       const lastMsg = lastAssistantMessages[lastAssistantMessages.length - 1];
@@ -5291,7 +5854,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // Open Issues — scan recent messages for TODO/FIXME/error/issue/bug patterns
+    // Open Issues, scan recent messages for TODO/FIXME/error/issue/bug patterns
     mdParts.push('## Open Issues');
     const issuePatterns = /\b(?:TODO|FIXME|HACK|BUG|ERROR|ISSUE|PROBLEM|BROKEN|FAILING|BLOCKED)\b/i;
     const issues = [];
@@ -5310,7 +5873,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // Next Steps — derived from recent user messages
+    // Next Steps, derived from recent user messages
     mdParts.push('## Next Steps');
     if (lastUserMessages.length > 0) {
       const recentUserMsgs = lastUserMessages.slice(-3);
@@ -5325,7 +5888,7 @@ app.post('/api/sessions/:id/refocus', requireAuth, (req, res) => {
     }
     mdParts.push('');
 
-    // Important Notes — environment info from the session
+    // Important Notes, environment info from the session
     mdParts.push('## Important Notes');
     mdParts.push(`- Working directory: \`${workingDir}\``);
     if (session.model) mdParts.push(`- Model: ${session.model}`);
@@ -5652,12 +6215,36 @@ function generateSessionSummary(jsonlPath) {
 }
 
 /**
- * POST /api/sessions/:id/summarize
- * Manually generate a summary of a session from its JSONL data.
- * Appends the summary as a timestamped note to the session's workspace docs.
- * Returns the generated summary text.
+ * Generate a summary of a session and append it to its workspace docs.
+ *
+ * BUILD-CONTRACT P9 (CODEX-PARITY B12). This was an inline handler on a SECOND
+ * `POST /api/sessions/:id/summarize` registration. Express serves the first
+ * matching route, so it never ran: it was dead code, and the two live callers
+ * that wanted its `{summary}` shape, `summarizeSessionToDocs()` in app.js and
+ * `summarize()` in the mobile client, always read `data.summary` as undefined
+ * and showed "No summary data available".
+ *
+ * Lifting it into a named function is what makes the dead code reachable
+ * WITHOUT deleting the shadowing registration. Three call sites now share it:
+ *
+ *   - `POST /api/sessions/:id/summarize-to-docs`, its own unshadowed route.
+ *   - `POST /api/sessions/:id/summarize` with `{toDocs: true}` or `?toDocs=1`,
+ *     delegated from the live handler near the top of this file.
+ *   - The original second registration below, retained untouched. It is still
+ *     shadowed, and it now points at this same function, so the behaviour it
+ *     always described is the behaviour that runs.
+ *
+ * Note for whoever wires the frontend: the append is opt-in on the shared route
+ * on purpose. The modal summariser and this one call the same URL with the same
+ * empty body and are otherwise indistinguishable, and a modal that silently
+ * writes a note into a user's project docs every time it is opened would be a
+ * worse bug than the one being fixed.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @returns {void}
  */
-app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
+function summarizeSessionToDocsHandler(req, res) {
   const store = getStore();
   const session = store.getSession(req.params.id);
   if (!session) return res.status(404).json({ error: 'Session not found' });
@@ -5687,7 +6274,30 @@ app.post('/api/sessions/:id/summarize', requireAuth, (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: 'Failed to generate summary: ' + err.message });
   }
-});
+}
+
+/**
+ * POST /api/sessions/:id/summarize-to-docs
+ *
+ * The unshadowed route for the docs summariser. Same handler, same response,
+ * reachable by name so a client does not have to know about an opt-in flag on
+ * an overloaded path.
+ */
+app.post('/api/sessions/:id/summarize-to-docs', requireAuth, summarizeSessionToDocsHandler);
+
+/**
+ * POST /api/sessions/:id/summarize
+ * Manually generate a summary of a session from its JSONL data.
+ * Appends the summary as a timestamped note to the session's workspace docs.
+ * Returns the generated summary text.
+ *
+ * RETAINED, and still shadowed by the registration near the top of this file:
+ * Express serves the first match, so this line has never executed and still does
+ * not. It is kept rather than deleted per the code-preservation rule, and it now
+ * references the shared handler above, so the file no longer contains a second
+ * copy of the logic that can drift from the copy that runs.
+ */
+app.post('/api/sessions/:id/summarize', requireAuth, summarizeSessionToDocsHandler);
 
 // ──────────────────────────────────────────────────────────
 //  FEATURE TRACKING BOARD
@@ -6806,20 +7416,19 @@ app.post('/api/worktree-tasks', requireAuth, async (req, res) => {
     } catch {}
 
     // Check existing worktrees to avoid two fatal git errors:
-    //   1. "already exists"  — target path is already a registered worktree
-    //   2. "already checked out" — the branch is checked out in a different worktree
+    //   1. "already exists", target path is already a registered worktree
+    //   2. "already checked out", the branch is checked out in a different worktree
     // Parse `git worktree list --porcelain` once and handle both cases.
     let skipWorktreeAdd = false;
     try {
       const listOut = await gitExec(['worktree', 'list', '--porcelain'], root);
 
-      // Case 1: exact path already registered — reuse it as-is
+      // Case 1: exact path already registered, reuse it as-is
       if (listOut.includes(`worktree ${worktreePath}`)) {
         skipWorktreeAdd = true;
       }
 
-      // Case 2: branch already checked out in a *different* worktree path —
-      // redirect worktreePath to that existing location so the rest of task
+      // Case 2: branch already checked out in a *different* worktree path, // redirect worktreePath to that existing location so the rest of task
       // creation (session, record) still succeeds pointing at the right dir.
       if (!skipWorktreeAdd) {
         const branchRef = `refs/heads/${branch}`;
@@ -7686,7 +8295,7 @@ function startNamedTunnel(token) {
   const { spawn } = require('child_process');
   let proc;
   try {
-    // Token passed as array arg — no shell injection possible regardless of content
+    // Token passed as array arg, no shell injection possible regardless of content
     proc = spawn('cloudflared', ['tunnel', 'run', '--token', token], {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
@@ -8747,6 +9356,22 @@ function startServer(port = 3456, host = '127.0.0.1') {
     });
   } catch (err) {
     console.warn('[Credentials] startup seed skipped:', (err && err.message) || err);
+  }
+
+  // Task #37: one-time repair of a stored Mac host that names a retired
+  // tailnet address. Purely local and offline-safe (it contacts nothing), so
+  // it is correct to run at boot with the Mac powered off. Runs BEFORE the
+  // watcher only so the corrected host is in place for the first sweep;
+  // nothing depends on the ordering. A failure only logs, exactly like the
+  // seed above: a settings repair must never be able to block boot.
+  try {
+    const macHostMigration = credentialManager.migrateLegacyMacHost();
+    if (macHostMigration && macHostMigration.migrated) {
+      console.log('[Credentials] Mac host migrated from "' + macHostMigration.from
+        + '" to "' + macHostMigration.to + '" (the old address is retired).');
+    }
+  } catch (err) {
+    console.warn('[Credentials] Mac host migration skipped:', (err && err.message) || err);
   }
 
   // Credential rotation write-back watcher (design Decision 3): keeps the

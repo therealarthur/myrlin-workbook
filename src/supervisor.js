@@ -191,7 +191,7 @@ function startChild() {
     }
     if (subsecondCrashes >= MAX_SUBSECOND_CRASHES) {
       const msg = '[supervisor] ' + subsecondCrashes + ' consecutive sub-' + SUBSECOND_THRESHOLD_MS
-        + 'ms crashes — refusing to restart. Likely a bad config or corrupt state. '
+        + 'ms crashes, refusing to restart. Likely a bad config or corrupt state. '
         + 'Inspect ~/.myrlin/ and logs/crash.log, then delete ' + REVIEW_LOCK + ' to resume.';
       try {
         fs.writeFileSync(REVIEW_LOCK,

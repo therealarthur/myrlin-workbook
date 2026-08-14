@@ -1,0 +1,709 @@
+/* ==========================================================================
+   Notion design system / drop-in stylesheet
+   --------------------------------------------------------------------------
+   Link this one file and you get the fonts, every token, a sane global base,
+   and the small set of primitives that make a page read as Notion rather than
+   as a generic white SaaS site.
+
+       <link rel="stylesheet" href="styles.css">
+
+   TWO SURFACES, ONE SWITCH.
+
+       <html>                        marketing. White ground, Inter chain,
+                                     blue-600 buttons, 1252px container.
+       <html data-surface="app">     the editor. OS font stack, warm inks,
+                                     #2383e2 blue, 720px column.
+
+   Light is the default. Dark follows the system preference and can be forced
+   with data-theme="dark" or suppressed with data-theme="light".
+
+   THE ONE RULE PEOPLE BREAK FIRST: do not load a webfont into the document
+   body of an app-surface page. The Notion editor ships no webfont. Setting
+   Inter on an editor body is instantly wrong on both macOS and Windows.
+   --font-body already resolves to the right thing on each surface; just use
+   it and do not override it.
+   ========================================================================== */
+
+@import url("tokens/colors.css");
+@import url("tokens/typography.css");
+@import url("tokens/spacing.css");
+@import url("tokens/effects.css");
+@import url("tokens/motion.css");
+
+/* The component layer. Every class the React components in components/ paint
+   with, kept in its own file so this one stays readable, and imported here so
+   that linking styles.css alone is still all a project needs. An @import must
+   precede every normal rule, which is why it sits with the token imports
+   rather than at the end. Rules in that file therefore land BEFORE the
+   primitives below in the cascade, so anything in it that modifies a primitive
+   is written as a double class selector and wins on specificity instead. */
+@import url("components/components.css");
+
+/* --------------------------------------------------------------------------
+   Fonts.
+
+   SHIPPED, because the licenses genuinely permit it:
+     iA Writer Mono S   SIL OFL 1.1   four faces, roman and italic
+     Permanent Marker   Apache 2.0    one face
+
+   NOT SHIPPED, because they do not:
+     NotionInter        a Notion specific cut of Inter, no public grant.
+                        Self host plain Inter (SIL OFL 1.1) and the marketing
+                        stack picks it up with zero token edits, because
+                        Notion's own declared fallback already names Inter in
+                        second position. No metric correction is needed.
+     Lyon Text          Commercial Type retail. Falls back to Notion's own
+                        declared Georgia chain. Closest free stand ins are
+                        Source Serif 4 or Newsreader, both OFL.
+
+   Notion declares its bold mono at weight 600, not 700. The declarations
+   below widen that to 600 through 700 so a font-weight: 700 rule gets the
+   real bold file rather than a synthetic one. That widening is the only
+   change made to Notion's own @font-face rules, and it is logged in readme.md.
+   -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "iA Writer Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/iAWriterMonoS-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "iA Writer Mono";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/iAWriterMonoS-Italic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "iA Writer Mono";
+  font-style: normal;
+  font-weight: 600 700; /* inferred: Notion declares 600; widened so 700 resolves to the real file */
+  font-display: swap;
+  src: url("assets/fonts/iAWriterMonoS-Bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "iA Writer Mono";
+  font-style: italic;
+  font-weight: 600 700; /* inferred: as above */
+  font-display: swap;
+  src: url("assets/fonts/iAWriterMonoS-BoldItalic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Permanent Marker";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/permanent-marker.woff") format("woff");
+}
+
+/* --------------------------------------------------------------------------
+   Global base
+   -------------------------------------------------------------------------- */
+
+html {
+  font-size: var(--root-font-size);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--body-size);
+  line-height: var(--body-line);
+  font-weight: var(--body-weight);
+  /* Lining numerals forced on, localized forms off. Measured on notion.com
+     body. On the app surface this resolves to normal, because the editor sets
+     no feature settings at all. */
+  font-feature-settings: var(--font-features);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Text selection. The editor's selection tint is a 14 percent UI blue, and it
+   is the one place a saturated blue touches a large area of text. */
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-ink);
+}
+
+/* Focus. Marketing uses a real outline with an offset, and it transitions the
+   color so the ring fades in rather than snapping. Keyboard users only. */
+:focus-visible {
+  outline: var(--focus-ring-width) var(--focus-ring-style) var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  transition: outline-color var(--duration-150) var(--ease-out);
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Headings. Marketing headings are 700 and pull in negatively; the hero is
+   the single exception at 600. App headings are 600 at exactly 1.3. Neither
+   surface uses a heading margin worth keeping, so it is zeroed here and the
+   rhythm comes from the layout, per LAYOUT.md. */
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: var(--heading-weight);
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--link);
+  text-decoration-color: var(--app-link-underline);
+  text-underline-offset: 2px;
+}
+a:hover {
+  color: var(--link-hover);
+}
+
+/* Inline code on marketing is set in the SANS family, not the mono family.
+   That surprises people. Mono is reserved for real code blocks. */
+:where(p, li, td, h1, h2, h3, h4) > code {
+  font-family: inherit;
+  font-size: var(--text-100-size);
+  font-weight: var(--weight-medium);
+  padding: 1px 5px;
+  border-radius: var(--radius-5);
+  border: var(--border-hairline) solid var(--mkt-border);
+  background: var(--mkt-surface-neutral);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+pre code {
+  font-family: var(--font-code);
+}
+
+/* ==========================================================================
+   PRIMITIVES
+   All prefixed nt- so they never collide with a host project's class names.
+   Use them or ignore them; the tokens are the real contract.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. THE EDITOR GRID.
+   This is the single strongest Notion signal, and it is eight lines of CSS.
+   A 720px text column, centered, with a hard 96px minimum gutter, expressed
+   as a grid with named lines so a full bleed element can span the whole width
+   without leaving the flow.
+
+   Put .nt-layout on the page container. Children land in the content column
+   automatically. Add .nt-full-bleed to a cover image or a full width database
+   view and it spans edge to edge.
+   -------------------------------------------------------------------------- */
+
+.nt-layout {
+  --content-width: minmax(auto, var(--app-content-width));
+  --margin-width: minmax(var(--app-margin-width), 1fr);
+  --margin-left-width: var(--margin-width);
+  --margin-right-width: var(--margin-width);
+  display: grid;
+  width: 100%;
+  grid-template-columns:
+    [full-start] var(--margin-left-width)
+    [content-start] var(--content-width)
+    [content-end] var(--margin-right-width)
+    [full-end];
+}
+
+/* Named lines ending in -start and -end create an implicit named area, so
+   `grid-column: content` is the same as content-start / content-end. That is
+   exactly how Notion's own layout works. */
+.nt-layout > * {
+  grid-column: content;
+  min-width: 0;
+}
+
+.nt-full-bleed {
+  grid-column: full-start / full-end;
+}
+
+/* Layout modifiers, all real classes in the shipped editor CSS. */
+.nt-layout-wide {
+  --content-width: 1fr;
+  --margin-width: var(--app-margin-width);
+}
+.nt-layout-phone {
+  --content-width: 1fr;
+  --margin-width: var(--app-margin-phone);
+}
+.nt-layout-form {
+  --content-width: minmax(auto, 600px);
+  --margin-width: minmax(var(--app-margin-form), 1fr);
+}
+.nt-layout-home {
+  --content-width: minmax(auto, 900px);
+  --margin-width: minmax(56px, 1fr);
+}
+.nt-layout-side-peek {
+  --content-width: 1fr;
+  --margin-width: var(--app-margin-side-peek);
+}
+.nt-layout-center-peek {
+  --content-width: 1fr;
+  --margin-width: var(--app-margin-center-peek);
+  transition: var(--motion-layout-grid);
+}
+/* Comments open. The right margin becomes exactly 468px, and that number is
+   worth copying rather than eyeballing. */
+.nt-layout-comments-open {
+  --content-width: 1fr;
+  --margin-left-width: var(--app-margin-width);
+  --margin-right-width: var(--app-comments-margin);
+}
+
+/* --------------------------------------------------------------------------
+   2. THE BLOCK BOX MODEL.
+   Three nested elements and no margins anywhere. A one line paragraph is
+   exactly 40px tall at 16px / 24px body.
+   -------------------------------------------------------------------------- */
+
+.nt-block {
+  margin: 0;
+  padding: 0;
+}
+
+.nt-block > .nt-block-inner {
+  padding: var(--app-block-pad);
+}
+
+.nt-block-row {
+  border-radius: var(--radius-block-hover);
+  transition: var(--motion-hover-reveal);
+}
+
+.nt-leaf {
+  padding: var(--app-leaf-pad);
+  font-size: var(--app-body-size);
+  line-height: var(--app-body-line);
+}
+
+/* Heading air is padding-top on the wrapper. */
+.nt-block-h1 > .nt-block-inner { padding: var(--app-h1-pad-top) var(--app-block-pad) var(--app-block-pad); }
+.nt-block-h2 > .nt-block-inner { padding: var(--app-h2-pad-top) var(--app-block-pad) var(--app-block-pad); }
+.nt-block-h3 > .nt-block-inner { padding: var(--app-h3-pad-top) var(--app-block-pad) var(--app-block-pad); }
+.nt-block-h4 > .nt-block-inner { padding: var(--app-h4-pad-top) var(--app-block-pad) var(--app-block-pad); }
+
+/* First heading in a container drops the top padding entirely. Without this
+   rule a Notion page opens with a gap under the title that Notion does not
+   have. */
+.nt-block-h1:first-child > .nt-block-inner,
+.nt-block-h2:first-child > .nt-block-inner,
+.nt-block-h3:first-child > .nt-block-inner,
+.nt-block-h4:first-child > .nt-block-inner {
+  padding: var(--app-block-pad);
+}
+
+.nt-block-h1 .nt-leaf { font-size: var(--app-h1-size); line-height: var(--app-h1-line); font-weight: var(--app-heading-weight); }
+.nt-block-h2 .nt-leaf { font-size: var(--app-h2-size); line-height: var(--app-h2-line); font-weight: var(--app-heading-weight); }
+.nt-block-h3 .nt-leaf { font-size: var(--app-h3-size); line-height: var(--app-h3-line); font-weight: var(--app-heading-weight); }
+.nt-block-h4 .nt-leaf { font-size: var(--app-h4-size); line-height: var(--app-h4-line); font-weight: var(--app-heading-weight); }
+
+/* Lists. Consecutive items collapse from 6px to 1px, which is why a Notion
+   list reads denser than the prose around it. Uniform spacing is on the
+   rejection list. */
+.nt-block-list > .nt-block-inner { padding: var(--app-block-pad); }
+.nt-block-list:not(:last-child) > .nt-block-inner { padding-bottom: var(--app-block-pad-collapsed); }
+.nt-block-list + .nt-block-list > .nt-block-inner { padding-top: var(--app-block-pad-collapsed); }
+
+.nt-list-marker {
+  width: var(--app-list-marker-width);
+  flex: none;
+  color: var(--app-text-primary);
+}
+
+.nt-block-list > .nt-block-inner > .nt-block-row {
+  display: flex;
+  align-items: flex-start;
+}
+
+/* Media blocks take 8px rather than 6px. */
+.nt-block-media > .nt-block-inner { padding: var(--app-block-pad-media); }
+
+/* Callout. 8px wrapper, 12px inner, 10px radius, and a 1px TRANSPARENT border
+   so a colored border can appear later without any reflow. */
+.nt-callout {
+  display: flex;
+  gap: 8px;
+  padding: var(--app-block-inner-pad);
+  border-radius: var(--radius-callout);
+  border: var(--border-hairline) solid transparent;
+  background: var(--app-bg-default-block);
+  color: var(--app-text-primary);
+}
+.nt-callout-icon {
+  width: var(--app-callout-icon-width);
+  flex: none;
+  margin-top: var(--app-callout-icon-offset);
+}
+
+/* Divider. A 1px rule inset 8px inside a 13px tall block. */
+.nt-divider {
+  height: 1px;
+  margin: 6px var(--app-divider-inset);
+  background: var(--app-divider);
+  border: 0;
+}
+
+/* --------------------------------------------------------------------------
+   3. PAGE HEADER STACK.
+   Measured identically on three independent public pages. The proportions
+   here are what makes a page read as Notion before a single word is legible.
+   -------------------------------------------------------------------------- */
+
+.nt-topbar {
+  height: var(--app-topbar-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: var(--app-text-secondary);
+  background: transparent;
+  transition: var(--motion-topbar);
+}
+
+/* Full bleed, square corners, min(30vh, 280px). A rounded or shadowed cover
+   is on the rejection list. */
+.nt-cover {
+  height: var(--app-cover-height);
+  width: 100%;
+  object-fit: cover;
+  object-position: 50% 50%;
+  border-radius: var(--radius-cover);
+  display: block;
+}
+
+/* 78 by 78, 4px radius, pulled up 42px so it overlaps the cover bottom edge
+   and hangs 36px below it. */
+.nt-page-icon {
+  width: var(--app-page-icon-size);
+  height: var(--app-page-icon-size);
+  border-radius: var(--radius-page-icon);
+  position: relative;
+  margin: var(--app-page-icon-offset-cover) 0 0 var(--app-page-icon-inset);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 60px;
+  line-height: 1;
+}
+.nt-page-icon-no-cover {
+  margin: var(--app-page-icon-offset-plain) 0 0 var(--app-page-icon-inset);
+}
+
+/* The controls row. Hidden until the header area is hovered. */
+.nt-page-controls {
+  height: var(--app-controls-height);
+  padding: 8px 0 4px;
+  margin-left: -1px;
+  color: var(--app-text-tertiary);
+  font-size: 14px;
+  display: flex;
+  gap: 12px;
+  opacity: 0;
+  transition: var(--motion-hover-opacity);
+}
+.nt-page-header:hover .nt-page-controls {
+  opacity: 1;
+}
+
+.nt-page-title {
+  font-size: var(--app-title-size);
+  line-height: var(--app-title-line);
+  font-weight: var(--app-title-weight);
+  padding: 0 var(--app-block-pad-media);
+  white-space: break-spaces;
+  color: var(--app-text-primary);
+}
+.nt-page-title:empty::before {
+  content: "Untitled";
+  color: var(--app-title-placeholder);
+}
+
+.nt-page-content {
+  padding: var(--app-block-pad-media) 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* --------------------------------------------------------------------------
+   4. SIDEBAR.
+   Warmer than the canvas, not darker. The right edge is a 1px INSET hairline,
+   which is neither a border nor a conventional shadow.
+   -------------------------------------------------------------------------- */
+
+.nt-sidebar {
+  width: var(--app-sidebar-width);
+  flex: none;
+  background: var(--app-bg-secondary);
+  box-shadow: var(--app-sidebar-edge);
+  transition: var(--motion-sidebar);
+  overflow: hidden;
+}
+.nt-sidebar-section {
+  color: var(--app-sidebar-section-label);
+  font-size: 12px;
+  font-weight: var(--weight-medium);
+  padding: 6px 10px;
+}
+.nt-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  min-height: var(--app-sidebar-item-height); /* inferred: not measurable on public pages, which render the sidebar collapsed */
+  color: var(--app-text-primary);
+  font-size: 14px;
+  border-radius: var(--radius-4);
+  transition: var(--motion-hover-reveal);
+  cursor: pointer;
+}
+.nt-enable-hover .nt-sidebar-item:hover {
+  background: var(--app-wash-hover);
+}
+.nt-sidebar-item[aria-current="page"],
+.nt-sidebar-item.is-selected {
+  background: var(--app-sidebar-item-selected);
+}
+
+/* --------------------------------------------------------------------------
+   5. CHIPS.
+   Two systems that must not be merged. A property chip is 20px tall with a
+   4px radius; a status chip is a 10px pill. A callout is 10px. Making the
+   chip radius match the card radius reads as a generic design system.
+   -------------------------------------------------------------------------- */
+
+.nt-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--app-chip-height);
+  padding: var(--app-chip-pad);
+  border-radius: var(--radius-property-chip);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  font-weight: var(--app-chip-weight);
+  background: var(--app-chip-gray-fill);
+  color: var(--app-chip-gray-ink);
+  white-space: nowrap;
+}
+.nt-chip-status {
+  border-radius: var(--radius-status-chip);
+  padding: var(--app-status-chip-pad);
+  gap: 6px;
+}
+.nt-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+/* --------------------------------------------------------------------------
+   6. HOVER GATING.
+   Notion strips .notion-enable-hover during scroll and drag so hover states
+   never flash. Reproduce that: put .nt-enable-hover on a container and remove
+   it while scrolling.
+   -------------------------------------------------------------------------- */
+
+.nt-enable-hover .nt-hoverable:hover {
+  background: var(--hover-wash);
+}
+.nt-enable-hover .nt-hoverable:active {
+  background: var(--press-wash);
+}
+
+/* Block handles live in the LEFT GUTTER, outside the text column, so they
+   never shift the text, and they are hidden until the row is hovered.
+   Persistent handles are on the rejection list. */
+.nt-block-handle {
+  opacity: 0;
+  transition: var(--motion-hover-opacity);
+  color: var(--app-icon-tertiary);
+}
+.nt-enable-hover .nt-block:hover .nt-block-handle {
+  opacity: 1;
+}
+
+/* --------------------------------------------------------------------------
+   7. MARKETING PRIMITIVES.
+   -------------------------------------------------------------------------- */
+
+/* The section band. White by default, tinted only on an alternating band.
+   Do not tint the whole page; the ground is pure white. */
+.nt-band {
+  background: var(--mkt-bg);
+  padding: var(--mkt-section-padding) var(--mkt-section-padding-horizontal);
+}
+.nt-band-tinted { background: var(--mkt-band-tint); }
+.nt-band-tinted-strong { background: var(--mkt-band-tint-strong); }
+
+.nt-section {
+  max-width: var(--mkt-container);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mkt-section-gap);
+}
+.nt-section-tight { gap: var(--mkt-section-gap-tight); }
+
+/* Nav. 64px, position relative, solid white, transparent hairline that turns
+   visible on scroll. A sticky blurred nav is on the rejection list. */
+.nt-nav {
+  position: relative;
+  z-index: 100;
+  height: var(--mkt-nav-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--mkt-page-gutter);
+  background: var(--mkt-bg);
+  box-shadow: var(--shadow-nav-rest);
+}
+.nt-nav-scrolled { box-shadow: var(--shadow-nav-scrolled); }
+
+/* Buttons. Exactly two visual weights above the fold: one solid blue, one
+   tinted blue. No gradient, no glow, no icon inside the primary button. */
+.nt-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: var(--text-200-size);
+  line-height: var(--text-200-line);
+  font-weight: var(--weight-medium);
+  padding: 4px 14px;
+  border-radius: var(--radius-button);
+  border: var(--border-hairline) solid transparent;
+  background: var(--mkt-btn-primary-bg);
+  color: var(--mkt-btn-primary-text);
+  transition: background-color var(--duration-150);
+}
+.nt-btn:hover { background: var(--mkt-btn-primary-bg-hover); }
+
+.nt-btn-secondary {
+  background: var(--mkt-btn-secondary-bg);
+  color: var(--mkt-btn-secondary-text);
+  padding: 6px 15px;
+}
+.nt-btn-secondary:hover { background: var(--mkt-btn-secondary-bg-hover); }
+
+.nt-btn-tertiary {
+  background: var(--mkt-btn-tertiary-bg);
+  color: var(--mkt-btn-tertiary-text);
+  border-color: var(--mkt-btn-tertiary-border);
+}
+.nt-btn-tertiary:hover { background: var(--mkt-btn-tertiary-bg-hover); }
+
+.nt-btn-ghost {
+  background: var(--mkt-btn-ghost-bg);
+  color: var(--mkt-btn-ghost-text);
+  padding: 5px 10px;
+  border-radius: var(--radius-icon-button);
+}
+.nt-btn-ghost:hover { background: var(--mkt-btn-ghost-bg-hover); }
+
+/* The in-app blue button is a different size and a different blue from the
+   marketing CTA. 28px tall, 6px radius, 14px medium. */
+.nt-btn-app {
+  background: var(--app-accent-blue);
+  color: var(--mkt-white);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-app-button);
+}
+
+/* Card. 12px radius, a 10 percent black hairline, and a shadow so soft it is
+   easy to miss. On the pricing page even that shadow is dropped and the card
+   is separated by a 2px gray-200 border instead. */
+.nt-card {
+  background: var(--mkt-card-bg);
+  border: var(--border-hairline) solid var(--mkt-card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+  color: var(--mkt-card-body-text);
+  transition: var(--motion-card-hover);
+}
+.nt-card-plain {
+  border: var(--border-pricing-card) solid var(--mkt-gray-200);
+  box-shadow: none;
+  padding: 32px 32px 60px;
+}
+.nt-card-accent {
+  background: var(--mkt-blue-100);
+  border: 0;
+  box-shadow: none;
+  padding: 32px;
+}
+
+/* Badge. Pill, five flavors, all small. */
+.nt-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: var(--radius-badge);
+  font-size: var(--text-100-size);
+  line-height: var(--text-100-line);
+  font-weight: var(--weight-medium);
+  background: var(--mkt-badge-mono-bg);
+  color: var(--mkt-badge-mono-text);
+}
+
+/* The one handwriting accent. Never for body copy, never for UI labels. */
+.nt-handwriting {
+  font-family: var(--font-handwriting);
+  font-weight: 400;
+}
+
+/* Customer logos are monochrome black wordmarks normalized to one height, in
+   a plain row. Never in brand color, never in a bordered box. */
+.nt-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  flex-wrap: wrap;
+}
+.nt-logo-row img,
+.nt-logo-row svg {
+  height: var(--mkt-logo-height);
+  width: auto;
+  filter: grayscale(1) brightness(0);
+}
+
+/* Shimmer skeleton. This is what loads, not a spinner. */
+.nt-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--app-bg-tertiary) 25%,
+    var(--app-bg-interactive) 37%,
+    var(--app-bg-tertiary) 63%
+  );
+  background-size: 400% 100%;
+  border-radius: var(--radius-4);
+  animation: 1s linear infinite nt-shimmer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-skeleton { animation: none; }
+}

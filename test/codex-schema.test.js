@@ -61,15 +61,34 @@ test('schema fixture exists and is valid JSON', () => {
   assert(schema && typeof schema === 'object', 'schema must be an object');
 });
 
-// ─── Test 2: enumerates the five known type variants ──────────────────────
+// ─── Test 2: enumerates the known type variants ───────────────────────────
+//
+// The list is written out here rather than read from the parser on purpose:
+// this assertion is the independent second opinion that makes test 3 mean
+// something. Extending it is a deliberate act, and the only reason to extend
+// it is a measurement.
+//
+// 2026-05: five variants (Plan 17-01).
+// 2026-08-13 (BUILD-CONTRACT P9.2): two more, measured by taking a payload-type
+// histogram over the 60 largest rollouts on the reference machine. `world_state`
+// appeared 5878 times and `inter_agent_communication_metadata` 368 times, and
+// both were reaching the parser's silent default branch.
 
-test('schema fixture enumerates all 5 known type variants', () => {
+test('schema fixture enumerates all 7 known type variants', () => {
   assert(schema, 'schema must have parsed in test 1');
   assert(schema.properties, 'schema.properties missing');
   assert(schema.properties.type, 'schema.properties.type missing');
   const enumArr = schema.properties.type.enum;
   assert(Array.isArray(enumArr), 'schema.properties.type.enum must be an array');
-  const expected = ['session_meta', 'turn_context', 'event_msg', 'response_item', 'compacted'];
+  const expected = [
+    'session_meta',
+    'turn_context',
+    'event_msg',
+    'response_item',
+    'compacted',
+    'world_state',
+    'inter_agent_communication_metadata',
+  ];
   assertEqual(enumArr.length, expected.length, 'enum length mismatch');
   // Set equality, order-irrelevant.
   const enumSet = new Set(enumArr);

@@ -363,8 +363,28 @@ async function run() {
     assert.strictEqual(shell.title, "myrlin's workbook");
     assert.strictEqual(shell.loginHidden, true, 'startup token must reveal the application shell');
     assert.strictEqual(shell.appHidden, false, 'application shell must be visible after startup auth');
-    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260727-copy-native8');
-    assert.strictEqual(shell.appScript, 'app.js?v=20260727-copy-native8');
+    // SANCTIONED EDIT SE-11, orchestrator authorisation for Notion restyle
+    // phase P1.6. BUILD-CONTRACT 5.4 names three test files in the cachebuster
+    // set and gate G10 checks four; this is the fifth, and DECISIONS.md finding
+    // F1 recorded that these two assertions were ALREADY STALE on this branch
+    // before the restyle touched anything. They still pinned
+    // ?v=20260727-copy-native8, from before the Select v3 and mobile-select
+    // cachebusters landed, so npm run test:workbook-shell could not pass. They
+    // are brought to the current values as part of the same atomic bump rather
+    // than left broken, which is why a bump is a FIVE-file change, not four.
+    // Notion restyle phase P5 carries the same edit forward: terminal.js moves
+    // to -p5 for the terminalSurface read and the paste path, app.js is
+    // untouched and keeps -p4r. Gate G10b watches exactly these two lines and
+    // was PASS after P1.6; leaving them stale would hand the next phase a
+    // warning that costs more to diagnose than it does to keep current.
+    assert.strictEqual(shell.terminalScript, 'terminal.js?v=20260813-notion-p5');
+    // app.js moved to -p10 with the concurrent mobile track. Carried here by
+    // P5 rather than left stale: gate G10b watches these two lines, this file
+    // is the FIFTH file of the atomic bump SE-11 records, and a red browser
+    // lane costs the next reader more to diagnose than the token costs to
+    // track. Neither value is this phase's to choose; both simply follow
+    // index.html.
+    assert.strictEqual(shell.appScript, 'app.js?v=20260813-notion-p10');
     assert.strictEqual(shell.terminalClass, 'function', 'production TerminalPane must load');
     assert.strictEqual(shell.selectInterceptor, 'function', 'Select-mode interceptor must be present');
     assert.strictEqual(shell.themeRegistry, 'object', 'canonical theme registry must load before the app');
@@ -462,7 +482,12 @@ async function run() {
       'legacy dashed empty-state copy must be removed'
     );
     assert.deepStrictEqual(focusedDesktop.retiredTabsVisible, [], 'retired Git/Files tabs must stay hidden');
-    assert.strictEqual(focusedDesktop.headerHeight, 58, 'focused desktop header must stay compact');
+    // SANCTIONED TEST EDIT SE-16 (BUILD-CONTRACT 5.4). Notion restyle P2 cut
+    // the topbar from 58px to 44px: `--app-topbar-height: 44px` in styles.css
+    // feeds `--focused-header-height` in focused-shell.css. The pin is
+    // RETARGETED to the new measured truth, not deleted; a header that grows
+    // back to 58 is still a regression this line catches.
+    assert.strictEqual(focusedDesktop.headerHeight, 44, 'focused desktop header must stay compact');
     assert.strictEqual(focusedDesktop.horizontalOverflow, false, 'desktop shell must not overflow horizontally');
 
     await page.evaluate(() => window.cwm.setViewMode('terminal'));
@@ -656,7 +681,9 @@ async function run() {
     }));
     assert.deepStrictEqual(
       tabletLayout,
-      { shell: 'focused', overflow: false, headerHeight: 58 },
+      // SE-16, the same 58 to 44 retarget as the desktop assertion above: one
+      // token drives both, so both move together or neither does.
+      { shell: 'focused', overflow: false, headerHeight: 44 },
       'tablet shell must remain compact and overflow-free'
     );
     await page.screenshot({ path: TABLET_SCREENSHOT_PATH, fullPage: true });
@@ -667,9 +694,15 @@ async function run() {
     const mobileLayout = await page.evaluate(() => {
       const visible = (element) => !!element && getComputedStyle(element).display !== 'none';
       return {
+        // SE-16: the label SPAN rather than the tab's textContent, because
+        // the Attention tab now also contains a count badge and a naive
+        // textContent read would compare "Attention 0" against "Attention".
         tabs: Array.from(document.querySelectorAll('#mobile-tab-bar .mobile-tab'))
           .filter(visible)
-          .map(tab => tab.textContent.trim()),
+          .map(tab => {
+            const label = tab.querySelector('span:not(.mobile-tab-badge)');
+            return (label ? label.textContent : tab.textContent).trim();
+          }),
         emptyPaneVisible: visible(document.getElementById('term-pane-0')),
         emptyStateVisible: visible(document.getElementById('workbench-empty-state')),
         emptyToolbarVisible: visible(document.querySelector('#term-pane-0 .terminal-mobile-toolbar')),
@@ -677,10 +710,17 @@ async function run() {
         overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       };
     });
+    // SANCTIONED TEST EDIT SE-16 (BUILD-CONTRACT 5.4), the IA half.
+    // MOBILE-EXPERIENCE A.2 and DESIGN-SPEC 14.1 replace the four-tab bar
+    // with five destinations: the More TAB is dissolved into Home > Workspace
+    // and per-surface overflow sheets, and Tasks moves to a Home row. This is
+    // the same retarget A.6 row 1 prescribes for focused-shell.test.js, which
+    // P10 already took as SE-8; this browser lane carried a second copy of
+    // the same expectation and was missed.
     assert.deepStrictEqual(
       mobileLayout.tabs,
-      ['Sessions', 'Workbench', 'Tasks', 'More'],
-      'mobile hierarchy must match the focused desktop hierarchy'
+      ['Home', 'Sessions', 'Terminal', 'Attention', 'Search'],
+      'mobile hierarchy must be the five-tab Notion IA'
     );
     assert.strictEqual(mobileLayout.emptyPaneVisible, true, 'empty mobile Workbench must not be blank');
     assert.strictEqual(mobileLayout.emptyStateVisible, true, 'mobile start state must be visible');
@@ -708,11 +748,67 @@ async function run() {
     );
     await page.screenshot({ path: MOBILE_SCREENSHOT_PATH, fullPage: true });
 
-    // Drive the real mobile More and nested Appearance sheets. Routes reached
-    // through More keep that bottom destination selected and never leak the
-    // terminal flex layout into a secondary panel.
-    await page.locator('#mobile-more-tab').click();
+    // SANCTIONED TEST EDIT SE-16 (BUILD-CONTRACT 5.4), the routing half.
+    //
+    // WHAT THIS BLOCK USED TO ASSERT, AND WHY IT CANNOT ANY MORE.
+    // `#mobile-more-tab` was one of four BOTTOM TABS and its sheet was the
+    // only route to fourteen features. MOBILE-EXPERIENCE A.2 dissolves that
+    // tab: every one of the fourteen now has its own row on Home > Workspace
+    // or its own destination, and the id survives on the "All commands" row
+    // at the foot of that section (DECISIONS 15.4.1 explains why the id had
+    // to survive at all: gate G1 permits additions only).
+    //
+    // The block is REWRITTEN to the new contract rather than deleted, and it
+    // now proves three things the old one could not:
+    //   1. System resources is reached from its OWN Home row, not from a
+    //      sheet, which is the "zero orphans" claim made concrete.
+    //   2. Home stays the selected bottom destination while a Home
+    //      destination is showing, which is what `isMoreDestination` used to
+    //      do for the More tab and what HOME_DESTINATION_MODES does now.
+    //   3. The full command catalogue is still reachable, from the row that
+    //      inherited the id, because code preservation keeps `showMoreMenu`
+    //      and its four pinned labels alive for the classic shell (SE-9).
     const actionSheet = page.locator('#action-sheet-overlay');
+
+    // (1) Home > Workspace > System resources, by its own route marker.
+    await page.evaluate(() => window.cwm.setViewMode('home'));
+    await page.waitForFunction(() => document.documentElement.dataset.viewMode === 'home');
+    await page.locator('#mobile-home-body [data-mw-route="resources"]').click();
+    await page.waitForFunction(() => document.documentElement.dataset.viewMode === 'resources');
+    const mobileHomeDestination = await page.evaluate(() => {
+      const homeTab = document.querySelector('#mobile-tab-bar .mobile-tab[data-view="home"]');
+      return {
+        homeActive: homeTab.classList.contains('active'),
+        homeCurrent: homeTab.getAttribute('aria-current'),
+        terminalHidden: document.getElementById('terminal-grid').hidden,
+        terminalDisplay: getComputedStyle(document.getElementById('terminal-grid')).display,
+        resourcesVisible: getComputedStyle(document.getElementById('resources-panel')).display !== 'none',
+      };
+    });
+    assert.deepStrictEqual(mobileHomeDestination, {
+      homeActive: true,
+      homeCurrent: 'page',
+      terminalHidden: true,
+      terminalDisplay: 'none',
+      resourcesVisible: true,
+    }, 'a Home destination keeps Home selected and never leaks the terminal layout');
+
+    // (2) The All-commands row still opens the full catalogue, and the sheet
+    //     still focuses its first command.
+    await page.evaluate(() => window.cwm.setViewMode('home'));
+    await page.waitForFunction(() => document.documentElement.dataset.viewMode === 'home');
+    const allCommands = page.locator('#mobile-more-tab');
+    assert.strictEqual(
+      (await allCommands.getAttribute('data-mw-route')),
+      'more-menu',
+      'the dissolved More tab survives as the All-commands ROW, not as a tab'
+    );
+    assert.strictEqual(
+      await page.evaluate(() => !!document.querySelector('#mobile-tab-bar #mobile-more-tab')),
+      false,
+      'and it is no longer inside the bottom tab bar'
+    );
+    await allCommands.click();
     await actionSheet.waitFor({ state: 'visible' });
     assert.strictEqual(await page.locator('#action-sheet').getAttribute('role'), 'dialog');
     await page.waitForFunction(() =>
@@ -723,30 +819,12 @@ async function run() {
         document.activeElement?.querySelector('.as-label')?.textContent?.trim() || ''
       ),
       'Session attention',
-      'mobile More must focus its first command'
+      'the command catalogue must focus its first command'
     );
-    await page.locator('#action-sheet-items .action-sheet-item', {
-      hasText: 'System resources',
-    }).click();
-    await page.waitForFunction(() => document.documentElement.dataset.viewMode === 'resources');
-    await actionSheet.waitFor({ state: 'hidden' });
-    const mobileMoreDestination = await page.evaluate(() => ({
-      moreActive: document.getElementById('mobile-more-tab').classList.contains('active'),
-      moreCurrent: document.getElementById('mobile-more-tab').getAttribute('aria-current'),
-      terminalHidden: document.getElementById('terminal-grid').hidden,
-      terminalDisplay: getComputedStyle(document.getElementById('terminal-grid')).display,
-      resourcesVisible: getComputedStyle(document.getElementById('resources-panel')).display !== 'none',
-    }));
-    assert.deepStrictEqual(mobileMoreDestination, {
-      moreActive: true,
-      moreCurrent: 'page',
-      terminalHidden: true,
-      terminalDisplay: 'none',
-      resourcesVisible: true,
-    });
 
-    await page.locator('#mobile-more-tab').click();
-    await actionSheet.waitFor({ state: 'visible' });
+    // (3) Appearance is still reachable from that catalogue on a phone. The
+    //     standalone dialog stays wired for the desktop (A.3.6), which is
+    //     what the rest of this block exercises.
     await page.locator('#action-sheet-items .action-sheet-item', { hasText: 'Appearance' }).click();
     await actionSheet.waitFor({ state: 'hidden' });
     const appearanceOverlay = page.locator('#appearance-overlay');
@@ -790,7 +868,10 @@ async function run() {
     assert.strictEqual(
       await page.evaluate(() => document.activeElement?.id),
       'mobile-more-tab',
-      'closing mobile Appearance must restore focus to More'
+      // SE-16: the id is unchanged, so the focus-return contract is
+      // unchanged; what moved is where that id LIVES. It is now the
+      // All-commands row on Home > Workspace rather than a bottom tab.
+      'closing mobile Appearance must restore focus to the row that opened it'
     );
     await page.evaluate(() => window.cwm.setViewMode('terminal'));
 

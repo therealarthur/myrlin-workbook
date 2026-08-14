@@ -32,12 +32,93 @@
 
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const assert = require('assert');
 
 const TERMINAL_JS_PATH = path.join(__dirname, '..', 'src', 'web', 'public', 'terminal.js');
 const APP_JS_PATH = path.join(__dirname, '..', 'src', 'web', 'public', 'app.js');
 const termSrc = fs.readFileSync(TERMINAL_JS_PATH, 'utf8');
 const appSrc = fs.readFileSync(APP_JS_PATH, 'utf8');
+
+/**
+ * SANCTIONED EDIT SE-13 (BUILD-CONTRACT.md 5.4, phase P5.1).
+ *
+ * The two executed proofs at the bottom of this file compile the REAL
+ * capture-phase paste handlers out of terminal.js and run them against a fake
+ * pane. Until P5.1 those handlers built their own bracketed payload inline, so
+ * the fake needed nothing but a socket. P5.1 routes all three paste entry
+ * points through one shared preparation function, because the bracket must now
+ * be gated on the receiving application's DEC 2004 mode
+ * (TERMINAL-ARCHITECTURE.md defect D1) and the newlines must be normalised
+ * (defect D2). The handlers therefore call two collaborators the fake did not
+ * have.
+ *
+ * What changes here is the HARNESS, not an assertion: both expected payloads
+ * below are byte-identical to what they were, because the fake now models the
+ * pane those assertions were always describing, an agent pane with bracketed
+ * paste ON. A new negative case is added alongside them for the case that used
+ * to be impossible to express, a bare shell that never enabled the mode.
+ *
+ * The real methods are compiled from the real source rather than stubbed, so
+ * the proof still exercises production code end to end.
+ *
+ * @returns {Function} The TerminalPane class from a fresh vm context.
+ */
+function loadTerminalPaneClass() {
+  const sandbox = {
+    window: {},
+    console,
+    // terminal.js reads this global for its readyState constant, exactly as
+    // every other send site in it does.
+    WebSocket: { OPEN: 1 },
+    localStorage: { getItem: () => null, setItem: () => {} },
+  };
+  const context = vm.createContext(sandbox);
+  vm.runInContext(termSrc, context, { filename: 'terminal.js' });
+  const TP = vm.runInContext('TerminalPane', context);
+  assert.strictEqual(typeof TP, 'function', 'TerminalPane did not evaluate in the vm sandbox');
+  return TP;
+}
+
+const TerminalPaneClass = loadTerminalPaneClass();
+
+/**
+ * Build the fake pane the executed proofs run the real handlers against.
+ *
+ * @param {boolean} bracketedPasteMode - Whether the modelled application has
+ *   enabled DEC 2004. Every agent CLI measured in TERMINAL-ARCHITECTURE
+ *   section 2 has it on; a bare cmd.exe or powershell.exe does not.
+ * @param {string[]} sent - Accumulator the fake socket pushes payloads into.
+ * @returns {Object} The fake pane.
+ */
+function makePastePane(bracketedPasteMode, sent) {
+  return {
+    _pasteHandled: false,
+    _pasteHandledResetTimer: null,
+    // Select mode v2: both compiled handlers leave Select mode before they
+    // send, because a paste is input and input resumes live output. The fake
+    // models a pane that is not frozen, so the call is a no-op here.
+    _exitSelectModeForInput() { return false; },
+    // P5.1 collaborators, taken from the real class so the proof stays a proof.
+    term: { modes: { bracketedPasteMode: bracketedPasteMode } },
+    _remoteBracketedPaste: undefined,
+    _pasteConfirmEl: null,
+    paneEl: null,
+    _getOwnedContainer: () => null,
+    focus() {},
+    isBracketedPasteMode: TerminalPaneClass.prototype.isBracketedPasteMode,
+    pasteOptions: TerminalPaneClass.prototype.pasteOptions,
+    _sendPastePayload: TerminalPaneClass.prototype._sendPastePayload,
+    _confirmMultilinePaste: TerminalPaneClass.prototype._confirmMultilinePaste,
+    _dismissPasteConfirm: TerminalPaneClass.prototype._dismissPasteConfirm,
+    ws: {
+      readyState: 1,
+      send(payload) {
+        sent.push(JSON.parse(payload).data);
+      },
+    },
+  };
+}
 
 let passed = 0;
 let failed = 0;
@@ -220,20 +301,7 @@ check('beforeinput exact-once latch arms only after non-empty text is sent and e
 
 check('empty orphan beforeinput cannot suppress the next real native paste', () => {
   const sent = [];
-  const pane = {
-    _pasteHandled: false,
-    _pasteHandledResetTimer: null,
-    // Select mode v2: both compiled handlers leave Select mode before they
-    // send, because a paste is input and input resumes live output. The fake
-    // models a pane that is not frozen, so the call is a no-op here.
-    _exitSelectModeForInput() { return false; },
-    ws: {
-      readyState: 1,
-      send(payload) {
-        sent.push(JSON.parse(payload).data);
-      },
-    },
-  };
+  const pane = makePastePane(true, sent); // SE-13: an agent pane, DEC 2004 on
   compileBeforeInputHandler().call(pane, {
     inputType: 'insertFromPaste',
     data: '',
@@ -257,17 +325,7 @@ check('empty orphan beforeinput cannot suppress the next real native paste', () 
 
 check('native paste sends exactly once when xterm also listens on the textarea', () => {
   const sent = [];
-  const pane = {
-    _pasteHandled: false,
-    // Select mode v2: the compiled paste handler unfreezes before sending.
-    _exitSelectModeForInput() { return false; },
-    ws: {
-      readyState: 1,
-      send(payload) {
-        sent.push(JSON.parse(payload).data);
-      },
-    },
-  };
+  const pane = makePastePane(true, sent); // SE-13: an agent pane, DEC 2004 on
   const event = {
     immediateStopped: false,
     preventDefault() {},
@@ -296,6 +354,33 @@ check('native paste sends exactly once when xterm also listens on the textarea',
     ['\x1b[200~native paste\x1b[201~'],
     'native paste must produce one bracketed WebSocket input frame'
   );
+});
+
+// ---------------------------------------------------------------------------
+// (5b) The same handler against an application that never enabled DEC 2004
+//
+// Added with SE-13. This case could not be expressed before P5.1, because the
+// handler bracketed unconditionally: the assertion below would have been a
+// statement about a bug rather than about behaviour. It is the defect D1 case,
+// measured: a bare cmd.exe or powershell.exe pane must receive the text and
+// nothing else, and a Windows CRLF must arrive as ONE Enter (defect D2).
+// ---------------------------------------------------------------------------
+
+check('a shell pane that never enabled DEC 2004 gets NO markers and one Enter per line', () => {
+  const sent = [];
+  const pane = makePastePane(false, sent);
+  const event = {
+    preventDefault() {},
+    stopImmediatePropagation() {},
+    clipboardData: { getData: () => 'echo one\r\necho two' },
+  };
+  compileNativePasteHandler().call(pane, event, { OPEN: 1 }, {});
+  assert.deepStrictEqual(
+    sent,
+    ['echo one\recho two'],
+    'an unbracketed application must receive plain normalised text: markers would print as literal garbage'
+  );
+  assert.strictEqual(sent[0].indexOf('\n'), -1, 'no line feed may survive: CR LF reads as TWO Enters at a PTY');
 });
 
 // ---------------------------------------------------------------------------

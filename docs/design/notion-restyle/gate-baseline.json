@@ -1,0 +1,147 @@
+{
+  "_comment": "Recorded baselines for scripts/do-not-break-gates.js. Ratcheted DOWN by the phase that improves a number, never up to make a red gate green. Regenerate with --record only as a deliberate re-baselining act, and say so in the commit message.",
+  "recordedAt": "2026-08-13",
+  "baselineCommit": "7eac21e",
+  "suite": {
+    "comment": "P0.1 is the floor every later phase compares against. postP0 records where phase P0 left the suite. Count with scripts/test-assertion-count.js so the five summary formats are normalised the same way every time.",
+    "p01": {
+      "files": 77,
+      "assertions": 1158,
+      "failures": 0,
+      "commit": "7eac21e",
+      "recordedAt": "2026-08-13"
+    },
+    "postP0": {
+      "files": 82,
+      "assertions": 1308,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "includes 3 files and 120 assertions from the concurrent P6 and P8 tracks (codex-paths 22, codex-state-db 64, vt-sidecar 34); P0 itself contributed notion-token-parity 13 and do-not-break-gates 17"
+    },
+    "postP1": {
+      "files": 82,
+      "assertions": 1317,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "P1 added and removed zero assertions; it retargeted 13 existing ones across five files (SE-1, SE-4, SE-7, SE-11). The +2 against postP0-plus-drift comes from the concurrent P8 track (codex-state-db 64 to 66)."
+    },
+    "postP2": {
+      "files": 82,
+      "assertions": 1317,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "P2 added, removed and retargeted ZERO assertions. No sanctioned test edit was needed: every P2 change was a rule body, and the anchors the suite reads (selectors, single-line rules, cachebusters, the two pinned focus rules, the frozen provider-tab template) were all preserved. The count is identical to postP1 because the concurrent tracks did not add a file between the two runs."
+    },
+    "postP3": {
+      "files": 82,
+      "assertions": 1368,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "P3 added and removed ZERO assertions and retargeted two: SE-5 in codex-status-strip.test.js and SE-6 three whitespace-exact single lines in usage-meter.test.js, each in the same commit as its source change. The +51 against postP2 is entirely the concurrent P2.7 track: instance-colors.test.js went from 13 to 64."
+    },
+    "postP4": {
+      "files": 83,
+      "assertions": 1402,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "P4 added ONE file, recency-surfaces.test.js with 28 assertions, eleven of which execute the merge against fixtures rather than reading source. It retargeted three existing assertions: the tag-chip pair in instance-colors.test.js under the orchestrator ruling, plus sanctioned edits SE-2 (provider-label-pill.test.js) and SE-3 (css-tokens.test.js), each in the same commit as its source change. instance-colors.test.js also gained 5 assertions for the new chip projection. The +1 against that arithmetic is the concurrent P6 track: vt-sidecar.test.js went 34 to 35."
+    },
+    "postP5": {
+      "files": 94,
+      "assertions": 1642,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "P5 added TWO files, paste-input-preparation.test.js with 37 assertions and terminal-surface.test.js with 24, plus 2 added to bracketed-paste-isolation.test.js (the architecture asks for the mode gate by name) and 1 to paste-secure-context-fallback.test.js (the shell-pane case that could not be expressed before the bracket was gated), for +64 of its own. It retargeted ZERO assertions and took two sanctioned edits that changed a HARNESS rather than an expectation: SE-13 gave the two executed paste proofs the collaborators the refactored handlers need, with both expected payloads byte-identical, and SE-14 narrowed a forward-written parity check that required the xterm selection wash to be opaque. The measured suite at this commit is 94 files and 1642 assertions because the concurrent P10 track registered two files of its own between runs; 90/1541 was the floor P5 started from."
+    },
+    "postP4Remainder": {
+      "files": 85,
+      "assertions": 1465,
+      "failures": 0,
+      "recordedAt": "2026-08-13",
+      "note": "The P4 remainder added TWO files, side-peek.test.js with 35 assertions and docs-document-surface.test.js with 27, plus 1 from gate G14 joining the do-not-break-gates.test.js loop, for +63 of its own. It retargeted ONE existing assertion, sanctioned edit SE-12 in settings-nav-rail.test.js, in the same commit as its source change. The final npm test on this branch reports 90 files because the concurrent P6, P8 and P9 tracks registered five more between runs; 85 is this track own arithmetic against the postP4 floor of 83."
+    }
+  },
+  "gates": {
+    "G3": {
+      "name": "[hidden] guard rules across the four stylesheets",
+      "baseline": 25,
+      "target": 12,
+      "phase": "always"
+    },
+    "G4": {
+      "name": "Catppuccin var() consumption outside the palette blocks",
+      "baseline": 699,
+      "target": 0,
+      "phase": "P4",
+      "note": "Ratcheted 747 to 699 by P10.6, which swept styles-mobile.css from 48 Catppuccin consumptions to zero. The whole remainder is styles.css (693) plus focused-shell.css (6), neither of which is the mobile track. The P5 note below still applies to the styles.css figure: seven of those are var(--term-x, var(--palette)) FALLBACKS on a terminal surface and are the one place a Catppuccin token is the correct value. PREVIOUS NOTE: Ratcheted 751 to 747 by P5. The movement is a net of two opposite flows and the next phase should know both: TEN consumptions left the pane header, the pane title, the active header, the grid ground and the reduced-motion guard, and SEVEN arrived, every one of them a var(--term-x, var(--palette)) FALLBACK on a terminal surface. Those seven are the one place in the sheet where a Catppuccin token is the CORRECT value, because DESIGN-SPEC 10.4 says the palette paints the terminal and the fallback exists to be right in the window before terminal-surface.js has published. This counter cannot tell the two cases apart. Driving it to zero by deleting them would leave the terminal surface unstyled on a cold load."
+    },
+    "G5a": {
+      "name": "hex literals outside a :root block",
+      "baseline": 1,
+      "target": 0,
+      "phase": "P4"
+    },
+    "G5b": {
+      "name": "rgba()/hsla() literals outside a :root block",
+      "baseline": 38,
+      "target": 0,
+      "phase": "P4"
+    },
+    "G6": {
+      "name": "numeric border-radius literals in styles.css",
+      "baseline": 0,
+      "target": 0,
+      "phase": "P2"
+    },
+    "G7": {
+      "name": "text-transform: uppercase rules",
+      "baseline": 1,
+      "target": 1,
+      "phase": "P4"
+    },
+    "G8": {
+      "name": "translateY occurrences in styles.css",
+      "baseline": 16,
+      "target": null,
+      "phase": "P12 review"
+    },
+    "G9a": {
+      "name": "linear-gradient in styles.css",
+      "baseline": 1,
+      "target": 0,
+      "phase": "P4"
+    },
+    "G9b": {
+      "name": "backdrop-filter in styles.css",
+      "baseline": 0,
+      "target": 0,
+      "phase": "P4"
+    },
+    "G11": {
+      "name": "raw colours in semantic-theme.css",
+      "baseline": 0,
+      "target": 0,
+      "phase": "always"
+    },
+    "G12a": {
+      "name": "em dash and horizontal bar occurrences in the scanned trees",
+      "baseline": 146,
+      "target": null,
+      "phase": "P11 copy pass"
+    },
+    "G12b": {
+      "name": "em dashes and prose double hyphens in lines added since the baseline commit",
+      "baseline": 0,
+      "target": 0,
+      "phase": "always"
+    },
+    "G14": {
+      "name": "animated status marks (dots, pills, badges, and any animated circle)",
+      "baseline": 0,
+      "target": 0,
+      "phase": "always",
+      "note": "Opened by the P4 remainder at ZERO rather than at its pre-sweep count of 17, because the ban that created it is a standing rule and not a phase target. The sweep that empties it ships in the same commit, so the gate has never had a non-zero baseline to ratchet down from."
+    }
+  },
+  "_ratchetNote": "The P4 remainder ratcheted G4 (902 to 751, the largest single-phase fall the counter has recorded), G5b (46 to 41) and opened G14 at 0. G3, G6, G7, G8, G9a, G9b, G11, G12a and G12b are unchanged. Four are still short of their P4 target and each is short for a stated reason, recorded in DECISIONS 12.4 and 13.5: G4 and G5b by the terminal surface that belongs to P5 and the mobile sheet that belongs to P10, plus the app.js inline census 12.3.3 leaves with its regions; G7 by the two mobile action-sheet rules in styles-mobile.css, another track file; G9a by the loading shimmer, which is the one documented exception the gate allows because a shimmer IS a moving gradient."
+}

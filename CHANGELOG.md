@@ -7,6 +7,430 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Your Codex plan usage can be read without asking ChatGPT for it.** The app already knew how to fetch your usage from the account switcher, which needs a valid sign-in and a working connection. Codex also writes the same figures into every conversation it records, so the app now reads them from your own disk: the plan you are on, how much of the current window you have used, when it resets, and your credit balance. It works offline and it cannot break because a sign-in expired. The display that uses it is still to come.
+
+### Fixed
+
+- **Looking for your Claude sessions no longer freezes the rest of the app.** Every refresh of the session list opened a slice of every transcript on your disk, all of them, in one uninterrupted go, and nothing else in the app could run until it finished: measured here at 130 milliseconds warm and 289 milliseconds cold, with every other request, every terminal and every timer stopped for the whole of it. It now re-reads a transcript only when that transcript has actually changed since the last look, and it hands control back constantly while it works. Same list, same order, same titles: the longest single pause dropped from 289 milliseconds to about 3, and the refresh itself is roughly two to three times quicker.
+- **The Mac account sync was pointed at a machine that is not there.** The address it shipped with belonged to a computer that has since been renamed and moved, so unless you had gone into Settings and typed your own, every sync, every check and every account switch on the Mac failed with "unreachable" and no way to tell that from the Mac simply being switched off. The address it ships with is now the right one, and if your settings still hold the old one it is corrected for you, once, on the next start. If you typed a host yourself it is left exactly as you set it. When the Mac cannot be reached, the app now also checks the addresses it knows about and tells you which one answered, so a wrong address stops looking like a dead Mac. It only ever suggests: nothing is sent to a machine you did not configure.
+
+### Changed
+
+- **The protections around your saved accounts are now checked automatically, every test run.** Five of them exist because something went wrong once: a hang that took the account switcher and the usage meter down for a day, accounts being declared dead when a firewall answered oddly, one account's tokens being written onto another account's record after a switch, this computer refreshing a token the Mac was using and quietly logging the Mac out, and a second program being allowed to write to the same account files at the same time. Those fixes arrived through several separate routes, and were verified once, by hand. They are now pinned by tests that fail if any of them is dropped, including one that fails if a new action is added that can change your saved accounts without checking first whether something else owns them. Nothing about how the app behaves changes; what changes is that it can no longer quietly stop behaving that way.
+
+## [1.3.0-alpha.27] - 2026-08-13
+
+The Notion restyle's last build phase: small text you can actually read, one set of icons instead of three, and an installable app whose icon is the right shape.
+
+### Fixed
+
+- **Small grey text across the app is now dark enough to read.** Labels, hints, timestamps, directory paths, meter captions and column headings were all painted in a grey that measures about 2.7 to 1 against a white page. The readable minimum for text that size is 3 to 1 and the comfortable one is 4.5. Roughly a hundred and twenty places moved onto a darker grey that measures 4.27 to 1 on the light page and 7.52 to 1 on the dark one, in every theme, without changing any layout. Nothing that is purely decorative moved; this is the copy you were meant to be able to read.
+- **Text fields and switches now have a visible edge.** A field's outline was so pale it effectively vanished on a white page, and a switch in its off position was a barely-there capsule, so on some screens you could not tell where a field started or that a switch was there at all. Both now carry a real boundary. It is a heavier line than the design it is based on draws, and that is deliberate: an invisible edge is not a style choice for anyone with low vision.
+- **The running and waiting marks agreed with each other.** Two different parts of the app described the same five session states with opposite shapes: the dots you see in the sidebar use a filled circle for "working" and a hollow ring for "waiting on you", and a second internal table had them the other way around, with a media-player triangle for running. The hollow ring is not decoration; it is the second signal for the one state whose colour is hardest to see, so having it point at the wrong state removed that signal. They now match.
+- **The installed app's icon was the wrong shape and the wrong size.** Adding the workbook to a phone or desktop home screen used a wide 691 by 361 logo declared, twice, as if it were two different square sizes. Launchers squashed it. There are now real icons at every size, including a properly padded one for Android's circular masks, and the splash screen no longer flashes dark before repainting.
+- **Em dashes are gone from the whole product and cannot come back.** Every one in the code, the comments, the scripts and the documentation, including four that were hiding as HTML entities and rendering a real dash into the Sessions cost column. The check that guards this used to only ever ask that the number not grow; it now fails on a single one, and it can see the spellings it used to miss.
+
+### Changed
+
+- **One set of icons, everywhere in the app's own chrome.** Emoji had crept into the chrome next to hand-drawn line icons: a phone and a robot on paired devices, a pencil and a bin in the project menu, a pin on notes, a bin and two clocks in the schedule popover, and four coloured circles for tunnel status. Emoji are drawn by the operating system, so they never matched the rest of the interface and looked different on every device. They are now the same line icons as everything else, and the tunnel status uses the same status dot the sidebar does.
+- **The Sessions title is sized for a phone.** It was set at the desktop's 30 pixels, which on a 390 pixel screen made the name of the screen the loudest thing on it. It steps down to 24.
+- **Adding the workbook to an iPhone home screen now opens it as an app.** The tags Safari reads for that were missing, so it opened as a bookmark in a browser tab with all of the browser's chrome, on a page whose own manifest had been promising a standalone app to every other platform.
+
+## [1.3.0-alpha.26] - 2026-08-13
+
+Scrolling up on a phone now reaches your history instead of stopping dead at the top of the terminal, and a very long history stops costing what it used to.
+
+### Added
+
+- **Flicking up past the top of a terminal opens its history and keeps going.** Before this, a flick ran out of terminal and simply stopped: the scrollback surface only opened on a mouse wheel or a keyboard shortcut, neither of which a phone has. On a session running an agent it stopped on the very first flick, because those sessions keep nothing in the terminal at all. The gesture now carries straight through into the conversation, and pulling back down past the newest line hands the terminal back.
+- **Two buttons on the history surface: Oldest, and Jump to live.** They are the keyboard shortcuts a phone cannot press. Jump to live appears once you are more than a screen above the bottom; Oldest appears whenever there is something above you.
+- **A long press in the history surface uses your phone's own selection.** The handles, the magnifier and the Copy bar are the platform's, not an imitation of them, and pulling down at the top of your history no longer risks reloading the page.
+
+### Changed
+
+- **A very long history no longer keeps itself in the page.** A fifty thousand line conversation used to sit in the page in full, several megabytes of it, in one piece hundreds of thousands of pixels tall. It is now kept in blocks and only the blocks near what you are reading hold their text: measured on a fifty thousand line document, about fifteen thousand characters in the page instead of three and a half million. Your position never moves, the scrollbar still describes the whole thing, and selecting everything still selects everything: it puts the whole document back first.
+- **Phones keep a smaller terminal buffer.** Two thousand lines instead of ten thousand. The full history is on disk and the history surface reads it from there, so nothing is out of reach; what changes is how much memory each open session costs on a phone.
+- **Terminals you are not looking at do less work.** A session on another tab updates four times a second instead of seven, and one behind two other sessions on a phone updates once a second. Nothing is dropped or delayed in what it shows you when you come back; the sessions simply stop competing with the one on screen.
+- **The full-screen reader is capped at its last 200,000 characters**, with a line saying so, and points at Copy view for the rest. It used to build the entire buffer as one piece of text, twice, which on a wide session is several megabytes on a phone to read the last screen.
+- **Holding your finger down means the same thing everywhere.** The terminal used to carry its own copy of the timing, the movement tolerance and the vibration; it now reads the same three numbers as the rest of the app, so they can never drift apart again.
+
+### Fixed
+
+- **The history surface honours "reduce motion".** It was reading that preference indirectly, through a terminal scrolling setting, which meant turning smooth scrolling off silently removed the animation too, and a page loaded without the terminal script got the animation regardless of the preference. It now asks the system directly.
+- **A terminal no longer claims the shared width while you are looking at another tab.** The rule for when a device may set the width of a shared session was written and tested last release but one line of it could not be connected at the time. It is connected now.
+
+## [1.3.0-alpha.25] - 2026-08-13
+
+Holding your finger on something now does one predictable thing, and it depends on what you are holding. The Sessions tab grew the parts it was missing: filters, a way to select several sessions at once, and a swipe on a row.
+
+### Added
+
+- **Filters on the Sessions tab.** All, Running, Needs input, Stopped, with counts, in a row under the header. Filtering is a phone thing; a wide window still shows the full table.
+- **Select several sessions and stop them together.** The Sessions header menu has a Select mode: tick the rows you mean, and a bar appears with the count and a Stop.
+- **Swipe a session row.** Right reveals Terminal, left reveals Stop and Hide. A swipe only ever REVEALS the buttons; it never performs one, so a mis-swipe cannot stop a session.
+- **Tapping a session opens it in the terminal you are already looking at**, and switches to the Terminal tab. Dragging a session onto a pane is gone on phones, where there was only ever one pane to drop it on.
+- **A menu on the Sessions header**: select, sort, discover sessions, show hidden, projects, restart all.
+- **Hold a key on the terminal toolbar.** Hold Ctrl+C for every other control key, Ctrl+A through Ctrl+Z, which a phone previously could not send at all. Hold Send for "send without Enter" and "send a newline". Hold the image button for camera, library or files.
+- **Hold a bottom tab for its shortcuts.** New session from Home and Sessions, the pane switcher from Terminal, Stop all from Attention.
+- **"Follow this device" in the terminal options.** When a phone and a desktop are looking at the same session they fight over how wide it should be. Turn this off on the phone and the desktop keeps the width.
+- **The terminal says when another device is setting the width**, in one line you can tap to take over, instead of leaving you with output wrapped at a width you did not ask for.
+- **The desktop panes have a message box again.** A prompt, a field, an image button, a microphone and Send, in the terminal's own colours, at the bottom of every pane.
+
+### Changed
+
+- **The terminal key row stopped scrolling sideways.** It used to hold thirteen buttons in a strip that scrolled, so about six were visible and the rest were past an edge with nothing to say they were there. It now fits what fits, at a size you can actually hit, and everything else moves into the "..." at the end of the row. On a 390-pixel phone that is five keys plus the menu; a bigger phone gets six.
+- **One hold, one duration, everywhere.** Different parts of the app waited 400, 500 or 600 milliseconds before deciding you were holding rather than tapping. They all wait the same time now, and a small wobble of your finger no longer cancels it.
+- **Holding your finger on terminal output selects text, and only that.** It used to open a menu whose second item could restart the session, which meant the gesture for copying a line was one slip away from killing what produced it.
+- **Notifications disappear on their own.** They used to sit for a full minute. Three and a half seconds now, six for warnings and errors, and one carrying a button stays until you deal with it. At most two at a time on a phone.
+- **Stop all now stops.** The item in the Attention menu was wired to restart every session instead.
+- **The sidebar no longer opens by swiping in from the left edge on a phone.** That edge is the operating system's back gesture on both platforms. The drawer is still one tap away from Sessions and from Home.
+
+### Fixed
+
+- **A notification can no longer swallow a tap.** One with nothing to press is now a notice: your finger goes through it to the button underneath.
+- **The pane switch swipe stopped fighting selection.** It ignores a swipe that starts at either screen edge, needs a longer and more deliberate travel, and does nothing at all while text is selected or select mode is on.
+
+## [1.3.0-alpha.24] - 2026-08-13
+
+Scroll up in a terminal and you now reach the whole conversation, not just what the terminal happened to draw. Select across it, from an hour ago down into the line being written right now, and copy the lot.
+
+### Added
+
+- **Scrolling up in a terminal reaches the whole session.** Wheel up at the top of what a pane has drawn and it keeps going, into the conversation the assistant recorded. It is the same surface: the same background, the same typeface, the same line spacing, no panel, no banner and nothing to turn on. Hold Shift and the wheel always goes there, whatever is running, which is what every other terminal does too.
+- **You can drag up and copy history.** One drag from the current screen up into last hour's output selects a single continuous stretch, and Ctrl+C copies it. There is no boundary in the middle to get stuck on, because what is on screen is part of the same document as what came before it.
+- **Ctrl+Shift+A now selects everything, including the history.** It used to select what the terminal had in memory, which for a coding assistant is one screen.
+- **Shift+PageUp and Shift+PageDown page through it**, Escape leaves, and typing anything at all leaves and types. That last one is the point: there is no mode to be in and nothing to remember.
+- **A quiet scrollbar shows how much there is.** Six pixels on the right edge, only while you are moving, fading out after a moment. Its size is the only thing telling you there is history above, which is why nothing else has to.
+- **Output keeps flowing while you read.** Selecting text used to pause the terminal, and it no longer does: what pauses is the copy of the screen you are selecting on, so your selection stays put while the session underneath carries on. Nothing is queued and nothing catches up in a rush afterwards.
+
+### Changed
+
+- **The Select mode hint stopped standing on the screen.** It appears once, the first time you drag on a session that has taken over the mouse, and then never again. Select mode itself is unchanged.
+- **Shells and build logs remember much further back.** A pane running a shell reaches its own scrollback first, exactly as before, and then keeps going into a deeper log the server keeps for it. That deeper log needs the `CWM_VT_SIDECAR=1` setting, and without it nothing changes.
+
+### Notes for the next release
+
+History on a phone works, but the touch polish (momentum through the boundary, the selection handles, the toolbar) is the next piece.
+
+## [1.3.0-alpha.23] - 2026-08-13
+
+The phone stopped hiding things from you. The bottom bar has five tabs instead of four, one of which used to be a drawer called More, and the microphone that has been in the code for months is finally on screen.
+
+### Added
+
+- **A Home screen.** It opens on a banner telling you how many sessions want your input, then the sessions running right now as cards, then the ones you were in most recently, then a Workspace list with everything else: agent tasks, project notes, costs, system resources, paired devices and settings. Nothing on it is more than one tap from where you land.
+- **Attention is a tab, with a count on it.** Sessions waiting for you, sessions that failed and sessions that finished, grouped, in one place. The count on the tab is the only thing in the app that will nag you.
+- **Search is a tab.** One field, and chips for what you are looking for: everything, sessions, commands, past conversations, or help.
+- **The microphone works on a phone.** It was written, it was tested for browser support, and it lived on a strip of the terminal panel that phones do not draw, so on a phone it did not exist. It is now in the message row next to the image button, where the design put it.
+- **The terminal's message row is always there.** It used to be behind a Type button that also did something else, which is why typing sometimes fought the terminal for the keyboard. Now you tap the field.
+- **Raw keys.** For the rare command that wants every keystroke as you type it, a password prompt or a single-key menu, there is a Raw keys switch in the terminal's options. It says on screen when it is on, because it turns autocorrect off.
+- **A terminal options sheet.** Reader, select mode, copy view, paste, Ctrl+D, send without Enter, send a newline, scheduled messages, pinned notes, move to another tab, reset, restart. Four of those had no way in from a phone at all.
+
+### Fixed
+
+- **The keyboard no longer breaks menus and dialogs.** When the keyboard opened, the app shifted the whole screen up by a few pixels to compensate. That one line quietly changed where every pop-up, sheet and dialog thought the screen was. It is gone, and the layout now measures the space the keyboard actually leaves.
+- **The keyboard is detected properly.** It used to be a guess based on the physical size of your screen, which is wrong in landscape and wrong in an installed app.
+- **The page no longer loses your scroll position when the keyboard opens.**
+- **Notifications stopped landing on the terminal keys.** A message would appear exactly where the key row is and swallow the tap. It now sits above whatever is actually on screen, measured rather than assumed.
+- **The floating clock button over the terminal is gone on phones.** It sat on top of the key row, it was invisible until you hovered, and a phone has no hover. Scheduled messages moved into the terminal options sheet, count and all.
+- **Everything you can tap is now big enough to tap.** Thirty-seven controls were smaller than the 44-pixel minimum, including the whole project drawer, both header buttons and the close button on every terminal tab.
+- **Nothing in the app blinks.** The pulsing dots the mobile design called for are static shapes instead: a filled dot for running, a ring for needs-input.
+- **Codex sessions show their token usage instead of a dash.** There is no published price for them, so there is no dollar figure to show, and inventing one would be worse than showing nothing. The real number the app does have is now the one you see.
+- **"Summarize to Docs" writes to your docs.** It was calling a route that had been shadowed by another one with the same address, so it reported success and appended nothing.
+
+### Changed
+
+- **The More tab is gone.** It was a sheet of fourteen unrelated things. Every one of them now has its own row on Home or its own tab. The full command list is still one tap away at the bottom of Home if you want it.
+- **The bottom bar is 64 pixels tall**, matching the design, and its labels are readable in dark mode.
+- **The phone stylesheet stopped using the old colour names**, so the phone follows the app's theme exactly like every other screen.
+
+## [1.3.0-alpha.22] - 2026-08-13
+
+Pasting into a terminal now does what you meant. The terminal itself got the design treatment the rest of the app has had.
+
+### Fixed
+
+- **Pasting two lines used to run two commands and print two blank lines.** Windows copies text with a carriage return AND a line feed on the end of every line, and both were being sent, so the shell saw each line submitted twice. Now one line break means one Enter, whatever you copied it from.
+- **Pasting into a plain shell used to print `[200~` around whatever you pasted.** There is a terminal mode an application can turn on to say "hand me a paste in one piece", and the app was wrapping every paste in that marker whether the application had asked for it or not. Coding assistants do ask for it, which is why this looked fine most of the time; `cmd`, PowerShell and anything else did not, and got the marker as literal text. The app now checks.
+- **A pasted file can no longer break out of a paste.** If the text you paste happens to contain the marker that ends a paste, everything after it would have been treated as though you had typed it. That marker is now stripped out of the pasted text.
+
+### Added
+
+- **Pasting several lines into a plain shell asks first.** It tells you how many lines and shows you the first one, with Paste and Cancel. It does not ask when you are pasting into a coding assistant, because those handle a multi-line paste properly; that is the whole point of the mode above. You can force it always on or always off in settings under `terminalConfirmMultilinePaste`.
+- **Ctrl+Shift+C copies, always.** Plain Ctrl+C is ambiguous in a terminal: it copies when you have something selected and interrupts what is running when you do not, which means you have to know the state of something you cannot see. Ctrl+Shift+C only ever copies. Ctrl+C is unchanged.
+- **Ctrl+Shift+A selects everything in the terminal.** Ctrl+A is deliberately left alone, because in a shell it means "jump to the start of the line" and taking that away would be a bad trade.
+- **Terminals remember twice as much.** Scroll-back went from 5000 lines to 10000.
+
+### Changed
+
+- **The terminal pane is a card.** A hairline frame with rounded corners on the page background, with real space between panes instead of a two-pixel seam, and room around the text instead of the first character touching the edge.
+- **The terminal has its own type.** iA Writer Mono, the same face the app uses for code and file paths, at the same size and line height as before so nothing reflows. If you have JetBrains Mono installed, which is what the terminal used before, it is still second in line.
+- **Your terminal colours and the app's colours are finally two separate things.** Every one of the thirteen palettes now describes its terminal in one place, and the pane's own trim, its ground and its scrollbar are drawn from it. You can run a dark Mocha terminal on a light app, or the other way round, and neither leaks into the other.
+- **The panel header above each terminal is quieter**: a shorter band, no coloured underline on the pane you are working in, and the same greys as the rest of the app.
+- **The pane stopped animating while a session starts up.** It had a three-second colour cycle that, since an earlier release, cycled between four identical colours.
+
+### Notes for the next release
+
+Scrolling up in a terminal still only reaches what that terminal has drawn since you opened it. Reaching further back, into the conversation the assistant recorded, is the next piece.
+
+## [1.3.0-alpha.21] - 2026-08-13
+
+Nothing in the app blinks at you any more. The four screens the restyle had not reached yet, the session panel, project notes, costs and settings, now look like the rest of it.
+
+### Changed
+
+- **Status dots have stopped pulsing, blinking and fading.** Every dot, chip and badge that reports what something is doing is now a still shape. A running session is a filled dot; a session waiting on you is an outlined one, which is a difference you can see without relying on the colour, and which does not move. The `Needs input` label on a pane, the file-conflict count and the machine pill all sit still too. The one thing that still moves is a spinner on a button you just pressed, which is telling you about an action rather than about a state.
+- **The session panel is a proper side panel.** It used to take half the height of the page and push the session list into whatever was left; on a stopped session it took the whole thing. It is now a 420px column down the right-hand side, so the list you opened it from is still there and still clickable. Its properties are laid out on one aligned column instead of inside a striped box, the title is a real page title, and the two facts it never showed, which assistant the session belongs to and which model, now have rows of their own.
+- **The session panel has a notes field.** A plain, borderless place to write something about a session, kept per session in this browser. It is not synced anywhere and it does not appear in search.
+- **Opening the panel drops two columns from the Sessions table** rather than squeezing seven into the space left over, which was cutting `Claude` down to `Claud`. Project and Model step aside; both are in the panel you just opened.
+- **Project Notes reads like a document.** A 720px column with generous empty margins, headings that look like headings, and notes, goals and checklist items on a rhythm where a run of items sits closer together than a run of paragraphs. Highlighting an item no longer paints a bar across the whole row.
+- **Costs is a page instead of eight boxes.** The four figures at the top keep a hairline around them; the chart, the two breakdowns and the session table lost theirs and became sections with labels. The four headline numbers stopped being four different colours, because a total spend is not more green than a token count. The session table is the same table the Sessions view uses.
+- **Settings is a list, not a stack of buttons.** Each setting is a row separated by a hairline, with the switch on the right; the rows no longer light up when you pass the pointer over them, because there is nothing to click except the switch. The category rail on the left is wider, in normal sentence case rather than forced lower case, and its selected item no longer changes colour with your terminal theme.
+- **The account button shows how much of your session allowance is used** rather than when it resets. The reset time is still in the panel underneath it.
+
+### Fixed
+
+- **A session with no cost tracking showed an em dash inside a dashed box**, which read as an empty field waiting to be filled in. It is now just a quiet dash, with the explanation on hover. Nothing about a session that cannot report a cost should look like a control.
+- **The carets beside each Project Notes section rendered as blue rounded squares** on Windows, because the arrow character is treated as an emoji by default.
+- **The Costs title did not line up with anything underneath it**, sitting 32 pixels to the left of the first card.
+- **The conflict badge printed near-black text on yellow** in light mode, which was the wrong way round.
+
+### Notes for the next release
+
+The four screens above are desktop work. On a phone they still use the old layout, which is the next piece of this. The terminal itself is also untouched so far.
+
+## [1.3.0-alpha.20] - 2026-08-13
+
+Codex sessions stop lying to you. Your transcripts were missing nearly half of what happened in them, your search results were labelled with raw identifiers, a session with 226 million tokens against it was displayed as costing `$0.00`, and new Codex sessions took minutes to appear because the code watching for them could never match a real filename.
+
+### Fixed
+
+- **Codex transcripts were dropping 43 percent of the conversation, silently.** Codex moved to a new way of recording tool calls some months ago and the reader was never taught about it, so every command it ran and every result that came back was thrown away without a warning, a log line or a gap in the page. On one real session the transcript showed 493 entries where there were 3,757. Everything that was being dropped is back: 3,264 recovered entries on that session, and 431 of the 493 that did survive are unchanged, with the other 62 no longer blank.
+- **Tool results that came back as several pieces rendered as nothing at all.** A result that arrived in parts, rather than as one block of text, produced an entry with no text in it. That has been true for the older kind of tool call as well, so this was quietly emptying entries in Claude-era Codex sessions too. Images returned by a tool are now announced as `[image]` rather than being dropped, and their data is never pulled into the page; one of them was 671 KB.
+- **A very long session showed nothing.** The heaviest session on the test machine has a 924 MB record, and reading it whole exceeded a hard limit in the runtime, so the reader gave up and returned an empty transcript with no explanation. Long records are now read from the end, up to a quarter of a gigabyte, and the app says when it has done that. That 924 MB session now shows 39,880 entries.
+- **Codex cost showed `$0.00` instead of saying it does not know.** The cost reader only understands Claude's format, and nothing checked whether the session it was handed was a Claude one, so every Codex session reported zero. Codex is billed against a ChatGPT plan rather than per token, so there is no honest dollar figure to show. The app now says so plainly and shows the real token count instead: for that same session, 226,420,778 tokens, with the cache reads separated out.
+- **Search results were labelled with raw identifiers.** Search looked for a title in one place that turns out to exist in under two percent of session files, and printed a 36-character identifier for the rest. It now uses the same title the sidebar shows. On the test machine that is a real title for all 3,036 sessions.
+- **New Codex sessions took minutes to appear.** The code watching for new session files was checking names against a pattern that no real filename has ever matched, because of a single letter in the timestamp. Every file event was discarded and the app fell back to a five-minute sweep. Sessions now appear within seconds. Archiving a session in the Codex app is noticed too, and so is anything you do in the app itself that never touches a file: renaming a thread, starting one, moving one.
+- **"Summarize to Docs" has never worked.** Two pieces of code were registered to answer the same request and only the first ever ran, so the one that writes a summary into your project notes was unreachable. It is reachable now.
+- **Summarizing a Codex session returned "not found".** It looked for the conversation in Claude's folder and nowhere else.
+
+### Added
+
+- **The app now notices when Codex changes its format.** Every line it does not recognise is counted and reported, with the shapes named. The next time the format moves, the app says "these lines were an unrecognised shape and were dropped", instead of rendering short and saying nothing. Two new record types found during this work are already accounted for, so the counter stays quiet until something genuinely new arrives.
+- **Codex plan and rate-limit information** is now read alongside the token counts, ready for the usage display.
+
+### Known
+
+- **Roughly six percent of Codex sessions are large enough to be read from the end rather than in full.** The app tells you when that happens. The alternative was holding half a gigabyte in memory to display a page.
+- **Codex sessions show tokens where Claude sessions show a cost.** This is deliberate. There is no per-token price for a plan-billed product, and inventing one would be the same mistake as the zero it replaces.
+
+### Testing
+
+- 89 test files and roughly 1,500 assertions, all green. This release adds five files with 71 assertions covering the recovered record types, the drift counter, the token readers, the cost gate, the duplicate-route fix, search titles and the watcher.
+- All 18 mechanical gates pass.
+- Everything was measured against the real Codex data on this machine, read-only. A harness wrapped every write path in the runtime and recorded zero write attempts against the Codex directory over a full pass, with a control window proving the directory changes on its own while the app does nothing.
+
+## [1.3.0-alpha.19] - 2026-08-13
+
+The workbook was showing you 52 of your roughly 125 Codex conversations, and only half of those had a name. This release reads the same place the ChatGPT desktop app reads.
+
+> Version note: alpha.16 and alpha.18 are reserved for two phases of the terminal work that have not shipped yet, so the numbers are not consecutive.
+
+### Added
+
+- **Every Codex conversation the desktop app shows, the workbook now shows.** It reads the app's own thread store rather than reconstructing the list by walking files. 52 sessions became 128, and 27 named became 128 named.
+- **Titles come from a cascade of five sources**, ending in a shortened first message, so a session is never a bare identifier.
+- **Folders match the app's.** Codex groups conversations by their working directory, and two spellings of the same directory used to appear as two folders. They collapse into one, and a Claude folder and a Codex folder for the same directory are one row.
+- **Conversations stored outside the Codex folder are reachable**, including two on a second drive that the old file walk could never have found.
+
+### Changed
+
+- **Discovery went from 3.1 seconds to 22 milliseconds** on a warm cache, and finding one conversation's file went from 993 milliseconds to 19.
+- **The model and effort pickers describe reality.** The saved list of reasoning efforts omitted the three that account for 98 percent of actual use, and silently dropped them.
+
+### Known
+
+- **The file walk is still there and still runs.** It is the only thing that works on a machine where the Codex app has never run, and it fills in anything the store has not recorded.
+
+## [1.3.0-alpha.17] - 2026-08-13
+
+Terminal panes stop redrawing wrong after a long absence, and two people on one session stop fighting over its size.
+
+> Version note: this phase shipped its code earlier and is being recorded now; alpha.16 belongs to a phase that has not shipped.
+
+### Fixed
+
+- **A pane that had been in a full-screen program for hours came back as a few patches painted onto a blank screen.** The server was replaying a log of everything written to the terminal, pruned from the front, and the pruned part contained the instruction that set the screen up. It now replays a description of the screen as it currently is, which has no beginning to lose.
+- **Two devices on one session fought over its width.** A phone and a desktop each claimed the size, every claim made the terminal repaint everything into both streams, and the result was a repaint storm rather than a wobble. Handing a session over is still instant; only an oscillation is throttled.
+- **A pane that had been sitting in a full-screen program did not know it.** The server now tells every client the mode it is in on arrival and whenever it changes, so the keyboard behaves correctly straight away.
+
+### Added
+
+- **Deeper scrollback than the terminal keeps.** The server now retains a paged log of completed lines behind the 5,000 the browser holds.
+
+### Known
+
+- **The new machinery can be turned off** with environment switches if it misbehaves, and the old replay path is retained in full underneath it.
+
+## [1.3.0-alpha.15] - 2026-08-13
+
+The previous two releases rebuilt the furniture and the controls. This one rebuilds the rooms, and answers the thing you actually asked for: finding your most recent session is now the easiest thing in the app rather than the hardest.
+
+### Added
+
+- **Recent sessions are everywhere you would look for them.** Press `Ctrl+K` and hit Enter: that opens the session you were last working in, whichever assistant it belongs to. There is a `Recent` section at the top of the sidebar with the last five. The empty workbench offers `Continue where you left off` with the last four as cards. The Sessions view sorts by last activity by default. All four read the same list, so they always agree on what is most recent, and Claude and Codex sessions interleave properly by time instead of sitting in separate piles.
+- **Quick Find used to show nothing useful when you opened it.** It sorted whatever the current view happened to be showing, which in the workbench was nothing at all, and it never showed a Codex session the app had not adopted. It now opens on the eight most recent sessions across everything on the machine, with the first one already selected.
+- **The Sessions view has a `Last active` column**, and every column sorts. Your choice is remembered.
+- **The top bar tells you where you are.** `Myrlin / Sessions`, or `Myrlin / Workbench · Main` when you are in a tab group. The view tabs tell you what is available; they never told you what was showing.
+
+### Changed
+
+- **The Sessions view is a real table.** It was a list of cards: about six fitted on screen, and every one of them repeated the same three facts in a different arrangement. It is now seven columns at Notion's own measured density, roughly eighteen rows on the same screen, with the project, the assistant, the status, the model, the cost and the last activity each in their own column. On a phone each row folds back into a card.
+- **Menus and dialogs are one menu and one dialog.** Every context menu, popover, dropdown and modal in the app now shares one shadow, one corner radius and one 150ms fade. Menus are 240px with 28px rows and a check mark in the icon slot for the selected item, instead of a highlight.
+- **Dialogs stopped blurring the page behind them.** The frosted-glass backdrop was the most expensive thing on screen while a dialog was open, because it forced everything behind it, including any live terminal, to be re-rendered on every frame. It is now a plain dim.
+- **Every tab in the app is a pill.** The terminal group tabs lost the coloured bar underneath them and took a coloured dot instead; the tasks, docs and account tabs lost their underlines; the filter and period buttons stopped looking selected when you merely hovered them.
+- **Panes are framed rather than striped.** A pane belonging to Claude or Codex used to carry a thick coloured bar across the top, another across the bottom, and a coloured wash over the whole thing. It now has a single hairline in that assistant's colour all the way round. The same applies to the per-slot colours, which were drawn twice from two different colour tables that had drifted apart.
+- **The agent board columns have no background until you drag a card over one**, and then the whole column lights up rather than just the part with cards in it.
+- **Notifications appear at the bottom left instead of the bottom right**, where they no longer land on top of the session detail panel or the account menu.
+- **Nothing shouts any more.** Forty-six all-capitals labels became sentence case. Exactly one remains, the `Recent` heading in Quick Find, which is deliberate.
+- **Loading placeholders shimmer instead of flashing.** The old one pulsed the opacity of a block of your text colour, which on a light theme was a blinking near-black rectangle.
+
+### Fixed
+
+- **Hover highlights no longer flash under the pointer while you scroll or drag.** 126 rules now wait until the pointer is actually resting.
+- **The worktree task dots have never worked.** The code that renders them put the attribute inside the class name by mistake, so the browser never saw it: the "busy" pulse, the "waiting" fade and the "ready" tick have been invisible since they were written. All three now appear.
+- **Rows you can click can now be reached with the keyboard.** Session rows, project rows, board cards and task items are focus stops and respond to Enter and Space. They had focus rings drawn for them last release with no way to focus them.
+- **The empty workbench no longer draws its icon in a shadowed rounded box**, which was the last raised element on the default screen.
+- **Loading placeholders across the whole app were being sized by a rule meant for one card**, because the same class was declared twice and the wrong one won.
+- **The login screen dropped its purple graph-paper background.**
+
+### Known
+
+- **Two all-capitals labels remain in the mobile action sheet.** They live in the phone stylesheet, which belongs to the mobile work still to come, and will be swept with it.
+- **The contrast items recorded in the previous release are unchanged** and are still scheduled for a single decision before this work is called finished.
+
+### Testing
+
+- The suite is green at 83 files and 1402 assertions. This release added one test file with 28 assertions covering the recency merge, executed against fixtures rather than read from the source, and retargeted three existing expectations, two of them pre-authorised.
+- All seventeen mechanical gates pass. Blurred backdrops fell from 6 to 0, gradients from 5 to 1 (the loading shimmer, which is a gradient by nature), all-capitals labels from 49 to 3, raw colour values outside the token block from 71 to 46, and leftover palette references from 1021 to 902.
+- Eight screenshots at two sizes in both light and dark are recorded under `screenshots/notion-restyle/p4/`.
+
+## [1.3.0-alpha.14] - 2026-08-13
+
+The last release moved the furniture. This one replaces the things you actually click. Buttons, fields, checkboxes, switches, tags, status chips and progress bars all stop being thirteen slightly different components and become one of each. The purple buttons are gone.
+
+### Changed
+
+- **There is one accent colour on a button now, and it is blue.** `Start session`, `New`, `Save` and every other confirming action used to be filled with the terminal palette's purple, which changed shade every time you switched terminal theme and was the loudest colour on the screen. They are now the design system's blue. There are exactly two button weights in the whole application: a filled blue one for the action you probably want, and a quiet white one with a hairline for everything else. There is no third colour and no filled red button, because a red rectangle is an alarm and a `Stop` button is a choice: dangerous actions now say so in red text on an ordinary control.
+- **Every button is the same size.** They were 13px text in 8px by 16px padding, which worked out to about 33px, except the ones that were 27px, and the two in the empty workbench that were 38px. They are all 28px now, with small ones at 24px and the little icon buttons in a pane header at 26px. Icon buttons grow to 44px on a touch screen.
+- **Buttons stopped shrinking when you press them.** The whole family scaled down to 97 percent on click, which blurs the label for the length of the press. A press is now a slightly darker background, which is what the rest of the interface already did.
+- **Every text field is the same field.** Fourteen of them: the login box, the settings search, Quick Find, the project search, find-in-conversations, the task search, the number inputs, the dialog forms, the schedule dropdowns. They had eleven different heights, six different corner radii, and four different focus colours between them, three of which were the old purple. They are now 28px with an 8px inset, a hairline border, and the design system's blue focus ring, which draws just inside and just outside the edge so it hugs the corner instead of boxing it.
+- **Checkboxes are blue and all three are the same size.** They were purple, and they were 14px in one place and 16px in another.
+- **The settings switches are the design system's switch**: 26px by 16px with a 12px white knob that slides, on a track that turns blue. They were 36px by 20px with a purple track and a knob the colour of your body text, and the whole track used to change shape as it moved.
+- **Tags, models, costs, ports, providers and plans are all the same kind of chip now**, and they are a different kind of chip from a status. This distinction is the point: a property chip is a small 4px-cornered thing with a translucent tint, so it sits correctly on a white row, a hovered row or a coloured panel with no special handling; a status chip is the same thing at a pill radius with a dot in front of it. They used to be 10px monospace pills in fifteen percent tints of their own text colour, which is close to invisible, and they used the same shape as a status.
+- **Status dots are 7px and they no longer glow.** A running or waiting session pulses gently instead, and under the "reduce motion" system setting it simply holds still rather than animating at all.
+- **A running session is green.** It was drawn with a green background and blue text, because two halves of the colour table disagreed with each other. Green everywhere now. Complete stays teal, which is a different state and now looks like one.
+- **Progress bars are one component with five users**: the account usage meter, the header meter, the token breakdown, the system resource gauges and the cost share column. Same 5px height, same track colour, same green, amber and red thresholds.
+- **The notes editor and the raw markdown editor have no box around them.** They are page content, not form fields, which is how the design system draws a note. The notes editor also stopped setting your prose in a monospace font.
+- **Form labels are sentence case** instead of spaced-out capitals.
+
+### Fixed
+
+- **Keyboard focus rings were being cut off.** Five parts of the interface clip whatever is inside them: the sidebar, the settings navigation, the Quick Find results, a board column, and the Codex status strip. A focus ring is drawn just outside the edge of a control, so anything focused inside one of those five lost part of its ring, and a full-width sidebar row lost both ends of it entirely: you saw two short dashes and no control. Twenty controls in those five places now draw the ring just inside their own edge, where nothing can cut it.
+- **Every field that switched its focus ring off now has one back.** Nine of them turned the ring off permanently to draw their own border tint, which is not a focus ring, and one of them drew nothing at all.
+- **The interface survives Windows High Contrast.** Everything this release drew is a filled shape, and High Contrast throws away filled shapes, so without this a chip would have been invisible text, a status dot would have been nothing at all, a switch would have been an empty rectangle, and the confirming button in a dialog would have looked exactly like the one that cancels. Buttons, chips, dots, fields, the switch and all four progress bars now keep a visible edge, and the confirming button, the "on" switch and the filled part of a progress bar take the system's own highlight colour.
+
+### Known
+
+- **Two colours in this release do not meet the contrast standard, and both are the design system's own.** The white label on the blue button measures 3.9:1 where 4.5:1 is the bar for text, and the red used for dangerous actions measures 4.3:1. Darkening either one would mean shipping a colour the design system does not contain, so both are recorded with their measurements and a decision on them is scheduled before this work is called finished. Neither colour is ever the only signal: buttons always carry a verb, and a `Stop` button says `Stop`.
+- **The yellow "waiting for you" dot measures 2.7:1** against a white page, below the 3:1 bar for a graphic. It pulses, and the chip next to it says `Needs input` in words, so the colour is never carrying the message alone.
+
+### Testing
+
+- The suite is green at 82 files and 1368 assertions. This release added and removed no test expectations and retargeted two, both of them pre-authorised: one Codex status colour and the three progress-bar threshold colours.
+- All seventeen mechanical gates pass. Leftover palette references fell from 1127 to 1021, raw colour values outside the token block from 82 to 71, all-capitals labels from 52 to 49, and the High Contrast rule set grew from 5 selectors to 38.
+- Eight screenshots at two sizes in both light and dark are recorded under `screenshots/notion-restyle/p3/`.
+
+## [1.3.0-alpha.13] - 2026-08-13
+
+This is the one you can see. The previous release changed what the interface was made of; this one changes where things sit. The header is half the height it was, the sidebar is narrower and warmer, rows are tighter, and the coloured bars, glows and lifts are gone. If you know Notion, you should recognise the shape of this.
+
+### Changed
+
+- **The top bar is 44px instead of 80px, and it no longer looks like a title bar.** It has no background of its own, so the page runs all the way to the top edge and a single hairline is the only thing separating the bar from the content. Every control in it came down to one size, the logo mark went from 64px to 20px and lost its purple halo, and the view tabs stopped being a raised segmented control: the active view is now marked with a quiet selection wash and heavier text, the same way the sidebar marks the row you are on. The two navigations finally agree with each other.
+- **The sidebar is 240px, and its background is warmer than the page rather than darker.** That is the single biggest reason the old sidebar read as a tool panel and the new one reads as part of the document. Its right edge is a hairline drawn inside its own width, so dragging it to resize behaves exactly as before.
+- **Sidebar rows are 27px tall instead of 39px**, which is roughly a third more of your projects on screen without scrolling. Hovering a row no longer makes its border blink in and out, and on the light themes the hover highlight is now actually visible: it used to be a white tint on a light background, which is to say invisible.
+- **Every coloured bar down the side of a row is gone.** The selected workspace had one, every session row had one in its provider's colour, the active provider tab had one underneath it, and grouped workspaces had a thick one. In their place: the workspace colour moved to the dot that was already next to it, the provider colour became a tint on the row you are pointing at, the active tab became a pill, and a grouped row is now outlined rather than bracketed. This is the single most important change in the restyle and it is why the sidebar suddenly looks calm.
+- **Section labels are sentence case.** `PROJECTS` and `DISCOVERED` in spaced-out capitals are now `Projects` and `Discovered`, at a readable size. The two hairlines that flanked the Discovered label are gone too; sections are separated by space, not by rules.
+- **"New session" is a row, not a button.** It used to be a dashed outline with grey text on a grey fill, which was hard to read even before the restyle. It is now the same kind of row as everything else in the sidebar.
+- **Nothing lifts, floats, glows or scales any more.** The login mark stopped bobbing up and down and pulsing; buttons stopped growing halos when you hover them; cards stopped rising off the page; status dots stopped glowing. Depth now exists only where something genuinely floats above the page: menus, popovers, dialogs and toasts. The page itself is flat.
+- **Corners are consistent.** 199 hand-written corner radii across the stylesheet became eight named ones, so a chip and a card are no longer accidentally the same shape. Chips are 4px, cards and dialogs are 10px, buttons are 6px.
+- **Scrollbars are the thin, quiet kind**: a 7px hairline thumb over a transparent track, darkening slightly when you point at it.
+- **Selected text outside the terminal is the blue wash from the design system**, in every one of the thirteen palettes. The terminal's own selection is unchanged and still follows the palette you picked.
+- **Project dots, tab dots, folder colours and tag chips stopped following your terminal palette.** Picking a terminal theme used to repaint half the sidebar with it. Those marks identify a project, a tab or a tag, and an identity colour that changes when you change something unrelated is not an identity colour, so they now come from the interface's own ten-colour palette and look the same in every terminal theme, light or dark. The colours you have chosen are untouched: a project saved as purple is still purple, a tag keeps the colour it has always had, and the tab colours still run in the same order down the tab strip. Only the exact shade moved, from the terminal's saturated version to the quieter one the rest of the interface uses. Tag chips also gained a proper background rather than a fifteen percent tint of their own text colour, which was close to invisible in dark mode.
+
+### Fixed
+
+- **Muted text is readable again.** A token that was meant for disabled controls was being used for 29 different labels, hints and captions across the account panel, the search results, the usage meters, the Codex status strip and the mobile column headings. None of those are disabled; they are live text, and at that colour they measured roughly 1.9:1 against a white page where the readable floor is 4.5:1. They now use the ordinary quiet-text colour.
+- **Context menus land where they should.** The menu animated in from 95 percent scale, and the code that keeps a menu from falling off the edge of the screen measured it during that animation, so it was positioning menus from a size that was never real. Menus now fade in with a 4px drop and nothing else, which is measurable from the first frame.
+- **Seventeen controls had no keyboard focus ring at all**, including the settings search, the Quick Find inputs, the project search, the find-in-conversations box, the launcher search and the notes editor. Several of them switched the ring off permanently rather than only while clicking. Every one of them shows a ring on keyboard focus now, and controls that already had their own focus treatment keep it.
+- **Two colour bugs that predate the restyle.** Row hover highlights on the three light themes were painted in white and were therefore invisible, and the grouped-workspace stripe used a colour that did not exist in most themes. Both now come from the theme system.
+- **The colour picker was previewing colours it was not going to give you.** Choosing a project colour showed you the terminal palette's version of each swatch while the dot it fed was about to be painted in the interface palette. Picker and dot now resolve through the same table, so what you point at is what you get.
+- **The top bar's shadow while you scroll now actually appears.** It was written, including its deliberately slow 700ms fade, but nothing ever switched it on.
+
+### Removed
+
+- **The colour-cycling glow around a loading pane.** It cycled a pane's border through purple, blue and teal with a halo at each step. The loading signal it duplicated, the pulsing dot next to the pane title, is still there, now in one neutral colour.
+- **The purple halo behind the empty workbench**, and the purple drop shadows around the login mark.
+
+### Testing
+
+- The full suite is green at 82 files and 1317 assertions, unchanged: this release added, removed and retargeted zero test expectations. Every one of the seventeen mechanical gates passes, and four of the counters moved in the right direction: corner-radius literals 199 to 0, hover lifts 21 to 17, raw colour values outside the token block 128 to 83, and leftover palette references 1229 to 1132.
+- Eight screenshots at two sizes in both light and dark are recorded under `screenshots/notion-restyle/p2/` for comparison against the previous two releases.
+- The three items above that landed after the release commit (the colour maps, the picker, the scrolled top bar) added 51 assertions and retargeted none, and are photographed separately under `screenshots/notion-restyle/p2b/`. Across those eight shots the number of pixels painted in an exact terminal-palette accent colour is zero, down from 39562.
+
+## [1.3.0-alpha.12] - 2026-08-13
+
+This is the first prerelease of the Notion restyle you can actually see. The application turns warm and light, the type stops being a webfont, and the whole colour system moves onto a new foundation. Nothing has moved on screen yet: the header is still the same height, the sidebar is still the same width, and every panel is still where it was. That is deliberate. This release changes what things are made of; the next one changes where they sit.
+
+### Changed
+
+- **The application has a light theme and a dark theme of its own, separate from the terminal palette.** Until now the thirteen Catppuccin palettes coloured everything: the terminal, the sidebar, the header, every button. Those thirteen are excellent terminal palettes and they are all still here, unchanged, still switchable from the same picker. What changed is that the chrome around the terminal stopped borrowing from them. The chrome now has two themes of its own, light and dark, taken from the captured design system, and they are chosen independently. A light terminal palette on dark chrome is a legal combination and it works. The chrome theme is remembered between visits and, on a first visit, follows the same system light or dark preference the palette already followed, so a new profile always gets a matching pair.
+- **Text is warmer and easier on the eye.** Body ink in light is a warm near-black rather than a blue-grey, and in dark it is a warm off-white rather than a cool lavender-white. Neither is ever pure black, which is the single most common cause of eye strain in a light interface.
+- **The interface font is now your operating system's own UI font.** It was Plus Jakarta Sans, fetched from Google. The design system this restyle follows ships no webfont for application chrome on purpose, because a webfont on an application surface is instantly recognisable as not-native on both macOS and Windows. Code, file paths, ids, branch names and diff hunks now set in iA Writer Mono, which is served from this application rather than from anywhere else.
+- **The status colours gained a distinction they were missing.** A completed session is now teal and a running session is green. They used to be the same green, which meant the sidebar dots, the table chips and the attention list could not tell you which of the two you were looking at.
+
+### Removed
+
+- **The last external request is gone.** The application no longer contacts fonts.googleapis.com or fonts.gstatic.com, or any other outside origin, on any page load. That was the only one, and it was a blocking round trip on every cold start. On a LAN, behind a tunnel or on an aeroplane it was a delay for a font that was never going to arrive. The two font families that still ship are served from this application and their licences permit it. A test now fails the build if any external font request comes back.
+
+### Fixed
+
+- **Stylesheet changes reach your browser again.** The two main stylesheets carried no cache-busting version at all, so a change to either of them shipped stale to anyone with a warm cache. Since this restyle is almost entirely stylesheet changes, that would have meant most of it silently not arriving. Every asset the page loads now carries a version and they all move together.
+- **The browser acceptance test can pass again.** Two of its assertions still expected script versions from before the Select v3 and mobile-select work landed, so the whole browser lane failed before the restyle touched anything. Recorded during the baseline pass, fixed here as part of the version bump.
+
+### Testing
+
+- The token parity gate is now load-bearing. It compares 319 design tokens between the application stylesheet and the captured design bundle on every run, per theme, and fails on any single value that drifts. Before this release it had nothing to compare and passed trivially.
+- Five test expectations moved, each in the same commit as the change that moved it, each with the reason written next to it, and none of them deleted: the provider identity colours, the Copy view font, and the asset versions in three files plus the browser lane.
+
+## [1.3.0-alpha.11] - 2026-08-13
+
+This prerelease changes nothing you can see. It is the scaffold the Notion restyle is built on: the design bundle is vendored into the served tree, the before pictures are captured, and the mechanical floor that keeps the restyle from breaking the app is now enforced by the test suite.
+
+### Added
+
+- **The captured Notion design bundle now lives in the served tree**, at `src/web/public/design/notion/`: the five token files, the machine-readable token provenance, the component paint layer, and the two font families. Nothing links to any of it yet, and the token files deliberately never will be. The reason is a real trap: the phantom-token gate treats `styles.css` and `styles-mobile.css` as the only places a custom property can be defined, so a token defined in a vendored file and used in `styles.css` would turn CI red and, worse, would silently do nothing in the browser. So the raw values get authored into `styles.css` instead, and a new test diffs the two copies on every run so the duplication cannot drift apart in silence.
+- **A screenshot harness that captures the whole application at two sizes in both light and dark**, into `screenshots/notion-restyle/`. It boots the real application against a disposable sandbox on a random port, signs in with a one-use token, seeds an invented set of projects and sessions so the pictures show real rows rather than empty states, and records the numbers each later phase has to hit: header height, sidebar width, body ink, font stack. Every captured image is checked to be at most 2000px on both axes. It never touches your profile, your credentials or your sessions, and the credential refresh sweep is switched off before the server starts.
+- **Thirteen mechanical gates, run as part of `npm test`.** They protect the things a restyle breaks by accident: 378 element ids, 278 class names that JavaScript queries but that a designer would see no reason to keep, 46 `data-` attributes, and the guard rules that make hidden elements stay hidden. Alongside those, ten counters track the work still to do (radius literals, gradients, uppercase labels, leftover palette colours) and fail if any of them moves the wrong way. Run `npm run gates` to see the current state.
+- **A decision log, an inventions log and a deviations log** under `docs/design/notion-restyle/`, plus the recorded starting measurements for every counter. Anything the restyle does differently from the captured brand gets a row with what the brand says, what shipped, why, and what it costs.
+
+### Fixed
+
+- **Nothing user-facing.** One correction worth recording: a scan for em dashes reported the codebase was clean. It was not, and the scan was wrong. There are 147 of them, two in text the app actually shows you. They are now counted, frozen so the number cannot grow, and queued for the copy pass.
+
 ## [1.3.0-alpha.10] - 2026-08-06
 
 This prerelease changes when Select mode pauses output, and lets the Copy view read the whole conversation instead of only what fit on the screen.

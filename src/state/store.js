@@ -23,7 +23,7 @@ const BACKUP_FILE = path.join(STATE_DIR, 'workspaces.backup.json');
 // Backup retention. Three tiers protect against different failure modes:
 //   1. Rolling ring: the N most-recent backups. Tuned big enough that a crash
 //      loop on startup can't evict every historical snapshot (10 was too small
-//      on 2026-05-11 — a 10-restart loop ate the entire backup history).
+//      on 2026-05-11, a 10-restart loop ate the entire backup history).
 //   2. Daily tier: one backup per calendar day for the last N days.
 //   3. Weekly tier: one backup per ISO week for the last N weeks.
 // A backup is kept if it qualifies for ANY tier. The tiers compose, so worst
@@ -312,7 +312,7 @@ class Store extends EventEmitter {
   /**
    * Common abort path for the shape-drift detector. Logs loudly, emits an
    * error event, and dumps the rejected state to disk for forensic review
-   * (NOT a backup — it sits next to STATE_FILE with a .rejected suffix so
+   * (NOT a backup, it sits next to STATE_FILE with a .rejected suffix so
    * it's obvious it isn't authoritative).
    */
   _handleShapeDriftAbort(drift) {
@@ -591,17 +591,17 @@ class Store extends EventEmitter {
         if (/^(pty-test|codex-test|test-|recovery-test)/i.test(w.name || '')) testShaped++;
       }
       if (testShaped > 50) {
-        return 'file contains ' + testShaped + ' test-shaped workspace names — likely polluted.';
+        return 'file contains ' + testShaped + ' test-shaped workspace names, likely polluted.';
       }
       if (this._lastKnownWorkspaceCount > 0
           && count > 50
           && count > this._lastKnownWorkspaceCount * 10) {
         return 'file has ' + count + ' workspaces, prior baseline ' + this._lastKnownWorkspaceCount
-          + ' (>10x ratio) — likely polluted.';
+          + ' (>10x ratio), likely polluted.';
       }
       return null;
     } catch (_) {
-      // Couldn't parse — leave it to the existing _isFileValid path.
+      // Couldn't parse, leave it to the existing _isFileValid path.
       return null;
     }
   }

@@ -90,7 +90,7 @@ function freshRegistry() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1 (ABST-01): contract surface — required exports are functions
+// Test 1 (ABST-01): contract surface, required exports are functions
 // ---------------------------------------------------------------------------
 check('ABST-01: registry exports register/getProvider/listEnabled/listAll/setEnabled/isEnabled/initRegistry as functions', () => {
   const reg = freshRegistry();

@@ -1,0 +1,1397 @@
+/* ==========================================================================
+   Notion design system / component layer
+   --------------------------------------------------------------------------
+   Every class the React components in components/ paint with. Imported by
+   styles.css, so linking that one file is still all a project needs.
+
+   THREE RULES THIS FILE FOLLOWS, AND WHY.
+
+   1. No literal value anywhere. Every color, radius, duration, shadow, size
+      and font stack is a var(). If a component needed a number that did not
+      exist, the number went into tokens/spacing.css section 10 first, marked
+      inferred where it was reconstructed rather than measured.
+
+   2. Modifiers of a class that styles.css already owns are written as a
+      DOUBLE class selector, for example .nt-btn.nt-btn-lg rather than
+      .nt-btn-lg. This file is imported at the top of styles.css, so its rules
+      come first in the cascade; a single class modifier would tie with the
+      base rule and lose. The double class wins on specificity regardless of
+      order, which makes the layer safe to reorder or to load on its own.
+
+   3. Hover states are gated behind .nt-enable-hover, exactly as Notion gates
+      its own with .notion-enable-hover, which it strips during scroll and
+      drag so hover never flashes under a moving pointer. Put the class on a
+      shell container and remove it while scrolling.
+
+   THE SURFACE SPLIT. Classes prefixed nt-app- or living under the editor
+   sections below expect data-surface="app" somewhere above them, because that
+   is what flips --font-body to the OS stack. Marketing classes expect the
+   default surface. Mixing them is the main way a Notion rebuild goes wrong.
+   ========================================================================== */
+
+/* ==========================================================================
+   1. TYPE UTILITIES, marketing scale
+   One class per step, carrying size, line-height and the REGULAR tracking.
+   Add .nt-strong for the bold tracking where the step publishes one, because
+   a bold 54px needs far less negative tracking than a regular 54px.
+   ========================================================================== */
+
+.nt-t50 { font-size: var(--text-50-size); line-height: var(--text-50-line); letter-spacing: var(--text-50-track); }
+.nt-t100 { font-size: var(--text-100-size); line-height: var(--text-100-line); letter-spacing: var(--text-100-track); }
+.nt-t150 { font-size: var(--text-150-size); line-height: var(--text-150-line); letter-spacing: var(--text-150-track); }
+.nt-t200 { font-size: var(--text-200-size); line-height: var(--text-200-line); letter-spacing: var(--text-200-track); }
+.nt-t300 { font-size: var(--text-300-size); line-height: var(--text-300-line); letter-spacing: var(--text-300-track); }
+.nt-t350 { font-size: var(--text-350-size); line-height: var(--text-350-line); letter-spacing: var(--text-350-track); }
+.nt-t400 { font-size: var(--text-400-size); line-height: var(--text-400-line); letter-spacing: var(--text-400-track); }
+.nt-t500 { font-size: var(--text-500-size); line-height: var(--text-500-line); letter-spacing: var(--text-500-track); }
+.nt-t600 { font-size: var(--text-600-size); line-height: var(--text-600-line); letter-spacing: var(--text-600-track); }
+.nt-t700 { font-size: var(--text-700-size); line-height: var(--text-700-line); letter-spacing: var(--text-700-track); }
+.nt-t800 { font-size: var(--text-800-size); line-height: var(--text-800-line); letter-spacing: var(--text-800-track); }
+.nt-t900 { font-size: var(--text-900-size); line-height: var(--text-900-line); letter-spacing: var(--text-900-track); }
+
+.nt-t600.nt-strong { letter-spacing: var(--text-600-track-bold); }
+.nt-t700.nt-strong { letter-spacing: var(--text-700-track-bold); }
+.nt-t800.nt-strong { letter-spacing: var(--text-800-track-bold); }
+.nt-t900.nt-strong { letter-spacing: var(--text-900-track-bold); }
+.nt-strong { font-weight: var(--weight-bold); }
+
+/* The homepage hero, and the only fluid type on the site. Weight 600 is not a
+   mistake: the hero h1 is the single weight 600 string in the whole system. */
+.nt-hero {
+  font-size: var(--hero-size);
+  line-height: var(--hero-line);
+  letter-spacing: var(--hero-track);
+  font-weight: var(--hero-weight);
+}
+
+/* Ink roles, so a kit never reaches for a raw color. */
+.nt-ink { color: var(--mkt-text-strong); }
+.nt-ink-soft { color: var(--mkt-text-normal); }
+.nt-ink-muted { color: var(--mkt-text-muted); }
+
+/* ==========================================================================
+   2. APP SHELL
+   A sidebar beside a scrolling document, and nothing else. The shell paints
+   the canvas; the document paints nothing at all.
+   ========================================================================== */
+
+.nt-app-shell {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+  font-family: var(--font-app-ui);
+  font-size: var(--app-body-size);
+  line-height: var(--app-body-line);
+}
+
+.nt-app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The scroll container. The 270px dead zone at the bottom of a Notion page is
+   a real block: clicking it appends a paragraph. It is also most of why a
+   Notion page feels unhurried. */
+.nt-app-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.nt-page-tail { height: var(--app-page-bottom-dead-zone); }
+
+/* Topbar contents. The bar itself is .nt-topbar in styles.css. */
+.nt-topbar-spacer { flex: 1; min-width: 0; }
+.nt-topbar-actions { display: flex; align-items: center; gap: var(--space-4); flex: none; }
+
+/* Breadcrumb. 14px, secondary ink, warm wash on hover, slash separators one
+   step fainter than the labels. */
+.nt-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  font-size: var(--app-chip-size);
+  color: var(--app-text-secondary);
+}
+.nt-breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  max-width: 180px;
+  padding: 1px var(--space-4);
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  border-radius: var(--radius-4);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-breadcrumb-item:hover { background: var(--app-wash-hover); }
+.nt-breadcrumb-item.is-current { color: var(--app-text-primary); }
+.nt-breadcrumb-sep {
+  color: var(--app-text-tertiary);
+  padding: 0 1px;
+  flex: none;
+  user-select: none;
+}
+.nt-breadcrumb-icon { font-size: var(--text-100-size); line-height: 1; flex: none; }
+
+/* ==========================================================================
+   3. SIDEBAR ITEM INTERNALS
+   The row itself is .nt-sidebar-item in styles.css. What makes it read as
+   Notion is what happens on hover: the page icon is REPLACED IN PLACE by a
+   disclosure caret, and two controls fade in on the right. Nothing moves.
+   ========================================================================== */
+
+.nt-sidebar-item { min-height: var(--app-sidebar-item-height); }
+
+.nt-sidebar-item-icon {
+  position: relative;
+  width: var(--app-row-icon-size);
+  height: var(--app-row-icon-size);
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-size: var(--text-100-size);
+  line-height: 1;
+}
+.nt-sidebar-item-icon > * { grid-area: 1 / 1; }
+.nt-sidebar-caret {
+  opacity: 0;
+  color: var(--app-icon-tertiary);
+  display: grid;
+  place-items: center;
+  transition: var(--motion-hover-opacity), transform var(--duration-200) var(--ease-out);
+}
+.nt-sidebar-glyph { transition: var(--motion-hover-opacity); }
+.nt-enable-hover .nt-sidebar-item:hover .nt-sidebar-caret { opacity: 1; }
+.nt-enable-hover .nt-sidebar-item:hover .nt-sidebar-glyph { opacity: 0; }
+.nt-sidebar-item.is-open .nt-sidebar-caret { transform: rotate(90deg); }
+
+.nt-sidebar-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-sidebar-item-controls {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+  opacity: 0;
+  transition: var(--motion-hover-opacity);
+}
+.nt-enable-hover .nt-sidebar-item:hover .nt-sidebar-item-controls { opacity: 1; }
+.nt-sidebar-children { padding-left: var(--space-12); }
+
+/* The workspace switcher at the top of the sidebar. */
+.nt-workspace {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-8);
+  margin: 0 var(--space-4);
+  border-radius: var(--radius-4);
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-workspace:hover { background: var(--app-wash-hover); }
+.nt-workspace-mark {
+  width: var(--app-avatar-md);
+  height: var(--app-avatar-md);
+  border-radius: var(--radius-page-icon);
+  background: var(--app-bg-accent-primary);
+  color: var(--app-text-inverse-primary);
+  display: grid;
+  place-items: center;
+  font-size: var(--text-100-size);
+  font-weight: var(--weight-semibold);
+  flex: none;
+}
+.nt-workspace-name {
+  font-size: var(--app-chip-size);
+  font-weight: var(--weight-medium);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   4. BLOCK AFFORDANCES
+   The plus button and the six dot drag handle. Two rules matter more than
+   their pixel size, and both are captured behavior:
+
+     - they live in the LEFT GUTTER, outside the text column, so revealing
+       them never shifts a glyph;
+     - they are invisible until the block row is hovered.
+
+   An always visible handle, or a handle that pushes the text, is the single
+   most common tell of a Notion imitation.
+   ========================================================================== */
+
+/* .nt-block-wrap goes ON the block itself, not around it. Wrapping a block in
+   an extra element would break the .nt-block-list + .nt-block-list adjacency
+   that produces the 1px list collapse, which is one of the most recognizable
+   behaviors in the product. */
+.nt-block-wrap { position: relative; }
+
+.nt-affordances {
+  position: absolute;
+  right: 100%;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--app-handle-gap);
+  padding-right: var(--app-handle-offset);
+  padding-top: var(--app-block-pad);
+  opacity: 0;
+  pointer-events: none;
+  transition: var(--motion-hover-opacity);
+}
+.nt-enable-hover .nt-block-wrap:hover > .nt-affordances {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Keep the handles up while their own menu is open. */
+.nt-block-wrap.is-active > .nt-affordances { opacity: 1; pointer-events: auto; }
+
+.nt-affordance {
+  width: var(--app-handle-width);
+  height: var(--app-handle-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--app-icon-tertiary);
+  border-radius: var(--radius-4);
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-affordance-drag { cursor: grab; }
+.nt-affordance-drag:active { cursor: grabbing; }
+.nt-enable-hover .nt-affordance:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-icon-secondary);
+}
+.nt-affordance:active { background: var(--app-wash-press); }
+
+/* The handle cluster hangs off the top of the block, so its own top padding
+   has to match the block's, or a heading's handles float above its cap line. */
+.nt-block-h1 > .nt-affordances { padding-top: var(--app-h1-pad-top); }
+.nt-block-h2 > .nt-affordances { padding-top: var(--app-h2-pad-top); }
+.nt-block-h3 > .nt-affordances { padding-top: var(--app-h3-pad-top); }
+.nt-block-h4 > .nt-affordances { padding-top: var(--app-h4-pad-top); }
+.nt-block-media > .nt-affordances { padding-top: var(--app-block-pad-media); }
+.nt-block-h1:first-child > .nt-affordances,
+.nt-block-h2:first-child > .nt-affordances,
+.nt-block-h3:first-child > .nt-affordances,
+.nt-block-h4:first-child > .nt-affordances { padding-top: var(--app-block-pad); }
+
+/* Selection. A block is selected by a translucent blue wash on the text row,
+   never by a border and never by a lift. */
+.nt-block-row.is-selected { background: var(--app-selection-token); }
+
+/* ==========================================================================
+   5. BLOCK TYPES
+   Each variant overrides the wrapper padding that styles.css sets on
+   .nt-block > .nt-block-inner, so each selector carries the extra class to
+   win on specificity rather than on source order.
+   ========================================================================== */
+
+/* Markers. Every block level control rides inside the measured 24px marker
+   box and is centered against the 24px line box, so the control never changes
+   the line height and never shifts the text. */
+.nt-list-marker { display: flex; align-items: flex-start; justify-content: flex-start; }
+
+/* THE LIST COLLAPSE, COMPLETED.
+   styles.css collapses the bottom padding of any list item that is not the
+   last child of its container. That is right for a run that ends the page and
+   wrong for a run followed by anything else: a list followed by a paragraph
+   keeps a 1px bottom and the paragraph crowds it. Measured on a real page, a
+   run collapses only BETWEEN its own members, so the correct condition is "is
+   followed by another list item" rather than "is not last".
+
+   :has() carries the specificity of its argument, so this selector resolves to
+   three classes and wins over the base rule no matter which file loads first.
+   Verified by rendering: without it, the last item of a run measured 30px
+   where it should measure 35px. */
+.nt-block.nt-block-list:not(:has(+ .nt-block-list)) > .nt-block-inner {
+  padding-bottom: var(--app-block-pad);
+}
+
+/* A divider block is exactly 13px tall: 6px of air, a hairline, 6px of air.
+   The rule carries its own margins and the block has no padding of its own, so
+   without a flow root those margins collapse straight out of the wrapper and
+   the block measures 1px. Verified by rendering. */
+.nt-block-wrap[data-block-type="divider"] { display: flow-root; }
+
+/* Toggle. The caret sits inside the 24px marker box and rotates 90 degrees;
+   the children indent by the same 24px. */
+.nt-toggle-btn {
+  margin-top: calc((var(--app-body-line) - var(--app-toggle-caret-size)) / 2);
+  width: var(--app-toggle-caret-size);
+  height: var(--app-toggle-caret-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--app-icon-primary);
+  border-radius: var(--radius-4);
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-toggle-btn:hover { background: var(--app-wash-hover); }
+.nt-toggle-btn svg { transition: transform var(--duration-200) var(--ease-out); }
+.nt-toggle.is-open .nt-toggle-btn svg { transform: rotate(90deg); }
+.nt-toggle-children {
+  padding-left: var(--app-indent-step);
+  display: none;
+}
+.nt-toggle.is-open .nt-toggle-children { display: block; }
+
+/* To-do. The checked state greys the text and strikes it through, which is
+   real Notion behavior and is the reason the checkbox is not just a control. */
+.nt-todo-box {
+  margin-top: calc((var(--app-body-line) - var(--app-todo-box-size)) / 2);
+  width: var(--app-todo-box-size);
+  height: var(--app-todo-box-size);
+  flex: none;
+  border-radius: var(--radius-4);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--app-border-accent-primary);
+  background: transparent;
+  color: transparent;
+  border: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background var(--duration-100) ease-in;
+}
+.nt-todo.is-checked .nt-todo-box {
+  background: var(--app-ui-blue);
+  box-shadow: none;
+  color: var(--mkt-white);
+}
+.nt-todo.is-checked .nt-todo-text {
+  color: var(--app-text-tertiary);
+  text-decoration: line-through;
+}
+
+/* Quote. Left rule plus left padding, no fill and no radius. */
+.nt-quote {
+  border-left: var(--app-quote-rule-width) solid var(--app-text-primary);
+  padding-left: var(--app-quote-pad);
+  font-size: var(--app-body-size);
+  line-height: var(--app-body-line);
+  color: var(--app-text-primary);
+}
+.nt-quote-cite {
+  display: block;
+  margin-top: var(--space-4);
+  color: var(--app-text-secondary);
+  font-size: var(--app-chip-size);
+}
+
+/* Callout hues. The block palette, applied to the fill only; the ink stays
+   the page ink, because Notion does not recolor callout text with the fill. */
+.nt-callout.nt-callout-gray { background: var(--app-bg-gray); }
+.nt-callout.nt-callout-brown { background: var(--app-bg-brown); }
+.nt-callout.nt-callout-orange { background: var(--app-bg-orange); }
+.nt-callout.nt-callout-yellow { background: var(--app-bg-yellow); }
+.nt-callout.nt-callout-green { background: var(--app-bg-green); }
+.nt-callout.nt-callout-blue { background: var(--app-bg-blue); }
+.nt-callout.nt-callout-purple { background: var(--app-bg-purple); }
+.nt-callout.nt-callout-pink { background: var(--app-bg-pink); }
+.nt-callout.nt-callout-red { background: var(--app-bg-red); }
+.nt-callout.nt-callout-teal { background: var(--app-bg-teal); }
+
+/* Code block. The fill and the sticky header fill are measured; the chrome
+   around them is a reconstruction. Mono here is the EDITOR stack, which is
+   not the same as the marketing mono. */
+.nt-code {
+  background: var(--app-code-block-bg);
+  border-radius: var(--radius-4);
+  overflow: hidden;
+  font-family: var(--font-code);
+  color: var(--app-text-primary);
+}
+.nt-code-head {
+  height: var(--app-code-header-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: 0 var(--space-8) 0 var(--space-16);
+  background: var(--app-code-sticky-header-bg);
+  color: var(--app-text-secondary);
+  font-family: var(--font-app-ui);
+  font-size: var(--app-chip-size);
+}
+.nt-code-lang { flex: 1; min-width: 0; }
+.nt-code pre {
+  margin: 0;
+  padding: var(--app-code-pad);
+  overflow: auto;
+  font-size: var(--app-chip-size);
+  line-height: var(--app-property-line);
+  tab-size: 2;
+}
+.nt-code code { font-family: inherit; font-size: inherit; padding: 0; border: 0; background: none; }
+
+/* Syntax roles. Marketing publishes a real syntax palette, so it is the
+   default. On the editor surface the same roles resolve to the named block
+   palette, which keeps a code block inside the editor's own color world. */
+.nt-tok-keyword { color: var(--mkt-code-keyword); }
+.nt-tok-string { color: var(--mkt-code-string); }
+.nt-tok-number { color: var(--mkt-code-number); }
+.nt-tok-function { color: var(--mkt-code-function); }
+.nt-tok-operator { color: var(--mkt-code-operator); }
+.nt-tok-comment { color: var(--mkt-code-comment); }
+
+[data-surface="app"] .nt-tok-keyword { color: var(--app-text-blue); }
+[data-surface="app"] .nt-tok-string { color: var(--app-text-green); }
+[data-surface="app"] .nt-tok-number { color: var(--app-text-orange); }
+[data-surface="app"] .nt-tok-function { color: var(--app-text-purple); }
+[data-surface="app"] .nt-tok-operator { color: var(--app-text-red); }
+[data-surface="app"] .nt-tok-comment { color: var(--app-text-tertiary); }
+
+/* ==========================================================================
+   6. OVERLAYS
+   Everything that floats. All depth in the editor lives here; the canvas
+   itself has none.
+   ========================================================================== */
+
+.nt-menu {
+  width: var(--app-menu-width);
+  max-width: 100%;
+  padding: var(--app-menu-pad);
+  background: var(--app-bg-elevated);
+  border-radius: var(--radius-app-button);
+  box-shadow: var(--app-shadow-menu);
+  color: var(--app-text-primary);
+  font-family: var(--font-app-ui);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  animation: var(--motion-menu-open);
+  overflow: hidden auto;
+}
+.nt-menu-auto { width: auto; min-width: 0; }
+.nt-menu-section {
+  padding: var(--space-8) var(--space-12) var(--space-4);
+  color: var(--app-text-tertiary);
+  font-size: var(--text-50-size);
+  font-weight: var(--weight-medium);
+}
+.nt-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  min-height: var(--app-menu-row-height);
+  padding: var(--app-menu-row-pad);
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--app-text-primary);
+  text-align: left;
+  border-radius: var(--radius-4);
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-menu-item:hover,
+.nt-menu-item.is-active { background: var(--app-wash-hover); }
+.nt-menu-item[disabled] { color: var(--app-text-disabled); cursor: default; }
+.nt-menu-item-icon {
+  width: var(--app-row-icon-size);
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--app-icon-secondary);
+}
+.nt-menu-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-menu-item-hint { flex: none; color: var(--app-text-tertiary); font-size: var(--text-50-size); }
+.nt-menu-item.is-danger { color: var(--app-text-red); }
+.nt-menu-sep { height: var(--border-hairline); background: var(--app-divider); margin: var(--space-4) 0; }
+
+/* Slash menu. Same container, plus a filter line and a preview column, and a
+   scroll cap so a long list does not become a full height wall. */
+.nt-slash { max-height: 330px; }
+.nt-slash-filter {
+  padding: var(--space-8) var(--space-12) var(--space-4);
+  color: var(--app-text-tertiary);
+  font-size: var(--text-50-size);
+}
+.nt-slash-filter b { color: var(--app-text-primary); font-weight: var(--weight-medium); }
+.nt-slash-icon {
+  width: var(--app-avatar-sm);
+  height: var(--app-avatar-sm);
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-4);
+  color: var(--app-icon-secondary);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--app-border-primary);
+  font-size: var(--text-50-size);
+}
+
+/* Inline selection toolbar. One row, text buttons first, then the format
+   toggles, separated by full height hairlines. */
+.nt-toolbar {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--app-toolbar-height);
+  padding: 0;
+  background: var(--app-bg-elevated);
+  border-radius: var(--radius-app-button);
+  box-shadow: var(--app-shadow-menu);
+  font-family: var(--font-app-ui);
+  animation: var(--motion-menu-open);
+  overflow: hidden;
+}
+.nt-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  /* Never let a toolbar button shrink. In a container narrower than the bar,
+     flex shrink squeezes the labels until they wrap and the text is then
+     clipped by the bar's own overflow. Found by rendering. */
+  flex: none;
+  padding: 0 var(--space-8);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--app-chip-size);
+  color: var(--app-text-primary);
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-toolbar-btn:hover { background: var(--app-wash-hover); }
+.nt-toolbar-btn.is-active { color: var(--app-ui-blue); }
+.nt-toolbar-btn-ai { color: var(--app-ui-blue); }
+.nt-toolbar-sep { width: var(--border-hairline); background: var(--app-divider); flex: none; }
+.nt-toolbar-bold { font-weight: var(--weight-bold); }
+.nt-toolbar-italic { font-style: italic; }
+.nt-toolbar-strike { text-decoration: line-through; }
+.nt-toolbar-underline { text-decoration: underline; }
+.nt-toolbar-code { font-family: var(--font-code); }
+
+/* Modal. A scrim at 30 percent black, a 10px card, and the deepest shadow in
+   the system. Notion's dialogs are small and text first. */
+.nt-scrim {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-24);
+  background: var(--app-image-overlay);
+  animation: var(--motion-menu-open);
+  z-index: 200;
+}
+.nt-modal {
+  width: var(--app-modal-width);
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--app-bg-elevated);
+  color: var(--app-text-primary);
+  font-family: var(--font-app-ui);
+  border-radius: var(--radius-callout);
+  box-shadow: var(--app-shadow-scrim);
+  overflow: hidden;
+}
+.nt-modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-16) var(--space-16) var(--space-8);
+}
+.nt-modal-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--app-body-size);
+  line-height: var(--app-body-line);
+  font-weight: var(--weight-semibold);
+}
+.nt-modal-body {
+  padding: 0 var(--space-16) var(--space-16);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-property-line);
+  color: var(--app-text-secondary);
+  overflow: auto;
+}
+.nt-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  padding: var(--space-12) var(--space-16);
+  border-top: var(--border-hairline) solid var(--app-border-secondary);
+}
+
+/* Toast. Notion's snackbar: dark, bottom left, one line, one action. */
+.nt-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  width: var(--app-toast-width);
+  max-width: 100%;
+  padding: var(--space-8) var(--space-12);
+  background: var(--app-bg-accent-primary);
+  color: var(--app-text-inverse-primary);
+  border-radius: var(--radius-app-button);
+  box-shadow: var(--app-shadow-lg);
+  font-family: var(--font-app-ui);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-property-line);
+  animation: var(--duration-200) var(--ease-out) nt-snackbar-slide-in-bottom;
+}
+.nt-toast-label { flex: 1; min-width: 0; }
+.nt-toast-action {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: var(--weight-medium);
+  color: var(--app-text-inverse-primary);
+  cursor: pointer;
+  opacity: 0.75;
+  transition: var(--motion-hover-opacity);
+}
+.nt-toast-action:hover { opacity: 1; }
+
+/* Tooltip. Dark chip, 12px, with an optional shortcut line under the label. */
+.nt-tooltip {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 240px;
+  padding: var(--space-4) var(--space-8);
+  background: var(--app-bg-accent-primary);
+  color: var(--app-text-inverse-primary);
+  border-radius: var(--radius-4);
+  box-shadow: var(--app-shadow-md);
+  font-family: var(--font-app-ui);
+  font-size: var(--text-50-size);
+  line-height: var(--text-50-line);
+  animation: var(--motion-menu-open);
+}
+.nt-tooltip-hint { color: var(--app-text-inverse-secondary); }
+
+/* Side peek. Same 720px column as the full page, plus the measured 76px peek
+   margin each side, so a peeked page and an opened page are the same document
+   at the same measure. */
+.nt-peek {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--app-peek-width);
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--app-bg-primary);
+  box-shadow: var(--app-shadow-scrim);
+  overflow: hidden;
+  z-index: 150;
+}
+
+/* ==========================================================================
+   7. CONTROLS
+   ========================================================================== */
+
+/* Icon button. Editor default; the marketing variant is a 30px ghost. */
+.nt-icon-btn {
+  width: var(--app-icon-button-size);
+  height: var(--app-icon-button-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--app-icon-secondary);
+  border-radius: var(--radius-4);
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-icon-btn:hover { background: var(--app-wash-hover); color: var(--app-icon-primary); }
+.nt-icon-btn:active { background: var(--app-wash-press); }
+.nt-icon-btn[disabled] { color: var(--app-icon-disabled); cursor: default; background: none; }
+.nt-icon-btn.nt-icon-btn-sm { width: var(--app-icon-button-size-sm); height: var(--app-icon-button-size-sm); }
+.nt-icon-btn.nt-icon-btn-lg { width: var(--app-icon-button-size-lg); height: var(--app-icon-button-size-lg); }
+.nt-icon-btn.nt-icon-btn-mkt {
+  width: var(--mkt-btn-height-ghost);
+  height: var(--mkt-btn-height-ghost);
+  color: var(--mkt-text-normal);
+  border-radius: var(--radius-icon-button);
+}
+.nt-enable-hover .nt-icon-btn.nt-icon-btn-mkt:hover { background: var(--mkt-btn-ghost-bg-hover); color: var(--mkt-text-strong); }
+
+/* A button rendered as an anchor must not keep the browser's default
+   underline. Found by screenshotting the marketing kit: every href button in
+   the nav and the hero was underlined, which no button in the real product is. */
+a.nt-btn { text-decoration: none; }
+
+/* The icon slot inside a button. It exists so an icon never inherits the
+   label's line box and never shifts the text baseline by a fraction. Note that
+   the real primary marketing CTA carries no icon at all; this is for the ghost
+   and app variants. */
+.nt-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  line-height: 0;
+}
+
+/* Button sizes and the app secondary, extending the four marketing weights
+   that styles.css already defines. */
+.nt-btn.nt-btn-lg {
+  font-size: var(--text-300-size);
+  line-height: var(--text-300-line);
+  padding: var(--space-12) var(--space-24);
+  border-radius: var(--radius-button-lg);
+}
+.nt-btn.nt-btn-block { display: flex; width: 100%; }
+.nt-btn.nt-btn-app-secondary {
+  background: var(--app-bg-elevated);
+  color: var(--app-text-primary);
+  box-shadow: var(--app-shadow-button);
+  border-color: transparent;
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  height: var(--app-icon-button-size);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-app-button);
+}
+.nt-enable-hover .nt-btn.nt-btn-app-secondary:hover { background: var(--app-bg-interactive); }
+.nt-enable-hover .nt-btn.nt-btn-app:hover { background: var(--app-ui-blue); }
+.nt-btn[disabled] { opacity: 0.5; cursor: default; }
+
+/* Inputs. The editor focuses with a layered box-shadow because an outline
+   would be clipped by editor overflow; marketing focuses with a real outline.
+   Both rings are captured values, not approximations. */
+.nt-input {
+  width: 100%;
+  height: var(--app-input-height);
+  padding: var(--app-input-pad);
+  font-family: var(--font-app-ui);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  color: var(--app-text-primary);
+  background: var(--app-bg-elevated);
+  border: 0;
+  border-radius: var(--radius-4);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--app-border-primary);
+  transition: var(--motion-focus);
+}
+.nt-input::placeholder { color: var(--app-text-tertiary); }
+.nt-input:focus { outline: none; box-shadow: var(--app-input-focus-ring); }
+.nt-input.is-invalid { box-shadow: var(--app-input-error-ring); }
+.nt-input.nt-input-lg { height: var(--app-input-height-lg); }
+.nt-input.nt-input-area { height: auto; min-height: calc(var(--app-input-height-lg) * 2); padding: var(--space-8); resize: vertical; }
+
+/* Marketing field. 15px text, 8px radius, hairline border, outline focus. */
+.nt-input.nt-input-mkt {
+  height: var(--mkt-input-height);
+  padding: var(--mkt-input-pad);
+  font-family: var(--font-mkt-sans);
+  font-size: var(--text-150-size);
+  line-height: var(--text-150-line);
+  color: var(--mkt-text-strong);
+  background: var(--mkt-bg);
+  border: var(--border-hairline) solid var(--mkt-border);
+  border-radius: var(--radius-button);
+  box-shadow: none;
+}
+.nt-input.nt-input-mkt::placeholder { color: var(--mkt-text-muted); }
+.nt-input.nt-input-mkt:focus {
+  box-shadow: none;
+  outline: var(--focus-ring-width) var(--focus-ring-style) var(--mkt-focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+/* The help center search field, the one pill shaped input in the system. */
+.nt-input.nt-input-search {
+  height: var(--mkt-search-height);
+  padding: var(--mkt-search-pad);
+  font-size: var(--text-200-size);
+  line-height: var(--text-200-line);
+  border-radius: var(--radius-round);
+}
+
+.nt-field { display: flex; flex-direction: column; gap: var(--space-4); }
+.nt-field-label {
+  font-size: var(--app-chip-size);
+  line-height: var(--app-chip-line);
+  color: var(--app-text-secondary);
+}
+.nt-field-help { font-size: var(--text-50-size); line-height: var(--text-50-line); color: var(--app-text-tertiary); }
+.nt-field-error { font-size: var(--text-50-size); line-height: var(--text-50-line); color: var(--app-text-red); }
+
+/* Select. A button wearing input clothes, with the chevron outside the flow
+   so it can never be overlapped by a long value. */
+.nt-select-wrap { position: relative; display: inline-flex; width: 100%; }
+.nt-select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: var(--space-24);
+  text-align: left;
+  cursor: pointer;
+}
+.nt-select-chevron {
+  position: absolute;
+  right: var(--space-8);
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--app-icon-secondary);
+  display: grid;
+  place-items: center;
+}
+.nt-select-wrap.nt-select-mkt .nt-select-chevron { color: var(--mkt-text-muted); }
+
+/* Checkbox. Editor blue by default; the marketing control is INK, not blue,
+   which is easy to get wrong because the buttons on the same page are blue. */
+.nt-checkbox {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  cursor: pointer;
+  font-size: var(--app-chip-size);
+  line-height: var(--app-property-line);
+  color: var(--app-text-primary);
+}
+.nt-checkbox input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  margin: 0;
+  pointer-events: none;
+}
+.nt-checkbox-box {
+  width: var(--app-todo-box-size);
+  height: var(--app-todo-box-size);
+  flex: none;
+  margin-top: calc((var(--app-property-line) - var(--app-todo-box-size)) / 2);
+  border-radius: var(--radius-4);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--app-border-accent-primary);
+  color: transparent;
+  display: grid;
+  place-items: center;
+  transition: background var(--duration-100) ease-in;
+}
+.nt-checkbox input:checked + .nt-checkbox-box {
+  background: var(--app-ui-blue);
+  box-shadow: none;
+  color: var(--mkt-white);
+}
+.nt-checkbox input:focus-visible + .nt-checkbox-box { box-shadow: var(--app-focus-shadow); }
+.nt-checkbox input[disabled] + .nt-checkbox-box { box-shadow: inset 0 0 0 var(--border-hairline) var(--app-border-primary); }
+.nt-checkbox.nt-checkbox-mkt { font-family: var(--font-mkt-sans); color: var(--mkt-text-normal); }
+.nt-checkbox.nt-checkbox-mkt .nt-checkbox-box {
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--mkt-control-bg);
+  background: var(--mkt-control-bg);
+}
+.nt-checkbox.nt-checkbox-mkt input:checked + .nt-checkbox-box {
+  background: var(--mkt-control-bg-checked);
+  box-shadow: none;
+  color: var(--mkt-white);
+}
+
+/* Switch. Blue when on, warm neutral when off, and the knob is the only thing
+   that moves. */
+.nt-switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: var(--app-switch-width);
+  height: var(--app-switch-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-round);
+  background: var(--app-bg-tertiary);
+  cursor: pointer;
+  transition: background var(--duration-200) var(--ease-out);
+}
+.nt-switch-knob {
+  position: absolute;
+  top: calc((var(--app-switch-height) - var(--app-switch-knob)) / 2);
+  left: calc((var(--app-switch-height) - var(--app-switch-knob)) / 2);
+  width: var(--app-switch-knob);
+  height: var(--app-switch-knob);
+  border-radius: var(--radius-avatar);
+  background: var(--mkt-white);
+  box-shadow: var(--app-shadow-avatar);
+  transition: transform var(--duration-200) var(--ease-out);
+}
+.nt-switch.is-on { background: var(--app-ui-blue); }
+.nt-switch.is-on .nt-switch-knob {
+  transform: translateX(calc(var(--app-switch-width) - var(--app-switch-height)));
+}
+.nt-switch[disabled] { opacity: 0.5; cursor: default; }
+.nt-switch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  font-size: var(--app-chip-size);
+  line-height: var(--app-property-line);
+}
+.nt-switch-row .nt-switch-label { flex: 1; min-width: 0; }
+
+/* Avatar. Round, initials on a chip fill, and stacked with a ring in the page
+   ground so the overlap reads as depth without a shadow. */
+.nt-avatar {
+  width: var(--app-avatar-md);
+  height: var(--app-avatar-md);
+  flex: none;
+  border-radius: var(--radius-avatar);
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-chip-gray-fill);
+  color: var(--app-chip-gray-ink);
+  font-family: var(--font-app-ui);
+  font-size: var(--text-50-size);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  user-select: none;
+}
+.nt-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nt-avatar.nt-avatar-sm { width: var(--app-avatar-sm); height: var(--app-avatar-sm); font-size: var(--text-50-size); }
+.nt-avatar.nt-avatar-lg { width: var(--app-avatar-lg); height: var(--app-avatar-lg); font-size: var(--app-chip-size); }
+.nt-avatar.nt-avatar-pile { width: var(--mkt-avatar-pile-size); height: var(--mkt-avatar-pile-size); font-size: var(--text-350-size); }
+.nt-avatar-group { display: inline-flex; align-items: center; }
+.nt-avatar-group .nt-avatar + .nt-avatar { margin-left: calc(var(--space-8) * -1); box-shadow: 0 0 0 var(--border-2) var(--app-bg-primary); }
+
+/* Avatar hue variants, from the chip palette rather than the block palette,
+   because a chip fill is translucent and composites on any ground. */
+.nt-avatar.nt-avatar-blue { background: var(--app-chip-blue-fill); color: var(--app-chip-blue-ink); }
+.nt-avatar.nt-avatar-green { background: var(--app-chip-green-fill); color: var(--app-chip-green-ink); }
+.nt-avatar.nt-avatar-orange { background: var(--app-chip-orange-fill); color: var(--app-chip-orange-ink); }
+.nt-avatar.nt-avatar-purple { background: var(--app-chip-purple-fill); color: var(--app-chip-purple-ink); }
+.nt-avatar.nt-avatar-pink { background: var(--app-chip-pink-fill); color: var(--app-chip-pink-ink); }
+.nt-avatar.nt-avatar-red { background: var(--app-chip-red-fill); color: var(--app-chip-red-ink); }
+.nt-avatar.nt-avatar-teal { background: var(--app-chip-teal-fill); color: var(--app-chip-teal-ink); }
+.nt-avatar.nt-avatar-yellow { background: var(--app-chip-yellow-fill); color: var(--app-chip-yellow-ink); }
+.nt-avatar.nt-avatar-brown { background: var(--app-chip-brown-fill); color: var(--app-chip-brown-ink); }
+
+/* View tabs. 40px, plain text, and the active one is marked by ink plus a 2px
+   underline. No pill, no fill, no border box. */
+.nt-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  height: var(--app-view-tab-height);
+  font-family: var(--font-app-ui);
+}
+.nt-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-8);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--app-chip-size);
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-4) var(--radius-4) 0 0;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-tab:hover { background: var(--app-wash-hover); }
+.nt-tab.is-active {
+  color: var(--app-text-primary);
+  box-shadow: inset 0 calc(var(--border-2) * -1) 0 0 var(--app-text-primary);
+}
+.nt-tab-count { color: var(--app-text-tertiary); }
+
+/* ==========================================================================
+   8. DATABASE VIEWS
+   The brand's densest real surface. Rows are separated by a 7 percent warm
+   hairline rather than by a fill, the hover wash is the faintest in the whole
+   system at 2.4 percent, and type drops to 14px before any padding is cut.
+   ========================================================================== */
+
+.nt-collection { font-family: var(--font-app-ui); color: var(--app-text-primary); }
+.nt-collection-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: var(--app-view-tab-height);
+}
+.nt-collection-title {
+  font-size: var(--app-body-size);
+  font-weight: var(--weight-semibold);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--app-property-size);
+  line-height: var(--app-property-line);
+  color: var(--app-text-primary);
+}
+.nt-table th,
+.nt-table td {
+  text-align: left;
+  padding: 0 var(--space-8);
+  border-bottom: var(--border-hairline) solid var(--app-table-cell-border);
+  border-right: var(--border-hairline) solid var(--app-table-cell-border);
+  vertical-align: middle;
+}
+.nt-table th:last-child,
+.nt-table td:last-child { border-right: 0; }
+.nt-table thead th {
+  height: var(--app-table-header-height);
+  color: var(--app-text-secondary);
+  font-weight: var(--weight-regular);
+  white-space: nowrap;
+}
+.nt-table-header-cell { display: flex; align-items: center; gap: var(--space-4); }
+.nt-table tbody td { height: var(--app-table-row-height); }
+.nt-enable-hover .nt-table tbody tr:hover td { background: var(--app-wash-table-row-hover); }
+.nt-table-title-cell { display: flex; align-items: center; gap: var(--space-8); min-width: 0; }
+.nt-table-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-row-icon {
+  width: var(--app-row-icon-size);
+  height: var(--app-row-icon-size);
+  flex: none;
+  border-radius: var(--radius-row-icon);
+  display: grid;
+  place-items: center;
+  font-size: var(--app-chip-size);
+  line-height: 1;
+}
+/* The open button appears only on row hover, and it sits at the end of the
+   title cell so it never changes the column widths. */
+.nt-table-open {
+  margin-left: auto;
+  flex: none;
+  opacity: 0;
+  padding: 0 var(--space-4);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-50-size);
+  color: var(--app-text-secondary);
+  border-radius: var(--radius-4);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--app-border-primary);
+  cursor: pointer;
+  transition: var(--motion-hover-opacity);
+}
+.nt-enable-hover .nt-table tbody tr:hover .nt-table-open { opacity: 1; }
+.nt-table-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  height: var(--app-table-row-height);
+  padding: 0 var(--space-8);
+  color: var(--app-text-tertiary);
+  font-size: var(--app-property-size);
+  border-bottom: var(--border-hairline) solid var(--app-table-cell-border);
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-table-footer:hover { background: var(--app-wash-table-row-hover); }
+
+/* Board. Columns are a flex row that scrolls horizontally; cards are the
+   elevated 10px collection card. */
+.nt-board { display: flex; align-items: flex-start; gap: var(--app-board-gap); overflow-x: auto; }
+.nt-board-col { width: var(--app-board-column-width); flex: none; display: flex; flex-direction: column; gap: var(--app-board-card-gap); }
+.nt-board-col-head { display: flex; align-items: center; gap: var(--space-8); min-height: var(--app-table-header-height); }
+.nt-board-count { color: var(--app-text-tertiary); font-size: var(--app-property-size); }
+.nt-board-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-12);
+  background: var(--app-bg-elevated);
+  border-radius: var(--radius-collection-card);
+  box-shadow: var(--app-shadow-outlined-sm);
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-board-card:hover { background: var(--app-bg-secondary); }
+.nt-board-card-title { font-size: var(--app-property-size); line-height: var(--app-property-line); }
+.nt-board-card-props { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.nt-board-add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-8);
+  color: var(--app-text-tertiary);
+  font-size: var(--app-property-size);
+  border-radius: var(--radius-4);
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-board-add:hover { background: var(--app-wash-hover); }
+
+/* Gallery. A 296px card, a preview area, then the title and its properties. */
+.nt-gallery { display: flex; flex-wrap: wrap; gap: var(--app-gallery-gap); }
+.nt-gallery-card {
+  width: var(--app-gallery-card-width);
+  max-width: 100%;
+  background: var(--app-bg-elevated);
+  border-radius: var(--radius-collection-card);
+  box-shadow: var(--app-shadow-outlined-sm);
+  overflow: hidden;
+  cursor: pointer;
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-gallery-card:hover { background: var(--app-bg-secondary); }
+.nt-gallery-preview {
+  height: var(--app-gallery-preview-height);
+  display: grid;
+  place-items: center;
+  background: var(--app-bg-tertiary);
+  font-size: var(--text-800-size);
+  line-height: 1;
+}
+.nt-gallery-body { padding: var(--space-8) var(--space-12) var(--space-12); display: flex; flex-direction: column; gap: var(--space-4); }
+.nt-gallery-title { font-size: var(--app-property-size); line-height: var(--app-property-line); font-weight: var(--weight-medium); }
+.nt-gallery-props { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+
+/* Property chips by hue. Fill is translucent so a chip composites correctly
+   on white, on a hovered row and inside a colored callout with no extra rule.
+   Chips are 4px and cards are 10px, and matching them is a rejection test. */
+.nt-chip.nt-chip-gray { background: var(--app-chip-gray-fill); color: var(--app-chip-gray-ink); }
+.nt-chip.nt-chip-brown { background: var(--app-chip-brown-fill); color: var(--app-chip-brown-ink); }
+.nt-chip.nt-chip-orange { background: var(--app-chip-orange-fill); color: var(--app-chip-orange-ink); }
+.nt-chip.nt-chip-yellow { background: var(--app-chip-yellow-fill); color: var(--app-chip-yellow-ink); }
+.nt-chip.nt-chip-green { background: var(--app-chip-green-fill); color: var(--app-chip-green-ink); }
+.nt-chip.nt-chip-blue { background: var(--app-chip-blue-fill); color: var(--app-chip-blue-ink); }
+.nt-chip.nt-chip-purple { background: var(--app-chip-purple-fill); color: var(--app-chip-purple-ink); }
+.nt-chip.nt-chip-pink { background: var(--app-chip-pink-fill); color: var(--app-chip-pink-ink); }
+.nt-chip.nt-chip-red { background: var(--app-chip-red-fill); color: var(--app-chip-red-ink); }
+.nt-chip.nt-chip-teal { background: var(--app-chip-teal-fill); color: var(--app-chip-teal-ink); }
+
+/* A property row in a detail panel: a fixed label column, then the value. */
+.nt-property-row {
+  display: grid;
+  grid-template-columns: 148px 1fr;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: var(--app-table-row-height);
+  font-size: var(--app-property-size);
+}
+.nt-property-key {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  color: var(--app-text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-property-value {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-4);
+  min-height: var(--app-icon-button-size);
+  transition: var(--motion-hover-reveal);
+}
+.nt-enable-hover .nt-property-value:hover { background: var(--app-wash-hover); }
+.nt-property-empty { color: var(--app-text-tertiary); }
+
+/* ==========================================================================
+   9. EMPTY STATE, SKELETON, BADGE VARIANTS
+   ========================================================================== */
+
+/* Empty states point forward: what is missing, then the next action. The art
+   slot expects a hand inked line drawing with halftone shading, never a line
+   icon in a rounded square. */
+.nt-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-40) var(--space-24);
+  text-align: center;
+  color: var(--app-text-secondary);
+  font-family: var(--font-app-ui);
+}
+.nt-empty-art { margin-bottom: var(--space-4); line-height: 0; }
+.nt-empty-title {
+  color: var(--app-text-primary);
+  font-size: var(--app-body-size);
+  line-height: var(--app-body-line);
+  font-weight: var(--weight-semibold);
+}
+.nt-empty-body {
+  max-width: 320px;
+  font-size: var(--app-chip-size);
+  line-height: var(--app-property-line);
+}
+.nt-empty-actions { display: flex; align-items: center; gap: var(--space-8); margin-top: var(--space-8); }
+/* Left aligned variant, which is what a database view uses. */
+.nt-empty.nt-empty-inline { align-items: flex-start; text-align: left; padding: var(--space-24) var(--space-8); }
+
+/* Skeleton sizing helpers. The shimmer itself is .nt-skeleton in styles.css. */
+.nt-skeleton-line { height: var(--space-12); }
+.nt-skeleton-title { height: var(--space-20); }
+.nt-skeleton-block { height: var(--space-96); border-radius: var(--radius-callout); }
+.nt-skeleton-stack { display: flex; flex-direction: column; gap: var(--space-8); }
+
+/* Badge flavors. All five are real marketing tokens. */
+.nt-badge.nt-badge-bold { background: var(--mkt-badge-bold-bg); color: var(--mkt-badge-bold-text); }
+.nt-badge.nt-badge-light { background: var(--mkt-badge-light-bg); color: var(--mkt-badge-light-text); }
+.nt-badge.nt-badge-mono { background: var(--mkt-badge-mono-bg); color: var(--mkt-badge-mono-text); }
+.nt-badge.nt-badge-muted { background: var(--mkt-badge-muted-bg); color: var(--mkt-badge-muted-text); }
+.nt-badge.nt-badge-outline {
+  background: var(--mkt-badge-outline-bg);
+  color: var(--mkt-badge-outline-text);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--mkt-border);
+}
+
+/* ==========================================================================
+   10. MARKETING CHROME
+   ========================================================================== */
+
+/* The wordmark. A black rounded square holding the N, then the word at 700
+   with tight tracking. */
+.nt-wordmark { display: inline-flex; align-items: center; gap: var(--space-8); text-decoration: none; color: var(--mkt-text-strong); }
+.nt-wordmark-mark {
+  width: var(--app-avatar-lg);
+  height: var(--app-avatar-lg);
+  flex: none;
+  border-radius: var(--radius-page-icon);
+  background: var(--mkt-black);
+  color: var(--mkt-white);
+  display: grid;
+  place-items: center;
+  font-size: var(--text-350-size);
+  font-weight: var(--weight-bold);
+  line-height: 1;
+}
+.nt-wordmark-text { font-size: var(--text-350-size); font-weight: var(--weight-bold); letter-spacing: var(--text-500-track); }
+
+.nt-nav-links { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.nt-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--mkt-btn-height-ghost);
+  padding: 0 var(--space-8);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-200-size);
+  color: var(--mkt-text-normal);
+  text-decoration: none;
+  border-radius: var(--radius-icon-button);
+  cursor: pointer;
+  transition: background-color var(--duration-150) var(--ease-out);
+}
+.nt-enable-hover .nt-nav-link:hover { background: var(--mkt-btn-ghost-bg-hover); }
+.nt-nav-spacer { flex: 1; min-width: var(--space-16); }
+.nt-nav-actions { display: flex; align-items: center; gap: var(--space-8); flex: none; }
+
+/* The numeric proof band that sits directly under the hero. */
+.nt-stat { display: flex; flex-direction: column; gap: var(--space-4); }
+.nt-stat-value { font-size: var(--text-400-size); line-height: var(--text-400-line); letter-spacing: var(--text-400-track); font-weight: var(--weight-bold); color: var(--mkt-text-strong); }
+.nt-stat-label { font-size: var(--text-200-size); line-height: var(--text-200-line); color: var(--mkt-text-muted); }
+
+/* Wordmark row. Customer logos are monochrome and normalized to 24px. */
+.nt-logo-word {
+  height: var(--mkt-logo-height);
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-350-size);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--text-400-track);
+  color: var(--mkt-black);
+}
+
+/* Pricing. Two cards holding two plans each, a 22px price, and the word
+   Recommended in plain text. A four column grid with a ribbon is a rejection
+   test, so the plan grid tops out at two columns on purpose. */
+.nt-plan-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-32); }
+.nt-plan-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-32); }
+.nt-plan { display: flex; flex-direction: column; gap: var(--space-12); min-width: 0; }
+.nt-plan-name { font-size: var(--text-400-size); line-height: var(--text-400-line); letter-spacing: var(--text-400-track); font-weight: var(--weight-bold); color: var(--mkt-text-strong); }
+.nt-plan-flag { font-size: var(--text-100-size); color: var(--mkt-text-muted); }
+.nt-plan-price { display: flex; align-items: baseline; gap: var(--space-4); }
+.nt-plan-price-value { font-size: var(--text-400-size); line-height: var(--text-400-line); letter-spacing: var(--text-400-track); font-weight: var(--weight-bold); color: var(--mkt-text-strong); }
+.nt-plan-price-unit { font-size: var(--text-100-size); color: var(--mkt-text-muted); }
+.nt-plan-desc { font-size: var(--text-150-size); line-height: var(--text-150-line); color: var(--mkt-card-body-text); }
+.nt-plan-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-8); }
+.nt-plan-list li { display: flex; gap: var(--space-8); font-size: var(--text-150-size); line-height: var(--text-150-line); color: var(--mkt-text-normal); }
+.nt-plan-list li svg { flex: none; margin-top: 3px; color: var(--mkt-text-muted); }
+.nt-plan-stack-head { font-size: var(--text-150-size); font-weight: var(--weight-medium); color: var(--mkt-text-strong); }
+
+/* Footer. Seven link columns on a white ground. */
+.nt-footer { padding: var(--mkt-section-padding) var(--mkt-section-padding-horizontal); background: var(--mkt-bg); }
+.nt-footer-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-24); max-width: var(--mkt-container); margin: 0 auto; }
+.nt-footer-col { display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; }
+.nt-footer-head { font-size: var(--text-100-size); font-weight: var(--weight-medium); color: var(--mkt-text-strong); margin-bottom: var(--space-4); }
+.nt-footer-link { font-size: var(--text-100-size); line-height: var(--text-100-line); color: var(--mkt-link-secondary); text-decoration: none; }
+.nt-footer-link:hover { color: var(--mkt-text-strong); text-decoration: underline; }
+.nt-footer-base {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  flex-wrap: wrap;
+  max-width: var(--mkt-container);
+  margin: var(--space-48) auto 0;
+  padding-top: var(--space-24);
+  border-top: var(--border-hairline) solid var(--mkt-border);
+  font-size: var(--text-100-size);
+  color: var(--mkt-text-muted);
+}
+
+/* A media frame. Product shots are flat and chromeless; the only container
+   Notion ever gives one is a 12px radius and the soft screenshot shadow. */
+.nt-media { border-radius: var(--radius-screenshot); box-shadow: var(--shadow-screenshot); overflow: hidden; background: var(--mkt-bg); }
+.nt-media-bare { border-radius: 0; box-shadow: none; }
+
+/* Marketing card internals, so a feature card does not need ad hoc styles. */
+.nt-card-title { font-size: var(--text-400-size); line-height: var(--text-400-line); letter-spacing: var(--text-400-track); font-weight: var(--weight-bold); color: var(--mkt-card-title-text); }
+.nt-card-body { font-size: var(--text-150-size); line-height: var(--text-150-line); color: var(--mkt-card-body-text); }
+.nt-card-stack { display: flex; flex-direction: column; gap: var(--space-12); }
+
+/* An inline link with the arrow affix Notion uses on every "explore" style
+   link. The arrow is part of the label, not an icon button. */
+.nt-arrow-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--mkt-link);
+  font-size: var(--text-200-size);
+  text-decoration: none;
+}
+.nt-arrow-link:hover { color: var(--mkt-link-hover); text-decoration: underline; }

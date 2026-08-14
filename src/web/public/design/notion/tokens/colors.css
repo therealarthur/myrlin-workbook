@@ -1,0 +1,1038 @@
+/* ==========================================================================
+   Notion / color tokens
+   --------------------------------------------------------------------------
+   Notion is two design systems wearing one logo, and this file keeps them
+   apart on purpose.
+
+   A. MARKETING   notion.com          prefix --mkt-*
+      A Next.js token layer. Nine step ramps per hue, an alpha ramp that does
+      most of the real work, and a semantic layer in .base_theme.
+      Source: raw/css/2280490c7edd474a.css :root and .base_theme__K5IIh,
+      mirrored in raw/notes/root_tokens.txt and raw/notes/base_theme_vars.txt.
+
+   B. APP UI      the notion.so editor  prefix --app-*
+      A completely different token layer with three letter abbreviations.
+      bac = background, tex = text, bor = border, ico = icon, sha = shadow.
+      Pri/Sec/Ter = primary/secondary/tertiary, Ele = elevated,
+      Int = interactive, Acc = accent, Inv = inverse, Dis = disabled,
+      Tra = translucent.
+      Source: .notion-light-theme and .notion-dark-theme in
+      raw/css/app-59116-929b222db82f090f.css, mirrored in
+      raw/notes/light_all.txt and raw/notes/dark_all2.txt.
+
+   C. SEMANTIC CONTRACT             no prefix
+      --surface, --ink, --brand and friends. This is what components consume.
+      It points at A by default and at B when <html data-surface="app">.
+
+   THEME MODEL.
+   The editor ships a real dark theme, so light sits on bare :root and dark is
+   applied by the system preference or by an explicit data-theme="dark", plus
+   the subtree classes .app-theme-dark and .app-theme-light which mirror
+   Notion's own .notion-dark-theme and .notion-light-theme.
+
+   Marketing dark is different and the difference matters. There is no
+   prefers-color-scheme media query in any of the 20 captured marketing
+   stylesheets. Marketing dark is a SECTION class, .dark_palette_theme, shipped
+   here as .mkt-theme-dark. The values below are real captured values; wiring
+   them to the system preference is this bundle's extension, and it is called
+   out again in readme.md under Gaps and inferences.
+
+   THE PALETTE CONFLICT, READ THIS BEFORE FILING A BUG.
+   Notion refreshed the named block palette. The current text colors are
+   --c-<hue>TexSec (blue #387dc9, red #cf5148, gray #7d7a75) and the current
+   backgrounds are --c-<hue>BacSec. Almost every third party article about
+   Notion colors still quotes the OLD values (blue #337ea9 on #e7f3f8). Those
+   survive in the product only as the legacy --cd-pal* set, shipped at the
+   bottom of this file under --app-legacy-*. Current values are primary.
+   Legacy values are for recognition and migration, not for new work.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   A1. Marketing raw ramps. Nine steps, 100 lightest to 900 darkest.
+   The grays are WARM. #f9f9f8 and #a39e98 carry a yellow brown cast. A
+   blue-gray or a slate ramp is the fastest way to stop looking like Notion.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css :root (raw/notes/root_tokens.txt) */
+
+:root {
+  --mkt-gray-100: #f9f9f8;
+  --mkt-gray-200: #f6f5f4;
+  --mkt-gray-300: #dfdcd9;
+  --mkt-gray-400: #a39e98;
+  --mkt-gray-500: #78736f;
+  --mkt-gray-600: #615d59;
+  --mkt-gray-700: #494744;
+  --mkt-gray-800: #31302e;
+  --mkt-gray-900: #191918;
+
+  --mkt-brown-100: #fcf8f5;
+  --mkt-brown-200: #ebd5c5;
+  --mkt-brown-300: #d9b79f;
+  --mkt-brown-400: #b18164;
+  --mkt-brown-500: #9c7054;
+  --mkt-brown-600: #885d3d;
+  --mkt-brown-700: #744d2d;
+  --mkt-brown-800: #654124;
+  --mkt-brown-900: #523410;
+
+  --mkt-orange-100: #fff5ed;
+  --mkt-orange-200: #ffdec4;
+  --mkt-orange-300: #ffad71;
+  --mkt-orange-400: #ff8a33;
+  --mkt-orange-500: #ff6d00;
+  --mkt-orange-600: #dd5b00;
+  --mkt-orange-700: #ab4a00;
+  --mkt-orange-800: #793400;
+  --mkt-orange-900: #532200;
+
+  --mkt-yellow-100: #fff5e0;
+  --mkt-yellow-200: #ffe4af;
+  --mkt-yellow-300: #ffd786;
+  --mkt-yellow-400: #ffc95e;
+  --mkt-yellow-500: #ffb110;
+  --mkt-yellow-600: #e89d01;
+  --mkt-yellow-700: #c78600;
+  --mkt-yellow-800: #a16c00;
+  --mkt-yellow-900: #704b00;
+
+  --mkt-green-100: #f0faf2;
+  --mkt-green-200: #d0f4d8;
+  --mkt-green-300: #abe5b8;
+  --mkt-green-400: #68ce7e;
+  --mkt-green-500: #1aae39;
+  --mkt-green-600: #14832b;
+  --mkt-green-700: #0f6220;
+  --mkt-green-800: #0a4216;
+  --mkt-green-900: #05210b;
+
+  --mkt-teal-100: #f2fafa;
+  --mkt-teal-200: #bde6e4;
+  --mkt-teal-300: #83cbc9;
+  --mkt-teal-400: #2a9d99;
+  --mkt-teal-500: #27918d;
+  --mkt-teal-600: #0a7b77;
+  --mkt-teal-700: #126764;
+  --mkt-teal-800: #0a4d4b;
+  --mkt-teal-900: #042b29;
+
+  --mkt-blue-100: #f2f9ff;
+  --mkt-blue-200: #e6f3fe;
+  --mkt-blue-300: #93cdfe;
+  --mkt-blue-400: #62aef0;
+  --mkt-blue-500: #097fe8;
+  --mkt-blue-600: #0075de;
+  --mkt-blue-700: #005bab;
+  --mkt-blue-800: #00396b;
+  --mkt-blue-900: #002a4f;
+
+  --mkt-purple-100: #f8f5fc;
+  --mkt-purple-200: #eadbfa;
+  --mkt-purple-300: #d6b6f6;
+  --mkt-purple-400: #ad6ded;
+  --mkt-purple-500: #9849e8;
+  --mkt-purple-600: #7237ae;
+  --mkt-purple-700: #562983;
+  --mkt-purple-800: #391c57;
+  --mkt-purple-900: #1c0e2c;
+
+  --mkt-pink-100: #fff5fc;
+  --mkt-pink-200: #ffcdf1;
+  --mkt-pink-300: #ffb5eb;
+  --mkt-pink-400: #ff83dd;
+  --mkt-pink-500: #ff64c8;
+  --mkt-pink-600: #d13f9d;
+  --mkt-pink-700: #9d2472;
+  --mkt-pink-800: #6c1b4f;
+  --mkt-pink-900: #481034;
+
+  --mkt-red-100: #fef3f1;
+  --mkt-red-200: #fdd3cd;
+  --mkt-red-300: #ff8b7c;
+  --mkt-red-400: #f77463;
+  --mkt-red-500: #f64932;
+  --mkt-red-600: #e32d14;
+  --mkt-red-700: #b01601;
+  --mkt-red-800: #6f0d00;
+  --mkt-red-900: #4f0900;
+
+  /* Absolutes */
+  --mkt-white: #ffffff;
+  --mkt-black: #000000;
+  --mkt-transparent: #ffffff00;
+}
+
+/* --------------------------------------------------------------------------
+   A2. Marketing alpha ramps.
+   These carry the marketing site. Body text is not black, it is 95 percent
+   black over white. Borders are not gray, they are 10 percent black. Setting
+   a literal #000000 body color is one of the listed anti-patterns.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css :root (raw/notes/root_tokens.txt) */
+
+:root {
+  --mkt-alpha-black-100: #0000000d;
+  --mkt-alpha-black-200: #0000001a;
+  --mkt-alpha-black-300: #00000033;
+  --mkt-alpha-black-400: #0000004d;
+  --mkt-alpha-black-500: #0000008a;
+  --mkt-alpha-black-600: #00000096;
+  --mkt-alpha-black-700: #000000bf;
+  --mkt-alpha-black-800: #000000e5;
+  --mkt-alpha-black-900: #000000f2;
+
+  --mkt-alpha-white-100: #ffffff0d;
+  --mkt-alpha-white-200: #ffffff1a;
+  --mkt-alpha-white-300: #ffffff33;
+  --mkt-alpha-white-400: #ffffff4d;
+  --mkt-alpha-white-500: #ffffff80;
+  --mkt-alpha-white-600: #ffffffa8;
+  --mkt-alpha-white-700: #ffffffbf;
+  --mkt-alpha-white-800: #ffffffd9;
+  --mkt-alpha-white-900: #fffffff2;
+}
+
+/* --------------------------------------------------------------------------
+   A3. Marketing semantic layer, light.
+   The page ground is PURE WHITE. Measured body and html background is
+   rgb(255,255,255) on all seven captured marketing pages. The warm off-white
+   people remember is an alternating section band, --mkt-band-tint, and three
+   of the five main pages do not use it at all.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css .base_theme__K5IIh (raw/notes/base_theme_vars.txt) */
+
+:root {
+  /* Ground and bands */
+  --mkt-bg: var(--mkt-white);
+  --mkt-bg-hover: var(--mkt-alpha-black-100);
+  --mkt-bg-focus: var(--mkt-alpha-black-100);
+  --mkt-bg-active: var(--mkt-alpha-black-200);
+  --mkt-band-tint: var(--mkt-gray-100);          /* the alternating section band */
+  --mkt-band-tint-strong: var(--mkt-gray-200);   /* one denser block per page, at most */
+  --mkt-surface-neutral: var(--mkt-gray-200);
+  --mkt-surface-neutral-hover: var(--mkt-gray-300);
+
+  /* Ink */
+  --mkt-text-strong: var(--mkt-alpha-black-900);
+  --mkt-text-normal: var(--mkt-alpha-black-800);
+  --mkt-text-muted: var(--mkt-alpha-black-500);
+  --mkt-text-disabled: var(--mkt-alpha-black-400);
+  --mkt-text-error: var(--mkt-red-500);
+  --mkt-text-success: var(--mkt-green-600);
+  --mkt-text-warning: var(--mkt-orange-500);
+
+  /* Hairlines */
+  --mkt-border: var(--mkt-alpha-black-200);
+
+  /* Accent slots. A section palette theme class remaps exactly these four
+     plus the primary button, which is how one class recolors a whole band. */
+  --mkt-accent-muted: var(--mkt-blue-100);
+  --mkt-accent-soft: var(--mkt-blue-200);
+  --mkt-accent: var(--mkt-blue-400);
+  --mkt-accent-strong: var(--mkt-blue-500);
+
+  /* Links */
+  --mkt-link: var(--mkt-blue-600);
+  --mkt-link-hover: var(--mkt-blue-800);
+  --mkt-link-secondary: var(--mkt-alpha-black-600);
+
+  /* Focus. Marketing focuses with an OUTLINE, not a box-shadow. */
+  --mkt-focus-ring: var(--mkt-blue-600);
+
+  /* Buttons. Exactly two visual weights exist above the fold. */
+  --mkt-btn-primary-bg: var(--mkt-blue-600);
+  --mkt-btn-primary-bg-hover: var(--mkt-blue-700);
+  --mkt-btn-primary-bg-active: var(--mkt-blue-700);
+  --mkt-btn-primary-text: var(--mkt-white);
+  --mkt-btn-primary-border: var(--mkt-transparent);
+
+  --mkt-btn-secondary-bg: var(--mkt-blue-200);
+  --mkt-btn-secondary-bg-hover: var(--mkt-blue-100);
+  --mkt-btn-secondary-text: var(--mkt-blue-700);
+  --mkt-btn-secondary-border: var(--mkt-transparent);
+
+  --mkt-btn-tertiary-bg: var(--mkt-white);
+  --mkt-btn-tertiary-bg-hover: var(--mkt-gray-200);
+  --mkt-btn-tertiary-text: var(--mkt-alpha-black-900);
+  --mkt-btn-tertiary-border: var(--mkt-alpha-black-200);
+
+  --mkt-btn-ghost-bg: var(--mkt-transparent);
+  --mkt-btn-ghost-bg-hover: var(--mkt-gray-200);
+  --mkt-btn-ghost-text: var(--mkt-alpha-black-900);
+  --mkt-btn-ghost-indicator: var(--mkt-gray-500);
+
+  /* Cards. Title ink is flat black here and only here. */
+  --mkt-card-bg: var(--mkt-white);
+  --mkt-card-border: var(--mkt-alpha-black-200);
+  --mkt-card-title-text: var(--mkt-black);
+  --mkt-card-body-text: var(--mkt-alpha-black-600);
+  --mkt-card-accent: var(--mkt-blue-500);
+
+  /* Badges, five flavors */
+  --mkt-badge-bold-bg: var(--mkt-blue-500);
+  --mkt-badge-bold-text: var(--mkt-white);
+  --mkt-badge-light-bg: var(--mkt-blue-100);
+  --mkt-badge-light-text: var(--mkt-blue-500);
+  --mkt-badge-mono-bg: var(--mkt-gray-200);
+  --mkt-badge-mono-text: var(--mkt-black);
+  --mkt-badge-muted-bg: var(--mkt-gray-200);
+  --mkt-badge-muted-text: var(--mkt-alpha-black-500);
+  --mkt-badge-outline-bg: var(--mkt-transparent);
+  --mkt-badge-outline-text: var(--mkt-alpha-black-800);
+
+  /* Interaction controls, checkbox and radio */
+  --mkt-control-bg: var(--mkt-alpha-black-200);
+  --mkt-control-bg-checked: var(--mkt-alpha-black-900);
+  --mkt-control-border-checked: var(--mkt-alpha-black-900);
+
+  /* Marketing code sample syntax colors */
+  --mkt-code-keyword: var(--mkt-blue-500);
+  --mkt-code-string: var(--mkt-green-600);
+  --mkt-code-number: var(--mkt-red-500);
+  --mkt-code-function: var(--mkt-red-500);
+  --mkt-code-operator: var(--mkt-orange-500);
+  --mkt-code-comment: var(--mkt-alpha-black-500);
+}
+
+/* --------------------------------------------------------------------------
+   A4. Marketing dark, .dark_palette_theme.
+   Applied per SECTION on the real site, never to the whole page. Put this
+   class on a band, not on <html>, if you want to match Notion exactly.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/*.css .dark_palette_theme */
+
+.mkt-theme-dark {
+  --mkt-bg: var(--mkt-gray-900);
+  --mkt-bg-hover: var(--mkt-alpha-white-100);
+  --mkt-bg-focus: var(--mkt-alpha-white-100);
+  --mkt-bg-active: var(--mkt-alpha-white-200);
+  --mkt-band-tint: var(--mkt-gray-800);
+  --mkt-band-tint-strong: var(--mkt-gray-800);
+  --mkt-surface-neutral: var(--mkt-gray-800);
+  --mkt-surface-neutral-hover: var(--mkt-gray-700);
+  --mkt-text-strong: var(--mkt-white);
+  --mkt-text-normal: var(--mkt-gray-200);
+  --mkt-text-muted: var(--mkt-alpha-white-700);
+  --mkt-border: var(--mkt-alpha-white-300);
+  --mkt-card-bg: var(--mkt-gray-800);
+  --mkt-card-border: var(--mkt-alpha-white-200);
+  --mkt-card-title-text: var(--mkt-white);
+  --mkt-card-body-text: var(--mkt-alpha-white-700);
+  --mkt-btn-primary-bg: var(--mkt-blue-500);
+  --mkt-btn-primary-bg-hover: var(--mkt-blue-600);
+  --mkt-link: var(--mkt-blue-300);
+  --mkt-accent-strong: var(--mkt-blue-400);
+}
+
+/* --------------------------------------------------------------------------
+   A5. Section palette themes.
+   Notion's most distinctive marketing mechanic. One class on a section remaps
+   the accent quad and the primary button to another hue. All of these ship in
+   the real built CSS. Use them on a <section>, not globally.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/*.css .<hue>_palette_theme */
+
+.mkt-theme-gray {
+  --mkt-accent-muted: var(--mkt-gray-100);
+  --mkt-accent-soft: var(--mkt-gray-200);
+  --mkt-accent: var(--mkt-gray-400);
+  --mkt-accent-strong: var(--mkt-gray-500);
+  --mkt-btn-primary-bg: var(--mkt-gray-600);
+  --mkt-btn-primary-bg-hover: var(--mkt-gray-700);
+}
+.mkt-theme-brown {
+  --mkt-accent-muted: var(--mkt-brown-100);
+  --mkt-accent-soft: var(--mkt-brown-200);
+  --mkt-accent: var(--mkt-brown-400);
+  --mkt-accent-strong: var(--mkt-brown-500);
+  --mkt-btn-primary-bg: var(--mkt-brown-600);
+  --mkt-btn-primary-bg-hover: var(--mkt-brown-700);
+}
+.mkt-theme-orange {
+  --mkt-accent-muted: var(--mkt-orange-100);
+  --mkt-accent-soft: var(--mkt-orange-200);
+  --mkt-accent: var(--mkt-orange-400);
+  --mkt-accent-strong: var(--mkt-orange-500);
+  --mkt-btn-primary-bg: var(--mkt-orange-600);
+  --mkt-btn-primary-bg-hover: var(--mkt-orange-700);
+}
+.mkt-theme-yellow {
+  --mkt-accent-muted: var(--mkt-yellow-100);
+  --mkt-accent-soft: var(--mkt-yellow-200);
+  --mkt-accent: var(--mkt-yellow-400);
+  --mkt-accent-strong: var(--mkt-yellow-500);
+  --mkt-btn-primary-bg: var(--mkt-yellow-600);
+  --mkt-btn-primary-bg-hover: var(--mkt-yellow-700);
+}
+.mkt-theme-green {
+  --mkt-accent-muted: var(--mkt-green-100);
+  --mkt-accent-soft: var(--mkt-green-200);
+  --mkt-accent: var(--mkt-green-400);
+  --mkt-accent-strong: var(--mkt-green-500);
+  --mkt-btn-primary-bg: var(--mkt-green-600);
+  --mkt-btn-primary-bg-hover: var(--mkt-green-700);
+}
+.mkt-theme-teal {
+  --mkt-accent-muted: var(--mkt-teal-100);
+  --mkt-accent-soft: var(--mkt-teal-200);
+  --mkt-accent: var(--mkt-teal-400);
+  --mkt-accent-strong: var(--mkt-teal-500);
+  --mkt-btn-primary-bg: var(--mkt-teal-600);
+  --mkt-btn-primary-bg-hover: var(--mkt-teal-700);
+}
+.mkt-theme-purple {
+  --mkt-accent-muted: var(--mkt-purple-100);
+  --mkt-accent-soft: var(--mkt-purple-200);
+  --mkt-accent: var(--mkt-purple-400);
+  --mkt-accent-strong: var(--mkt-purple-500);
+  --mkt-btn-primary-bg: var(--mkt-purple-600);
+  --mkt-btn-primary-bg-hover: var(--mkt-purple-700);
+}
+.mkt-theme-pink {
+  --mkt-accent-muted: var(--mkt-pink-100);
+  --mkt-accent-soft: var(--mkt-pink-200);
+  --mkt-accent: var(--mkt-pink-400);
+  --mkt-accent-strong: var(--mkt-pink-500);
+  --mkt-btn-primary-bg: var(--mkt-pink-600);
+  --mkt-btn-primary-bg-hover: var(--mkt-pink-700);
+}
+.mkt-theme-red {
+  --mkt-accent-muted: var(--mkt-red-100);
+  --mkt-accent-soft: var(--mkt-red-200);
+  --mkt-accent: var(--mkt-red-400);
+  --mkt-accent-strong: var(--mkt-red-500);
+  --mkt-btn-primary-bg: var(--mkt-red-600);
+  --mkt-btn-primary-bg-hover: var(--mkt-red-700);
+}
+/* Black theme: the button goes to ink rather than to a hue. */
+.mkt-theme-black {
+  --mkt-accent-muted: var(--mkt-gray-100);
+  --mkt-accent-soft: var(--mkt-gray-200);
+  --mkt-accent: var(--mkt-gray-800);
+  --mkt-accent-strong: var(--mkt-black);
+  --mkt-btn-primary-bg: var(--mkt-black);
+  --mkt-btn-primary-bg-hover: var(--mkt-gray-800);
+}
+
+/* --------------------------------------------------------------------------
+   B1. App UI neutral core, light.
+   Note --app-bg-secondary #f9f8f7. That is the sidebar, and it is WARMER than
+   the canvas white, not darker and not a different hue. A gray or dark
+   sidebar is on the rejection list.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-59116-929b222db82f090f.css .notion-light-theme (raw/notes/light_all.txt) */
+
+:root {
+  --app-bg-primary: #ffffff;
+  --app-bg-secondary: #f9f8f7;
+  --app-bg-tertiary: #f0efed;
+  --app-bg-elevated: #ffffff;
+  --app-bg-interactive: #f4f3f3;
+  --app-bg-accent-primary: #2c2c2b;
+  --app-bg-accent-secondary: #a19e99;
+
+  --app-text-primary: #2c2c2b;
+  --app-text-secondary: #7d7a75;
+  --app-text-tertiary: #a19e99;
+  --app-text-accent-primary: #5f5e59;
+  --app-text-disabled: #bcbab6;
+  --app-text-inverse-primary: #f0efed;
+  --app-text-inverse-secondary: #ada9a3;
+
+  --app-border-primary: #e6e5e3;
+  --app-border-secondary: #f0efed;
+  --app-border-strong: #d4d3cf;
+  --app-border-accent-primary: #8e8b86;
+
+  --app-icon-primary: #383836;
+  --app-icon-secondary: #8e8b86;
+  --app-icon-tertiary: #ada9a3;
+  --app-icon-disabled: #bcbab6;
+
+  /* The Notion UI blue. Selection, focus, links, active states. Not the same
+     blue as the marketing button, and not the same blue as the block palette. */
+  --app-ui-blue: #2383e2;
+  --app-ui-blue-pressed: #105fad;
+
+  /* Sidebar specifics */
+  --app-sidebar-section-label: #91918e;
+  --app-sidebar-item-selected: rgba(0, 0, 0, 0.03);
+  --app-sidebar-section-band: rgba(0, 0, 0, 0.024);
+
+  /* Interaction washes. Warm translucent BLACK, based on the legacy Notion ink
+     #37352f. Never a neutral gray and never a blue-gray. */
+  --app-wash-hover: rgba(55, 53, 47, 0.04);
+  --app-wash-press: rgba(55, 53, 47, 0.1);
+  --app-wash-button-hover: rgba(55, 53, 47, 0.06);
+  --app-wash-button-press: rgba(55, 53, 47, 0.16);
+  --app-wash-table-row-hover: rgba(55, 53, 47, 0.024);
+  --app-title-placeholder: rgba(55, 53, 47, 0.15);
+  --app-link-underline: rgba(55, 53, 47, 0.25);
+  --app-link-underline-opaque: rgba(55, 53, 47, 0.4);
+
+  /* Structure */
+  --app-divider: rgba(28, 19, 1, 0.11);
+  --app-table-cell-border: rgba(42, 28, 0, 0.07);
+  --app-selection-token: rgba(35, 131, 226, 0.14);
+  --app-mention-hover: rgba(148, 148, 148, 0.15);
+  --app-code-block-bg: #f5f2f0;
+  --app-code-sticky-header-bg: #f7f6f3;
+  --app-image-overlay: rgba(0, 0, 0, 0.3);
+  --app-glass-page: rgba(255, 255, 255, 0.8);
+}
+
+/* --------------------------------------------------------------------------
+   B2. App UI named block palette: TEXT.
+   The user facing color menu. These are THEME INVARIANT. There is no dark
+   override for any TexSec token in the captured dark theme, verified by
+   grepping raw/notes/dark_all2.txt. Blue text in a dark Notion page is the
+   same #387dc9 it is in a light one. Only the ground and the neutral inks
+   flip. Recoloring these in dark mode is on the rejection list.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-59116-929b222db82f090f.css --c-<hue>TexSec */
+
+:root {
+  --app-text-gray: #7d7a75;
+  --app-text-brown: #9f765a;
+  --app-text-orange: #d27b2d;
+  --app-text-yellow: #cb9434;
+  --app-text-green: #50946e;
+  --app-text-blue: #387dc9;
+  --app-text-purple: #9a6bb4;
+  --app-text-pink: #c14c8a;
+  --app-text-red: #cf5148;
+  --app-text-teal: #2c8b9e;
+}
+
+/* --------------------------------------------------------------------------
+   B3. App UI named block palette: BACKGROUNDS.
+   Applied to a text block, a callout, or a table cell. Light values verified
+   live against rendered public pages: green callout measured rgb(232,241,236),
+   pink rgb(250,233,241), red rgb(252,233,231), yellow rgb(249,243,220),
+   blue rgb(229,242,252), default rgb(249,248,247).
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-59116-929b222db82f090f.css --c-<hue>BacSec */
+
+:root {
+  --app-bg-default-block: #f9f8f7;
+  --app-bg-gray: #f0efed;
+  --app-bg-brown: #f5ede9;
+  --app-bg-orange: #fbebde;
+  --app-bg-yellow: #f9f3dc;
+  --app-bg-green: #e8f1ec;
+  --app-bg-blue: #e5f2fc;
+  --app-bg-purple: #f3ebf9;
+  --app-bg-pink: #fae9f1;
+  --app-bg-red: #fce9e7;
+  --app-bg-teal: #e0f3f7;
+}
+
+/* --------------------------------------------------------------------------
+   B4. App UI colored PAGE grounds. A whole page tinted a hue. Much fainter
+   than the block backgrounds above, because they cover the entire canvas.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-59116-929b222db82f090f.css --c-<hue>BacPri */
+
+:root {
+  --app-page-gray: #f9f8f7;
+  --app-page-brown: #faf8f6;
+  --app-page-orange: #fcf7f4;
+  --app-page-yellow: #fcfaef;
+  --app-page-green: #f6f9f7;
+  --app-page-blue: #f3f9fd;
+  --app-page-purple: #faf7fc;
+  --app-page-pink: #fcf7f9;
+  --app-page-red: #fdf6f6;
+  --app-page-teal: #f3fafb;
+}
+
+/* --------------------------------------------------------------------------
+   B5. Property chips. A SECOND, DENSER color system.
+   Select, multi-select and status chips do not use the block palette. The fill
+   is a translucent hue wash (--ca-<hue>BacTerTra) and the ink is a deep tinted
+   hue (--c-<hue>TexPri). Because the fill is translucent, a chip picks up the
+   surface behind it, which is why chips look right on white, on a gray row,
+   and inside a colored callout without any extra rules.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-59116-929b222db82f090f.css --ca-<hue>BacTerTra and --c-<hue>TexPri */
+
+:root {
+  --app-chip-gray-fill: rgba(28, 19, 1, 0.11);
+  --app-chip-brown-fill: rgba(127, 51, 0, 0.157);
+  --app-chip-orange-fill: rgba(196, 88, 0, 0.204);
+  --app-chip-yellow-fill: rgba(209, 156, 0, 0.282);
+  --app-chip-green-fill: rgba(0, 96, 38, 0.157);
+  --app-chip-blue-fill: rgba(0, 118, 217, 0.204);
+  --app-chip-purple-fill: rgba(92, 0, 163, 0.14);
+  --app-chip-pink-fill: rgba(183, 0, 78, 0.153);
+  --app-chip-red-fill: rgba(206, 24, 0, 0.165);
+  --app-chip-teal-fill: rgba(0, 149, 183, 0.208);
+
+  --app-chip-gray-ink: #494846;
+  --app-chip-brown-ink: #584437;
+  --app-chip-orange-ink: #6a4222;
+  --app-chip-yellow-ink: #655121;
+  --app-chip-green-ink: #2a533c;
+  --app-chip-blue-ink: #264a72;
+  --app-chip-purple-ink: #553b69;
+  --app-chip-pink-ink: #68354e;
+  --app-chip-red-ink: #6d3531;
+  --app-chip-teal-ink: #18505b;
+}
+
+/* --------------------------------------------------------------------------
+   B6. App UI accent tints. Used for counts, small badges and icon marks.
+   Brighter than the chip ink, calmer than the block text.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-59116-929b222db82f090f.css --c-<hue>TexAccPri */
+
+:root {
+  --app-accent-gray: #8e8b86;
+  --app-accent-brown: #b68965;
+  --app-accent-orange: #d5803b;
+  --app-accent-yellow: #d8a32f;
+  --app-accent-green: #46a171;
+  --app-accent-blue: #2783de;
+  --app-accent-purple: #b577d6;
+  --app-accent-pink: #db6999;
+  --app-accent-red: #e56458;
+  --app-accent-teal: #37a4b4;
+}
+
+/* --------------------------------------------------------------------------
+   B7. LEGACY block palette, --cd-pal*.
+   Still shipped by Notion, still quoted by nearly every third party article
+   about Notion colors, and NO LONGER the palette the product paints with.
+   Present here so a migration can recognize an old value and map it forward.
+   Do not build new work on this set.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-59116-929b222db82f090f.css --cd-pal* (raw/notes/pal_vars.txt) */
+
+:root {
+  --app-legacy-brown-text: #9f6b53;
+  --app-legacy-brown-bg: #f4eeee;
+  --app-legacy-orange-text: #d9730d;
+  --app-legacy-orange-bg: #fbecdd;
+  --app-legacy-yellow-text: #cb912f;
+  --app-legacy-yellow-bg: #fbf3db;
+  --app-legacy-green-text: #448361;
+  --app-legacy-green-bg: #edf3ec;
+  --app-legacy-blue-text: #337ea9;
+  --app-legacy-blue-bg: #e7f3f8;
+  --app-legacy-purple-text: #9065b0;
+  --app-legacy-purple-bg: #f8f3fc;
+  --app-legacy-pink-text: #c14c8a;
+  --app-legacy-pink-bg: #fcf1f6;
+  --app-legacy-red-text: #cd3c3a;
+  --app-legacy-red-bg: #fdebec;
+  /* The famous "Notion gray background". It is an alpha, and over white it
+     composites to #f1f0ee, which is the #f1f1ef everyone writes down. */
+  --app-legacy-gray-bg: rgba(84, 72, 49, 0.08);
+}
+
+/* --------------------------------------------------------------------------
+   B8. App UI dark theme.
+   Two identical blocks so the system preference and an explicit toggle both
+   work, plus .app-theme-dark for a subtree, mirroring Notion's own
+   .notion-dark-theme. If you edit one, edit all three.
+
+   Two things to notice. The named text colors are ABSENT here, because they do
+   not change. The interaction washes flip from warm translucent black to plain
+   translucent white, which is the one place the warm ink rule does not hold.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-59116-929b222db82f090f.css .notion-dark-theme (raw/notes/dark_all2.txt) */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --app-bg-primary: #191919;
+    --app-bg-secondary: #202020;
+    --app-bg-tertiary: #383836;
+    --app-bg-elevated: #202020;
+    --app-bg-interactive: #262626;
+    --app-bg-accent-primary: #f0efed; /* inferred: no dark override captured; the light #2c2c2b would be invisible on #191919 */
+    --app-bg-accent-secondary: #7d7a75; /* inferred: mirrors the light token one step toward the ground */
+
+    --app-text-primary: #f0efed;
+    --app-text-secondary: #ada9a3;
+    --app-text-tertiary: #7d7a75;
+    --app-text-accent-primary: #bcbab6;
+    --app-text-disabled: #5f5e59;
+    --app-text-inverse-primary: #191919; /* inferred: no dark override captured */
+    --app-text-inverse-secondary: #5f5e59; /* inferred: no dark override captured */
+
+    --app-border-primary: #383836;
+    --app-border-secondary: #2c2c2b;
+    --app-border-strong: #5f5e59;
+    --app-border-accent-primary: #5f5e59; /* inferred: no dark override captured */
+
+    --app-icon-primary: #e6e5e3;
+    --app-icon-secondary: #ada9a3;
+    --app-icon-tertiary: #7d7a75;
+    --app-icon-disabled: #5f5e59;
+
+    --app-ui-blue-pressed: #4fa7ff;
+
+    --app-sidebar-section-label: #9b9b9b;
+    --app-sidebar-item-selected: rgba(255, 255, 255, 0.055);
+
+    --app-wash-hover: rgba(255, 255, 255, 0.055);
+    --app-wash-press: rgba(255, 255, 255, 0.13);
+    --app-wash-button-hover: rgba(255, 255, 255, 0.055);
+    --app-wash-button-press: rgba(255, 255, 255, 0.03);
+    --app-wash-table-row-hover: rgba(255, 255, 255, 0.055);
+    --app-title-placeholder: #373737;
+    --app-link-underline: #373737;
+    --app-link-underline-opaque: rgba(255, 255, 255, 0.282);
+    --app-glass-page: rgba(25, 25, 25, 0.8);
+
+    --app-bg-default-block: #202020;
+    --app-bg-gray: #383836;
+    --app-bg-brown: #45362d;
+    --app-bg-orange: #53361f;
+    --app-bg-yellow: #504425;
+    --app-bg-green: #263d30;
+    --app-bg-blue: #233850;
+    --app-bg-purple: #3c2d47;
+    --app-bg-pink: #4e2b3c;
+    --app-bg-red: #502c29;
+    --app-bg-teal: #143d45;
+
+    --app-page-gray: #202020;
+    --app-page-brown: #25201d;
+    --app-page-orange: #231e1b;
+    --app-page-yellow: #23221a;
+    --app-page-green: #1b211d;
+    --app-page-blue: #1a2027;
+    --app-page-purple: #221d25;
+    --app-page-pink: #261c20;
+    --app-page-red: #241d1d;
+    --app-page-teal: #172124;
+
+    --app-chip-gray-fill: rgba(255, 252, 235, 0.306);
+    --app-chip-brown-fill: rgba(255, 184, 132, 0.365);
+    --app-chip-orange-fill: rgba(255, 143, 71, 0.482);
+    --app-chip-yellow-fill: rgba(255, 188, 53, 0.46);
+    --app-chip-green-fill: rgba(113, 255, 175, 0.337);
+    --app-chip-blue-fill: rgba(81, 166, 255, 0.494);
+    --app-chip-purple-fill: rgba(208, 147, 255, 0.427);
+    --app-chip-pink-fill: rgba(255, 133, 192, 0.427);
+    --app-chip-red-fill: rgba(255, 116, 105, 0.525);
+    --app-chip-teal-fill: rgba(49, 221, 255, 0.38);
+
+    --app-chip-gray-ink: #f0efed;
+    --app-chip-brown-ink: #f5ede9;
+    --app-chip-orange-ink: #fbebde;
+    --app-chip-yellow-ink: #f9f3dc;
+    --app-chip-green-ink: #e8f1ec;
+    --app-chip-blue-ink: #e5f2fc;
+    --app-chip-purple-ink: #f3ebf9;
+    --app-chip-pink-ink: #fae9f1;
+    --app-chip-red-ink: #fce9e7;
+    --app-chip-teal-ink: #e0f3f7;
+
+    --app-legacy-gray-bg: #1c1c1c;
+  }
+}
+
+:root[data-theme="dark"],
+.app-theme-dark {
+  --app-bg-primary: #191919;
+  --app-bg-secondary: #202020;
+  --app-bg-tertiary: #383836;
+  --app-bg-elevated: #202020;
+  --app-bg-interactive: #262626;
+  --app-bg-accent-primary: #f0efed; /* inferred: no dark override captured */
+  --app-bg-accent-secondary: #7d7a75; /* inferred: no dark override captured */
+
+  --app-text-primary: #f0efed;
+  --app-text-secondary: #ada9a3;
+  --app-text-tertiary: #7d7a75;
+  --app-text-accent-primary: #bcbab6;
+  --app-text-disabled: #5f5e59;
+  --app-text-inverse-primary: #191919; /* inferred: no dark override captured */
+  --app-text-inverse-secondary: #5f5e59; /* inferred: no dark override captured */
+
+  --app-border-primary: #383836;
+  --app-border-secondary: #2c2c2b;
+  --app-border-strong: #5f5e59;
+  --app-border-accent-primary: #5f5e59; /* inferred: no dark override captured */
+
+  --app-icon-primary: #e6e5e3;
+  --app-icon-secondary: #ada9a3;
+  --app-icon-tertiary: #7d7a75;
+  --app-icon-disabled: #5f5e59;
+
+  --app-ui-blue-pressed: #4fa7ff;
+
+  --app-sidebar-section-label: #9b9b9b;
+  --app-sidebar-item-selected: rgba(255, 255, 255, 0.055);
+
+  --app-wash-hover: rgba(255, 255, 255, 0.055);
+  --app-wash-press: rgba(255, 255, 255, 0.13);
+  --app-wash-button-hover: rgba(255, 255, 255, 0.055);
+  --app-wash-button-press: rgba(255, 255, 255, 0.03);
+  --app-wash-table-row-hover: rgba(255, 255, 255, 0.055);
+  --app-title-placeholder: #373737;
+  --app-link-underline: #373737;
+  --app-link-underline-opaque: rgba(255, 255, 255, 0.282);
+  --app-glass-page: rgba(25, 25, 25, 0.8);
+
+  --app-bg-default-block: #202020;
+  --app-bg-gray: #383836;
+  --app-bg-brown: #45362d;
+  --app-bg-orange: #53361f;
+  --app-bg-yellow: #504425;
+  --app-bg-green: #263d30;
+  --app-bg-blue: #233850;
+  --app-bg-purple: #3c2d47;
+  --app-bg-pink: #4e2b3c;
+  --app-bg-red: #502c29;
+  --app-bg-teal: #143d45;
+
+  --app-page-gray: #202020;
+  --app-page-brown: #25201d;
+  --app-page-orange: #231e1b;
+  --app-page-yellow: #23221a;
+  --app-page-green: #1b211d;
+  --app-page-blue: #1a2027;
+  --app-page-purple: #221d25;
+  --app-page-pink: #261c20;
+  --app-page-red: #241d1d;
+  --app-page-teal: #172124;
+
+  --app-chip-gray-fill: rgba(255, 252, 235, 0.306);
+  --app-chip-brown-fill: rgba(255, 184, 132, 0.365);
+  --app-chip-orange-fill: rgba(255, 143, 71, 0.482);
+  --app-chip-yellow-fill: rgba(255, 188, 53, 0.46);
+  --app-chip-green-fill: rgba(113, 255, 175, 0.337);
+  --app-chip-blue-fill: rgba(81, 166, 255, 0.494);
+  --app-chip-purple-fill: rgba(208, 147, 255, 0.427);
+  --app-chip-pink-fill: rgba(255, 133, 192, 0.427);
+  --app-chip-red-fill: rgba(255, 116, 105, 0.525);
+  --app-chip-teal-fill: rgba(49, 221, 255, 0.38);
+
+  --app-chip-gray-ink: #f0efed;
+  --app-chip-brown-ink: #f5ede9;
+  --app-chip-orange-ink: #fbebde;
+  --app-chip-yellow-ink: #f9f3dc;
+  --app-chip-green-ink: #e8f1ec;
+  --app-chip-blue-ink: #e5f2fc;
+  --app-chip-purple-ink: #f3ebf9;
+  --app-chip-pink-ink: #fae9f1;
+  --app-chip-red-ink: #fce9e7;
+  --app-chip-teal-ink: #e0f3f7;
+
+  --app-legacy-gray-bg: #1c1c1c;
+}
+
+/* Force light inside a dark page, mirroring Notion's .notion-light-theme. */
+.app-theme-light {
+  --app-bg-primary: #ffffff;
+  --app-bg-secondary: #f9f8f7;
+  --app-bg-tertiary: #f0efed;
+  --app-bg-elevated: #ffffff;
+  --app-bg-interactive: #f4f3f3;
+  --app-bg-accent-primary: #2c2c2b;
+  --app-text-primary: #2c2c2b;
+  --app-text-secondary: #7d7a75;
+  --app-text-tertiary: #a19e99;
+  --app-border-primary: #e6e5e3;
+  --app-border-secondary: #f0efed;
+  --app-wash-hover: rgba(55, 53, 47, 0.04);
+  --app-wash-press: rgba(55, 53, 47, 0.1);
+}
+
+/* --------------------------------------------------------------------------
+   C. SEMANTIC CONTRACT LAYER.
+   This is the API. Components consume these names and nothing else.
+
+   Default is MARKETING. Add data-surface="app" to <html> or to any container
+   to get the editor surface instead. That switch changes the font stack, the
+   ink, the blue and the hover wash all at once, which is exactly how different
+   the two surfaces are.
+   -------------------------------------------------------------------------- */
+/* @source derived: semantic alias over the marketing base_theme layer */
+
+:root {
+  --surface: var(--mkt-bg);
+  --surface-raised: var(--mkt-card-bg);
+  --surface-sunken: var(--mkt-band-tint);
+  --surface-neutral: var(--mkt-surface-neutral);
+
+  --ink: var(--mkt-text-strong);
+  --ink-soft: var(--mkt-text-normal);
+  --ink-muted: var(--mkt-text-muted);
+  --ink-faint: var(--mkt-text-disabled);
+  --ink-inverse: var(--mkt-white);
+
+  --border: var(--mkt-border);
+  --border-strong: var(--mkt-alpha-black-300);
+
+  --brand: var(--mkt-blue-600);
+  --brand-hover: var(--mkt-blue-700);
+  --brand-soft: var(--mkt-blue-200);
+  --brand-muted: var(--mkt-blue-100);
+  --brand-ink: var(--mkt-blue-700);
+
+  --link: var(--mkt-link);
+  --link-hover: var(--mkt-link-hover);
+
+  --focus-ring: var(--mkt-focus-ring);
+
+  --success: var(--mkt-green-600);
+  --warning: var(--mkt-orange-500);
+  --danger: var(--mkt-red-500);
+
+  --hover-wash: var(--mkt-bg-hover);
+  --press-wash: var(--mkt-bg-active);
+
+  --selection-bg: var(--app-selection-token);
+  --selection-ink: var(--mkt-text-strong);
+}
+
+/* App surface. Everything the editor does differently, in one block. */
+:root[data-surface="app"],
+[data-surface="app"] {
+  --surface: var(--app-bg-primary);
+  --surface-raised: var(--app-bg-elevated);
+  --surface-sunken: var(--app-bg-secondary);
+  --surface-neutral: var(--app-bg-tertiary);
+
+  --ink: var(--app-text-primary);
+  --ink-soft: var(--app-text-secondary);
+  --ink-muted: var(--app-text-secondary);
+  --ink-faint: var(--app-text-tertiary);
+  --ink-inverse: var(--app-text-inverse-primary);
+
+  --border: var(--app-border-primary);
+  --border-strong: var(--app-border-strong);
+
+  --brand: var(--app-ui-blue);
+  --brand-hover: var(--app-ui-blue-pressed);
+  --brand-soft: var(--app-bg-blue);
+  --brand-muted: var(--app-page-blue);
+  --brand-ink: var(--app-chip-blue-ink);
+
+  --link: var(--app-text-primary);
+  --link-hover: var(--app-text-primary);
+
+  --focus-ring: var(--app-ui-blue);
+
+  --success: var(--app-text-green);
+  --warning: var(--app-text-orange);
+  --danger: var(--app-text-red);
+
+  --hover-wash: var(--app-wash-hover);
+  --press-wash: var(--app-wash-press);
+
+  --selection-bg: var(--app-selection-token);
+  --selection-ink: var(--app-text-primary);
+}
+
+/* Dark for the semantic layer. On the marketing side this reuses the real
+   .dark_palette_theme values but wires them to a trigger Notion does not
+   itself use, which is an extension and is logged in readme.md. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: var(--mkt-gray-900);
+    --surface-raised: var(--mkt-gray-800);
+    --surface-sunken: var(--mkt-gray-800);
+    --surface-neutral: var(--mkt-gray-800);
+    --ink: var(--mkt-white);
+    --ink-soft: var(--mkt-gray-200);
+    --ink-muted: var(--mkt-alpha-white-700);
+    --ink-faint: var(--mkt-alpha-white-500);
+    --ink-inverse: var(--mkt-gray-900);
+    --border: var(--mkt-alpha-white-300);
+    --border-strong: var(--mkt-alpha-white-400);
+    --brand: var(--mkt-blue-500);
+    --brand-hover: var(--mkt-blue-600);
+    --brand-soft: var(--mkt-blue-800);
+    --brand-muted: var(--mkt-blue-900);
+    --brand-ink: var(--mkt-blue-300);
+    --link: var(--mkt-blue-300);
+    --link-hover: var(--mkt-blue-200);
+    --hover-wash: var(--mkt-alpha-white-100);
+    --press-wash: var(--mkt-alpha-white-200);
+    --selection-ink: var(--mkt-white);
+  }
+}
+
+:root[data-theme="dark"] {
+  --surface: var(--mkt-gray-900);
+  --surface-raised: var(--mkt-gray-800);
+  --surface-sunken: var(--mkt-gray-800);
+  --surface-neutral: var(--mkt-gray-800);
+  --ink: var(--mkt-white);
+  --ink-soft: var(--mkt-gray-200);
+  --ink-muted: var(--mkt-alpha-white-700);
+  --ink-faint: var(--mkt-alpha-white-500);
+  --ink-inverse: var(--mkt-gray-900);
+  --border: var(--mkt-alpha-white-300);
+  --border-strong: var(--mkt-alpha-white-400);
+  --brand: var(--mkt-blue-500);
+  --brand-hover: var(--mkt-blue-600);
+  --brand-soft: var(--mkt-blue-800);
+  --brand-muted: var(--mkt-blue-900);
+  --brand-ink: var(--mkt-blue-300);
+  --link: var(--mkt-blue-300);
+  --link-hover: var(--mkt-blue-200);
+  --hover-wash: var(--mkt-alpha-white-100);
+  --press-wash: var(--mkt-alpha-white-200);
+  --selection-ink: var(--mkt-white);
+}
+
+/* App surface plus dark, at a higher specificity than the two marketing dark
+   blocks above so that data-surface="app" on <html> still wins in dark mode.
+   The app raw tokens have already flipped by this point, so this block only
+   has to re-point the aliases. Without it, a dark app page would silently
+   pick up the marketing dark palette, which is the wrong ground and the
+   wrong blue. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-surface="app"] {
+    --surface: var(--app-bg-primary);
+    --surface-raised: var(--app-bg-elevated);
+    --surface-sunken: var(--app-bg-secondary);
+    --surface-neutral: var(--app-bg-tertiary);
+    --ink: var(--app-text-primary);
+    --ink-soft: var(--app-text-secondary);
+    --ink-muted: var(--app-text-secondary);
+    --ink-faint: var(--app-text-tertiary);
+    --ink-inverse: var(--app-text-inverse-primary);
+    --border: var(--app-border-primary);
+    --border-strong: var(--app-border-strong);
+    --brand: var(--app-ui-blue);
+    --brand-hover: var(--app-ui-blue-pressed);
+    --brand-soft: var(--app-bg-blue);
+    --brand-muted: var(--app-page-blue);
+    --brand-ink: var(--app-chip-blue-ink);
+    --link: var(--app-text-primary);
+    --link-hover: var(--app-text-primary);
+    --hover-wash: var(--app-wash-hover);
+    --press-wash: var(--app-wash-press);
+    --selection-ink: var(--app-text-primary);
+  }
+}
+
+:root[data-theme="dark"][data-surface="app"] {
+  --surface: var(--app-bg-primary);
+  --surface-raised: var(--app-bg-elevated);
+  --surface-sunken: var(--app-bg-secondary);
+  --surface-neutral: var(--app-bg-tertiary);
+  --ink: var(--app-text-primary);
+  --ink-soft: var(--app-text-secondary);
+  --ink-muted: var(--app-text-secondary);
+  --ink-faint: var(--app-text-tertiary);
+  --ink-inverse: var(--app-text-inverse-primary);
+  --border: var(--app-border-primary);
+  --border-strong: var(--app-border-strong);
+  --brand: var(--app-ui-blue);
+  --brand-hover: var(--app-ui-blue-pressed);
+  --brand-soft: var(--app-bg-blue);
+  --brand-muted: var(--app-page-blue);
+  --brand-ink: var(--app-chip-blue-ink);
+  --link: var(--app-text-primary);
+  --link-hover: var(--app-text-primary);
+  --hover-wash: var(--app-wash-hover);
+  --press-wash: var(--app-wash-press);
+  --selection-ink: var(--app-text-primary);
+}

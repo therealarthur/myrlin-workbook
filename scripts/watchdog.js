@@ -19,7 +19,7 @@
  *
  * Stop:
  *   pkill -f scripts/watchdog.js     (POSIX)
- *   taskkill /F /FI "WINDOWTITLE eq watchdog*"    (Windows — adjust)
+ *   taskkill /F /FI "WINDOWTITLE eq watchdog*"    (Windows, adjust)
  *
  * Idempotent: if a workbook is already serving on 3457, the watchdog
  * does nothing. Multiple watchdog instances are safe (they all check
@@ -135,7 +135,7 @@ function spawnWorkbook() {
     RESTART_HISTORY.shift();
   }
   if (RESTART_HISTORY.length >= RESTART_BURST_LIMIT) {
-    log(`backing off — ${RESTART_HISTORY.length} restarts in last ${RESTART_WINDOW_MS / 60000}min; next attempt in ${BACKOFF_MS / 60000}min`);
+    log(`backing off, ${RESTART_HISTORY.length} restarts in last ${RESTART_WINDOW_MS / 60000}min; next attempt in ${BACKOFF_MS / 60000}min`);
     return BACKOFF_MS;
   }
   RESTART_HISTORY.push(now);

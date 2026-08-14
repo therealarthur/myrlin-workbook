@@ -130,6 +130,52 @@ check('Bracketed-paste escape sequence \\x1b[200~ ... \\x1b[201~ is intact', () 
 });
 
 // ---------------------------------------------------------------------------
+// (4b) The bracket is now GATED on DEC 2004 (Notion restyle P5.1)
+//
+// ADDITIVE, not a retarget: check (4) above still asserts both markers survive,
+// and they do. What this adds is the other half of the guarantee, because
+// "the wrapper is intact" and "the wrapper is applied unconditionally" were
+// both true at once until P5.1. TERMINAL-ARCHITECTURE.md defect D1 measured the
+// consequence: against an application that never enabled bracketed paste (a
+// bare cmd.exe, powershell.exe, or any simple REPL) the markers are delivered
+// as literal garbage.
+//
+// TERMINAL-ARCHITECTURE.md stage 1 asks for exactly this assertion by name:
+// "Extend test/bracketed-paste-isolation.test.js to assert the mode gate
+// exists." The behavioural truth table lives in
+// test/paste-input-preparation.test.js, which CALLS the function; this file
+// keeps doing what it is good at, which is pinning the wiring.
+// ---------------------------------------------------------------------------
+
+check('the bracket is gated on the live DEC 2004 mode, not applied unconditionally', () => {
+  assert.ok(
+    /function prepareInputForPty\(text, opts\)/.test(src),
+    'the shared paste preparation must be a module-level function so every entry point can reach it'
+  );
+  assert.ok(
+    /term\.modes\.bracketedPasteMode/.test(src),
+    "the gate must read xterm's own public IModes reader for the live mode"
+  );
+  assert.ok(
+    /bracketedPasteMode === true/.test(src),
+    'the gate must be strict: anything other than an explicit true must not bracket'
+  );
+});
+
+check('every paste entry point routes through the one preparation function', () => {
+  const routed = (src.match(/this\._sendPastePayload\(text\)/g) || []).length;
+  assert.strictEqual(
+    routed,
+    2,
+    'the two NATIVE entry points (beforeinput and the paste event) must both route through the shared preparation; found ' + routed
+  );
+  assert.ok(
+    /pasteFromClipboard[\s\S]{0,600}?prepareInputForPty\(/.test(src),
+    'the explicit Paste menu action must route through it too'
+  );
+});
+
+// ---------------------------------------------------------------------------
 // (5) Listener count: exactly two listeners on xtermTextarea (beforeinput + paste)
 // ---------------------------------------------------------------------------
 

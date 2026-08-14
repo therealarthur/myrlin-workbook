@@ -218,6 +218,234 @@ const ACTIVATE_CONNECT_GUARD_MS = 1500;
 // user is actually looking at.
 const ACTIVATE_VISIBILITY_RATIO = 0.5;
 
+/* ═══════════════════════════════════════════════════════════════════
+   PASTE INPUT PREPARATION
+   Notion restyle phase P5, work packages P5.1 and P5.2.
+   TERMINAL-ARCHITECTURE.md defects D1 and D2, sections 9.2 to 9.4.
+
+   Three paste entry points (beforeinput/insertFromPaste, the native
+   paste event, and the explicit pasteFromClipboard menu action) used to
+   build their own payload with the same two lines each:
+
+       const bracketedText = '\x1b[200~' + text + '\x1b[201~';
+       this.ws.send(JSON.stringify({ type: 'input', data: bracketedText }));
+
+   Both lines carried a defect that the architecture measured against a
+   live PTY rather than inferred:
+
+   D1  The brackets were applied UNCONDITIONALLY. DEC 2004 is a mode the
+       APPLICATION turns on; an application that has not asked for it
+       receives the literal characters `[200~` and `[201~` around the
+       paste. Every agent CLI measured has the mode on, so this was
+       invisible on the common path and broken on every bare shell.
+
+   D2  Newlines were sent verbatim. Windows clipboard text is CRLF, and a
+       PTY line discipline reads CR LF as an Enter FOLLOWED BY a stray
+       line feed, so a two line paste executed as two commands plus two
+       blank lines. xterm's own paste path normalises first, and this is
+       the exact normalisation it performs.
+
+   The fix is one pure function, at module level rather than on the class,
+   for two reasons. It has no instance state, so it is testable without a
+   DOM, an xterm or a socket; and test/bracketed-paste-isolation.test.js
+   gates the character distance between `pasteFromClipboard` and
+   `this.ws.send(`, so the call site has to stay one short line.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// The multi-line paste confirm setting, TERMINAL-ARCHITECTURE 9.4. `auto` is
+// the table: bracketed sessions never nag, unbracketed multi-line always asks.
+// The other two exist because a user who knows what they are doing should be
+// able to say so once instead of per paste.
+const PASTE_CONFIRM_AUTO = 'auto';
+const PASTE_CONFIRM_ALWAYS = 'always';
+const PASTE_CONFIRM_NEVER = 'never';
+
+// The two halves of DEC 2004 bracketed paste. Named rather than inlined so the
+// sanitiser below and the wrapper agree by construction.
+const BRACKETED_PASTE_START = '\x1b[200~';
+const BRACKETED_PASTE_END = '\x1b[201~';
+
+// Every embedded end marker is removed from a bracketed payload. This is the
+// one place in the terminal path where content from OUTSIDE the application
+// (the system clipboard) is framed by control sequences, so it gets an
+// explicit sanitiser rather than an assumption: an end marker inside the
+// payload would close the bracket early and let everything after it be read as
+// TYPED input by the receiving application. That is the difference between
+// pasting a README that happens to quote an escape sequence and executing it.
+const BRACKETED_PASTE_END_RE = /\x1b\[201~/g;
+
+// How much of the first line the multi-line confirm shows. Long enough to
+// recognise a command, short enough that the dialog never grows a scrollbar.
+const PASTE_PREVIEW_MAX_CHARS = 120;
+
+/* ═══════════════════════════════════════════════════════════════════
+   UNIFIED SCROLLBACK SURFACE
+   Notion restyle phase P7, work packages P7.1 to P7.6.
+   TERMINAL-ARCHITECTURE.md sections 7 to 12, stages 3 and 4.
+
+   The history surface itself lives in terminal-history.js. What lives
+   HERE is the pane's side of the contract, and it is deliberately thin:
+   three data fetchers that reuse the mirror plumbing the Copy view
+   already owns, the two event hooks (wheel and key) that decide when
+   the surface opens, and the lifecycle calls that tear it down with
+   every other host-owned resource.
+
+   NOTHING in this block is a dependency of anything that existed
+   before it. If terminal-history.js fails to load, every accessor
+   below returns null or false, the wheel and the keyboard behave
+   exactly as they did in P6, and the pane is a P6 pane. That is the
+   same containment shape the Copy view, the sidecar and node-pty all
+   use, and it is why this can ship without a flag.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Bytes requested per transcript page for the history surface. Same value the
+// Copy view uses, and the server clamps it to its own window cap.
+const HISTORY_TRANSCRIPT_PAGE_BYTES = 262144;
+
+// Default page size for a deep-history request. The route clamps to 2000; this
+// is a page of the document rather than the whole log.
+const HISTORY_DEEP_PAGE_LINES = 2000;
+
+// localStorage key recording that the Select-mode strip has explained itself
+// once. P7.6 demotes the strip: the scrollbar is the affordance now, so the
+// standing explanation appears only on the FIRST plain drag under mouse
+// tracking and never again on any pane.
+const SELECT_STRIP_SEEN_KEY = 'cwm_selectstrip_v1';
+
+/* ═══════════════════════════════════════════════════════════════════
+   TOUCH BOUNDARY AND PERFORMANCE BUDGET
+   Notion restyle phase P11b, work packages P11.7 and P11.8.
+   MOBILE-EXPERIENCE.md B.4 (selection and the history surface), E.3
+   (scrollback and history caps) and E.4 item 4 (background flushes).
+
+   P7 shipped the boundary for the WHEEL and left the touch half
+   explicitly unshipped (DECISIONS 16.3 item 5, 16.6 item 1). These are
+   the numbers that half needs. Every one of them is a named constant
+   rather than a literal at its use site, because B.4 and E.3 both
+   specify behaviour a device test has to be able to reason about, and
+   a magic number inside a gesture handler is not reviewable.
+   ═══════════════════════════════════════════════════════════════════ */
+
+// Upward touch travel past the top of the xterm buffer before the history
+// surface opens under the finger. Deliberately larger than the 8px scroll slop
+// and smaller than one row of a phone terminal's viewport: below this a lazy
+// overscroll at the top of a short buffer would open a surface nobody asked
+// for, above it the gesture stalls against the boundary and reads as a bug.
+const HISTORY_TOUCH_OPEN_PX = 28;
+
+// Downward touch travel past the BOTTOM of the history document before the
+// surface closes again and hands the terminal back. The same number in the
+// other direction, so the boundary feels symmetrical under a finger.
+const HISTORY_TOUCH_CLOSE_PX = 28;
+
+// E.3: xterm's client ring on a phone. The desktop keeps P5.3's 10000 (roughly
+// 8 MB per pane at this cell size); a phone at 48 columns keeps 2000, which is
+// roughly 5 MB worst case and is a LIVE WINDOW rather than the archive. The
+// archive is the transcript on disk, which the Copy view and the history
+// surface both read through the mirror API, so nothing is lost by the cap.
+const PHONE_SCROLLBACK_LINES = 2000;
+const DESKTOP_SCROLLBACK_LINES = 10000;
+
+// E.3: how many panes stay on the live write cadence at phone widths. The
+// third and later panes fall to the dormant cadence below. Two rather than one
+// because switching back to the pane you just left must not cost a repaint.
+const PHONE_MAX_LIVE_PANES = 2;
+
+// Upper bound on the pane recency list. A long session that opens and closes
+// many panes must not grow a static array without limit; anything past this is
+// dormant by definition, so truncating changes no answer.
+const LIVE_PANE_ORDER_MAX = 64;
+
+// The three write-flush cadences, slowest last.
+//   LIVE      the focused pane, which flushes on the animation frame instead.
+//   BACKGROUND an unfocused pane on the Terminal tab (the pre-P11b behaviour).
+//   IDLE      E.4 item 4: the Terminal tab is not the surface being looked at.
+//   DORMANT   the pane is unhosted (a cached tab group) or is past the phone
+//             live-pane budget. Its output is still consumed, so nothing is
+//             ever dropped and the queue cannot grow without bound; it simply
+//             stops competing for frames with the pane the user can see.
+const BACKGROUND_FLUSH_MS = 150;
+const IDLE_FLUSH_MS = 500;
+const DORMANT_FLUSH_MS = 1000;
+
+// E.3: the Reader overlay's text cap, tail-biased. `openTerminalReader`
+// concatenates a whole buffer into one string and one text node; at a
+// desktop-owned 200 columns by 10000 rows that is a 2 MB string plus a 2 MB
+// text node, on a phone, to read the last screen and a half. The tail is the
+// part anybody opens the Reader for.
+const READER_MAX_CHARS = 200000;
+
+// What the Reader puts at the top when it has dropped the head of the buffer.
+// An explicit line, because silently showing a suffix while looking like the
+// whole buffer is the silent-wrong-answer failure this program removes.
+const READER_TRUNCATION_NOTICE = '[ earlier output trimmed; open Copy view for the full transcript ]';
+
+// How far into the retained tail the cap will look for a line break before it
+// gives up and keeps the fragment. Bounded so one enormous line (a minified
+// bundle echoed into the terminal) cannot eat the whole budget.
+const READER_LINE_ALIGN_MAX_CHARS = 4096;
+
+/**
+ * Prepare clipboard text for delivery to a PTY.
+ *
+ * Pure: no DOM, no socket, no instance state, so the whole truth table is
+ * unit-testable (test/paste-input-preparation.test.js).
+ *
+ * @param {string} text - Raw clipboard text, in whatever newline flavour the
+ *   source platform used.
+ * @param {{bracketedPasteMode?: boolean, confirmMultiline?: string}} [opts] -
+ *   `bracketedPasteMode` is the LIVE state of DEC 2004 for the receiving
+ *   application, never an assumption. `confirmMultiline` is the 9.4 setting
+ *   and defaults to `auto`.
+ * @returns {{data: string, needsConfirm: boolean, lineCount: number,
+ *   bracketed: boolean, firstLine: string}} `data` is exactly what should go on
+ *   the wire once any confirm has been answered.
+ */
+function prepareInputForPty(text, opts) {
+  const options = opts || {};
+  const raw = typeof text === 'string' ? text : (text == null ? '' : String(text));
+  const bracketed = options.bracketedPasteMode === true;
+
+  // D2. The same expression xterm uses (`e.replace(/\r?\n/g, "\r")`), chosen
+  // deliberately over a broader one: CRLF and LF both become one CR, and a
+  // LONE CR is already correct and is left exactly as it is.
+  let data = raw.replace(/\r?\n/g, '\r');
+
+  // Count before the brackets go on, so the count describes the user's text
+  // rather than the framing. A trailing newline COUNTS as a second line,
+  // because a trailing CR is what makes a shell execute the last command:
+  // "one line plus Enter" is precisely the case the confirm exists for.
+  const segments = data.split('\r');
+  const lineCount = segments.length;
+  const firstLine = segments[0].slice(0, PASTE_PREVIEW_MAX_CHARS);
+
+  if (bracketed) {
+    // D1's sanitiser, and then D1's wrapper. Order matters: strip first, so a
+    // marker that arrived inside the payload cannot survive into the framed
+    // string, and never strip the marker this function is about to add.
+    data = data.replace(BRACKETED_PASTE_END_RE, '');
+    data = BRACKETED_PASTE_START + data + BRACKETED_PASTE_END;
+  }
+
+  const multiline = lineCount > 1;
+  const mode = options.confirmMultiline || PASTE_CONFIRM_AUTO;
+  let needsConfirm;
+  if (mode === PASTE_CONFIRM_NEVER) {
+    needsConfirm = false;
+  } else if (mode === PASTE_CONFIRM_ALWAYS) {
+    needsConfirm = multiline;
+  } else {
+    // `auto`, the 9.4 table. An application that turned DEC 2004 on has told
+    // the terminal it will handle a multi-line payload itself, so asking would
+    // be nagging about a case that is already safe. Every agent CLI measured
+    // in TERMINAL-ARCHITECTURE section 2 has it on, so the common path is
+    // silent and the bare-shell path, where each line becomes a command, asks.
+    needsConfirm = multiline && !bracketed;
+  }
+
+  return { data: data, needsConfirm: needsConfirm, lineCount: lineCount, bracketed: bracketed, firstLine: firstLine };
+}
+
 class TerminalPane {
   // ── Theme palettes for xterm.js ──────────────────────────
   static THEME_MOCHA = {
@@ -627,8 +855,113 @@ class TerminalPane {
     return palette;
   }
 
+  /**
+   * The terminal surface projection, when one is reachable.
+   *
+   * Notion restyle P5.4. Prefers the global that index.html loads immediately
+   * before this file, and falls back to the theme registry's own null-safe
+   * accessor so a consumer that loaded the registry but not the surface still
+   * resolves. Returns null rather than throwing on every failure path,
+   * because every caller has a complete static fallback and a missing script
+   * must degrade to the previous behaviour rather than to a blank pane.
+   *
+   * @returns {object|null} The `MyrlinTerminalSurface` module, or null.
+   */
+  static _surfaceProvider() {
+    try {
+      if (typeof window !== 'undefined' && window.MyrlinTerminalSurface) {
+        return window.MyrlinTerminalSurface;
+      }
+      if (typeof globalThis !== 'undefined' && globalThis.MyrlinTerminalSurface) {
+        return globalThis.MyrlinTerminalSurface;
+      }
+    } catch (_) { /* a sandboxed or partially initialised global */ }
+    return null;
+  }
+
+  /**
+   * The active theme id, as the document has stamped it.
+   *
+   * One reader, because three call sites used to spell the same expression
+   * and the `|| 'mocha'` default is load bearing: the pre-paint bootstrap in
+   * index.html sets the attribute before any script runs, but a detached
+   * document in a test has none.
+   *
+   * @returns {string} A persisted theme id.
+   */
+  static _activeThemeId() {
+    try {
+      if (typeof document !== 'undefined' && document.documentElement &&
+          document.documentElement.dataset) {
+        return document.documentElement.dataset.theme || 'mocha';
+      }
+    } catch (_) { /* detached document */ }
+    return 'mocha';
+  }
+
+  /**
+   * Publish the terminal surface to CSS as `--term-*` custom properties.
+   *
+   * Notion restyle P5.4 and P5.5. This is what lets the pane's own chrome (the
+   * surface padding, the input row, its top rule and the prompt glyph) paint
+   * the SAME values xterm paints rather than a near neighbour, which
+   * TERMINAL-ARCHITECTURE.md 10.1 calls the highest risk item for perceived
+   * quality: a seam of one shade is immediately visible.
+   *
+   * Called from three places, deliberately overlapping, because each covers a
+   * case the others cannot:
+   *
+   *   1. At module load, so the first paint after a reload is already correct.
+   *   2. From getCurrentTheme(), which app.js already calls once per live pane
+   *      on every theme change, so an existing installation needs no app.js
+   *      edit to re-theme its chrome.
+   *   3. From a `data-theme` MutationObserver, which is the only one of the
+   *      three that fires when the theme changes with ZERO panes open. Without
+   *      it, switching theme on the Sessions view would leave the `--term-*`
+   *      properties stale until a pane happened to open.
+   *
+   * @param {string} [themeId] - Theme to publish. Defaults to the active one.
+   * @returns {boolean} Whether the properties were written.
+   */
+  static publishTerminalSurfaceVars(themeId) {
+    const provider = TerminalPane._surfaceProvider();
+    if (!provider || typeof provider.applyTerminalSurfaceVars !== 'function') return false;
+    try {
+      return provider.applyTerminalSurfaceVars(themeId || TerminalPane._activeThemeId());
+    } catch (_) {
+      return false;
+    }
+  }
+
   static getCurrentTheme() {
-    const themeId = (document.documentElement.dataset.theme || 'mocha');
+    const themeId = TerminalPane._activeThemeId();
+
+    // P5.4: the projection is the single source of truth for terminal surface
+    // colour. It is consulted FIRST and it needs no computed CSS, so a pane
+    // constructed before first paint gets the right palette rather than a
+    // half-resolved one. Publishing the CSS custom properties here is what
+    // keeps app.js's existing per-pane re-theme loop sufficient for the chrome
+    // half as well, with no edit to a file this work package does not own.
+    //
+    // Everything below this block is UNCHANGED and stays as the last resort,
+    // exactly as BUILD-CONTRACT P5.4 requires: "with the eight existing static
+    // palettes retained as the last-resort fallback so a missing custom
+    // property can never make one pane inherit another theme's colours". If
+    // terminal-surface.js fails to load, the terminal is what it was before P5.
+    const provider = TerminalPane._surfaceProvider();
+    if (provider && typeof provider.xtermTheme === 'function') {
+      let projected = null;
+      try {
+        projected = provider.xtermTheme(themeId);
+      } catch (_) {
+        projected = null;
+      }
+      if (projected) {
+        TerminalPane.publishTerminalSurfaceVars(themeId);
+        return projected;
+      }
+    }
+
     const fallback = TerminalPane._getThemeFallback(themeId);
     if (!fallback) return TerminalPane.THEME_MOCHA;
     const isCssDerivedTheme = themeId === 'nord'
@@ -640,6 +973,37 @@ class TerminalPane {
     const isLight = themeId === 'rose-pine-dawn'
       || themeId === 'gruvbox-light';
     return TerminalPane._getCssVariableTheme(fallback, isLight);
+  }
+
+  /**
+   * The terminal face.
+   *
+   * Notion restyle P5.5, and the answer to CURRENT-UI.md 6.2's other half:
+   * "Font family and size are hardcoded here, NOT read from --font-mono."
+   * They now come through the projection, which reads the `--font-terminal`
+   * token, so a theme can carry its own face and a user can change the face
+   * without editing JavaScript.
+   *
+   * The literal below is retained EXACTLY as it was and is the last resort, so
+   * a failure to load terminal-surface.js leaves the terminal on the face it
+   * has always had rather than on a browser default. That matters more here
+   * than anywhere else in the application: an unexpected fallback face changes
+   * the cell width, which changes the column count, which changes what the CLI
+   * on the other end draws.
+   *
+   * @returns {string} A CSS font-family list for xterm's `fontFamily` option.
+   */
+  static getTerminalFontFamily() {
+    const provider = TerminalPane._surfaceProvider();
+    try {
+      if (provider && typeof provider.terminalSurface === 'function') {
+        const surface = provider.terminalSurface(TerminalPane._activeThemeId());
+        if (surface && typeof surface.fontFamily === 'string' && surface.fontFamily.trim()) {
+          return surface.fontFamily.trim();
+        }
+      }
+    } catch (_) { /* fall through to the shipped stack */ }
+    return "'JetBrains Mono', 'Cascadia Code', Consolas, monospace";
   }
 
   // Resolve the smooth-scroll animation duration in ms. Reads the persisted
@@ -948,13 +1312,44 @@ class TerminalPane {
     this._needsInput = false;        // Whether a question was detected that wasn't auto-answered
     this._needsInputTimer = null;    // Timer to clear needsInput after new output
     this._autoTrustEnabled = false;  // Set by app layer for worktree task terminals
-    // Write batching buffers — must be initialized here so _status() calls in
+    // Write batching buffers, must be initialized here so _status() calls in
     // mount() (before connectWs runs) don't produce "undefined" prefixes.
     this._writeBuf = '';
     this._activitySample = '';
     this._writeRaf = null;
     this._pasteHandled = false;
     this._pasteHandledResetTimer = null;
+    // ── P5.1 paste correctness state ─────────────────────────────
+    // _remoteBracketedPaste: the last DEC 2004 state reported by the server's
+    //   VT sidecar `mode` frame (P6.3). Stays undefined, and therefore unused,
+    //   whenever CWM_VT_SIDECAR is off, which is the default. Never a boolean
+    //   until a frame actually arrives, so `typeof === 'boolean'` is the test.
+    // _modeSeq: the highest mode-frame sequence number seen. The sidecar
+    //   stamps a monotonic seq precisely so a client can drop a reordered or
+    //   duplicated frame without keeping its own history.
+    // _pasteConfirmEl: the live multi-line paste dialog, so a pane that is
+    //   disposed or rebound mid-decision cannot leave one orphaned in the DOM.
+    this._remoteBracketedPaste = undefined;
+    this._modeSeq = 0;
+    this._pasteConfirmEl = null;
+    // ── P7 Unified Scrollback Surface state ──────────────────────
+    // _remoteModeFrame: the whole last mode frame, kept alongside the single
+    //   boolean P5 extracted from it. The history layer needs altBuffer and
+    //   mouseTracking as well, and mouseTracking is a STRING ENUM ('none',
+    //   'x10', 'vt200', 'drag', 'any') that must never be truthy-tested: the
+    //   string 'none' is truthy. Undefined until a frame arrives, which on a
+    //   default install (CWM_VT_SIDECAR off) is never, and the layer falls back
+    //   to xterm's own readers.
+    // _historyLayer: the surface, created lazily on first use and destroyed
+    //   with every other host-owned resource.
+    // _historyBufferDisposable: the onBufferChange subscription that re-routes
+    //   a pane crossing the normal/alternate boundary.
+    // _selectStripAnnounced: whether this pane has already shown the demoted
+    //   Select-mode strip in this session.
+    this._remoteModeFrame = null;
+    this._historyLayer = null;
+    this._historyBufferDisposable = null;
+    this._selectStripAnnounced = false;
     // Copy-mode root cause (user report, 2026-07-25): Claude Code's interactive
     // TUI turns on terminal mouse tracking (DECSET 1000/1002/1003 + SGR 1006).
     // While that is active, xterm forwards a plain drag/wheel to the PTY instead
@@ -1099,6 +1494,243 @@ class TerminalPane {
   }
 
   /**
+   * Read one number from the mobile driver's published constant table.
+   *
+   * MOBILE-EXPERIENCE's appendix names `mobile-viewport.js` as the home of
+   * every measurement the mobile program introduces, and its own comment says
+   * why: "two different long-press durations on adjacent elements is exactly
+   * what makes a gesture feel unreliable". Before P11b this file carried its
+   * own 400, its own 8 and its own 25, so a change to the table would have
+   * moved the app's gesture and left the terminal's behind.
+   *
+   * The fallback is what a build without the driver uses, which is every
+   * source sandbox in the suite and any stripped deployment, so reading the
+   * table can never be a new hard dependency.
+   *
+   * @param {string} name - Constant name in `MyrlinMobileViewport.constants`.
+   * @param {number} fallback - Value to use when the table is absent.
+   * @returns {number} The published value, or the fallback.
+   */
+  static mobileConstant(name, fallback) {
+    try {
+      if (typeof window === 'undefined') return fallback;
+      const driver = window.MyrlinMobileViewport;
+      const table = driver && driver.constants;
+      const value = table ? table[name] : undefined;
+      return (typeof value === 'number' && isFinite(value)) ? value : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE PERFORMANCE BUDGET (P11.8)
+     MOBILE-EXPERIENCE E.3 and E.4 item 4.
+
+     Three levers, in descending order of what they are worth: the
+     client ring's size, how many panes compete for frames, and how
+     often a pane nobody is looking at is allowed to take one. None of
+     them changes what a pane DOES; they change what it costs while it
+     is not the pane on screen.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Whether the shell is at phone width right now.
+   *
+   * Reads the mobile driver's single breakpoint reader, which exists so that
+   * "phone" cannot mean one thing in a media query and another in a guard.
+   * Falls back to the driver's own published constant through matchMedia, and
+   * finally to false, because desktop is the non-restrictive answer.
+   *
+   * @returns {boolean} True at MW_PHONE_MAX_WIDTH_PX and below.
+   */
+  static isPhoneLayout() {
+    try {
+      if (typeof window === 'undefined') return false;
+      const driver = window.MyrlinMobileViewport;
+      if (driver && typeof driver.isPhone === 'function') return !!driver.isPhone();
+      const max = TerminalPane.mobileConstant('MW_PHONE_MAX_WIDTH_PX', 768);
+      if (typeof window.matchMedia === 'function') {
+        return !!window.matchMedia('(max-width: ' + max + 'px)').matches;
+      }
+      return (window.innerWidth || 0) <= max;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * The client ring size for the layout this pane is mounting into (E.3).
+   *
+   * @returns {number} Scrollback lines.
+   */
+  static resolveScrollbackLines() {
+    return TerminalPane.isPhoneLayout() ? PHONE_SCROLLBACK_LINES : DESKTOP_SCROLLBACK_LINES;
+  }
+
+  /**
+   * The live-pane recency list, lazily created.
+   *
+   * A static rather than an app-layer registry because the ONLY consumer is
+   * the pane's own write cadence, and a pane must be able to answer "am I one
+   * of the two the user is working with" without a dependency on app.js. Kept
+   * bounded so a long session that opens and closes many panes cannot grow it.
+   *
+   * @returns {Array<object>} Panes, most recently active first.
+   */
+  static _livePaneOrder() {
+    if (!TerminalPane.__livePaneOrder) TerminalPane.__livePaneOrder = [];
+    return TerminalPane.__livePaneOrder;
+  }
+
+  /**
+   * Move a pane to the front of the recency list.
+   *
+   * Called on mount and whenever the app layer focuses a pane, which are
+   * exactly the two events that mean "the user is working with this one".
+   *
+   * @param {object} pane - The TerminalPane.
+   * @returns {void}
+   */
+  static noteLivePane(pane) {
+    if (!pane) return;
+    const order = TerminalPane._livePaneOrder();
+    const at = order.indexOf(pane);
+    if (at !== -1) order.splice(at, 1);
+    order.unshift(pane);
+    if (order.length > LIVE_PANE_ORDER_MAX) order.length = LIVE_PANE_ORDER_MAX;
+  }
+
+  /**
+   * Drop a pane from the recency list. Called from dispose().
+   *
+   * @param {object} pane - The TerminalPane.
+   * @returns {void}
+   */
+  static forgetLivePane(pane) {
+    const order = TerminalPane._livePaneOrder();
+    const at = order.indexOf(pane);
+    if (at !== -1) order.splice(at, 1);
+  }
+
+  /**
+   * Whether a pane is inside the phone live-pane budget (E.3).
+   *
+   * The desktop has no budget: every pane there is on screen simultaneously,
+   * which is what the grid is for. On a phone exactly one pane is visible and
+   * the rest are behind a swipe, so the budget is two: the one being looked at
+   * and the one before it, so switching back costs nothing.
+   *
+   * @param {object} pane - The TerminalPane.
+   * @returns {boolean} True when the pane keeps the live write cadence.
+   */
+  static isWithinLivePaneBudget(pane) {
+    if (!TerminalPane.isPhoneLayout()) return true;
+    const order = TerminalPane._livePaneOrder();
+    const at = order.indexOf(pane);
+    if (at === -1) return false;
+    return at < PHONE_MAX_LIVE_PANES;
+  }
+
+  /**
+   * Whether this pane is dormant, in E.3's sense.
+   *
+   * TWO WAYS TO BE DORMANT, and the first is the one the brief names:
+   *
+   *   1. UNHOSTED. `_getOwnedContainer()` returns null exactly when this pane
+   *      no longer renders into its slot, which is what `detachHostBindings()`
+   *      leaves behind for a cached tab group or a pane mid-move. That is the
+   *      host-ownership model's own definition of detached, so "dormant means
+   *      detached" needs no second mechanism and no second source of truth.
+   *      It is also why this is a READ of that model rather than a writer to
+   *      it: app.js owns which panes are hosted, and a pane that detached
+   *      itself would break the coherence its pinned suite exists to protect.
+   *
+   *   2. PAST THE PHONE BUDGET. Third and later panes on a phone.
+   *
+   * A dormant pane still consumes its socket and still writes into xterm, just
+   * on the slowest cadence, so nothing is dropped, the queue cannot grow
+   * without bound, and a swipe back to it shows real output rather than a
+   * reconnect. What it stops doing is competing for animation frames with the
+   * pane the user is actually reading.
+   *
+   * @returns {boolean} True when the pane is dormant.
+   */
+  _isDormantPane() {
+    try {
+      if (typeof this._getOwnedContainer === 'function' && !this._getOwnedContainer()) return true;
+      return !TerminalPane.isWithinLivePaneBudget(this);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Whether the Terminal tab is the surface the user is looking at.
+   *
+   * Reads the attribute the app shell already publishes (`setViewMode` writes
+   * `document.documentElement.dataset.viewMode`), so this adds no new contract
+   * and no listener. No signal at all means the classic shell or a page that
+   * never set it, where the grid is always on screen, and the honest answer
+   * there is "active".
+   *
+   * @returns {boolean} True when panes are on screen.
+   */
+  static terminalTabActive() {
+    try {
+      if (typeof document === 'undefined' || !document.documentElement) return true;
+      const data = document.documentElement.dataset;
+      const mode = data ? data.viewMode : undefined;
+      return !mode || mode === 'terminal';
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /**
+   * How long an unfocused pane waits before flushing its write queue.
+   *
+   * E.4 item 4 asks for one of these three numbers and E.3's dormancy asks for
+   * the other, so they are resolved together at the single site that schedules
+   * the timer. Evaluated only when a timer is actually being armed, which is
+   * at most once per window, never once per chunk.
+   *
+   * @returns {number} Delay in milliseconds.
+   */
+  _backgroundFlushDelay() {
+    if (this._isDormantPane()) return DORMANT_FLUSH_MS;
+    if (!TerminalPane.terminalTabActive()) return IDLE_FLUSH_MS;
+    return BACKGROUND_FLUSH_MS;
+  }
+
+  /**
+   * Cap Reader text at E.3's budget, keeping the TAIL.
+   *
+   * Tail-biased because the Reader is opened to read what just happened. The
+   * dropped head is not lost: the Copy view and the history surface both reach
+   * the full transcript through the mirror API, and the notice says so rather
+   * than presenting a suffix as if it were the whole buffer.
+   *
+   * Pure and static, so the cap is unit-testable without a DOM.
+   *
+   * @param {string} text - The composed buffer text.
+   * @returns {string} Text at most READER_MAX_CHARS long, plus the notice when
+   *   anything was dropped.
+   */
+  static capReaderText(text) {
+    const raw = typeof text === 'string' ? text : '';
+    if (raw.length <= READER_MAX_CHARS) return raw;
+    let tail = raw.slice(raw.length - READER_MAX_CHARS);
+    // Start on a line boundary so the first visible row is a whole line rather
+    // than a fragment. Bounded so a single enormous line cannot eat the cap.
+    const firstBreak = tail.indexOf('\n');
+    if (firstBreak !== -1 && firstBreak < READER_LINE_ALIGN_MAX_CHARS) {
+      tail = tail.slice(firstBreak + 1);
+    }
+    return READER_TRUNCATION_NOTICE + '\n' + tail;
+  }
+
+  /**
    * Resolve the fixed DOM container only while it still renders this exact
    * TerminalPane. Cached groups keep their WebSocket alive while the same
    * container id hosts another session, so id lookup alone is never proof of
@@ -1230,9 +1862,29 @@ class TerminalPane {
         cursorBlink: true,
         cursorStyle: 'bar',
         fontSize: 13,
-        fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
+        // P5.5: the face arrives through the terminalSurface projection, which
+        // reads --font-terminal. The size deliberately does NOT: 13px is the
+        // metric the PTY column count has always been computed from, and
+        // TERMINAL-ARCHITECTURE.md 10.3 rules that the terminal's own metrics
+        // win inside the terminal region ("a 1.7 line height inside a terminal
+        // wastes roughly 40 percent of the vertical rows, which changes the
+        // PTY row count and therefore changes what the CLI renders").
+        fontFamily: TerminalPane.getTerminalFontFamily(),
         lineHeight: 1.2,
-        scrollback: 5000,
+        // P5.3, TERMINAL-ARCHITECTURE defect D7. The client ring was 5000 lines
+        // against a 100 KB server ring, so a chatty shell trimmed its own
+        // history away from BOTH ends within an hour and the content was then
+        // gone for good. 10000 lines at this cell size measures roughly 8 MB
+        // per pane in xterm 6's buffer, which is the figure VG-5 exists to
+        // confirm against a heap snapshot rather than an estimate.
+        //
+        // P11.8 splits that by layout (MOBILE-EXPERIENCE E.3): the desktop
+        // keeps 10000, a phone takes 2000. The cap is affordable there for a
+        // reason P5.3 did not have when it raised the number: since P7 the
+        // archive is reachable without the ring at all, because the history
+        // surface pages the transcript and the sidecar's line log from the
+        // server. xterm's buffer is a live window, not the archive.
+        scrollback: TerminalPane.resolveScrollbackLines(),
         // Issue #41: animate wheel and Shift+PageUp/Down scrolling instead of
         // jumping in discrete row blocks. Resolves to 0 (instant) when the
         // setting is off or the OS requests reduced motion.
@@ -1249,6 +1901,10 @@ class TerminalPane {
       }
 
       this.term.open(container);
+      // P11.8: a freshly mounted pane is one the user just asked for, so it
+      // enters the recency list at the front. Without this a first pane on a
+      // phone would be outside its own budget until something focused it.
+      TerminalPane.noteLivePane(this);
       // Stamp the live xterm root with its owning TerminalPane. Fixed grid
       // slots can be reused while cached panes and deferred mounts overlap;
       // event routing must follow the terminal that actually rendered the
@@ -1287,6 +1943,13 @@ class TerminalPane {
       // repaint every cell under the highlight.
       this._installSelectModeWheelGuard();
       this._injectCopyControls();
+      // P7.1: the boundary wheel handler and the buffer-mode subscription that
+      // together make wheel-up reach history. Installed through xterm 6's
+      // PUBLIC attachCustomWheelEventHandler rather than as a second capture
+      // phase listener, so the Select-mode wheel guard above is untouched and
+      // keeps working exactly as it does today (13.2's ruling: add a sibling,
+      // never rewrite the guard).
+      this._installHistorySurface();
       // Width claim: start watching for this pane becoming the one the user is
       // actually looking at. Both triggers are inert until the WebSocket is
       // open and the initial replay window has passed.
@@ -1317,6 +1980,34 @@ class TerminalPane {
           this._log('Calling connect()...');
           this.connect();
 
+          // P5.5 metric stability. The terminal face is now a self-hosted
+          // webfont declared with `font-display: swap`, so on a cold load the
+          // browser can measure the FALLBACK face, hand xterm a cell width,
+          // and then swap the real face in underneath it. The symptom is
+          // column drift: a pane that fitted 96 columns reflows to 92 a
+          // fraction of a second later, and the CLI on the other end has
+          // already drawn for 96.
+          //
+          // document.fonts.ready settles once every pending face has loaded or
+          // failed, so one refit at that moment closes the window. It is
+          // additive to the 200ms safety refit below rather than a replacement,
+          // because the two answer different questions: this one is "the face
+          // arrived", that one is "the layout settled". Guarded on every axis,
+          // since the Font Loading API is absent in the vm sandboxes this file
+          // is unit-tested in.
+          try {
+            if (typeof document !== 'undefined' && document.fonts &&
+                document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+              document.fonts.ready.then(() => {
+                if (this._disposed || this._mountGeneration !== mountGeneration || !this.fitAddon) return;
+                try {
+                  this.fitAddon.fit();
+                  this._sendResizeIfChanged(false);
+                } catch (_) { /* a pane torn down mid-load */ }
+              }).catch(() => { /* font loading never blocks a terminal */ });
+            }
+          } catch (_) { /* no Font Loading API */ }
+
           // Safety refit after 200ms - catches edge cases where the grid
           // is still settling (e.g., CSS transitions, slow layout).
           // Deduplicated: only notifies the server when dims really changed,
@@ -1343,6 +2034,131 @@ class TerminalPane {
         // once so the safety-critical copy/paste branches cannot fall through
         // to xterm's control-character path merely because letter case changed.
         const shortcutKey = typeof e.key === 'string' ? e.key.toLowerCase() : '';
+
+        // ── Ctrl+Shift+C, copy ALWAYS (TERMINAL-ARCHITECTURE D5 and 8.4) ──
+        //
+        // The Linux terminal convention, and the answer to the one thing plain
+        // Ctrl+C cannot do: copy when the user is not sure whether a selection
+        // exists. Plain Ctrl+C is deliberately ambiguous (selection copies,
+        // no selection interrupts), which means a user who wants to copy has to
+        // know the state of something they cannot see. This shortcut has one
+        // meaning and never sends ETX.
+        //
+        // It is written `mod && e.shiftKey && shortcutKey` rather than
+        // `mod && shortcutKey && e.shiftKey`, and it sits ABOVE the plain
+        // branch, for two reasons that are both load bearing:
+        //
+        //   BEHAVIOUR. `mod && shortcutKey === 'c'` is also true with Shift
+        //   held, so the plain branch below would otherwise swallow this
+        //   shortcut and hand it to a native copy that Chromium has already
+        //   bound to Inspect Element.
+        //
+        //   PRESERVATION. Three suites slice the plain branch out of this file
+        //   BY ITS SOURCE TEXT (copy-secure-context-fallback, terminal-select-v2
+        //   and terminal-select-mode) and assert that the slice contains no
+        //   preventDefault and no copyTextToClipboard. A branch that began with
+        //   the same characters, or that sat between the plain branch and the
+        //   `// Ctrl+V / Cmd+V` comment below, would be extracted as part of it
+        //   and would turn all three red while behaving correctly.
+        //
+        // preventDefault here is aimed at the browser, not at xterm: xterm 6
+        // already produces nothing for a Ctrl+SHIFT+letter (its control-code
+        // branch requires `!e.shiftKey`), so there was never a SIGINT to
+        // suppress; what there is, is a DevTools shortcut to keep out of the
+        // way when DevTools is closed.
+        if (mod && e.shiftKey && shortcutKey === 'c') {
+          e.preventDefault();
+          const selection = this.getCopySelection();
+          if (selection.hasSelection && selection.text) {
+            TerminalPane.copyTextToClipboard(selection.text);
+          }
+          return false;
+        }
+
+        // ── Ctrl+C over a HISTORY selection (P7, TERMINAL-ARCHITECTURE 9.1) ──
+        //
+        // Written with the layer test FIRST, and that spelling is load bearing:
+        // three suites (copy-secure-context-fallback, terminal-select-mode and
+        // terminal-select-v2) locate the plain branch below by an indexOf of
+        // its exact if-header text, so a branch that BEGAN with those same
+        // characters would be extracted as part of it and would turn all three
+        // red while behaving correctly. The header literal is deliberately not
+        // repeated anywhere above the branch it belongs to, comments included,
+        // because indexOf cannot tell a comment from code.
+        //
+        // WHY IT EXISTS AT ALL. Plain Ctrl+C deliberately does nothing but
+        // return false, leaving the copy to Chromium's trusted `copy` event,
+        // which xterm answers on the terminal element with ITS OWN selection.
+        // The reachable case where that is wrong is Ctrl+Shift+A: it selects
+        // the history document while the keyboard focus is still on the
+        // terminal, so xterm would answer the copy with an empty selection and
+        // the user would get nothing. When the selection lives in the history
+        // layer this branch copies it explicitly through the universal helper,
+        // which works on insecure origins too.
+        if (this._historyOwnsSelection() && mod && !e.shiftKey && shortcutKey === 'c') {
+          e.preventDefault();
+          const historySelection = this.getCopySelection();
+          if (historySelection.hasSelection && historySelection.text) {
+            TerminalPane.copyTextToClipboard(historySelection.text);
+          }
+          return false;
+        }
+
+        // ── The history surface's own keys (8.4) ──
+        //
+        // Shift+PageUp / Shift+PageDown, Ctrl+Shift+Home / End, Escape, and
+        // the row that makes the whole surface modeless: any printable key
+        // dismisses and is delivered, exactly as in a native terminal.
+        //
+        // The verdict comes back from the layer rather than being decided here
+        // so the two entry points (this handler, and the layer's own keydown
+        // for when the user has clicked into the document) cannot drift.
+        // 'consumed' means xterm must not see the key; 'pass' means the layer
+        // has closed and the key belongs to the PTY, which is what returning
+        // true delivers.
+        const historyVerdict = this._historyKeyVerdict(e);
+        if (historyVerdict === 'consumed') {
+          e.preventDefault();
+          return false;
+        }
+        if (historyVerdict === 'pass') return true;
+
+        // ── Ctrl+Shift+A, select all (D5 and 8.4) ──
+        //
+        // Terminal.selectAll() has existed in xterm 6 the whole time
+        // (xterm.d.ts line 1191) and nothing was wired to it, so "copy the
+        // whole terminal window" had no single action.
+        //
+        // WHY NOT Ctrl+A. Ctrl+A is beginning-of-line in readline and in every
+        // shell, editor and agent CLI this application spawns, and it is the
+        // tmux and screen prefix. Intercepting it would break the terminal to
+        // add a convenience, which is the opposite of what a terminal is for.
+        // 8.4 rules on this explicitly and picks the Shift form; Cmd+A already
+        // reaches xterm's own SELECT_ALL on macOS and is left alone.
+        //
+        // P7.6 REPLACED THIS BODY, not its binding. It now selects the whole
+        // HISTORY DOCUMENT including the current screen, which is requirement
+        // A6 ("select the entire pane content, including history, with one
+        // action") and which term.selectAll() can never satisfy on an agent
+        // pane: xterm holds one screen there, because the alternate viewport
+        // never scrolls.
+        //
+        // Opening the surface first is deliberate. "Select everything" on a
+        // surface that is not showing everything would copy a subset while
+        // looking like it copied the lot, which is the silent-wrong-answer
+        // class of failure this whole phase exists to remove. term.selectAll()
+        // remains the fallback for a pane whose layer cannot open (no host, no
+        // terminal-history.js), so nothing regresses when the surface is
+        // unavailable.
+        if (mod && e.shiftKey && shortcutKey === 'a') {
+          e.preventDefault();
+          if (!this.selectAllHistory()) {
+            try {
+              if (this.term && typeof this.term.selectAll === 'function') this.term.selectAll();
+            } catch (_) { /* a disposed terminal has nothing to select */ }
+          }
+          return false;
+        }
 
         // Ctrl+C / Cmd+C with an xterm selection belongs to the browser's
         // trusted native copy path. Returning false keeps xterm from turning
@@ -1445,8 +2261,7 @@ class TerminalPane {
                 this._pasteHandled = false;
                 this._pasteHandledResetTimer = null;
               }, 0);
-              const bracketedText = '\x1b[200~' + text + '\x1b[201~';
-              this.ws.send(JSON.stringify({ type: 'input', data: bracketedText }));
+              this._sendPastePayload(text);
             }
             return;
           }
@@ -1492,8 +2307,7 @@ class TerminalPane {
           }
           const text = (e.clipboardData || window.clipboardData || '').getData('text');
           if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
-            const bracketedText = '\x1b[200~' + text + '\x1b[201~';
-            this.ws.send(JSON.stringify({ type: 'input', data: bracketedText }));
+            this._sendPastePayload(text);
           }
         }, { capture: true });
       }
@@ -1734,6 +2548,38 @@ class TerminalPane {
             this._activitySample = '';
             if (this.term) this.term.reset();
             return;
+          } else if (msg.type === 'mode') {
+            // P6.3's mode signal, consumed by P5.1's paste path.
+            //
+            // The server's headless VT sees every byte of the session,
+            // including the bytes that arrived before this client attached, so
+            // it knows whether the application has DEC 2004 on even when the
+            // local xterm was reset a moment ago by a resync. It is behind
+            // CWM_VT_SIDECAR and defaults OFF, so this branch is an UPGRADE:
+            // isBracketedPasteMode falls back to xterm's own reader and then to
+            // false, and nothing in P5 requires a frame ever to arrive.
+            //
+            // Out-of-order and duplicate frames are dropped on `seq`, which the
+            // sidecar stamps for exactly this purpose. A frame with no seq (an
+            // older or hand-rolled server) is accepted, because refusing an
+            // unversioned signal would be worse than acting on a stale one:
+            // the worst case is a bracket decision one mode-change out of date.
+            if (typeof msg.seq !== 'number' || msg.seq >= this._modeSeq) {
+              if (typeof msg.seq === 'number') this._modeSeq = msg.seq;
+              if (typeof msg.bracketedPaste === 'boolean') {
+                this._remoteBracketedPaste = msg.bracketedPaste;
+              }
+              // P7: keep the WHOLE frame, not just the one boolean P5 needed.
+              // The history layer routes on `altBuffer` and decides the wheel
+              // on `mouseTrackingActive`, and both are authoritative here in a
+              // way the client cannot be: this parser saw the bytes that
+              // arrived before this client attached. Stored on the same seq
+              // guard so an out-of-order frame cannot move the router
+              // backwards.
+              this._remoteModeFrame = msg;
+              if (this._historyLayer) this._historyLayer.onBufferChange();
+            }
+            return;
           } else if (msg.type === 'error') {
             this._flushWriteBuffer();
             this._status('[Error: ' + msg.message + ']', 'red');
@@ -1820,6 +2666,15 @@ class TerminalPane {
    * it moved up here so the availability guard could be added without changing
    * the pasteFromClipboard..this.ws.send proximity the isolation gate checks.)
    *
+   * P5.1 AMENDS THAT PARAGRAPH IN ONE RESPECT, and the amendment is the whole
+   * point of the work package: the wrapping is now CONDITIONAL on the receiving
+   * application having enabled DEC 2004, which prepareInputForPty reads from the
+   * live terminal rather than assuming. Against an application that never asked
+   * for bracketed paste (a bare cmd.exe, powershell.exe, or any simple REPL) the
+   * markers were delivered as literal garbage, which is defect D1 in
+   * TERMINAL-ARCHITECTURE.md section 4. Newline normalisation (D2) and the
+   * multi-line confirm (9.4) arrive on the same call.
+   *
    * Availability: the async Clipboard API (navigator.clipboard.readText) only
    * exists in secure contexts (https or localhost). On http over LAN, the
    * documented remote-access mode, navigator.clipboard is undefined. Rather
@@ -1850,9 +2705,10 @@ class TerminalPane {
     }
     try {
       const text = await navigator.clipboard.readText();
-      if (text && this.ws && this.ws.readyState === WebSocket.OPEN) {
-        const bracketedText = '\x1b[200~' + text + '\x1b[201~';
-        this.ws.send(JSON.stringify({ type: 'input', data: bracketedText }));
+      const paste = text ? prepareInputForPty(text, this.pasteOptions()) : null;
+      if (paste && paste.needsConfirm) this._confirmMultilinePaste(paste);
+      else if (paste && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'input', data: paste.data }));
       }
       // Refocus the terminal after the async clipboard read completes.
       // The await can cause the browser to shift focus away from xterm's
@@ -1869,6 +2725,196 @@ class TerminalPane {
       if (this.term) this.term.focus();
       return false;
     }
+  }
+
+  /**
+   * Read the LIVE bracketed-paste state for the application on the other end
+   * of this pane's PTY.
+   *
+   * Three sources, in falling order of authority, because P5 must work whether
+   * or not P6's server-side VT sidecar is switched on:
+   *
+   *   1. The `mode` control frame (TERMINAL-ARCHITECTURE stage 2, P6.3). The
+   *      server's headless VT is the same parser the real terminal uses and it
+   *      sees every byte, including bytes this client was not attached for. It
+   *      is behind CWM_VT_SIDECAR and DEFAULTS OFF, so it is an upgrade rather
+   *      than a dependency: nothing here may require it.
+   *   2. `term.modes.bracketedPasteMode`, xterm 6's own public IModes reader
+   *      (xterm.d.ts line 1919). Correct for everything this client has seen,
+   *      which is everything after attach.
+   *   3. False. An application that has not asked for bracketing does not want
+   *      it, and this is the SAFE default in both directions: a missing bracket
+   *      pastes literally, while a spurious bracket prints `[200~` into the
+   *      user's shell.
+   *
+   * @returns {boolean} Whether DEC 2004 is currently enabled.
+   */
+  isBracketedPasteMode() {
+    if (typeof this._remoteBracketedPaste === 'boolean') return this._remoteBracketedPaste;
+    try {
+      if (this.term && this.term.modes) return this.term.modes.bracketedPasteMode === true;
+    } catch (_) { /* a disposed or partially constructed terminal reports nothing */ }
+    return false;
+  }
+
+  /**
+   * The options every paste entry point passes to prepareInputForPty.
+   *
+   * One method so the three call sites cannot drift, which is exactly how D1
+   * and D2 came to exist in three places at once.
+   *
+   * @returns {{bracketedPasteMode: boolean, confirmMultiline: string}} Options.
+   */
+  pasteOptions() {
+    return {
+      bracketedPasteMode: this.isBracketedPasteMode(),
+      confirmMultiline: TerminalPane.multilinePasteSetting(),
+    };
+  }
+
+  /**
+   * Read the `terminalConfirmMultilinePaste` setting.
+   *
+   * Static and defensive for the same reason getSmoothScrollDuration is: a
+   * pane can be constructed before the app shell has loaded its settings, and
+   * a paste must never throw on a malformed localStorage value.
+   *
+   * @returns {string} `auto` (the 9.4 table), `always`, or `never`.
+   */
+  static multilinePasteSetting() {
+    try {
+      const stored = JSON.parse(localStorage.getItem('cwm_settings') || '{}');
+      const value = stored && stored.terminalConfirmMultilinePaste;
+      if (value === PASTE_CONFIRM_ALWAYS || value === PASTE_CONFIRM_NEVER) return value;
+    } catch (_) { /* unreadable or malformed settings fall through to the default */ }
+    return PASTE_CONFIRM_AUTO;
+  }
+
+  /**
+   * Prepare and deliver one paste, asking first when 9.4 says to ask.
+   *
+   * Used by the two NATIVE entry points (beforeinput/insertFromPaste and the
+   * paste event). Both have already called preventDefault, so nothing is on a
+   * deadline: deferring the send behind a confirm is safe.
+   *
+   * @param {string} text - Raw clipboard text.
+   * @returns {void}
+   */
+  _sendPastePayload(text) {
+    const paste = prepareInputForPty(text, this.pasteOptions());
+    if (paste.needsConfirm) {
+      this._confirmMultilinePaste(paste);
+      return;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'input', data: paste.data }));
+    }
+  }
+
+  /**
+   * Ask before sending a multi-line paste to an application that has not
+   * enabled bracketed paste.
+   *
+   * WHY THIS IS A PANE-LOCAL DIALOG rather than window.confirm or an app-shell
+   * modal. window.confirm blocks the event loop, which stalls the PTY write
+   * pipeline of every other pane on the page. An app-shell modal would put the
+   * decision in app.js, a file this work package does not own, and would put a
+   * chrome-coloured card over a terminal-coloured surface. This is parented on
+   * the pane, styled entirely from stylesheet classes (no inline colour), and
+   * dismissable three ways: Paste, Cancel, Escape.
+   *
+   * The default action is PASTE, matching Windows Terminal's own
+   * confirmMultilinePaste dialog: the user asked for this, the confirm exists
+   * to make the consequence visible, not to make it hard.
+   *
+   * @param {{data: string, lineCount: number, firstLine: string}} paste - A
+   *   prepared payload from prepareInputForPty.
+   * @returns {void}
+   */
+  _confirmMultilinePaste(paste) {
+    const pane = this.paneEl || (this._getOwnedContainer() &&
+      this._getOwnedContainer().closest('.terminal-pane'));
+    if (!pane || typeof document === 'undefined') {
+      // No surface to ask on. Send rather than silently swallow the paste:
+      // losing a user's clipboard with no message is worse than the mild
+      // surprise the confirm exists to prevent.
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'input', data: paste.data }));
+      }
+      return;
+    }
+    this._dismissPasteConfirm();
+
+    const root = document.createElement('div');
+    root.className = 'terminal-paste-confirm';
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'false');
+    root.setAttribute('aria-label', 'Confirm multi-line paste');
+
+    const title = document.createElement('div');
+    title.className = 'terminal-paste-confirm-title';
+    title.textContent = 'Paste ' + paste.lineCount + ' lines into this session?';
+
+    const detail = document.createElement('div');
+    detail.className = 'terminal-paste-confirm-detail';
+    detail.textContent = 'Each line runs as its own command. It starts with:';
+
+    const preview = document.createElement('div');
+    preview.className = 'terminal-paste-confirm-preview';
+    preview.textContent = paste.firstLine;
+
+    const actions = document.createElement('div');
+    actions.className = 'terminal-paste-confirm-actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn-ghost btn-sm terminal-paste-confirm-cancel';
+    cancel.textContent = 'Cancel';
+    const accept = document.createElement('button');
+    accept.type = 'button';
+    accept.className = 'btn btn-primary btn-sm terminal-paste-confirm-accept';
+    accept.textContent = 'Paste';
+    actions.appendChild(cancel);
+    actions.appendChild(accept);
+
+    root.appendChild(title);
+    root.appendChild(detail);
+    root.appendChild(preview);
+    root.appendChild(actions);
+
+    const close = () => this._dismissPasteConfirm();
+    const send = () => {
+      close();
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'input', data: paste.data }));
+      }
+      this.focus();
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); close(); this.focus(); }
+      else if (e.key === 'Enter') { e.stopPropagation(); send(); }
+    };
+    accept.addEventListener('click', send);
+    cancel.addEventListener('click', () => { close(); this.focus(); });
+    root.addEventListener('keydown', onKey);
+
+    pane.appendChild(root);
+    this._pasteConfirmEl = root;
+    try { accept.focus(); } catch (_) { /* a detached pane cannot take focus */ }
+  }
+
+  /**
+   * Remove the multi-line paste confirm if one is open.
+   *
+   * Idempotent, and called from dispose() and detachHostBindings() as well as
+   * from the dialog's own buttons, so a pane that is torn down or moved to
+   * another slot mid-decision never leaves an orphan dialog in the DOM.
+   *
+   * @returns {void}
+   */
+  _dismissPasteConfirm() {
+    if (!this._pasteConfirmEl) return;
+    try { this._pasteConfirmEl.remove(); } catch (_) { /* already detached */ }
+    this._pasteConfirmEl = null;
   }
 
   /**
@@ -1976,6 +3022,17 @@ class TerminalPane {
     if (this._selNoticeTimer) { clearTimeout(this._selNoticeTimer); this._selNoticeTimer = null; }
     this._removeSelectModeWheelGuard();
     this._destroyCopyView();
+    // P7: the history surface is parented on the pane element too, so it is a
+    // fixed-host resource exactly like the Copy view overlay above. A cached
+    // pane that kept its surface attached would leave one session's history
+    // floating over another session's terminal, and its document-level
+    // selectionchange listener would keep running for a pane nobody can see.
+    this._destroyHistoryLayer();
+    // P5.2: the multi-line paste confirm is parented on the pane element, so it
+    // is a fixed-host resource exactly like the Copy view overlay above. A
+    // cached pane that kept its dialog attached would leave a question about
+    // one session floating over another session's terminal.
+    this._dismissPasteConfirm();
     if (this._copyViewBtn) {
       try { this._copyViewBtn.remove(); } catch (_) {}
       this._copyViewBtn = null;
@@ -2050,6 +3107,12 @@ class TerminalPane {
       // detachHostBindings() call above.
       this._installSelectModeWheelGuard();
       this._injectCopyControls();
+      // P7: the history surface follows the pane to its new slot for the same
+      // reason the wheel guard does. detachHostBindings destroyed it above, so
+      // this rebuilds the layer against the destination host; a surface that
+      // was open when the pane moved comes back closed, which is correct
+      // because the rect it was measured against no longer exists.
+      this._installHistorySurface();
       // Width claim: rebuild both triggers against the destination slot. The
       // hidden-to-visible edge then fires for the restored pane, which is
       // exactly when this device should own the geometry again.
@@ -2106,7 +3169,7 @@ class TerminalPane {
   /**
    * Visibility-safe fit: only calls fitAddon.fit() when the container is visible.
    * Hidden panes (display:none from tab switching) report 0×0 dimensions, which
-   * causes fitAddon to resize the PTY to 1×1 — permanently garbling scrollback.
+   * causes fitAddon to resize the PTY to 1×1, permanently garbling scrollback.
    * All external callers should use safeFit() instead of fitAddon.fit() directly.
    */
   safeFit() {
@@ -2238,6 +3301,29 @@ class TerminalPane {
    */
   _requestActivate(reason) {
     if (!this.term || !this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    // MOBILE-EXPERIENCE B.9 rule 1, the ONE line DEVIATIONS DV-P11-3 recorded
+    // as post-P7 mop-up: P11 could not place it, because this file belonged to
+    // the P7 track for the whole of that phase, so it published the predicate
+    // instead and named this call site. The gate answers "is this device
+    // genuinely foreground, on the Terminal tab, outside a keyboard settle,
+    // and does this session still follow this device" in one place, so the
+    // pane consults an answer rather than re-deriving four conditions.
+    //
+    // It sits ABOVE the freeze branch on purpose: a denied claim is not a
+    // deferred one. Deferring would replay it the moment the freeze lifts,
+    // which is precisely the claim the user did not ask for.
+    //
+    // The typeof guard is not decoration. terminal.js is evaluated in source
+    // sandboxes that bind window as a parameter (the pinned suites) and in one
+    // that slices a single method body and binds nothing, and a claim path
+    // that throws would be worse than a claim path that fires.
+    try {
+      if (typeof window !== 'undefined' &&
+          window.MyrlinClaimGate && !window.MyrlinClaimGate.canClaim(this.sessionId)) return false;
+    } catch (_) {
+      // A broken gate must not disable the width claim. Failing open is the
+      // pre-P11b behaviour, which is the conservative direction here.
+    }
     if (this._isWriteFrozen()) { this._activatePending = true; return false; }
     const now = Date.now();
     if (now < this._activateBlockedUntil) {
@@ -2454,7 +3540,7 @@ class TerminalPane {
     // bubble from viewport to .xterm where xterm.js intercepts them).
     //
     // This handler intercepts touches at our container level (capture phase)
-    // and uses term.scrollLines() — xterm.js's own scroll API — so that
+    // and uses term.scrollLines(), xterm.js's own scroll API, so that
     // internal scroll state (ydisp) stays in sync. Without this, xterm.js
     // doesn't know the user has scrolled up and snaps back to the bottom
     // on every new PTY output line.
@@ -2476,10 +3562,111 @@ class TerminalPane {
     let longPressTimer = null;
     let scrollAccum = 0;     // Sub-line pixel accumulator for smooth scrolling
     let lastMomentumTime = 0;
-    const LONG_PRESS_MS = 400;
-    const MOVE_THRESHOLD = 8;  // px — must move this far to be a scroll
+    // P11b item 5: the gesture's two numbers come from the ONE table that
+    // owns them (MOBILE-EXPERIENCE appendix, mobile-viewport.js), with the
+    // previous literals kept as the no-driver fallback so nothing changes for
+    // a build that loads terminal.js alone. Both values are unchanged today;
+    // what changes is that a future edit to the table moves the terminal too.
+    const LONG_PRESS_MS = TerminalPane.mobileConstant('MW_LONGPRESS_MS', 400);
+    // px of travel before the gesture counts as a scroll rather than a hold.
+    const MOVE_THRESHOLD = TerminalPane.mobileConstant('MW_LONGPRESS_MOVE_PX', 8);
     const FRICTION = 0.92;     // Momentum deceleration (per 16ms equivalent)
     const MIN_VELOCITY = 0.1;  // Stop momentum below this (px/ms)
+
+    /* ── P11.7: the boundary, on touch ──────────────────────────────
+     *
+     * P7 shipped the boundary for the wheel and left touch explicitly
+     * unshipped (DECISIONS 16.3 item 5). What was missing is not the surface,
+     * which already scrolls natively and is already exempt from this engine
+     * (`_isInsideHistoryLayer` guards all four handlers). What was missing is
+     * the CROSSING: a flick that reaches the top of the xterm buffer used to
+     * stall there, because xterm has nothing above row 0 and the layer only
+     * opened on a wheel or a key.
+     *
+     * WHY THIS ENGINE HAS TO DRIVE THE LAYER FOR THE REST OF THE GESTURE, and
+     * why that does not contradict MOBILE-EXPERIENCE B.4 rule 2. A touch
+     * sequence is delivered to the element that was hit at `touchstart` for
+     * its whole life; the browser will not retarget an in-flight gesture onto
+     * a layer that appeared underneath the finger halfway through. So the
+     * crossing gesture, and only the crossing gesture, keeps being applied by
+     * this engine, to `doc.scrollTop` instead of to `term.scrollLines`. The
+     * moment the finger lifts and the momentum tail decays, the layer is an
+     * ordinary native scroller again and EVERY subsequent gesture inside it is
+     * native, on the compositor thread, with the platform's own momentum and
+     * the platform's own selection handles. Rule 2 governs the surface, and
+     * the surface is native. This is one gesture's worth of hand-off.
+     */
+    let historyDriving = false;   // this gesture is scrolling the history doc
+    let boundaryAccum = 0;        // upward travel banked past the buffer top
+    let exitAccum = 0;            // downward travel banked past the doc bottom
+
+    /** @returns {boolean} Whether the pane's history surface is open. */
+    const historyOpen = () => !!(this._historyLayer && this._historyLayer.isOpen());
+
+    /**
+     * Whether xterm is showing the very top of its buffer, which is the only
+     * place the history boundary exists. Read live rather than cached: output
+     * arriving mid-gesture moves it.
+     *
+     * @returns {boolean} True at the top of the ring.
+     */
+    const atBufferTop = () => {
+      try {
+        const buf = this.term && this.term.buffer && this.term.buffer.active;
+        if (!buf) return false;
+        // The alternate buffer has no scrollback at all, so its viewport is
+        // always simultaneously the top and the bottom. That is the case the
+        // whole surface exists for: an agent CLI's conversation is not in the
+        // terminal, so wheeling or flicking up must reach the transcript.
+        if (buf.type === 'alternate') return true;
+        return (typeof buf.viewportY === 'number' ? buf.viewportY : 0) <= 0;
+      } catch (_) {
+        return false;
+      }
+    };
+
+    /**
+     * Try to open the surface under a finger that has run out of buffer.
+     *
+     * @param {number} px - Upward travel available in this frame.
+     * @returns {number} Pixels left over for the layer to consume, 0 when the
+     *   surface did not open.
+     */
+    const crossIntoHistory = (px) => {
+      boundaryAccum += px;
+      if (boundaryAccum < HISTORY_TOUCH_OPEN_PX) return 0;
+      const banked = boundaryAccum;
+      boundaryAccum = 0;
+      if (!this.openHistory('touch-boundary')) return 0;
+      historyDriving = true;
+      // Everything banked while the buffer was stalling is handed to the
+      // layer, so the document arrives already scrolled by the distance the
+      // finger travelled. That is what removes the hitch: no frame of the
+      // gesture is spent doing nothing.
+      return banked;
+    };
+
+    /**
+     * Apply one frame of the gesture to the open history document.
+     *
+     * @param {number} px - Signed pixels; positive is toward older content.
+     * @returns {void}
+     */
+    const driveHistory = (px) => {
+      const layer = this._historyLayer;
+      if (!layer || typeof layer.scrollByPixels !== 'function') { historyDriving = false; return; }
+      const leftover = layer.scrollByPixels(px);
+      if (leftover >= 0) { exitAccum = 0; return; }
+      // Negative leftover means the document is at its bottom and the finger
+      // is still pulling toward live. Past the same threshold the other
+      // direction used, the surface closes and the terminal comes back, which
+      // is the touch spelling of the wheel-down rule P7 already shipped.
+      exitAccum += -leftover;
+      if (exitAccum < HISTORY_TOUCH_CLOSE_PX) return;
+      exitAccum = 0;
+      historyDriving = false;
+      this.closeHistory('touch-boundary');
+    };
 
     /**
      * Hand scroll control back to xterm once the touch engine stops driving
@@ -2495,6 +3682,12 @@ class TerminalPane {
     const stopMomentum = () => {
       if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = null; }
       velocity = 0;
+      // P11.7: the momentum tail is the last frame of the gesture that crossed
+      // the boundary, so its end is where this engine stops driving the layer
+      // and the surface goes back to being an ordinary native scroller.
+      historyDriving = false;
+      boundaryAccum = 0;
+      exitAccum = 0;
       // Momentum decay (or teardown) is a gesture-end path: restore xterm's
       // own smooth scrolling for subsequent wheel/keyboard scrolls.
       restoreSmoothScroll();
@@ -2516,6 +3709,31 @@ class TerminalPane {
       }
     };
 
+    /**
+     * Route one frame of gesture travel to whichever surface owns it.
+     *
+     * ONE router for the finger and for the momentum tail, so a flick and a
+     * drag cross the boundary identically. That equivalence is the whole
+     * reason this is a function rather than two copies of the branch: a
+     * boundary that only the slow gesture can cross is worse than no boundary,
+     * because it teaches the user that flicking is broken.
+     *
+     * @param {number} px - Signed pixels; positive is toward older content.
+     * @returns {void}
+     */
+    const applyGestureScroll = (px) => {
+      if (historyDriving || historyOpen()) { driveHistory(px); return; }
+      if (px > 0 && atBufferTop()) {
+        const banked = crossIntoHistory(px);
+        if (banked > 0) driveHistory(banked);
+        return;
+      }
+      // Any travel that is not against the top boundary discards the bank: a
+      // user who scrolls back down has withdrawn the intent to cross.
+      boundaryAccum = 0;
+      scrollByPixels(px);
+    };
+
     /** Animate momentum scroll after finger lifts (time-based, works at any Hz) */
     const animateMomentum = (timestamp) => {
       if (lastMomentumTime === 0) lastMomentumTime = timestamp;
@@ -2523,13 +3741,23 @@ class TerminalPane {
       lastMomentumTime = timestamp;
       velocity *= Math.pow(FRICTION, dt / 16); // scale decay to actual frame time
       if (Math.abs(velocity) < MIN_VELOCITY) { stopMomentum(); return; }
-      scrollByPixels(velocity * dt);
+      // P11.7: the tail carries THROUGH the boundary. Before this, a fling that
+      // ran out of buffer spent the rest of its momentum against row 0 and the
+      // gesture died on a wall; now the same fling opens the surface and keeps
+      // travelling into the transcript, which is the "momentum carried through
+      // the boundary" the work package names.
+      applyGestureScroll(velocity * dt);
       momentumRaf = requestAnimationFrame(animateMomentum);
     };
 
     const onTouchStart = (e) => {
       // Copy view overlay owns its own scrolling and long-press selection.
       if (this._isInsideCopyView(e.target)) return;
+      // P7: so does the history surface. It scrolls natively, its selection
+      // uses the platform handles, and its pull-to-refresh suppression is the
+      // browser's own, so the engine must not convert a touch inside it into
+      // term.scrollLines().
+      if (this._isInsideHistoryLayer(e.target)) return;
       // In type mode, let xterm.js handle everything
       if (this._mobileTypeMode) return;
       // If currently selecting, let xterm handle
@@ -2550,6 +3778,12 @@ class TerminalPane {
       velocity = 0;
       isScrolling = false;
       scrollAccum = 0;
+      // P11.7: every gesture starts on the terminal side of the boundary with
+      // an empty bank. stopMomentum() above has already released any tail that
+      // was still driving the layer.
+      historyDriving = false;
+      boundaryAccum = 0;
+      exitAccum = 0;
 
       // Start long-press timer for text selection
       longPressTimer = setTimeout(() => {
@@ -2561,6 +3795,8 @@ class TerminalPane {
     const onTouchMove = (e) => {
       // Copy view overlay scrolls natively; never convert it to term scroll.
       if (this._isInsideCopyView(e.target)) return;
+      // P7: the history surface scrolls natively for the same reason.
+      if (this._isInsideHistoryLayer(e.target)) return;
       if (this._mobileTypeMode) return;
       // If selecting, let xterm.js handle the selection drag
       if (this._mobileSelecting) return;
@@ -2574,18 +3810,27 @@ class TerminalPane {
       const now = Date.now();
       const dt = now - lastTime;
 
-      // Once movement exceeds threshold, it's a scroll — cancel long-press
+      // Once movement exceeds threshold, it's a scroll, cancel long-press
       if (!isScrolling && totalDelta > MOVE_THRESHOLD) {
         isScrolling = true;
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
       }
 
       if (isScrolling) {
-        // Prevent default browser scroll (e.g. pull-to-refresh on Chrome mobile/tablet)
+        // Prevent default browser scroll (e.g. pull-to-refresh on Chrome mobile/tablet).
+        // P11.7 restates this as a contract rather than an aside: while THIS
+        // engine is driving, the browser's overscroll gestures are suppressed
+        // for the whole gesture, including the frames that are scrolling the
+        // history document, so a flick that crosses the boundary can never
+        // trigger a page refresh on the way past it. The layer's own half of
+        // the same suppression is `overscroll-behavior: contain` in styles.css,
+        // which covers every gesture that starts inside the surface.
         if (e.cancelable) e.preventDefault();
-        
-        // Scroll via xterm.js API so ydisp stays in sync (prevents snap-back on output)
-        scrollByPixels(deltaY);
+
+        // Scroll via xterm.js API so ydisp stays in sync (prevents snap-back on
+        // output), or hand the frame to the history surface once the buffer's
+        // top boundary has been crossed.
+        applyGestureScroll(deltaY);
         // Track velocity for momentum (smoothed exponential average)
         if (dt > 0) {
           const instantV = deltaY / dt;
@@ -2600,6 +3845,8 @@ class TerminalPane {
     const onTouchEnd = (e) => {
       // Copy view overlay: leave the gesture entirely to the browser.
       if (this._isInsideCopyView(e.target)) return;
+      // P7: and the history surface, whose selection handles are the platform's.
+      if (this._isInsideHistoryLayer(e.target)) return;
       if (!this._mobileTypeMode && !this._mobileSelecting) e.stopPropagation();
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
@@ -2663,8 +3910,13 @@ class TerminalPane {
     }
     this._mobileSelecting = true;
     if (this._xtermScreen) this._xtermScreen.style.pointerEvents = 'auto';
-    // Haptic feedback if available (subtle vibration signals selection mode)
-    if (navigator.vibrate) navigator.vibrate(25);
+    // Haptic feedback if available (subtle vibration signals selection mode).
+    // P11b item 5: the duration is the shared one, so a long press confirms
+    // itself identically here and on every app-layer host bound by
+    // `_mwBindLongPress`. 25 remains the value; it is now read, not repeated.
+    if (navigator.vibrate) {
+      navigator.vibrate(TerminalPane.mobileConstant('MW_LONGPRESS_HAPTIC_MS', 25));
+    }
   }
 
   /**
@@ -2722,19 +3974,28 @@ class TerminalPane {
      WRITE BATCHING
      Accumulates WebSocket data and flushes to xterm.js once per
      animation frame. Prevents main-thread thrashing when multiple
-     terminals output rapidly — the primary cause of input freezes.
+     terminals output rapidly, the primary cause of input freezes.
      ═══════════════════════════════════════════════════════════ */
 
   /**
    * Enqueue data for batched writing to xterm.
    * Focused terminal: flushes every animation frame for responsive input.
    * Background terminals: flush every 150ms to avoid blocking the active pane's
-   * main thread — this is what prevents cursor freezes with multiple sessions.
+   * main thread; this is what prevents cursor freezes with multiple sessions.
    * @param {string} data - Raw terminal output
    */
   _enqueueWrite(data) {
     this._writeBuf += data;
     this._activitySample += data;
+
+    // P7: tell the history surface that the application produced output. Two
+    // jobs, both cheap: it cancels a pending wheel-exhaustion verdict (an
+    // application that answers the wheel is scrolling its own history and must
+    // keep the wheel), and it marks the live segment dirty so an open surface
+    // keeps mirroring the screen. Called on ARRIVAL rather than after the
+    // write because the exhaustion probe is a timing measurement, and called
+    // again after the write in _flushWriteBuffer because the mirror is not.
+    if (this._historyLayer) this._historyLayer.noteOutput();
 
     // Select mode v2 freeze gate. While the toggle is on for a hosted pane,
     // bytes accumulate in the SAME queue the batching pipeline already uses
@@ -2756,13 +4017,18 @@ class TerminalPane {
         this._writeRaf = requestAnimationFrame(() => this._flushWriteBuffer());
       }
     } else {
-      // Background terminal: throttled flush to yield main thread to focused pane
+      // Background terminal: throttled flush to yield main thread to focused
+      // pane. P11.8 makes the throttle three-valued instead of one: 150ms on
+      // the Terminal tab (unchanged), 500ms when the user is looking at some
+      // other tab entirely (E.4 item 4), 1000ms for a dormant pane (E.3). The
+      // delay is resolved HERE rather than in _enqueueWrite's hot path, so it
+      // costs one read per armed timer rather than one per chunk.
       if (!this._bgFlushTimer) {
         this._bgFlushTimer = setTimeout(() => {
           this._bgFlushTimer = null;
           if (this._writeRaf) { cancelAnimationFrame(this._writeRaf); this._writeRaf = null; }
           this._flushWriteBuffer();
-        }, 150);
+        }, this._backgroundFlushDelay());
       }
     }
   }
@@ -2775,6 +4041,11 @@ class TerminalPane {
    */
   setFocused(focused) {
     this._isFocused = focused;
+    // P11.8: focusing a pane is the app layer saying "this is the one the user
+    // is working with", which is exactly the event the phone live-pane budget
+    // is a recency list of. Recorded before the freeze early-return below, so
+    // a pane focused while a selection is held still counts as live.
+    if (focused) TerminalPane.noteLivePane(this);
     // Select mode v2: focusing a frozen pane must not schedule a flush. The
     // flush-side gate would refuse to consume the queue anyway, so this only
     // saves a wasted animation frame per focus change, but it also keeps the
@@ -2807,6 +4078,13 @@ class TerminalPane {
 
     // Single xterm write for the entire frame's data
     this.term.write(buf);
+
+    // P7: the buffer has changed, so an open history surface re-reads its live
+    // segment on the next frame. This is the MIRROR half of the mirror-freeze
+    // principle: the write pipeline above is never gated on the surface, and
+    // the surface never gates it. A selection held in the layer pauses this
+    // refresh and nothing else.
+    if (this._historyLayer) this._historyLayer.noteOutput();
 
     // Track completion (debounced internally). The flushed chunk is passed
     // so the tracker can decide whether this burst is meaningful output or
@@ -3016,7 +4294,7 @@ class TerminalPane {
      Analyzes terminal output for interactive prompts (Y/n, trust,
      permission dialogs). When auto-trust is enabled, automatically
      accepts safe prompts. Dangerous prompts (delete, credentials)
-     are never auto-accepted — they raise a "needs input" event
+     are never auto-accepted; they raise a "needs input" event
      so the app layer can alert the user.
      ═══════════════════════════════════════════════════════════ */
 
@@ -3064,7 +4342,7 @@ class TerminalPane {
 
     if (!matched) return;
 
-    // Check for danger keywords — never auto-accept these
+    // Check for danger keywords, never auto-accept these
     const dangerKeywords = /\b(delete|remove|credential|secret|password|key|token|destroy|format|drop|wipe|overwrite)\b/i;
     const contextWindow = tail; // Check entire tail for danger context
     const isDangerous = dangerKeywords.test(contextWindow);
@@ -3763,6 +5041,11 @@ class TerminalPane {
       // Never steal wheel events that belong to the Copy view overlay; it is
       // an ordinary scrollable DOM element and scrolls natively.
       if (this._isInsideCopyView(e.target)) return;
+      // P7: the history surface is the same kind of element and gets the same
+      // exemption. It normally sits outside this container (it is parented on
+      // the pane), so this only matters in the fallback host case, but the
+      // check is cheap and makes both paths correct wherever the layer landed.
+      if (this._isInsideHistoryLayer(e.target)) return;
       const holding = !!this._selectHold;
       const isAlt = !!(this.term && this.term.buffer && this.term.buffer.active &&
         this.term.buffer.active.type === 'alternate');
@@ -3895,6 +5178,13 @@ class TerminalPane {
           sessionId: this.sessionId,
           selectMode: !!this._selectMode,
           copyViewOpen: !!this._copyOverlayOpen,
+          // P7: the phone chrome has to stay honest about a third state now
+          // (8.5). Added to the EXISTING contract rather than given an event
+          // of its own, so the app shell's single delegated listener picks it
+          // up with no new wiring; a listener that ignores the field is
+          // unaffected, which is what keeps this safe to add from a file the
+          // mobile track does not own.
+          historyOpen: !!(this._historyLayer && this._historyLayer.isOpen()),
         },
       }));
     } catch (_) {
@@ -4006,7 +5296,14 @@ class TerminalPane {
         ? 'Select mode ON: output is paused, drag selects text, Ctrl+C copies. Clickable options are paused. Click to turn off, or just type.'
         : 'Select / Copy mode: pause output and drag to select text. Tip: hold Shift and drag to select any time. Clickable options pause while this is on.';
     }
-    if (on) this._showSelectModeStrip();
+    // P7.6 DEMOTES THE STRIP, and this is the whole of the demotion: the
+    // method, its text, its placement and its notice path are untouched, and
+    // the call is gated instead. Under the Unified Scrollback Surface the
+    // scrollbar is the affordance that says history exists, so a standing
+    // strip on every toggle is chrome explaining something the surface already
+    // shows. What is left worth saying is said once, on the first plain drag
+    // under mouse tracking. See _shouldShowSelectModeStrip.
+    if (on && this._shouldShowSelectModeStrip()) this._showSelectModeStrip();
     else this._hideSelectModeStrip();
     if (this.paneEl) this.paneEl.classList.toggle('select-mode-on', on);
     // Mobile parity: the app shell mirrors this toggle onto the mobile toolbar,
@@ -4046,7 +5343,12 @@ class TerminalPane {
     s.textContent = TerminalPane.SELECT_STRIP_TEXT;
     s.style.cssText = 'position:absolute;left:8px;right:8px;'
       + 'bottom:' + SELECT_STRIP_BASE_BOTTOM_PX + 'px;z-index:' + SELECT_STRIP_Z_INDEX + ';'
-      + "font:11px/1.4 'Plus Jakarta Sans', system-ui, sans-serif;"
+      // Notion restyle P1.2: the Plus Jakarta Sans webfont stopped loading when
+      // index.html dropped its Google Fonts link, so this names the token
+      // instead of a family that is no longer fetched. The literal fallback is
+      // kept for the same reason every token here carries one: a stale cached
+      // stylesheet must not leave this strip unstyled.
+      + 'font:11px/1.4 var(--font-sans, ui-sans-serif);'
       + 'color:var(--text, #cdd6f4);background:var(--surface0, rgba(24, 24, 37, 0.94));'
       + 'border:1px solid var(--mauve, #cba6f7);border-radius:8px;padding:6px 10px;'
       + 'box-shadow:0 6px 18px rgba(0, 0, 0, 0.35);opacity:0;'
@@ -4306,7 +5608,8 @@ class TerminalPane {
     bar.style.cssText = 'display:flex;align-items:center;gap:8px;flex:0 0 auto;'
       + 'padding:6px 8px 6px 12px;background:var(--surface0, #313244);'
       + 'border-bottom:1px solid var(--surface1, #45475a);'
-      + "font:600 12px/1.4 'Plus Jakarta Sans', system-ui, sans-serif;";
+      // Notion restyle P1.2: token rather than the retired webfont family.
+      + 'font:600 12px/1.4 var(--font-sans, ui-sans-serif);';
 
     const title = document.createElement('span');
     title.className = 'terminal-copyview-title';
@@ -4380,7 +5683,12 @@ class TerminalPane {
     pre.className = 'terminal-copyview-text';
     pre.tabIndex = 0;
     pre.style.cssText = 'margin:0;flex:1 1 auto;overflow:auto;padding:10px 12px;'
-      + "font:12px/1.5 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;"
+      // Notion restyle P1.2: the Copy view snapshot is terminal text, so it
+      // takes the terminal's mono token (--font-code, the native SFMono and
+      // Consolas chain) rather than the retired JetBrains Mono webfont. Two
+      // literal fallbacks follow it so the snapshot can never render
+      // proportionally, which would silently misalign every column.
+      + 'font:12px/1.5 var(--font-code, ui-monospace, monospace);'
       + 'white-space:pre-wrap;overflow-wrap:anywhere;'
       + 'user-select:text;-webkit-user-select:text;-webkit-overflow-scrolling:touch;'
       + 'background:var(--mantle, #181825);color:var(--text, #cdd6f4);outline:none;';
@@ -5195,6 +6503,397 @@ class TerminalPane {
     this._copyHintTimer = setTimeout(() => this._dismissCopyHint(), 14000);
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     THE UNIFIED SCROLLBACK SURFACE (P7)
+     TERMINAL-ARCHITECTURE.md sections 7 to 12, stages 3 and 4.
+
+     Select mode makes the VISIBLE screen selectable. The Copy view
+     snapshots both buffers into an overlay the user has to know to
+     open. Neither answers "wheel up and copy what I read ten minutes
+     ago", because for an alternate-screen CLI that content was never
+     in the terminal at all: the viewport never scrolls, so there is no
+     scrollback to reach (measured, section 2.3).
+
+     The history surface reaches it by SCROLL POSITION instead of by a
+     button, and it contains the current screen as its last segment, so
+     a drag from the live screen up into last hour's conversation is
+     one ordinary DOM selection with no boundary in it.
+
+     Everything below is the pane's half of that contract. The surface
+     itself is terminal-history.js.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Whether the history surface module is present and usable.
+   *
+   * Every P7 entry point is gated on this, which is what lets the whole
+   * feature be additive: with terminal-history.js absent (an old cached
+   * index.html, a stripped deployment, a unit test evaluating this file in a
+   * bare vm sandbox) the wheel, the keyboard and Select mode behave exactly as
+   * they did in P6.
+   *
+   * @returns {boolean} True when the layer can be constructed.
+   */
+  _historySurfaceAvailable() {
+    try {
+      return !!(typeof window !== 'undefined' && window.TerminalHistory &&
+        typeof window.TerminalHistory.TerminalHistoryLayer === 'function');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Create the history layer for this pane, once.
+   *
+   * @returns {object|null} The layer, or null when it is unavailable.
+   */
+  _ensureHistoryLayer() {
+    if (this._historyLayer) return this._historyLayer;
+    if (this._disposed || !this._historySurfaceAvailable()) return null;
+    try {
+      this._historyLayer = new window.TerminalHistory.TerminalHistoryLayer(this);
+    } catch (err) {
+      this._log('History layer construction failed: ' + (err && err.message));
+      this._historyLayer = null;
+    }
+    return this._historyLayer;
+  }
+
+  /**
+   * Install the two live hooks the surface needs: the boundary wheel handler
+   * and the buffer-mode subscription.
+   *
+   * The wheel handler is xterm 6's PUBLIC attachCustomWheelEventHandler
+   * (xterm.d.ts line 1094), which runs inside xterm's own wheel path and
+   * therefore composes with the Select-mode capture-phase guard instead of
+   * racing it: the guard sees the event first and only ever acts while Select
+   * mode is on, and this handler decides the boundary for everything else.
+   *
+   * Returns quietly on a pane with no terminal or no surface module, because
+   * both are ordinary states rather than errors.
+   *
+   * @returns {boolean} Whether the hooks were installed.
+   */
+  _installHistorySurface() {
+    if (!this.term) return false;
+    const layer = this._ensureHistoryLayer();
+    if (!layer) return false;
+
+    try {
+      if (typeof this.term.attachCustomWheelEventHandler === 'function') {
+        this.term.attachCustomWheelEventHandler((e) => {
+          try {
+            return this._historyLayer ? this._historyLayer.handleTerminalWheel(e) : true;
+          } catch (_) {
+            // A throw here would swallow the user's wheel entirely, so the
+            // failure mode is "xterm handles it", which is the old behaviour.
+            return true;
+          }
+        });
+      }
+    } catch (_) { /* an engine without the API keeps the Shift+PageUp path */ }
+
+    // Re-route when the application enters or leaves the alternate buffer, so
+    // a shell where the user types `claude` (and later exits it) crosses the
+    // boundary with no user action and no teardown. Disposed with the pane.
+    //
+    // Idempotent across a rebind: a pane moved between grid slots runs this
+    // again, and a second subscription on the same terminal would fire the
+    // router twice per buffer change forever.
+    if (this._historyBufferDisposable) {
+      try { this._historyBufferDisposable.dispose(); } catch (_) {}
+      this._historyBufferDisposable = null;
+    }
+    try {
+      if (this.term.buffer && typeof this.term.buffer.onBufferChange === 'function') {
+        this._historyBufferDisposable = this.term.buffer.onBufferChange(() => {
+          if (this._historyLayer) this._historyLayer.onBufferChange();
+        });
+      }
+    } catch (_) { /* the client-side fallback re-evaluates on every open anyway */ }
+    return true;
+  }
+
+  /**
+   * Open the history surface.
+   *
+   * Public so the pane menu, the mobile toolbar and the app shell can reach
+   * the same entry point the wheel does.
+   *
+   * @param {string} [reason] - Diagnostic label.
+   * @returns {boolean} True when the surface is open.
+   */
+  openHistory(reason) {
+    const layer = this._ensureHistoryLayer();
+    if (!layer) return false;
+    return layer.open(reason || 'api');
+  }
+
+  /**
+   * Close the history surface and pin the terminal to live.
+   *
+   * @param {string} [reason] - Diagnostic label.
+   * @returns {boolean} True when a surface was closed.
+   */
+  closeHistory(reason) {
+    if (!this._historyLayer) return false;
+    return this._historyLayer.close(reason || 'api');
+  }
+
+  /**
+   * Toggle the history surface.
+   * @returns {boolean} True when it ends up open.
+   */
+  toggleHistory() {
+    if (this.isHistoryOpen()) { this.closeHistory('toggle'); return false; }
+    return this.openHistory('toggle');
+  }
+
+  /** @returns {boolean} Whether the history surface is currently open. */
+  isHistoryOpen() {
+    return !!(this._historyLayer && this._historyLayer.isOpen());
+  }
+
+  /**
+   * Select the whole history document, opening the surface if needed (P7.6).
+   *
+   * @returns {boolean} Whether a document-wide selection was made.
+   */
+  selectAllHistory() {
+    const layer = this._ensureHistoryLayer();
+    if (!layer) return false;
+    if (!layer.isOpen() && !layer.open('select-all')) return false;
+    return layer.selectAll();
+  }
+
+  /**
+   * Ask the history surface what a key means, without giving it the decision
+   * about whether xterm also handles the key.
+   *
+   * @param {KeyboardEvent} e - The keydown event.
+   * @returns {string|null} 'consumed', 'pass', or null.
+   */
+  _historyKeyVerdict(e) {
+    if (!this._historySurfaceAvailable()) return null;
+    // Shift+PageUp has to reach the layer even when it has never been opened,
+    // because opening it IS what that key means. Everything else is only
+    // meaningful while the surface is up, so a closed pane pays one property
+    // read per keystroke and nothing more.
+    const wantsOpen = !!(e && e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'PageUp');
+    if (!this._historyLayer && !wantsOpen) return null;
+    const layer = wantsOpen ? this._ensureHistoryLayer() : this._historyLayer;
+    if (!layer) return null;
+    if (!layer.isOpen() && !wantsOpen) return null;
+    try {
+      return layer.handleTerminalKey(e);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Whether the current selection lives inside this pane's history surface.
+   *
+   * @returns {boolean} True when the layer owns the selection.
+   */
+  _historyOwnsSelection() {
+    try {
+      return !!(this._historyLayer && this._historyLayer.isOpen() &&
+        this._historyLayer.hasSelection());
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Whether an event target sits inside this pane's OPEN history surface.
+   *
+   * The same exemption the Copy view has, for the same handlers: the mobile
+   * touch engine and the Select-mode wheel guard both live on the pane
+   * container and would otherwise translate a gesture inside the surface into
+   * terminal scrolling.
+   *
+   * @param {EventTarget} target - The event target to test.
+   * @returns {boolean} True when the target is within the open surface.
+   */
+  _isInsideHistoryLayer(target) {
+    try {
+      return !!(this._historyLayer && this._historyLayer.contains(target));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Whether the application currently owns the mouse, read through the same
+   * resolver the history surface uses.
+   *
+   * `mouseTracking` is a STRING ENUM and 'none' is truthy, so this must never
+   * be open-coded as a truthy test at a call site.
+   *
+   * @returns {boolean} True when mouse tracking is active.
+   */
+  _mouseTrackingActive() {
+    try {
+      const api = (typeof window !== 'undefined') ? window.TerminalHistory : null;
+      if (api && typeof api.resolveMouseTrackingActive === 'function') {
+        return api.resolveMouseTrackingActive(this._remoteModeFrame || null, this.term);
+      }
+      const mode = this.term && this.term.modes ? this.term.modes.mouseTrackingMode : null;
+      return typeof mode === 'string' && mode !== 'none' && mode !== '';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Whether the Select-mode strip should be shown right now (P7.6).
+   *
+   * THE DEMOTION, and where it is implemented is deliberate: the strip's own
+   * method, its placement, its text and its notice path are all untouched, and
+   * the only change is this predicate at the ONE call site that used to show
+   * it unconditionally whenever the toggle went on.
+   *
+   * Under the Unified Scrollback Surface the strip is no longer the thing that
+   * explains how to reach history, because the scrollbar is the affordance and
+   * the wheel is the gesture. What is left worth saying is "a plain drag
+   * selects even though this application owns the mouse", and that is worth
+   * saying exactly once, at the moment it first happens.
+   *
+   * The pre-P7 behaviour is preserved verbatim when the surface is
+   * unavailable, so a deployment without terminal-history.js keeps the
+   * explanation it has always had.
+   *
+   * @returns {boolean} Whether to show the standing strip.
+   */
+  _shouldShowSelectModeStrip() {
+    try {
+      if (!this._historySurfaceAvailable()) return true;
+      // No drag in progress means nothing to explain: the toggle alone pauses
+      // nothing and selects nothing (Select mode v3).
+      if (!this._selectHold) { this._selectStripAnnounced = false; return false; }
+      if (this._selectStripAnnounced) return true;
+      if (!this._mouseTrackingActive()) return false;
+      let seen = false;
+      try { seen = !!localStorage.getItem(SELECT_STRIP_SEEN_KEY); } catch (_) { seen = false; }
+      if (seen) return false;
+      try { localStorage.setItem(SELECT_STRIP_SEEN_KEY, '1'); } catch (_) { /* private mode */ }
+      this._selectStripAnnounced = true;
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /**
+   * Fetch one page of deep normal-buffer history from the server's VT sidecar.
+   *
+   * Wraps GET /api/sessions/:id/history, which never throws and never 404s: a
+   * session with no sidecar answers 200 with `available: false`, because "this
+   * pane has no deep history" is an ordinary state rather than an error.
+   *
+   * @param {{beforeLine?: number, lines?: number}} [options] - Paging cursor.
+   * @returns {Promise<object>} The page envelope.
+   */
+  async fetchDeepHistory(options) {
+    const opts = options || {};
+    const lines = Number.isFinite(opts.lines) ? opts.lines : HISTORY_DEEP_PAGE_LINES;
+    let path = '/api/sessions/' + encodeURIComponent(this.sessionId) +
+      '/history?lines=' + encodeURIComponent(String(lines));
+    if (Number.isFinite(opts.beforeLine)) {
+      path += '&beforeLine=' + encodeURIComponent(String(Math.max(0, Math.floor(opts.beforeLine))));
+    }
+    return this._copyViewApi('GET', path);
+  }
+
+  /**
+   * Fetch one window of the session transcript for the history surface.
+   *
+   * SNAPSHOT SEMANTICS, and that is a robustness decision rather than a
+   * shortcut (section 12): the mirror service allows ten concurrent watchers,
+   * and a pane the user is merely READING must not consume one. So the newest
+   * window is taken by opening a mirror and closing it in the same call, which
+   * is exactly what the Copy view's own snapshot does, and earlier windows are
+   * plain paged reads that never open anything.
+   *
+   * Reuses `_copyViewIdentity`, `_copyViewApi` and `_copyViewDeviceId` rather
+   * than duplicating them, which is what TERMINAL-ARCHITECTURE 13.2 asks for
+   * ("promote them to shared methods used by both surfaces"). The Copy view's
+   * own methods are untouched.
+   *
+   * @param {{beforeOffset?: number}} [options] - Paging cursor.
+   * @returns {Promise<{messages: Array, startOffset: number|null,
+   *   truncatedHead: boolean}|null>} The window, or null with no identity.
+   */
+  async fetchTranscriptWindow(options) {
+    const identity = this._copyViewIdentity();
+    if (!identity) return null;
+    const opts = options || {};
+
+    if (Number.isFinite(opts.beforeOffset) && opts.beforeOffset > 0) {
+      const page = await this._copyViewApi('GET', '/api/mirror/history'
+        + '?provider=' + encodeURIComponent(identity.provider)
+        + '&providerSessionId=' + encodeURIComponent(identity.providerSessionId)
+        + '&beforeOffset=' + encodeURIComponent(String(opts.beforeOffset))
+        + '&maxBytes=' + encodeURIComponent(String(HISTORY_TRANSCRIPT_PAGE_BYTES)));
+      return {
+        messages: Array.isArray(page && page.messages) ? page.messages : [],
+        startOffset: typeof (page && page.startOffset) === 'number' ? page.startOffset : null,
+        truncatedHead: !!(page && page.truncatedHead),
+      };
+    }
+
+    const opened = await this._copyViewApi('POST', '/api/mirror/open', {
+      provider: identity.provider,
+      providerSessionId: identity.providerSessionId,
+      deviceId: this._copyViewDeviceId(),
+    });
+    // Release the subscription immediately. Fire and forget: the server's idle
+    // sweep is the safety net, and a failed close must never surface as a
+    // reading error on a surface the user is already looking at.
+    try {
+      const mirrorKey = opened && opened.mirrorKey;
+      if (mirrorKey) {
+        const p = this._copyViewApi('POST', '/api/mirror/close', {
+          mirrorKey,
+          deviceId: this._copyViewDeviceId(),
+        });
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      }
+    } catch (_) { /* courtesy call only */ }
+
+    return {
+      messages: Array.isArray(opened && opened.history) ? opened.history : [],
+      startOffset: typeof (opened && opened.startOffset) === 'number' ? opened.startOffset : null,
+      truncatedHead: !!(opened && opened.truncatedHead),
+    };
+  }
+
+  /**
+   * Tear the history surface down and release its subscription.
+   *
+   * Called from detachHostBindings (the pane is being unhosted or moved) and
+   * from dispose, exactly like the Copy view overlay: the layer is parented on
+   * the pane element, and fixed grid slots are reused across tab groups, so a
+   * layer left attached would float over another session's terminal.
+   *
+   * @returns {boolean} Whether a layer was destroyed.
+   */
+  _destroyHistoryLayer() {
+    let destroyed = false;
+    if (this._historyLayer) {
+      try { this._historyLayer.destroy(); } catch (_) {}
+      this._historyLayer = null;
+      destroyed = true;
+    }
+    if (this._historyBufferDisposable) {
+      try { this._historyBufferDisposable.dispose(); } catch (_) {}
+      this._historyBufferDisposable = null;
+    }
+    return destroyed;
+  }
+
   /** Dismiss the one-time copy hint and remember it so it never returns. */
   _dismissCopyHint() {
     try { localStorage.setItem('cwm_copyhint_v1', '1'); } catch (_) {}
@@ -5209,6 +6908,10 @@ class TerminalPane {
 
   dispose() {
     this._disposed = true;
+    // P11.8: leave the phone live-pane recency list before anything else, so a
+    // disposed pane can neither hold a budget slot nor be retained by a static
+    // array for the life of the page.
+    TerminalPane.forgetLivePane(this);
     this._mountGeneration++;
     if (this._mountRafOuter) cancelAnimationFrame(this._mountRafOuter);
     if (this._mountRafInner) cancelAnimationFrame(this._mountRafInner);
@@ -5260,6 +6963,14 @@ class TerminalPane {
     // session it no longer displays.
     this._removeVisibilityActivate();
     this._destroyCopyView();
+    // P7: and the history surface, with its document-level selectionchange
+    // listener, its rAF and its two timers. detachHostBindings above has
+    // already done this; the second call is idempotent and is here for the
+    // same belt-and-braces reason every other teardown in this method is.
+    this._destroyHistoryLayer();
+    // P5.2: a disposed pane must not leave its paste question on screen, and
+    // the answer would have nowhere to go anyway once the socket is closed.
+    this._dismissPasteConfirm();
     if (this._copyViewBtn) { try { this._copyViewBtn.remove(); } catch (_) {} this._copyViewBtn = null; }
     if (this.ws) { this.ws.onmessage = null; this.ws.onclose = null; this.ws.close(); }
     if (this.term && this.term.element &&
@@ -5273,3 +6984,42 @@ class TerminalPane {
 }
 
 if (typeof window !== 'undefined') window.TerminalPane = TerminalPane;
+
+/* ═══════════════════════════════════════════════════════════════════
+   TERMINAL SURFACE PUBLICATION
+   Notion restyle P5.4 and P5.5.
+
+   The `--term-*` custom properties are what let the pane chrome (the
+   terminal surface padding, the input row, its top rule and the prompt
+   glyph) paint the SAME values xterm paints. They have to be correct
+   in three situations, and no single trigger covers all three:
+
+     at load          so the first paint after a reload is right;
+     on getCurrentTheme()  which app.js already calls per live pane on
+                      every theme change, so no app.js edit is needed;
+     on a data-theme change with NO pane open, which neither of the
+                      other two can see.
+
+   The observer is the third. It is installed once, at module scope,
+   guarded on every global it touches, because this file is evaluated
+   in DOM-less vm sandboxes by four test suites and a throw here would
+   take the whole class with it.
+   ═══════════════════════════════════════════════════════════════════ */
+(function installTerminalSurfaceSync() {
+  if (typeof document === 'undefined' || !document.documentElement) return;
+  try {
+    TerminalPane.publishTerminalSurfaceVars();
+  } catch (_) { /* the projection is optional by construction */ }
+  if (typeof MutationObserver !== 'function') return;
+  try {
+    const observer = new MutationObserver(() => {
+      try {
+        TerminalPane.publishTerminalSurfaceVars();
+      } catch (_) { /* never throw out of an observer callback */ }
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+  } catch (_) { /* an environment without observers keeps the load-time value */ }
+}());

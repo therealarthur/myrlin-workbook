@@ -1,10 +1,12 @@
 /**
- * Schedule popover — anchors under a pane's clock button and shows a small
+ * Schedule popover, anchors under a pane's clock button and shows a small
  * Active / History form + list. One shared instance, repositioned on each open.
  *
  * Usage: SchedulePopover.toggle(anchorEl, sessionId)
  *        SchedulePopover.close()
  */
+const SCHEDULE_ICON_ONCE = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M8 13.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11z\"/><path d=\"M8 5v3.25l2 1.25\"/></svg>";
+const SCHEDULE_ICON_REPEAT = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M3 8a5 5 0 0 1 8.5-3.5L13 6\"/><path d=\"M13 3v3h-3\"/><path d=\"M13 8a5 5 0 0 1-8.5 3.5L3 10\"/><path d=\"M3 13v-3h3\"/></svg>";
 (function () {
   'use strict';
 
@@ -115,7 +117,7 @@
         body.innerHTML = `<div class="schedule-list" data-history></div>`;
         this._refreshHistory();
       }
-      // Reposition after content drops in — the popover height changes,
+      // Reposition after content drops in, the popover height changes,
       // and we anchor the bottom above the button.
       this._reposition();
     },
@@ -245,10 +247,10 @@
       }
       const rows = active.map(s => `
         <div class="schedule-row" data-id="${s.id}">
-          <span class="glyph">${s.kind === 'once' ? '⏱' : '⟳'}</span>
+          <span class="glyph">${s.kind === 'once' ? SCHEDULE_ICON_ONCE : SCHEDULE_ICON_REPEAT}</span>
           <span class="label">${escapeHtml(s.command)}</span>
           <span class="when" data-when data-next="${s.nextFireAt}" data-kind="${s.kind}" data-delay="${s.delayMs || 0}"></span>
-          <button class="trash" title="Delete">🗑</button>
+          <button class="trash" title="Delete"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3.5 4.5h9"/><path d="M6.5 4.5V3h3v1.5"/><path d="M4.75 4.5l.6 8h5.3l.6-8"/></svg></button>
         </div>
       `).join('');
       listEl.innerHTML = `<div class="schedule-list-header">Active (${active.length})</div>${rows}`;
@@ -333,7 +335,7 @@
           r.skipReason === 'session-not-running' ? 'session not running'
           : r.skipReason === 'missed-while-down' ? 'missed while server down'
           : 'skipped';
-        const count = r.skipCount > 1 ? `Skipped ${r.skipCount} — ${reason}` : `Skipped — ${reason}`;
+        const count = r.skipCount > 1 ? `Skipped ${r.skipCount}: ${reason}` : `Skipped: ${reason}`;
         return `<div class="schedule-row">
           <span class="glyph" style="color:var(--peach)">⊘</span>
           <span class="label" style="color:var(--subtext0)">${escapeHtml(count)}</span>

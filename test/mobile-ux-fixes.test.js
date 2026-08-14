@@ -47,6 +47,10 @@ const stylesMobile = stripCssComments(fs.readFileSync(path.join(PUBLIC, 'styles-
 const focusedCss = stripCssComments(fs.readFileSync(path.join(PUBLIC, 'focused-shell.css'), 'utf8'));
 const appJs = fs.readFileSync(path.join(PUBLIC, 'app.js'), 'utf8');
 const terminalJs = fs.readFileSync(path.join(PUBLIC, 'terminal.js'), 'utf8');
+// Notion restyle P10: the retargeted P0-2 and P0-3 checks assert markup as
+// well as source, because the phone IA moved two of the four labels onto
+// static rows rather than into a sheet builder.
+const html = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8');
 
 /**
  * Extract the body of a JS method by name from terminal.js (brace-balanced
@@ -201,6 +205,60 @@ check('P0-2: More sheet exposes Settings / Appearance / Pair / All sessions', ()
   assert.ok(/label: 'All sessions'.*toggleSessionManager\(/s.test(body), 'All sessions entry missing');
 });
 
+check('P0-2 (restyle): Home > Workspace is the canonical home for the four labels', () => {
+  // SANCTIONED TEST EDIT SE-9 (BUILD-CONTRACT 5.4), shipped in the same commit
+  // as the source change.
+  //
+  // Restyle: the four labels now live on Home > Workspace; showMoreMenu is
+  // retained for data-ui-shell=classic.
+  //
+  // The check above is preserved verbatim rather than rewritten, because
+  // `showMoreMenu` and its four labels are retained for the classic shell and
+  // an assertion is never deleted (BUILD-CONTRACT 3.3). This is the RETARGET:
+  // the same four capabilities, asserted against the surface that is now
+  // canonical on a phone. Two of the four are rows in the builder (Settings,
+  // Paired devices); the other two moved one level: Appearance is inside
+  // Settings > Interface on a phone (MOBILE-EXPERIENCE A.3.6), and All
+  // sessions is the Sessions tab itself, so they are asserted at their new
+  // routes rather than as row labels.
+  const builder = methodBody(appJs, 'buildHomeWorkspaceItems');
+  assert.ok(builder, 'buildHomeWorkspaceItems must exist');
+  assert.ok(/label: 'Settings'/.test(builder), 'Settings row missing from Home > Workspace');
+  assert.ok(/label: 'Paired devices'/.test(builder), 'Paired devices row missing from Home > Workspace');
+  assert.ok(/label: 'Costs'/.test(builder), 'Costs row missing from Home > Workspace');
+  assert.ok(/label: 'System resources'/.test(builder), 'System resources row missing from Home > Workspace');
+  assert.ok(/label: 'Project notes'/.test(builder), 'Project notes row missing from Home > Workspace');
+  assert.ok(/label: 'Agent tasks'/.test(builder), 'Agent tasks row missing from Home > Workspace');
+
+  // Every row's route resolves to a real call, in the one router that runs them.
+  const router = methodBody(appJs, '_runMobileHomeRoute');
+  assert.ok(router, '_runMobileHomeRoute must exist');
+  for (const route of ['settings', 'pair-device', 'costs', 'resources', 'docs-notes', 'tasks-board']) {
+    assert.ok(
+      new RegExp("case '" + route + "':").test(router),
+      'Home route ' + route + ' has no arm in the router'
+    );
+  }
+  assert.ok(/case 'settings': this\.openSettings\(\)/.test(router), 'Settings route must call openSettings');
+  assert.ok(/case 'pair-device': this\.showPairMobileModal\(\)/.test(router), 'Pair route must call showPairMobileModal');
+
+  // All sessions: the Sessions tab, plus the per-surface overflow builder.
+  const attentionOverflow = methodBody(appJs, 'buildMobileAttentionOverflowItems');
+  assert.ok(/label: 'All sessions'/.test(attentionOverflow), 'All sessions missing from the Attention overflow');
+  assert.ok(
+    /case 'sessions-all': this\.setViewMode\('workspace'\)/.test(router),
+    'the See all rows must route to the Sessions tab'
+  );
+
+  // showMoreMenu is RETAINED and still reachable on a phone, through the
+  // "All commands" row, so no capability is lost by dissolving the tab.
+  assert.ok(/case 'more-menu': this\.showMoreMenu\(\)/.test(router), 'showMoreMenu must stay reachable on a phone');
+  assert.ok(
+    /id="mobile-more-tab"[\s\S]{0,200}data-mw-route="more-menu"/.test(html),
+    '#mobile-more-tab must survive as the All commands row'
+  );
+});
+
 check('P0-2: More commands use labeled groups without platform emoji icons', () => {
   const body = methodBody(appJs, 'showMoreMenu');
   for (const label of ['Views', 'Session tools', 'Preferences', 'Operations', 'Account']) {
@@ -268,6 +326,45 @@ check('P0-3: More sheet routes to secondary and contextual views', () => {
   assert.ok(/label: 'Costs'.*setViewMode\('costs'\)/s.test(body), 'Costs entry missing');
   assert.ok(/label: 'System resources'.*setViewMode\('resources'\)/s.test(body), 'System resources entry missing');
   assert.ok(/Project notes.*setViewMode\('docs'\)/s.test(body), 'Project notes entry missing');
+});
+
+check('P0-3 (restyle): the secondary views route from Home > Workspace, and recent is a sort', () => {
+  // SANCTIONED TEST EDIT SE-10 (BUILD-CONTRACT 5.4), shipped in the same
+  // commit as the source change.
+  //
+  // Restyle: recent is a Sessions sort chip, not a view mode, on phones.
+  //
+  // The `recent` VIEW MODE itself stays alive for desktop and stays in the
+  // pinned secondary tier, which is why the check above is preserved. Here the
+  // three remaining secondary views are asserted at their new phone route, and
+  // `recent` is asserted at the Sessions sort instead of at a sheet row.
+  const router = methodBody(appJs, '_runMobileHomeRoute');
+  assert.ok(/case 'costs': this\.setViewMode\('costs'\)/.test(router), 'Costs route missing');
+  assert.ok(/case 'resources': this\.setViewMode\('resources'\)/.test(router), 'System resources route missing');
+  assert.ok(/case 'docs-notes': this\.setViewMode\('docs'\)/.test(router), 'Project notes route missing');
+
+  // While one of those is showing, Home stays the selected bottom
+  // destination, exactly as `more` used to for the same three views.
+  const setViewMode = methodBody(appJs, 'setViewMode');
+  assert.ok(
+    /HOME_DESTINATION_MODES\.includes\(mode\)/.test(setViewMode),
+    'a Home destination must keep the Home tab selected'
+  );
+  assert.ok(
+    /static HOME_DESTINATION_MODES = \[[^\]]*'recent'[^\]]*\]/.test(appJs),
+    'recent must be a Home destination, not an orphan'
+  );
+
+  // Recency on a phone is the Sessions default sort plus Home > Recent, both
+  // fed by the one recency entry point (BUILD-CONTRACT 2.13).
+  assert.ok(
+    /getSessionsSort\(\)[\s\S]{0,600}key:\s*'lastActive'/.test(appJs),
+    'the Sessions table must default to the lastActive sort'
+  );
+  assert.ok(
+    /renderMobileHome\(\)[\s\S]{0,2000}this\.getRecentSessions\(0\)/.test(appJs),
+    'Home Recent must read the one recency entry point'
+  );
 });
 
 // ─── P1-1: settings full-screen sheet ────────────────────────────────────────

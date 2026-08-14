@@ -1,0 +1,267 @@
+/* ==========================================================================
+   Notion / motion tokens
+   --------------------------------------------------------------------------
+   Notion's motion is deliberately quiet, and the quiet is the point.
+
+   Three rules that decide almost every question:
+
+   1. FADE IN IS FASTER THAN FADE OUT. 150ms in, 200ms out. Things arrive
+      quickly and leave lazily. Most systems get this backwards.
+   2. NOTHING ANIMATES ON SCROLL IN THE EDITOR. No parallax, no reveal, no
+      fade up, no entrance on block insert. A new block simply exists. The
+      cover image does not zoom. Reveal on scroll is on the rejection list.
+   3. LOADING IS A SHIMMER, NEVER A SPINNER, for content. A spin keyframe
+      exists and is reserved for genuinely indeterminate operations.
+
+   Everything the user triggers stays under 300ms. The only long durations in
+   the system are a 600ms illustration entrance, a 700ms topbar crossfade that
+   is slow on purpose so the breadcrumb does not flicker, and a 60s logo
+   marquee.
+
+   Source: raw/css/2280490c7edd474a.css --motion-* for marketing;
+   raw/css/app-*.css for the editor (raw/notes/app_motion.txt).
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Durations. Five steps, and the whole marketing site fits inside them.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css --motion-duration-* */
+
+:root {
+  --duration-100: 100ms;
+  --duration-150: 150ms;
+  --duration-200: 200ms;
+  --duration-250: 250ms;
+  --duration-300: 300ms;
+
+  /* Editor durations that fall outside the marketing set. */
+  --duration-instant: 20ms;   /* block handle hover reveal, the fastest thing here */
+  --duration-500: 500ms;      /* long surface fades, progress ring */
+  --duration-illustration: 600ms;
+  --duration-topbar: 700ms;   /* deliberately slow, so controls do not flicker */
+  --duration-marquee: 60s;
+}
+
+/* --------------------------------------------------------------------------
+   2. Easings. Exact cubic-bezier values, no keyword shortcuts, because the
+   keyword ease is not any of these.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css --motion-timing-function-* */
+
+:root {
+  --ease-linear: cubic-bezier(0, 0, 1, 1);
+  --ease-in: cubic-bezier(0.42, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --ease-in-out-linear: cubic-bezier(0.5, 0, 0.5, 1);
+  --ease-in-out-quad: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-in-out-cubic: cubic-bezier(0.645, 0.045, 0.355, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  --ease-in-out-quint: cubic-bezier(0.86, 0, 0.07, 1);
+
+  /* Editor only easings. */
+  --ease-strong-out: cubic-bezier(0.32, 0.72, 0, 1);  /* large surface fades */
+  --ease-slow-start: cubic-bezier(0.11, 0, 0.5, 0);
+  --ease-overshoot: cubic-bezier(0.02, 1.2, 0.2, 0.92); /* one enter animation only */
+}
+
+/* --------------------------------------------------------------------------
+   3. Named patterns. Use these, not raw numbers.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css --motion-global-* and raw/notes/app_motion.txt */
+
+:root {
+  /* Marketing global patterns */
+  --motion-fade-in: var(--duration-150) var(--ease-out);
+  --motion-fade-out: var(--duration-200) var(--ease-in);
+  --motion-transform: var(--duration-300) var(--ease-in-out-quint);
+
+  /* The Kombi block is Notion's marketing card. It changes background, border
+     and filter together on hover, and never moves. */
+  --motion-card-hover:
+    background-color var(--duration-150) var(--ease-out),
+    border-color var(--duration-150) var(--ease-out),
+    filter var(--duration-150) var(--ease-out);
+
+  --motion-illustration-enter: var(--duration-illustration) ease-in-out;
+  --motion-marquee: var(--duration-marquee) linear infinite;
+
+  /* Editor patterns */
+  --motion-sidebar: width var(--duration-200);
+  --motion-frame-reflow: width var(--duration-200), transform var(--duration-200);
+  --motion-layout-grid: grid-template-columns var(--duration-200) ease-in-out;
+  --motion-topbar: opacity var(--duration-topbar), color var(--duration-topbar);
+  --motion-hover-reveal: background var(--duration-instant) ease-in;
+  --motion-hover-opacity: opacity var(--duration-100);
+  --motion-menu-open: var(--duration-150) ease-in nt-fadein;
+  --motion-focus: box-shadow var(--duration-150) var(--ease-out);
+  --motion-drag: transform var(--duration-200) var(--ease-out);
+  --motion-long-fade: opacity var(--duration-500) var(--ease-strong-out);
+  --motion-progress: stroke-dashoffset var(--duration-500) var(--ease-out);
+  --motion-default: all var(--duration-100) ease-in;
+
+  /* Stagger. The editor exposes seven delay steps at 200ms intervals. */
+  --stagger-step: 200ms;
+}
+
+/* --------------------------------------------------------------------------
+   4. Keyframes.
+   Prefixed nt- so they cannot collide. These are the useful members of the 41
+   keyframes in the editor bundle, plus the marketing fade pair.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-*.css keyframes fadein, partialFadeIn, slide-up-small, shimmer, pulse-a, spin, shake, selectedOutlineScale */
+
+@keyframes nt-fadein {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes nt-fadeout {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* A partial fade, used where a surface dims rather than disappears. */
+@keyframes nt-partial-fade-in {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+@keyframes nt-partial-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0.4; }
+}
+
+/* Small rise. The only entrance with movement in the whole system, and it is
+   4px, not 20px. */
+@keyframes nt-slide-up-small {
+  from { opacity: 0; transform: translateY(4px); } /* inferred: the keyframe name and duration are captured, the 4px offset is read from the rendered rise */
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nt-slide-in-from-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+/* Snackbar entrances, bottom and top variants. */
+@keyframes nt-snackbar-slide-in-bottom {
+  from { opacity: 0; transform: translateY(100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nt-snackbar-slide-in-top {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* THE loading treatment. A traveling highlight across a placeholder block.
+   Content never spins. */
+@keyframes nt-shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+
+@keyframes nt-shimmer-text {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+
+@keyframes nt-pulse-a {
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+@keyframes nt-pulse-b {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
+}
+
+@keyframes nt-pulse-opacity {
+  0% { opacity: 0.5; }
+  50% { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+
+/* Reserved for genuinely indeterminate operations, not for content loading. */
+@keyframes nt-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes nt-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); } /* inferred: keyframe name captured, amplitude read from rendered UI */
+  40%, 80% { transform: translateX(4px); }
+}
+
+/* The selection halo scale, 150ms ease-in-out. */
+@keyframes nt-selected-outline-scale {
+  from { transform: scale(0.98); opacity: 0; } /* inferred: keyframe name and duration captured, the 0.98 start is read from the rendered halo */
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* --------------------------------------------------------------------------
+   5. Utility classes, mirroring Notion's own first class API.
+   .notion-fadein, .notion-shimmer, .notion-pulse-a and friends exist in the
+   real product, so these are named the same way with an nt- prefix.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/app-*.css .notion-fadein, .notion-shimmer, .notion-pulse-* */
+
+.nt-fadein { animation: var(--duration-150) ease-in nt-fadein; }
+.nt-fadein-fast { animation: var(--duration-100) ease-in nt-fadein; }
+.nt-fadein-slow { animation: 500ms ease-in nt-fadein; }
+.nt-shimmer { animation: 1s linear infinite nt-shimmer; }
+.nt-shimmer-text { animation: 1.5s linear infinite nt-shimmer-text; }
+.nt-pulse-a { animation: 1.2s ease-in-out infinite nt-pulse-a; }
+.nt-pulse-b { animation: 1.2s ease-in-out infinite nt-pulse-b; }
+.nt-spin { animation: 1.2s linear infinite nt-spin; }
+
+/* --------------------------------------------------------------------------
+   6. Reduced motion.
+   Notion uses BOTH directions of the query and so should you.
+
+   reduce            zeroes functional animation, and the thing still works.
+   no-preference     is the GATE for everything decorative: the hero
+                     illustration entrance and its scroll animation, the card
+                     hover transition, the logo marquee, the pile image
+                     rotate, and the product pill width transition.
+
+   Copy both halves. Decorative motion is opt in, functional motion is opt
+   out. Wrapping everything in a single "reduce" block is only half of it.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/*.css @media (prefers-reduced-motion) blocks, both directions */
+
+@media (prefers-reduced-motion) {
+  .nt-fadein,
+  .nt-fadein-fast,
+  .nt-fadein-slow,
+  .nt-shimmer,
+  .nt-shimmer-text,
+  .nt-pulse-a,
+  .nt-pulse-b,
+  .nt-spin {
+    animation-duration: 0s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-card-hover: none;
+    --motion-illustration-enter: 0s linear;
+    --motion-marquee: 0s linear infinite;
+    --motion-long-fade: none;
+  }
+  .nt-decorative {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Decorative motion is opt in. Put .nt-decorative on the element and give it
+   its animation inside this block, exactly as Notion gates its hero. */
+@media (prefers-reduced-motion: no-preference) {
+  .nt-decorative-enter {
+    animation: var(--duration-illustration) ease-in-out nt-fadein;
+  }
+}

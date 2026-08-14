@@ -116,6 +116,51 @@
     return theme ? theme.xterm.paletteId : DEFAULT_DARK_THEME_ID;
   }
 
+  /**
+   * The terminal surface projection for a theme.
+   *
+   * Notion restyle P5.4, BUILD-CONTRACT.md's file plan: "additive
+   * `terminalSurface(id)` accessor delegating to `window.MyrlinTerminalSurface`
+   * with a null-safe fallback. The 13 ids, labels, tiers, xterm.paletteId,
+   * xterm.fallback and the frozen objects are untouched."
+   *
+   * WHY THIS IS A DELEGATION AND NOT THE DATA. This file's own header says it
+   * "intentionally contains metadata only", and TERMINAL-ARCHITECTURE.md 10.2
+   * asks for the registry to become canonical for terminal surface COLOUR.
+   * Both are satisfied by keeping the 340-line colour table in its own file
+   * and the pointer to it here: the registry stays the one place that answers
+   * "what themes exist and what are they called", and it can now also answer
+   * "and what does this one look like in a terminal" without carrying the
+   * answer itself. index.html loads terminal-surface.js in the body, so on the
+   * app surface the global is always there; requiring it from Node works
+   * through the CommonJS branch below.
+   *
+   * Null-safe by design. A caller that gets null falls back to its own
+   * last-resort palette, which is what stops one pane inheriting another
+   * theme's colours when a script fails to load.
+   *
+   * @param {string} themeId - One of the 13 persisted theme ids.
+   * @returns {object|null} The projection, or null when it is unavailable.
+   */
+  function terminalSurface(themeId) {
+    var provider = null;
+    try {
+      if (typeof globalThis !== 'undefined' && globalThis.MyrlinTerminalSurface) {
+        provider = globalThis.MyrlinTerminalSurface;
+      } else if (typeof require === 'function' && typeof module === 'object' && module.exports) {
+        provider = require('./terminal-surface.js');
+      }
+    } catch (_) {
+      provider = null;
+    }
+    if (!provider || typeof provider.terminalSurface !== 'function') return null;
+    try {
+      return provider.terminalSurface(themeId);
+    } catch (_) {
+      return null;
+    }
+  }
+
   function resolveFeaturedChoice(choiceId, preferredAppearance) {
     var choice = featuredChoicesById[choiceId];
     if (!choice) return null;
@@ -137,5 +182,6 @@
     getTheme: getTheme,
     resolveXtermPaletteId: resolveXtermPaletteId,
     resolveFeaturedChoice: resolveFeaturedChoice,
+    terminalSurface: terminalSurface,
   });
 }));

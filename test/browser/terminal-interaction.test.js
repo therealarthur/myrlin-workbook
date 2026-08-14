@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * terminal-interaction.test.js — Real Chromium/xterm copy-paste acceptance.
+ * terminal-interaction.test.js: Real Chromium/xterm copy-paste acceptance.
  * Modified: 2026-07-25
  *
  * Starts the hermetic fixture server as a child, drives checked-in xterm and
@@ -799,10 +799,36 @@ async function run() {
     await page.keyboard.press('Control+v');
     await waitForCounter(page, 'pasteCount', 1);
     state = await getState(page);
+    // SANCTIONED EDIT SE-15 (BUILD-CONTRACT.md 5.4, phase P5.1).
+    //
+    // This is the only assertion in the repository that drove a REAL Ctrl+V
+    // through a real Chromium against a real platform clipboard and read the
+    // bytes off the far end of a real WebSocket, and until P5.1 it pinned the
+    // defect: Windows writes CRLF onto the clipboard, the app forwarded both
+    // characters verbatim, and a PTY line discipline reads CR LF as an Enter
+    // FOLLOWED BY a stray line feed. A two line paste therefore submitted twice
+    // and printed two blank lines. That is TERMINAL-ARCHITECTURE.md defect D2,
+    // and this assertion is now its end-to-end proof rather than its record.
+    //
+    // The expectation is DERIVED from the clipboard text rather than replaced
+    // with a literal, so it still asserts "the text you copied, exactly", with
+    // the one transformation the PTY requires applied. The second assertion is
+    // the one that would have failed before the fix.
+    const expectedSecurePaste = secureClipboardText.replace(/\r?\n/g, '\r');
     assert.deepStrictEqual(
       state.pastePayloads,
-      [secureClipboardText],
-      'secure Ctrl+V must paste the exact platform clipboard text once'
+      [expectedSecurePaste],
+      'secure Ctrl+V must paste the platform clipboard text once, with every newline normalised to one carriage return'
+    );
+    assert.strictEqual(
+      state.pastePayloads[0].indexOf('\n'),
+      -1,
+      'no line feed may reach the PTY: CR LF is read as an Enter plus a stray line feed (defect D2)'
+    );
+    assert.strictEqual(
+      (state.pastePayloads[0].match(/\r/g) || []).length,
+      1,
+      'a two line paste must deliver exactly ONE Enter'
     );
 
     const uppercasePaste = 'UPPERCASE_KEYBOARD_PASTE_ONCE';

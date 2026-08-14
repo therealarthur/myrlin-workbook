@@ -166,7 +166,18 @@ check('index.html cache-busts the native-copy terminal fix', () => {
   // over a mouse-tracking CLI also cancelled the mode. The two scripts are
   // versioned independently on purpose, so a terminal-only change does not
   // force a re-download of the whole SPA bundle.
-  assert.ok(/terminal\.js\?v=20260806-selectv3/.test(indexSrc),
+  // SANCTIONED EDIT SE-7 (BUILD-CONTRACT.md 5.4, phase P1.6): Notion restyle
+  // phase P1: assets changed, cachebuster bumped atomically across index.html
+  // and three tests. Both scripts really did change in P1 (terminal.js for the
+  // three font strings, app.js for setChrome), so they share this phase token
+  // rather than drifting apart for no reason.
+  // SANCTIONED EDIT SE-7 again (BUILD-CONTRACT.md 5.4, gate G10's own note:
+  // "treat a bump as a five-file atomic change"). Notion restyle phase P5:
+  // terminal.js gained the terminalSurface read, the paste preparation and the
+  // two new shortcuts, so its token moves to -p5. app.js is untouched by P5
+  // and keeps -p4r, which is the independent-versioning mechanism this comment
+  // block has described since the beginning working as intended.
+  assert.ok(/terminal\.js\?v=20260813-notion-p5/.test(indexSrc),
     'expected the current terminal.js cache token');
 });
 
@@ -174,7 +185,15 @@ check('index.html cache-busts the app pane-focus/host fix', () => {
   // Bumped when the mobile toolbar and the pane action sheet gained the
   // Select mode and Copy view controls: those live in app.js, so clients need
   // a fresh copy of it to reach either feature on a phone.
-  assert.ok(/app\.js\?v=20260805-mobile-select1/.test(indexSrc),
+  // SANCTIONED EDIT SE-7 (BUILD-CONTRACT.md 5.4, phase P1.6): Notion restyle
+  // phase P1: assets changed, cachebuster bumped atomically across index.html
+  // and three tests.
+  // SANCTIONED EDIT SE-7 again, phase P10: app.js gained the five-tab mobile
+  // IA, the three phone screens and the permanent input row, so a phone
+  // holding a cached copy would show the old four-tab bar against the new
+  // stylesheet. terminal.js keeps -p5, which is the independent versioning
+  // working as intended.
+  assert.ok(/app\.js\?v=20260813-notion-p10/.test(indexSrc),
     'expected the current app.js cache token');
 });
 

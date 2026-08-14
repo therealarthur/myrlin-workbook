@@ -155,12 +155,23 @@ check('focused More is a utility control, not a view tab', () => {
   );
 });
 
-check('mobile navigation is exactly workspace, terminal, tasks, and more', () => {
+check('mobile navigation is exactly home, sessions, terminal, attention, and search', () => {
+  // SANCTIONED TEST EDIT SE-8 (BUILD-CONTRACT 5.4), shipped in the same commit
+  // as the source change because a deepStrictEqual cannot be split.
+  //
+  // Notion restyle IA: five-tab bar per DESIGN-SPEC 14.1; `tasks` moves to
+  // Home > Workspace, `more` is dissolved into Home > Workspace and
+  // per-surface overflow sheets.
+  //
+  // `#mobile-more-tab` is NOT deleted: it survives as the "All commands" row
+  // inside Home > Workspace, so `showMoreMenu` keeps a phone route and the id
+  // keeps its entry in the G1 snapshot. It is no longer a `.mobile-tab`, so
+  // this filter no longer sees it, which is the point of the filter.
   const mobileNav = elementRegionById(html, 'nav', 'mobile-tab-bar');
   const mobileModes = startTags(mobileNav, 'button')
     .filter(tag => classTokens(tag).includes('mobile-tab'))
     .map(tag => attribute(tag, 'data-view'));
-  assert.deepStrictEqual(mobileModes, ['workspace', 'terminal', 'tasks', 'more']);
+  assert.deepStrictEqual(mobileModes, ['home', 'sessions', 'terminal', 'attention', 'search']);
 });
 
 check('Workbench empty state and both CTA IDs ship in the shell', () => {
@@ -361,14 +372,26 @@ check('focused settings omit obsolete header controls while classic keeps them',
   assert.ok(focusedKeys.includes('uiScale'), 'focused settings must retain useful controls');
 });
 
-check('focused sidebar supporting text uses the semantic tertiary token', () => {
+/*
+ * RETARGETED IN P12 (sanctioned edit SE-18), and the reason is a measurement,
+ * not a rename. What this check has always been for is that the sidebar's
+ * supporting copy resolves through a SEMANTIC token rather than through a raw
+ * palette value or an inline style, which is why it names the token and not a
+ * colour. The token it named, --text-tertiary, measures 2.67:1 on the light
+ * canvas, so the rule it was protecting was protecting unreadable text.
+ * P12's contrast reconciliation introduced --ink-meta for exactly this class of
+ * copy (4.27:1 light, 7.52:1 dark) and swept every `color:` use of the tertiary
+ * inks onto it. The assertion follows the sweep: same intent, same two rules,
+ * same !important, one token later. DECISIONS 19 carries the table.
+ */
+check('focused sidebar supporting text uses the semantic meta-ink token', () => {
   assert.match(
     focusedCss,
-    /\.sidebar :is\([\s\S]*?\.sidebar-meta,[\s\S]*?\.workspace-group-empty,[\s\S]*?\.ws-session-empty,[\s\S]*?\.project-session-time,[\s\S]*?\.sidebar-section-divider-label[\s\S]*?\)[\s\S]*?color:\s*var\(--text-tertiary\)\s*!important\s*;/
+    /\.sidebar :is\([\s\S]*?\.sidebar-meta,[\s\S]*?\.workspace-group-empty,[\s\S]*?\.ws-session-empty,[\s\S]*?\.project-session-time,[\s\S]*?\.sidebar-section-divider-label[\s\S]*?\)[\s\S]*?color:\s*var\(--ink-meta\)\s*!important\s*;/
   );
   assert.match(
     focusedCss,
-    /\.sidebar-list \[style\*="color: var\(--overlay0\)"\][\s\S]*?color:\s*var\(--text-tertiary\)\s*!important\s*;/
+    /\.sidebar-list \[style\*="color: var\(--overlay0\)"\][\s\S]*?color:\s*var\(--ink-meta\)\s*!important\s*;/
   );
 });
 

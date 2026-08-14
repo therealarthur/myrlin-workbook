@@ -14,7 +14,7 @@
  *      the Total Cost and Period card labels when any enabled provider
  *      reports supportsCost === false.
  *
- *   3. renderCostsDashboard's session table renders `<td>&mdash;</td>`
+ *   3. renderCostsDashboard's session table renders `<td>&ndash;</td>`
  *      (with a tooltip and data-provider on the row) for sessions whose
  *      provider lacks cost support.
  *
@@ -77,11 +77,20 @@ check('renderSessionItem keeps the existing $X.XX badge on the cost-supporting b
 
 // ─── Test 2: renderSessionItem renders em-dash for cost-unsupported providers ───
 check('renderSessionItem emits .session-badge-cost-na with the tooltip on the supportsCost=false branch', () => {
-  // The em-dash branch must carry the tooltip text and the &mdash; entity
+  /* RETARGETED IN P12 (sanctioned edit SE-19). This pin was character-for-
+     character on an EM dash entity, and BUILD-CONTRACT, DO-NOT-BREAK and
+     TEST-CONSTRAINTS all copied that spelling into their own tables. It was
+     the last user-facing em dash in the product: gate G12a only read literal
+     codepoints, so four entity-encoded ones rendered a real em dash into the
+     Sessions cost column while the gate reported zero. G12a now matches the
+     named, decimal and hex entity forms as well, and this column takes an EN
+     dash, which is the correct mark for an empty numeric cell anyway. The pin
+     is as strict as it ever was; only the codepoint moved. */
+  // The not-applicable branch must carry the tooltip text and the &ndash; entity
   // (rendering as the cost-not-tracked disclosure). One match is enough;
   // a future refactor that drops it will fail this check.
   assert.ok(
-    /session-badge-cost-na"\s+title="Cost not tracked for this provider"\s*>&mdash;</.test(src),
+    /session-badge-cost-na"\s+title="Cost not tracked for this provider"\s*>&ndash;</.test(src),
     'renderSessionItem must emit the em-dash badge with the cost-not-tracked tooltip'
   );
 });
@@ -162,8 +171,8 @@ check('renderCostsDashboard cost cell branches on _sessionProviderLacksCost', ()
     'cost table render must call _sessionProviderLacksCost for each row'
   );
   assert.ok(
-    /cost-cell\s+cost-cell-na"\s+title="Cost not tracked for this provider">&mdash;</.test(src),
-    'cost table row for unsupported provider must render <td class="cost-cell cost-cell-na" title="...">&mdash;</td>'
+    /cost-cell\s+cost-cell-na"\s+title="Cost not tracked for this provider">&ndash;</.test(src),
+    'cost table row for unsupported provider must render <td class="cost-cell cost-cell-na" title="...">&ndash;</td>'
   );
 });
 

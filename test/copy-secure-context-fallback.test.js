@@ -377,9 +377,22 @@ async function main() {
     // typing and cancelling Select mode); app.js is untouched by that work and
     // keeps its mobile-parity token, which is the whole point of versioning
     // them separately: a terminal-only fix does not force a full SPA refetch.
+    // SANCTIONED EDIT SE-7 (BUILD-CONTRACT.md 5.4, phase P1.6): Notion restyle
+    // phase P1: assets changed, cachebuster bumped atomically across
+    // index.html and three tests. P1 changed both scripts, so for once they
+    // share a token; the independent-versioning mechanism above is unchanged.
+    // SANCTIONED EDIT SE-7 again, phase P5: terminal.js moves to -p5 for the
+    // terminalSurface read, the paste preparation and the two new shortcuts.
+    // app.js is untouched by P5 and keeps -p4r, which is the independent
+    // versioning this comment block describes doing its job: a terminal-only
+    // change does not force a full SPA refetch.
+    // SANCTIONED EDIT SE-7 again, phase P10: app.js moves to -p10 with the
+    // five-tab mobile IA and the permanent input row. terminal.js stays at
+    // -p5, which is the same independent versioning the paragraph above
+    // describes, now demonstrated in the other direction.
     assert.ok(
-      /terminal\.js\?v=20260806-selectv3/.test(indexSrc) &&
-        /app\.js\?v=20260805-mobile-select1/.test(indexSrc),
+      /terminal\.js\?v=20260813-notion-p5/.test(indexSrc) &&
+        /app\.js\?v=20260813-notion-p10/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
   });

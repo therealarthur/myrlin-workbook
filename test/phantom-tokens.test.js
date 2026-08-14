@@ -83,6 +83,32 @@ const DYNAMIC_TOKENS = new Set([
   '--c-outer',         // app.js instance color pip (outer ring)
   '--c-inner',         // app.js instance color pip (inner dot)
   '--vh',              // app.js visualViewport handler: setProperty('--vh', ...) with 100vh/100dvh fallbacks
+  // Notion restyle P5.4. terminal-surface.js publishes these seven onto
+  // document.documentElement from applyTerminalSurfaceVars, which runs at load,
+  // from every TerminalPane.getCurrentTheme() and from a data-theme observer.
+  // They are the terminal palette reaching CSS, which is what lets the pane
+  // chrome paint the SAME value xterm paints rather than a near neighbour
+  // (TERMINAL-ARCHITECTURE 10.1, DESIGN-SPEC 5.6 and 10.4). Every consumption
+  // site also carries a static fallback, so a stylesheet that resolves before
+  // the script runs is never unstyled. test/terminal-surface.test.js asserts
+  // the other direction: everything styles.css consumes here is published.
+  // Only the four the stylesheets actually read are listed. terminal-surface.js
+  // publishes three more (--term-dim, --term-selection-bg, --term-cursor)
+  // because they are part of the projection's contract for the JS consumers
+  // P7 and P10 build; they are deliberately NOT listed here, because this
+  // allow-list asserts CSS consumption in both directions and an entry nothing
+  // reads is exactly the stale exemption it exists to prevent. The phase that
+  // first writes `var(--term-dim)` into a stylesheet adds its row then.
+  '--term-bg',           // styles.css: the terminal surface and the input row ground
+  '--term-ink',          // styles.css: the input row's typed text
+  '--term-rule',         // styles.css: the input row's top rule and the terminal scrollbar
+  '--term-accent',       // styles.css: the input row's prompt glyph
+  // Notion restyle P7 adds the row P5.4's note above reserved: the history
+  // surface's paging chrome is the first stylesheet consumption of --term-dim.
+  // TERMINAL-ARCHITECTURE 10.5 makes `dim` on `bg` a contrast gate for exactly
+  // this text, and DECISIONS 14.2.6 closed it (4.64:1 to 7.78:1 across all
+  // thirteen palettes), so the token arrives here already measured.
+  '--term-dim',          // styles.css: the history surface's paging chrome
 ]);
 
 let passed = 0;

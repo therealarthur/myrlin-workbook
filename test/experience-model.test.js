@@ -114,6 +114,36 @@ check('defines the five attention states with stable priority and actionability'
   });
 });
 
+/*
+ * ADDED IN P12 (sanctioned edit SE-17). "icon is a non-empty string" was the
+ * only thing holding these five glyphs, which is how the table drifted into
+ * saying the OPPOSITE of the drawn dots: a filled disc for needs-input and a
+ * media-player triangle for running, against .status-dot-idle drawing a ring
+ * and .status-dot-running drawing a disc for the same two states.
+ *
+ * The shape ordering is load-bearing rather than decorative. DECISIONS 13.1
+ * spends the ring on needs-input BECAUSE DV-14 measured that hue at 2.68:1 on
+ * the light canvas, under the 3:1 graphic floor, so shape is the channel that
+ * survives when colour cannot be trusted. Inverting it silently removes an
+ * accessibility channel while every test stays green, which is exactly the
+ * failure this check exists to stop. The glyphs are asserted by codepoint so a
+ * lookalike character cannot pass for the real one.
+ */
+check('the text glyphs carry the same shape convention as the drawn dots', () => {
+  assert.strictEqual(model.ATTENTION_STATES.running.icon, '●',
+    'running is the FILLED disc, matching .status-dot-running');
+  assert.strictEqual(model.ATTENTION_STATES['needs-input'].icon, '○',
+    'needs-input is the HOLLOW ring, matching .status-dot-idle');
+  assert.strictEqual(model.ATTENTION_STATES.stale.icon, '◌',
+    'stale is the dotted ring: the waiting shape gone intermittent');
+  assert.strictEqual(model.ATTENTION_STATES.failed.icon, '×');
+  assert.strictEqual(model.ATTENTION_STATES.complete.icon, '✓');
+
+  const shapes = Object.values(model.ATTENTION_STATES).map(state => state.icon);
+  assert.strictEqual(new Set(shapes).size, shapes.length,
+    'five states, five distinct glyphs: a shared glyph is a state a person cannot tell apart');
+});
+
 check('normalizes attention state IDs without inventing an unknown state', () => {
   for (const state of Object.keys(model.ATTENTION_STATES)) {
     assert.strictEqual(model.normalizeAttentionState(state), state);

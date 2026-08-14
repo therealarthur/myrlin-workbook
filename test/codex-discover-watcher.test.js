@@ -57,7 +57,7 @@ setTimeout(() => {
   // independent of how many extras Linux delivered for phase 1.
   let phase1Count = fireCount;
   try {
-    // The intent is "debounce coalesced the burst" — not literally 1 fire.
+    // The intent is "debounce coalesced the burst", not literally 1 fire.
     // On Linux + Node 18, fs.watch can deliver an extra trailing event
     // a few hundred ms after the burst settles (inotify timing slack),
     // producing 2 fires even though the debounce worked correctly.
@@ -102,6 +102,6 @@ function cleanup(code) {
 
 // Safety timeout: never let the test hang past 10s.
 setTimeout(() => {
-  console.log('  \x1b[31m✗\x1b[0m TIMEOUT — test did not complete within 10s');
+  console.log('  \x1b[31m✗\x1b[0m TIMEOUT, test did not complete within 10s');
   cleanup(1);
 }, 10000).unref();

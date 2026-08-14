@@ -215,12 +215,31 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
       const inv = await macBridge.readMacInventory(cfg);
       const nowIso = new Date().toISOString();
       if (!inv || !inv.reachable) {
+        // Task #37: an unreachable Mac used to be a dead end with no way to
+        // tell "powered off" from "pointed at an address that no longer
+        // exists". Probe the known candidates and, if a DIFFERENT one
+        // answers, carry it back as a suggestion the operator can accept
+        // through PUT mac-config. The probe is read-only (it runs `true`,
+        // sends nothing and reads nothing) and nothing here switches the
+        // sweep onto the host that answered: see mac-bridge.probeMacHosts
+        // for why an automatic redirect would be unsafe. Guarded on the
+        // method existing so older injected bridge fakes are unaffected,
+        // and only run on the already-failed path so a healthy Mac never
+        // pays for it.
+        let suggestedHost = null;
+        if (typeof macBridge.probeMacHosts === 'function') {
+          try {
+            const probe = await macBridge.probeMacHosts(cfg);
+            if (probe && probe.suggestedHost) suggestedHost = probe.suggestedHost;
+          } catch (_) { /* a probe failure must never fail the sweep */ }
+        }
         return {
           checkedAt: nowIso,
           reachable: false,
           activeName: null,
           activeProfileId: null,
           profiles: [],
+          ...(suggestedHost ? { suggestedHost } : {}),
           ...(inv && inv.error ? { error: inv.error } : {}),
         };
       }

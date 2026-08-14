@@ -9,9 +9,9 @@
  * Constructor dependencies are injectable so the engine is unit-testable:
  *   - ptyManager: must expose getSession(id) → { alive, pty: { write(s) } }
  *   - store:      EventEmitter (the existing src/state/store Store), for session:deleted
- *   - clock:      { now(): number } — defaults to Date
- *   - schedule:   schedule(fn, ms) → handle; schedule.cancel(handle) — defaults to setTimeout
- *   - dataFile:   absolute path to schedules.json — defaults to ~/.myrlin/schedules.json
+ *   - clock:      { now(): number }, defaults to Date
+ *   - schedule:   schedule(fn, ms) → handle; schedule.cancel(handle), defaults to setTimeout
+ *   - dataFile:   absolute path to schedules.json, defaults to ~/.myrlin/schedules.json
  */
 
 const fs = require('fs');
@@ -26,7 +26,7 @@ const HISTORY_CAP_PER_SESSION = 50;
 const SAVE_DEBOUNCE_MS = 200;
 // Gap between writing the message text and writing the Enter key. TUIs that
 // support bracketed-paste mode (Claude Code, etc) treat a single fast burst
-// ending in \r as a paste — and \r inside a paste becomes a literal newline
+// ending in \r as a paste, and \r inside a paste becomes a literal newline
 // rather than a submit. Splitting the writes makes the second one register
 // as a real Enter keypress.
 const SUBMIT_DELAY_MS = 80;

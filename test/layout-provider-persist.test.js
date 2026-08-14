@@ -6,7 +6,7 @@
  * `provider` field per pane, and that loadTerminalLayout reads it back into
  * spawnOpts when restoring. Without this, a Codex pane saved during one
  * session and restored after a refresh (or after Codex was toggled off and
- * back on) would lose its provider tag — the post-Phase-18 sidebar lookup
+ * back on) would lose its provider tag, the post-Phase-18 sidebar lookup
  * falls back to the v1.1 default and the pane visually mis-renders as
  * Claude until next attach.
  *

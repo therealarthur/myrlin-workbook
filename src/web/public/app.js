@@ -97,6 +97,69 @@ window.addEventListener('error', function _cwmFallbackHandler(e) {
   });
 });
 
+/* ─── The icon family, Notion restyle P12 (DESIGN-SPEC 11) ─────────────────
+ *
+ * DESIGN-SPEC 11 is unambiguous about the recipe and about who owns it:
+ * "Icons are generated centrally... Reproduce that: one sprite or one helper,
+ * one stroke recipe, no per-call overrides." This is that helper.
+ *
+ * Every glyph is a 16-unit viewBox regardless of rendered size, stroked at
+ * 1.5 with round caps and joins, never filled, and always currentColor. The
+ * parent sets the ink; the icon never carries its own.
+ *
+ * Provenance of the paths. `trash`, `copy`, `close`, `check`, `plus` and the
+ * rest of the keys that appear in DESIGN-SPEC 11's dictionary are VERBATIM
+ * from it, so the set stays coherent with the mock. Four keys are authored
+ * here because the application draws things the mock does not: `pencil`,
+ * `pin`, `phone` and `desktop`. Each is drawn to the same 16-unit grid at the
+ * same 1.5 weight with the same round joins, which is the whole point of
+ * having one recipe. They are named in DECISIONS 19 as additions rather than
+ * smuggled in as if the mock had shipped them.
+ *
+ * @param {string} name - Key in NT_ICON_PATHS.
+ * @param {number} [size=16] - Rendered px size. The viewBox never changes.
+ * @param {string} [extraClass=''] - Optional class on the root svg.
+ * @returns {string} SVG markup, safe to interpolate into a template string.
+ */
+const NT_ICON_PATHS = Object.freeze({
+  trash: ['M3.5 4.5h9', 'M6.5 4.5V3h3v1.5', 'M4.75 4.5l.6 8h5.3l.6-8'],
+  copy: ['M5.5 5.5h7v7h-7z', 'M10.5 5.5V4a.5.5 0 0 0-.5-.5H4a.5.5 0 0 0-.5.5v6a.5.5 0 0 0 .5.5h1.5'],
+  close: ['M4 4l8 8', 'M12 4l-8 8'],
+  check: ['M3.5 8.5l3 3 6-7'],
+  plus: ['M8 3.25v9.5', 'M3.25 8h9.5'],
+  clock: ['M8 13.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11z', 'M8 5v3.25l2 1.25'],
+  user: ['M8 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z', 'M3.5 13.5c0-2.2 2-3.75 4.5-3.75s4.5 1.55 4.5 3.75'],
+  // Authored for this application, same grid and same weight as the above.
+  pencil: ['M11.25 3.25l1.5 1.5', 'M10.25 4.25l1.5 1.5-6 6H4.25v-1.5z'],
+  pin: ['M8 9.5v3.75', 'M5.25 3h5.5l-.75 3 1.5 1.75v.75H4.5v-.75L6 6z'],
+  phone: ['M5.25 2.5h5.5v11h-5.5z', 'M7.25 11.75h1.5'],
+  desktop: ['M2.75 3.5h10.5v6.5H2.75z', 'M6.5 13h3', 'M8 10v3'],
+});
+
+/**
+ * Build one icon from the shared recipe. See NT_ICON_PATHS above.
+ *
+ * @param {string} name - Icon key.
+ * @param {number} [size=16] - Rendered px size.
+ * @param {string} [extraClass=''] - Optional class on the root svg.
+ * @returns {string} SVG markup, or an invisible spacer for an unknown key so a
+ *   typo leaves a hole in the alignment rather than an exception in the render.
+ */
+function ntIcon(name, size = 16, extraClass = '') {
+  const paths = NT_ICON_PATHS[name] || [];
+  const cls = extraClass ? ` class="${extraClass}"` : '';
+  return `<svg${cls} width="${size}" height="${size}" viewBox="0 0 16 16" fill="none"`
+    + ' stroke="currentColor" stroke-width="1.5" stroke-linecap="round"'
+    + ' stroke-linejoin="round" aria-hidden="true" focusable="false">'
+    + paths.map((d) => `<path d="${d}"/>`).join('')
+    + '</svg>';
+}
+
+if (typeof window !== 'undefined') {
+  window.ntIcon = ntIcon;
+  window.NT_ICON_PATHS = NT_ICON_PATHS;
+}
+
 class CWMApp {
   /** Maximum number of terminal pane slots in the grid */
   static MAX_PANES = 6;
@@ -138,6 +201,210 @@ class CWMApp {
    *  the account panel fires one live probe (a single SSH round trip
    *  server-side); anything fresher is served from the cache with no SSH. */
   static MAC_STATE_STALE_MS = 5 * 60 * 1000;
+
+  // ── Chrome hue fallbacks (Notion restyle P2.7, BUILD-CONTRACT 1.8) ──
+  /** The identity ink used when instance-colors.js is missing or stale.
+   *  Gray is the named block palette's own neutral, so an unresolvable
+   *  colour degrades to a legible dot on both chrome themes instead of to a
+   *  broken var() or, worse, to a terminal-palette leak. Both fallbacks are
+   *  chrome tokens by construction: DESIGN-SPEC 10.4 has no exception for
+   *  error paths. */
+  static FALLBACK_HUE_VAR = 'var(--app-text-gray)';
+  /** The block ground that pairs with FALLBACK_HUE_VAR. */
+  static FALLBACK_HUE_BG_VAR = 'var(--app-bg-gray)';
+  /** The chip pair's neutral, for the same degradation path. A tag chip is a
+   *  chip, so its fallback is the neutral CHIP rather than the neutral block
+   *  colour (P4, DECISIONS 11.5 item 2). */
+  static FALLBACK_CHIP_INK_VAR = 'var(--app-chip-gray-ink)';
+  static FALLBACK_CHIP_FILL_VAR = 'var(--app-chip-gray-fill)';
+
+  // ── Topbar scroll state (BUILD-CONTRACT 2.12, DESIGN-SPEC 4) ──
+  /** Scroll depth at which the topbar earns its shadow. Two pixels rather
+   *  than zero so a sub-pixel rubber-band or a fractional device-pixel offset
+   *  cannot toggle the class; the 700ms transition damps the rest. */
+  static HEADER_SCROLLED_AT_PX = 2;
+
+  // ── Hover gate (DESIGN-SPEC 1.7, BUILD-CONTRACT 2.1, DEVIATIONS DV-3) ──
+  /** Idle after the last scroll before hover states are allowed back.
+   *  Long enough to outlast momentum and rubber-band settling, short enough
+   *  that a pointer resting on a row lights it up as soon as the list is
+   *  still. Notion's own gate behaves this way; the exact number is ours. */
+  static HOVER_GATE_RESTORE_MS = 180;
+  /** Safety net for a drag that never reports its end. `dragend` fires even
+   *  on an Escape-cancelled drag, so this should never be reached, but a
+   *  hover gate stuck off for the rest of the session would be a silent,
+   *  unexplainable "hover stopped working" bug. Bounded, not hoped. */
+  static HOVER_GATE_DRAG_MAX_MS = 30000;
+
+  /** localStorage key for the Sessions table sort, BUILD-CONTRACT 2.13.4.
+   *  Value is `{ key, dir }`; absent means last active, descending. */
+  static SESSIONS_SORT_KEY = 'cwm_sessionsSort';
+
+  /** localStorage key for the sidebar Recent section's collapsed state,
+   *  BUILD-CONTRACT 2.13.3. */
+  static RECENT_COLLAPSED_KEY = 'cwm_recentCollapsed';
+
+  /** localStorage key for the side peek's per-session notes, DESIGN-SPEC 7
+   *  item 5. Value is `{ [sessionId]: string }`.
+   *
+   *  The mock stores ONE note under `mw-notion-notes`, because a prototype has
+   *  one session. This app has hundreds, so the note is keyed by session id and
+   *  the key follows this app's own `cwm_` convention rather than the mock's.
+   *  Client-side because a note is a scratchpad rather than session state: it
+   *  needs no round trip, no schema change and no conflict story, and a session
+   *  that disappears takes its note with it on the next write. */
+  static SESSION_NOTES_KEY = 'cwm_sessionNotes';
+
+  /** How many sessions each recency surface shows, BUILD-CONTRACT 2.13.
+   *  Quick Find zero-query takes 8, the sidebar Recent section takes 5, and
+   *  the workbench continue row takes 4. They are named here rather than
+   *  written into three render methods so the three cannot drift apart. */
+  static RECENCY_QUICK_FIND_LIMIT = 8;
+  static RECENCY_SIDEBAR_LIMIT = 5;
+  static RECENCY_WORKBENCH_LIMIT = 4;
+
+  /** Reserve used by the sidebar section splitter when the live measurement
+   *  is unusable (sidebar hidden, mid-animation, or pre-layout). It is the
+   *  old hard-coded constant, kept only as the degenerate-case floor rather
+   *  than as the everyday number. */
+  static SIDEBAR_CHROME_FALLBACK_PX = 200;
+
+  /* ─── The phone IA, Notion restyle P10 (MOBILE-EXPERIENCE A) ─────────
+     The five-tab bar names its own destinations; three of them map onto
+     view modes the desktop already has, and three are phone-only screens.
+     The map lives here rather than in the two places that read it (the
+     click handler and the active-state pass in setViewMode) so a tab and
+     its destination cannot drift apart. */
+
+  /** Bottom-tab id to view mode. `sessions` is the shell's `workspace`
+   *  mode: the tab is named for what the user is looking for, the mode
+   *  keeps the name every other surface, localStorage key and test uses. */
+  static MOBILE_TAB_VIEW = {
+    home: 'home',
+    sessions: 'workspace',
+    terminal: 'terminal',
+    attention: 'attention',
+    search: 'search',
+  };
+
+  /** View modes that exist only on a phone. A desktop that restores one of
+   *  these from `cwm_viewMode` falls back to `workspace`, because these
+   *  screens are laid out for a 390px column and are display:none above
+   *  the phone breakpoint. */
+  static MOBILE_ONLY_VIEW_MODES = ['home', 'attention', 'search'];
+
+  /** Modes reached FROM Home > Workspace. While one is showing, Home stays
+   *  the selected tab, exactly as the old `more` tab stayed selected for
+   *  the destinations its sheet routed to. */
+  static HOME_DESTINATION_MODES = ['tasks', 'costs', 'recent', 'docs', 'resources'];
+
+  /** Home is an orientation surface, so its two session lists are capped
+   *  and overflow to "See all" rather than growing without bound
+   *  (MOBILE-EXPERIENCE A.4 deviation 3). */
+  static MOBILE_HOME_ACTIVE_LIMIT = 6;
+  static MOBILE_HOME_RECENT_LIMIT = 5;
+
+  /** The Attention tab's polite live region announces at most this often.
+   *  MOBILE-EXPERIENCE D.6: a live region driven by every SSE tick is a
+   *  screen-reader flood. */
+  static MOBILE_ATTENTION_ANNOUNCE_MS = 5000;
+
+  /** The tab badge caps its numeral rather than widening the pill.
+   *  MOBILE-EXPERIENCE D.1 row 9. */
+  static MOBILE_BADGE_MAX = 9;
+
+  /* ─── The three-zone touch model, Notion restyle P11.1 ───────────────
+     MOBILE-EXPERIENCE B.2. Every touch surface in this application is
+     exactly one of three zones, and the zone decides what a long press
+     means. The declarations below are the ALLOWLIST half of that model;
+     the resolver is `_mwZoneOf` and the binder is `_mwBindLongPress`. */
+
+  /** Text surfaces this file does not author, matched structurally.
+   *
+   *  Zone membership is normally declared with `data-mw-zone="text"` in the
+   *  markup, which is what B.2 asks for. Four of the members are created by
+   *  xterm, by terminal.js or by terminal-history.js, so this application
+   *  cannot put an attribute on them without editing another track's file.
+   *  They are matched by selector instead, which is the same allowlist with
+   *  a different spelling: a surface has to be NAMED here to be a text zone,
+   *  and anything unnamed falls through to `chrome`, where nothing happens.
+   *
+   *  `.terminal-history` is listed before that surface exists, deliberately.
+   *  B.4 rule 3 requires the scrollback-history surface to be a text zone,
+   *  and naming it now means it is born correct rather than born stealing a
+   *  selection gesture. */
+  static MW_TEXT_ZONE_SELECTOR = [
+    '.xterm-screen', '.xterm-viewport', '.terminal-container',
+    '.terminal-copyview', '.terminal-reader', '.terminal-reader-content',
+    '.terminal-history',
+    'input', 'textarea', 'select',
+    '[contenteditable=""]', '[contenteditable="true"]',
+  ].join(', ');
+
+  /** The zone names, so a typo in the markup cannot invent a fourth zone. */
+  static MW_ZONES = ['text', 'affordance', 'chrome'];
+
+  /** How long the click and contextmenu swallow stays armed after a long
+   *  press fires. Long enough to cover the touchend that follows the hold
+   *  and the platform's own delayed `contextmenu`, short enough that the
+   *  next deliberate tap is never eaten. */
+  static MW_LONGPRESS_SWALLOW_MS = 700;
+
+  /** The fallback timing table, used only when mobile-viewport.js is absent.
+   *  MOBILE-EXPERIENCE's appendix names that module as the home of every
+   *  measurement the mobile program introduces, so these numbers are read
+   *  from it at run time; a shell served without the driver still needs one
+   *  answer rather than a crash, and two different long-press durations on
+   *  adjacent elements is exactly what makes a gesture feel unreliable. */
+  static MW_FALLBACK_CONSTANTS = {
+    MW_LONGPRESS_MS: 400,
+    MW_LONGPRESS_MOVE_PX: 8,
+    MW_LONGPRESS_HAPTIC_MS: 25,
+    MW_VP_SETTLE_MS: 150,
+    MW_KEYBOARD_MIN_INSET_PX: 120,
+    MW_SWIPE_MIN_PX: 96,
+    MW_SWIPE_EDGE_PX: 32,
+    MW_PHONE_MAX_WIDTH_PX: 768,
+    MW_TABLET_MAX_WIDTH_PX: 900,
+  };
+
+  /** Row swipe reveal threshold, MOBILE-EXPERIENCE B.3 row "Sessions row".
+   *  Below it the row springs back; at or past it the actions stay open.
+   *  A swipe NEVER performs the action (B.1 rule R5), so there is no
+   *  second, larger threshold. */
+  static MW_SWIPE_REVEAL_PX = 72;
+
+  /** How far past the reveal width a row may be dragged, so the rubber band
+   *  has somewhere to go without the row leaving the screen. */
+  static MW_SWIPE_MAX_PX = 96;
+
+  /** The key toolbar's priority order (MOBILE-EXPERIENCE B.7 step 1). Index
+   *  IS the priority: everything that does not fit goes to the overflow
+   *  sheet in this order, so the keys a person reaches for most are the ones
+   *  that survive the narrowest phone. */
+  static MW_TOOLBAR_PRIORITY = [
+    'enter', 'ctrlc', 'escape', 'up', 'down', 'tab', 'copy',
+    'ctrld', 'select', 'copyview', 'reader',
+  ];
+
+  /** The pinned overflow control's own width, excluded from the fit budget
+   *  before any key is measured (B.7 step 2). */
+  static MW_TOOLBAR_OVERFLOW_PX = 44;
+
+  /** Toast durations, MOBILE-EXPERIENCE B.5 rule 3. A toast carrying an
+   *  action is indefinite, because dismissing it would remove the action. */
+  static TOAST_DURATION_MS = 3500;
+  static TOAST_DURATION_LOUD_MS = 6000;
+
+  /** At most this many toasts are on a phone at once, oldest evicted
+   *  (B.5 rule 3). A third toast on a 390px screen is a wall. */
+  static TOAST_MAX_VISIBLE_PHONE = 2;
+
+  /** How far past this client's own fit an applied PTY width has to be
+   *  before the pane says so (MOBILE-EXPERIENCE B.9 rule 5). 20 percent is
+   *  the contract's number: below it a shared width is merely untidy, above
+   *  it the wrapping makes the output unreadable. */
+  static MW_WIDTH_NOTICE_RATIO = 1.2;
 
   constructor() {
     // ─── State ─────────────────────────────────────────────────
@@ -244,8 +511,18 @@ class CWMApp {
     // Cache of TerminalPane instances per group to avoid reconnection on tab switch.
     // Key: groupId, Value: { panes: [TerminalPane|null x MAX_PANES], domFragments: [DocumentFragment|null x MAX_PANES] }
     this._groupPaneCache = {};
+    // Slot identity, by POSITION in the grid, never by content. The six names
+    // are persisted-state vocabulary and stay exactly as they are; what they
+    // paint is resolved at string-build time by _hueVar (P2.7). DESIGN-SPEC
+    // 5.3 gives the first four slots as purple, blue, green, orange, which is
+    // precisely what mauve, blue, green, peach now resolve to; red and pink
+    // extend the ramp to this application's six slots.
     this.PANE_SLOT_COLORS = ['mauve', 'blue', 'green', 'peach', 'red', 'pink'];
     this.TAB_COLORS = (window.InstanceColors && window.InstanceColors.TAB_COLORS) || [];
+    // The same six tab names projected onto chrome tokens, per contract 1.8.
+    // Read once here so a render path can reach the map without a module hop;
+    // _hueVar remains the resolver every template actually calls.
+    this.TAB_COLOR_TOKENS = (window.InstanceColors && window.InstanceColors.TAB_COLOR_TOKENS) || {};
     this._gridColSizes = [1, 1];  // fr ratios for column widths
     this._gridRowSizes = [1, 1];  // fr ratios for row heights
     // Voice recognition instances per slot (for mic-to-terminal input)
@@ -375,6 +652,11 @@ class CWMApp {
       // Phase 18-02: sidebar provider tab strip (rendered by renderProviderTabs)
       sidebarProviderTabs: document.getElementById('sidebar-provider-tabs'),
       workspaceList: document.getElementById('workspace-list'),
+      // Recency surface 2 (BUILD-CONTRACT 2.13.3). Three ids, all new, all
+      // resolved here alongside every other sidebar element.
+      sidebarRecentSection: document.getElementById('sidebar-recent-section'),
+      sidebarRecentList: document.getElementById('sidebar-recent-list'),
+      sidebarRecentToggle: document.getElementById('sidebar-recent-toggle'),
       workspaceCount: document.getElementById('workspace-count'),
       createWorkspaceBtn: document.getElementById('create-workspace-btn'),
       workspacesRefresh: document.getElementById('workspaces-refresh'),
@@ -437,6 +719,9 @@ class CWMApp {
       detailDeleteBtn: document.getElementById('detail-delete-btn'),
       detailStatusBadge: document.getElementById('detail-status-badge'),
       detailWorkspace: document.getElementById('detail-workspace'),
+      detailProvider: document.getElementById('detail-provider'),
+      detailModel: document.getElementById('detail-model'),
+      detailNotes: document.getElementById('detail-notes'),
       detailDir: document.getElementById('detail-dir'),
       detailTopic: document.getElementById('detail-topic'),
       detailCommand: document.getElementById('detail-command'),
@@ -492,9 +777,32 @@ class CWMApp {
       terminalTabStrip: document.getElementById('terminal-tab-strip'),
       workbenchStartBtn: document.getElementById('workbench-start-btn'),
       workbenchProjectsBtn: document.getElementById('workbench-projects-btn'),
+      // Recency surface 4 (BUILD-CONTRACT 2.13.5).
+      workbenchRecent: document.getElementById('workbench-recent'),
+      workbenchRecentRow: document.getElementById('workbench-recent-row'),
+      // Topbar breadcrumb (DESIGN-SPEC 4).
+      headerBreadcrumb: document.getElementById('header-breadcrumb'),
 
       // Mobile
       mobileTabBar: document.getElementById('mobile-tab-bar'),
+      // Notion restyle P10.1/P10.2: the five-tab bar's badge plus the three
+      // phone-only screens. Every one is null on a server that predates the
+      // markup, and every reader guards, so an old shell degrades to the
+      // desktop panels rather than throwing.
+      mobileAttentionBadge: document.getElementById('mobile-attention-badge'),
+      mobileHomePanel: document.getElementById('mobile-home-panel'),
+      mobileHomeScroll: document.getElementById('mobile-home-scroll'),
+      mobileHomeBody: document.getElementById('mobile-home-body'),
+      mobileHomeMeta: document.getElementById('mobile-home-meta'),
+      mobileMoreTab: document.getElementById('mobile-more-tab'),
+      mobileAttentionPanel: document.getElementById('mobile-attention-panel'),
+      mobileAttentionList: document.getElementById('mobile-attention-list'),
+      mobileAttentionLive: document.getElementById('mobile-attention-live'),
+      mobileAttentionOverflow: document.getElementById('mobile-attention-overflow'),
+      mobileSearchPanel: document.getElementById('mobile-search-panel'),
+      mobileSearchInput: document.getElementById('mobile-search-input'),
+      mobileSearchScopes: document.getElementById('mobile-search-scopes'),
+      mobileSearchResults: document.getElementById('mobile-search-results'),
       actionSheetOverlay: document.getElementById('action-sheet-overlay'),
       actionSheet: document.getElementById('action-sheet'),
       actionSheetHeader: document.getElementById('action-sheet-header'),
@@ -1446,13 +1754,19 @@ class CWMApp {
     });
 
     // ─── Mobile: Bottom Tab Bar ─────────────────────────────
+    //
+    // NOTION RESTYLE P10.1. Five tabs, one destination each
+    // (MOBILE-EXPERIENCE A.2). The `workspace` branch is unchanged in
+    // behaviour and is now reached through the `sessions` tab id; the
+    // `more` branch is retained below it because `showMoreMenu` is retained
+    // for the classic shell and nothing in this file may stop calling it.
     if (this.els.mobileTabBar) {
       this.els.mobileTabBar.querySelectorAll('.mobile-tab').forEach(tab => {
         tab.addEventListener('click', () => {
           const view = tab.dataset.view;
           if (view === 'more') {
             this.showMoreMenu();
-          } else if (view === 'workspace') {
+          } else if (view === 'sessions' || view === 'workspace') {
             this.setViewMode('workspace');
             const focusedShell = document.documentElement.dataset.uiShell === 'focused';
             // In the focused shell, Sessions is a real destination; projects
@@ -1463,7 +1777,7 @@ class CWMApp {
               this.toggleSidebar();
             }
           } else {
-            this.setViewMode(view);
+            this.setViewMode(CWMApp.MOBILE_TAB_VIEW[view] || view);
             // Close sidebar if open
             if (this.state.sidebarOpen) {
               this.toggleSidebar();
@@ -1472,6 +1786,10 @@ class CWMApp {
         });
       });
     }
+
+    // ─── Mobile: the three phone screens (P10.2) ────────────
+    this._injectMobileHeaderControls();
+    this.bindMobileScreens();
 
     // ─── Mobile: Action Sheet ───────────────────────────────
     if (this.els.actionSheetOverlay) {
@@ -1548,42 +1866,89 @@ class CWMApp {
       this.initTouchGestures();
     }
 
-    // ─── Mobile: VisualViewport resize (soft keyboard) ───────
-    // When the mobile keyboard opens/closes, the visual viewport shrinks/grows.
-    // Adjust layout height + refit terminal panes.
-    if (window.visualViewport) {
+    // ─── Mobile: VisualViewport geometry (soft keyboard) ─────
+    //
+    // NOTION RESTYLE P10.3. This block used to own three mechanisms and
+    // MOBILE-EXPERIENCE C.1 names each one as a defect:
+    //
+    //   1. It compared the visual height against `window.screen.height * 0.75`
+    //      to detect the keyboard. `screen.height` is the PHYSICAL screen and
+    //      does not rotate consistently across browsers, so in landscape or in
+    //      an installed PWA the class toggled at the wrong times.
+    //   2. `body.keyboard-open { position: fixed }` lost the scroll position.
+    //   3. It wrote `#app.style.transform = translateY(offset)` to compensate
+    //      the iOS scroll. A transform on an ancestor CREATES A CONTAINING
+    //      BLOCK for every `position: fixed` descendant, which in this app is
+    //      the action sheet, the account sheet and its backdrop, every modal
+    //      and the toast container.
+    //
+    // All three are gone. mobile-viewport.js owns the geometry, writes the
+    // custom properties, and never writes a transform. This block now does
+    // exactly one thing the driver cannot do for itself: fit the terminal,
+    // ONCE per settle window rather than once per event, because every
+    // applied resize is a full ConPTY repaint on every attached client (C.6).
+    // ─── P11.6: the geometry claim gate (MOBILE-EXPERIENCE B.9) ───
+    //
+    // Published on the window so the pane layer has ONE answer to consult
+    // rather than re-deriving four conditions. `terminal.js` belongs to
+    // another track this phase, so the gate is consulted by the app-layer
+    // claim paths today and the one-line read inside `_requestActivate` is
+    // recorded as post-P7 mop-up.
+    window.MyrlinClaimGate = {
+      canClaim: (sessionId) => this.canClaimGeometry(sessionId),
+      follows: (sessionId) => this.followsThisDevice(sessionId),
+      suppress: () => this.suppressGeometryClaims(),
+    };
+    // The suppression window OPENS on the first frame of a viewport change
+    // and CLOSES a settle window after the last one. The driver only
+    // publishes a trailing-edge subscription, which is right for expensive
+    // work and wrong for a guard: by the time it fires the jank has already
+    // happened. This listener reads no geometry at all; it only marks that
+    // geometry is moving, so the C.1 single-reader contract is intact.
+    if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+      window.visualViewport.addEventListener('resize', () => this.suppressGeometryClaims());
+    }
+
+    if (window.MyrlinMobileViewport) {
+      window.MyrlinMobileViewport.start();
+      window.MyrlinMobileViewport.onSettle(() => {
+        // P11.4 and P11.6, both once per settle rather than once per event:
+        // the toolbar fit and the shared-width notice. Neither depends on the
+        // Terminal tab being active, so both run before the early return.
+        this.layoutMobileToolbars();
+        this.syncPaneWidthNotice();
+        this.suppressGeometryClaims();
+        if (this.state.viewMode !== 'terminal') return;
+        // Fit only the pane the user can see. safeFit already bails on a
+        // zero-rect container, so the others are cheap no-ops, but skipping
+        // them entirely avoids the guard cost during a keyboard animation.
+        const slot = this._activeTerminalSlot;
+        const active = (slot !== null && slot !== undefined)
+          ? this.terminalPanes[slot]
+          : this.terminalPanes.find(tp => tp !== null);
+        if (active && typeof active.safeFit === 'function') active.safeFit();
+      });
+    } else if (window.visualViewport) {
+      // Degradation path for a shell served without mobile-viewport.js. It
+      // keeps the ONE mechanism that was never a defect (the debounced fit)
+      // and deliberately does not restore the transform or the screen.height
+      // ratio.
       let vpResizeTimer = null;
-      window.visualViewport.addEventListener('resize', () => {
+      const onLegacyViewport = () => {
         clearTimeout(vpResizeTimer);
         vpResizeTimer = setTimeout(() => {
-          // Set --vh CSS variable to actual visible height (keyboard-aware)
-          const vh = window.visualViewport.height;
+          const vh = Math.floor(window.visualViewport.height);
           document.documentElement.style.setProperty('--vh', vh + 'px');
-
-          // Detect keyboard open/close on mobile
-          if (window.innerWidth <= 768) {
-            const isKeyboardOpen = vh < window.screen.height * 0.75;
-            document.body.classList.toggle('keyboard-open', isKeyboardOpen);
-          }
-
-          // Refit terminal panes
+          document.documentElement.style.setProperty('--mw-vh', vh + 'px');
           if (this.state.viewMode === 'terminal') {
             this.terminalPanes.forEach(tp => {
               if (tp) tp.safeFit();
             });
           }
         }, 150);
-      });
-
-      // Compensate for iOS Safari viewport scroll when keyboard opens
-      window.visualViewport.addEventListener('scroll', () => {
-        if (window.innerWidth > 768) return;
-        const offset = window.visualViewport.offsetTop;
-        const app = document.getElementById('app');
-        if (app) {
-          app.style.transform = offset > 0 ? `translateY(${offset}px)` : '';
-        }
-      });
+      };
+      window.visualViewport.addEventListener('resize', onLegacyViewport);
+      window.visualViewport.addEventListener('scroll', onLegacyViewport);
     }
 
     // ─── P2: Re-render tab strips when crossing the mobile breakpoint ───
@@ -1599,6 +1964,25 @@ class CWMApp {
         if (typeof this.renderTerminalGroupTabs === 'function' && this._tabGroups) {
           this.renderTerminalGroupTabs();
         }
+        // NOTION RESTYLE P10.2. The three phone screens are display:none
+        // above the breakpoint, so a tablet rotated out of portrait, or a
+        // desktop window dragged wider, would land on a mode whose panel
+        // cannot render and show an EMPTY main column with a breadcrumb that
+        // says Home. Measured at 900px in the P10 capture.
+        //
+        // The fallback is Sessions rather than the workbench, because all
+        // three phone screens are about finding a session and Sessions is the
+        // desktop surface that answers the same question. Crossing back down
+        // does not restore the phone screen: the user is now somewhere real
+        // and moving them again would be the second surprise.
+        if (!this.isMobile && CWMApp.MOBILE_ONLY_VIEW_MODES.includes(this.state.viewMode)) {
+          this.setViewMode('workspace');
+        }
+        // NOTION RESTYLE P11.4 and P11.5. Two phone-only states are decided by
+        // WIDTH and therefore have to be re-decided on a crossing: which keys
+        // fit in the toolbar, and whether rows advertise a drag.
+        if (typeof this.layoutMobileToolbars === 'function') this.layoutMobileToolbars();
+        if (typeof this.syncMobileDndState === 'function') this.syncMobileDndState();
       };
       // addEventListener('change') is the modern API; older Safari only has
       // addListener. Prefer the former, fall back to the latter.
@@ -1617,11 +2001,33 @@ class CWMApp {
     // definition. See _injectMobileSelectControls.
     this._injectMobileSelectControls();
 
+    // ─── Mobile: the permanent input row (P10.5) ───────────────
+    // The image and microphone buttons the mock draws in the input row. The
+    // microphone has been wired and feature-detected in this file for months
+    // and hidden by the phone stylesheet for exactly as long, because its
+    // only host was `.terminal-pane-header`. This is where it becomes
+    // reachable.
+    this._injectMobileInputRowControls();
+    this.bindMobileInputRowControls();
+    this.bindMobileTextareaFocusGuard();
+
+    // ─── Mobile: the three-zone long-press model (P11.1) ───────
+    // One delegated listener per list container, keyed on the affordance
+    // zone. Bound here, after the containers exist and before any of them
+    // renders a row, so no surface is ever live without its gesture.
+    this.bindMwLongPressHosts();
+    // ─── Mobile: the priority-plus key toolbar (P11.4) ─────────
+    this.bindMobileToolbarOverflow();
+
     // Toolbar buttons send input directly via WebSocket - they work in
     // both scroll and type mode, no textarea focus needed.
     document.querySelectorAll('.terminal-mobile-toolbar button').forEach(btn => {
       btn.addEventListener('click', () => {
         const key = btn.dataset.key;
+        // P11.4: the pinned overflow control lives inside this toolbar and
+        // has no data-key. It carries its own listener; this one must not
+        // treat it as an unrecognised key.
+        if (!key) return;
         const activePane = this._activeTerminalSlot !== null
           ? this.terminalPanes[this._activeTerminalSlot]
           : this.terminalPanes.find(tp => tp !== null);
@@ -1834,6 +2240,223 @@ class CWMApp {
     window.addEventListener('focus', () => {
       this._activateActiveTerminalPane();
     });
+
+    // Notion restyle: one delegated scroll observer for the whole shell.
+    this._bindShellScrollObserver();
+    // Notion restyle: the hover gate rides on that same observer.
+    this._bindHoverGate();
+    // Notion restyle P4.9: the sidebar Recent section (recency surface 2)
+    // and the workbench continue row (recency surface 4).
+    this.bindRecentSection();
+    this.bindWorkbenchRecent();
+    // Notion restyle P4: keyboard activation for the row controls that are
+    // divs rather than buttons.
+    this.bindRowKeyboardActivation();
+    // Notion restyle P4: the topbar breadcrumb. One delegated listener; the
+    // crumbs are re-rendered on every view change.
+    if (this.els.headerBreadcrumb) {
+      this.els.headerBreadcrumb.addEventListener('click', (e) => {
+        if (e.target.closest('[data-crumb="root"]')) this.setViewMode('terminal');
+      });
+    }
+    this.renderBreadcrumb();
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     SHELL SCROLL OBSERVER (Notion restyle, DEVIATIONS DV-9)
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Bind the single scroll listener the shell chrome reads.
+   *
+   * `scroll` does not bubble, but it DOES reach a capture-phase listener on
+   * the document from any scroller in the tree. That is why this is one
+   * capture listener rather than a listener per container: this shell scrolls
+   * content INSIDE .main-content (which is itself `overflow: hidden`), the
+   * scrolling element differs per view, and half of those containers are
+   * rendered long after boot. Binding per container would silently miss
+   * every one of them.
+   *
+   * Passive, because nothing here can cancel a scroll and a non-passive
+   * document-level scroll listener costs scrolling performance on touch.
+   */
+  _bindShellScrollObserver() {
+    if (this._shellScrollObserverBound) return;
+    this._shellScrollObserverBound = true;
+    document.addEventListener('scroll', (e) => this._onShellScroll(e), {
+      capture: true,
+      passive: true,
+    });
+  }
+
+  /**
+   * Fan a scroll event out to the chrome surfaces that care about it,
+   * throttled to one animation frame so a fast wheel cannot queue work.
+   *
+   * @param {Event} e - The captured scroll event.
+   */
+  _onShellScroll(e) {
+    const scroller = (e && e.target && e.target.nodeType === 1) ? e.target : null;
+    this._lastScroller = scroller;
+    // Hover first and unthrottled: the whole point of the gate is that a wash
+    // must not light up under the pointer on the FIRST frame of a scroll.
+    // Deferring it to the next animation frame would leak exactly the flash
+    // it exists to prevent.
+    this._suspendHoverGateForScroll();
+    if (this._shellScrollTicking) return;
+    this._shellScrollTicking = true;
+    requestAnimationFrame(() => {
+      this._shellScrollTicking = false;
+      this._updateHeaderScrolled(this._lastScroller);
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     HOVER GATE (DESIGN-SPEC 1.7, DEVIATIONS DV-3 and DV-9 gap 2)
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Put `nt-enable-hover` on the shell container and wire the strip.
+   *
+   * Notion writes every hover rule as `.notion-enable-hover .thing:hover` and
+   * removes the class while the user is scrolling or dragging, so a hover
+   * state never flashes under a pointer that is only passing through.
+   * DESIGN-SPEC 1.7 and BUILD-CONTRACT 2.1 carry that idiom over and put the
+   * class on `#app`; DEVIATIONS DV-3 records that the strip is ours and not
+   * the mock's, because the mock is a prototype that never scrolls a live
+   * terminal grid.
+   *
+   * The class is added from here rather than authored into index.html for
+   * one reason: a class that is present in static markup but never stripped
+   * is worse than no gate at all, because it looks implemented. Owning both
+   * ends in one place keeps the mechanism honest.
+   *
+   * Drag listeners capture so they are not affected by a downstream
+   * `stopPropagation`, and they neither cancel nor mutate the event, so the
+   * existing drag-and-drop paths for sessions, panes and tabs are untouched.
+   */
+  _bindHoverGate() {
+    const shell = this.els.app || document.getElementById('app');
+    if (!shell) return;
+    if (this._hoverGateBound) return;
+    this._hoverGateBound = true;
+
+    this._hoverGateShell = shell;
+    this._hoverGateEnabled = false;
+    this._hoverGateDragging = false;
+    this._setHoverGate(true);
+
+    document.addEventListener('dragstart', () => this._suspendHoverGateForDrag(), { capture: true });
+    document.addEventListener('dragend', () => this._resumeHoverGateAfterDrag(), { capture: true });
+    document.addEventListener('drop', () => this._resumeHoverGateAfterDrag(), { capture: true });
+  }
+
+  /**
+   * Idempotent class toggle. Every other method routes through this one so
+   * the DOM is written only on a genuine state change, which matters when
+   * the caller is a scroll handler.
+   *
+   * @param {boolean} enabled - Whether hover states are allowed.
+   */
+  _setHoverGate(enabled) {
+    const shell = this._hoverGateShell;
+    if (!shell || this._hoverGateEnabled === enabled) return;
+    this._hoverGateEnabled = enabled;
+    shell.classList.toggle('nt-enable-hover', enabled);
+    // The overlay layer is NOT inside #app. index.html closes #app at line
+    // 1531 and then opens every modal, the quick switcher, the toast stack,
+    // the action sheet and #context-menu as SIBLINGS of it. A hover rule
+    // written as `.nt-enable-hover .context-menu-item:hover`, which is the
+    // form BUILD-CONTRACT 2.1 and DESIGN-SPEC 1.7 prescribe, therefore never
+    // matches inside an overlay: the ancestor carrying the class is not on
+    // that branch of the tree. Mirroring the class onto <body> makes one
+    // selector reach both branches, so P4's hover sweep can be uniform
+    // instead of having two spellings for the same idiom. #app keeps the
+    // class as well, so anything already keyed to the shell is unaffected.
+    if (document.body) document.body.classList.toggle('nt-enable-hover', enabled);
+  }
+
+  /** Strip the gate for the duration of a scroll, then restore after idle. */
+  _suspendHoverGateForScroll() {
+    if (!this._hoverGateShell) return;
+    this._setHoverGate(false);
+    if (this._hoverGateDragging) return;  // the drag owns the restore
+    this._scheduleHoverGateRestore(CWMApp.HOVER_GATE_RESTORE_MS);
+  }
+
+  /**
+   * Strip the gate for a whole drag and HOLD it off. A drag can last far
+   * longer than the scroll idle, and restoring hover under a dragged card is
+   * exactly the flash this gate exists to prevent.
+   */
+  _suspendHoverGateForDrag() {
+    if (!this._hoverGateShell) return;
+    this._hoverGateDragging = true;
+    this._setHoverGate(false);
+    this._scheduleHoverGateRestore(CWMApp.HOVER_GATE_DRAG_MAX_MS);
+  }
+
+  /** Release the drag hold and restore after the normal idle. */
+  _resumeHoverGateAfterDrag() {
+    if (!this._hoverGateShell) return;
+    this._hoverGateDragging = false;
+    this._scheduleHoverGateRestore(CWMApp.HOVER_GATE_RESTORE_MS);
+  }
+
+  /**
+   * (Re)arm the single restore timer. One timer, always replaced, so a burst
+   * of scroll events cannot accumulate pending restores.
+   *
+   * @param {number} delayMs - Idle before hover states are allowed back.
+   */
+  _scheduleHoverGateRestore(delayMs) {
+    clearTimeout(this._hoverGateTimer);
+    this._hoverGateTimer = setTimeout(() => {
+      this._hoverGateDragging = false;
+      this._setHoverGate(true);
+    }, delayMs);
+  }
+
+  /**
+   * Toggle the topbar's scrolled state.
+   *
+   * DESIGN-SPEC 4 and BUILD-CONTRACT 2.12: the bar has no shadow at rest and
+   * earns one only while content is scrolled beneath it, over a deliberately
+   * slow --duration-topbar (700ms) so a breadcrumb sitting near the boundary
+   * cannot flicker the shadow on and off. styles.css authored .app-header
+   * and .app-header.is-scrolled in P2.1; nothing toggled the class, because
+   * that half is app.js work (DEVIATIONS DV-9 gap 1). This is that half.
+   *
+   * Only scrollers inside the main column count. A scrolling sidebar, menu,
+   * modal body or terminal transcript is not "content under the topbar", and
+   * a terminal viewport in particular scrolls constantly while a session
+   * runs. With no scroller (a view switch) the state resets, because the
+   * incoming panel is shown at its own scroll position and any real scroll
+   * re-asserts within one frame.
+   *
+   * @param {HTMLElement|null} scroller - The element that scrolled, if any.
+   */
+  _updateHeaderScrolled(scroller) {
+    const header = document.querySelector('.app-header');
+    if (!header) return;
+
+    let scrolled = false;
+    if (scroller && typeof scroller.closest === 'function') {
+      const main = this._mainContentEl ||
+        (this._mainContentEl = document.getElementById('main-content'));
+      const insideMain = !!main && main.contains(scroller);
+      const insideTerminal = !!scroller.closest('.terminal-pane');
+      if (insideMain && !insideTerminal) {
+        scrolled = (scroller.scrollTop || 0) > CWMApp.HEADER_SCROLLED_AT_PX;
+      } else {
+        // Not a main-column scroller: leave the current state alone rather
+        // than clearing it, so scrolling a menu open over a scrolled page
+        // does not drop the bar's shadow out from under it.
+        return;
+      }
+    }
+
+    header.classList.toggle('is-scrolled', scrolled);
   }
 
   /**
@@ -1845,7 +2468,16 @@ class CWMApp {
   _activateActiveTerminalPane() {
     if (!this.terminalPanes || this._activeTerminalSlot === null || this._activeTerminalSlot === undefined) return;
     const tp = this.terminalPanes[this._activeTerminalSlot];
-    if (tp && typeof tp.activate === 'function') tp.activate();
+    if (!tp || typeof tp.activate !== 'function') return;
+    // NOTION RESTYLE P11.6, MOBILE-EXPERIENCE B.9 rules 1, 2 and 4. This is
+    // the AMBIENT claim path, fired by visibility and focus rather than by an
+    // explicit user action, so it is exactly the one the gate is for: the
+    // document has to be visible, the Terminal tab has to be the surface on
+    // screen, the keyboard must not be settling, and the session must still
+    // be following this device. An explicit "take over" bypasses all four,
+    // because the user has just said which device they mean.
+    if (!this.canClaimGeometry(tp.sessionId)) return;
+    tp.activate();
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -1920,6 +2552,718 @@ class CWMApp {
     return created;
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     THE PRIORITY-PLUS KEY TOOLBAR   (Notion restyle P11.4)
+
+     MOBILE-EXPERIENCE B.7. What this replaces: thirteen buttons in a
+     horizontal scroller with no overflow affordance. At 390px about six
+     were visible, so Esc, the arrows and the camera lived past the fold
+     with nothing on screen indicating they existed at all. The scroller
+     also competed with the pane-switch swipe for the horizontal axis.
+
+     THE ALGORITHM. Items carry an explicit priority. On layout and on
+     every settle, the available width is measured, the pinned overflow
+     control and the padding are subtracted, and items are fitted in
+     priority order. Everything that does not fit is HIDDEN from the
+     strip and listed in the overflow sheet instead, under a Keys group,
+     with the same `data-key`, so both surfaces route through the one
+     click handler and cannot diverge.
+
+     NO HORIZONTAL SCROLLING. If the strip would scroll, it overflows
+     instead. That frees the horizontal axis on the toolbar, which is
+     what makes the guarded pane swipe (P11.5) safe to keep.
+
+     THE HONEST COUNT. B.7 works the arithmetic and this build measures
+     it: at 390px the fit is five to six keys plus the overflow, not the
+     mock's seven, because seven requires 40px keys and the touch floor
+     is 44. The floor wins, per PROCEDURE section 4. DESIGN-SPEC 14.3
+     draws seven; this is the documented departure.
+
+     NOTHING IS DELETED. Every button stays in `index.html` and every
+     handler stays bound; an overflowed key is `hidden` and its sheet row
+     clicks the very same element.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Add the pinned overflow control to every fixed-slot toolbar.
+   *
+   * Injected for the same reason the Select-mode buttons are: six
+   * hand-written copies of one control drift, and the pane markup belongs to
+   * another track. Idempotent.
+   *
+   * @returns {number} How many controls were created.
+   */
+  _injectMobileToolbarOverflow() {
+    let created = 0;
+    document.querySelectorAll('.terminal-mobile-toolbar').forEach((toolbar) => {
+      // P11.1: every key is an AFFORDANCE inside a CHROME strip. The strip
+      // carries its zone in index.html; the keys take theirs here because
+      // two of them are injected by this file and hand-authoring the
+      // attribute sixty-six times across six identical pane templates is how
+      // one of them ends up missing it.
+      toolbar.querySelectorAll('[data-key]').forEach((key) => {
+        key.dataset.mwZone = 'affordance';
+      });
+      const sendBtn = toolbar.parentNode
+        ? toolbar.parentNode.querySelector('.terminal-mobile-input-row .mobile-send-btn')
+        : null;
+      if (sendBtn) sendBtn.dataset.mwZone = 'affordance';
+      if (toolbar.querySelector('.toolbar-overflow')) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toolbar-overflow';
+      btn.dataset.mwZone = 'affordance';
+      btn.dataset.mwRoute = 'toolbar-overflow';
+      btn.setAttribute('aria-haspopup', 'dialog');
+      btn.setAttribute('aria-label', 'More keys');
+      btn.title = 'More keys';
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">' +
+        '<circle cx="4" cy="8" r="1.35" fill="currentColor"/>' +
+        '<circle cx="8" cy="8" r="1.35" fill="currentColor"/>' +
+        '<circle cx="12" cy="8" r="1.35" fill="currentColor"/>' +
+        '</svg><span class="toolbar-overflow-dot" hidden aria-hidden="true"></span>';
+      toolbar.appendChild(btn);
+      created++;
+    });
+    return created;
+  }
+
+  /**
+   * Wire the overflow control and the recalculation triggers.
+   *
+   * Three triggers, and no fourth: the viewport driver's settle (which
+   * already fires exactly once per keyboard or rotation window), a debounced
+   * window resize for the desktop-narrowing case the driver does not see,
+   * and an explicit call from `updateTerminalTabs` when a pane becomes the
+   * active one. A ResizeObserver per toolbar would fire during the keyboard
+   * animation, which is the storm C.6 exists to avoid.
+   *
+   * @returns {void}
+   */
+  bindMobileToolbarOverflow() {
+    if (this._mobileToolbarBound) return;
+    this._mobileToolbarBound = true;
+    this._injectMobileToolbarOverflow();
+
+    document.addEventListener('click', (e) => {
+      const btn = e.target && e.target.closest ? e.target.closest('.toolbar-overflow') : null;
+      if (!btn) return;
+      const paneEl = btn.closest('.terminal-pane');
+      const slot = paneEl ? parseInt(paneEl.dataset.slot, 10) : NaN;
+      this.showMobileToolbarOverflow(Number.isNaN(slot) ? undefined : slot);
+    });
+
+    // The settle-driven re-layout is registered ONCE, in bindEvents, beside
+    // the other two things that must happen per settle window. A second
+    // subscription here would fit every toolbar twice per keyboard open.
+    window.addEventListener('resize', () => {
+      clearTimeout(this._mobileToolbarTimer);
+      this._mobileToolbarTimer = setTimeout(
+        () => this.layoutMobileToolbars(),
+        CWMApp.mwConstants().MW_VP_SETTLE_MS
+      );
+    });
+    // First pass on the next frame: the toolbars are laid out by then and a
+    // measurement taken during bindEvents would read a zero-width strip.
+    requestAnimationFrame(() => this.layoutMobileToolbars());
+  }
+
+  /**
+   * Fit each visible toolbar's keys, priority first, and overflow the rest.
+   *
+   * MEASUREMENT, NOT ESTIMATION. Key widths depend on the font, the theme's
+   * letter spacing and the label text, so the widths are read from the live
+   * boxes rather than assumed from B.7's worked example. The example is the
+   * sanity check; this is the answer.
+   *
+   * @returns {Object|null} { fitted, overflowed, width } for the active
+   *   toolbar, for tests and diagnostics.
+   */
+  layoutMobileToolbars() {
+    if (!this.isPhone) {
+      // Above the breakpoint nothing is hidden, so a rotation back to a
+      // wide layout restores every key rather than stranding one in a sheet
+      // no desktop surface opens.
+      document.querySelectorAll('.terminal-mobile-toolbar [data-key][hidden]').forEach((btn) => {
+        btn.hidden = false;
+      });
+      this._mobileToolbarOverflowKeys = [];
+      return null;
+    }
+    let result = null;
+    document.querySelectorAll('.terminal-mobile-toolbar').forEach((toolbar) => {
+      const width = toolbar.clientWidth;
+      // A toolbar inside a pane the phone is not showing measures zero. It
+      // is laid out again the moment its pane becomes active.
+      if (!width) return;
+      const fitted = this._fitToolbar(toolbar, width);
+      const paneEl = toolbar.closest('.terminal-pane');
+      if (paneEl && paneEl.classList.contains('mobile-active')) result = fitted;
+    });
+    if (result) {
+      this._mobileToolbarOverflowKeys = result.overflowed;
+      this._syncToolbarOverflowDot();
+    }
+    return result;
+  }
+
+  /**
+   * Fit one toolbar. Extracted so the algorithm is testable in isolation and
+   * so `layoutMobileToolbars` reads as the loop it is.
+   *
+   * @param {Element} toolbar - The toolbar element.
+   * @param {number} width - Its client width in CSS pixels.
+   * @returns {Object} { fitted, overflowed, width, budget }.
+   */
+  _fitToolbar(toolbar, width) {
+    const style = window.getComputedStyle(toolbar);
+    const padding = parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0');
+    const gap = parseFloat(style.columnGap || style.gap || '0') || 0;
+    const overflowBtn = toolbar.querySelector('.toolbar-overflow');
+    // The pinned control's own width comes out of the budget BEFORE any key
+    // is measured (B.7 step 2), because it never scrolls and never hides.
+    const reserved = overflowBtn
+      ? Math.max(overflowBtn.offsetWidth || 0, CWMApp.MW_TOOLBAR_OVERFLOW_PX)
+      : 0;
+    const budget = width - padding - reserved - gap;
+
+    const buttons = Array.from(toolbar.querySelectorAll('[data-key]'));
+    // Un-hide everything first so every key is measurable. Hidden elements
+    // report offsetWidth 0, and a key hidden by the previous pass would then
+    // look free and never come back.
+    buttons.forEach((btn) => { btn.hidden = false; });
+
+    const byKey = new Map(buttons.map(b => [b.dataset.key, b]));
+    const ordered = [];
+    for (const key of CWMApp.MW_TOOLBAR_PRIORITY) {
+      if (byKey.has(key)) { ordered.push(byKey.get(key)); byKey.delete(key); }
+    }
+    // Anything not named in the priority table is appended in DOM order, so
+    // a key added later is overflowed rather than silently dropped.
+    for (const btn of byKey.values()) ordered.push(btn);
+
+    const fitted = [];
+    const overflowed = [];
+    let used = 0;
+    for (const btn of ordered) {
+      // A key the stylesheet hides (the obsolete Type and camera keys, D.1)
+      // is not a candidate and must not consume budget.
+      if (window.getComputedStyle(btn).display === 'none') continue;
+      const w = btn.offsetWidth || CWMApp.MW_TOOLBAR_OVERFLOW_PX;
+      const next = used === 0 ? w : used + gap + w;
+      if (next <= budget) {
+        used = next;
+        fitted.push(btn.dataset.key);
+      } else {
+        overflowed.push(btn.dataset.key);
+        btn.hidden = true;
+      }
+    }
+    if (overflowBtn) {
+      // The control is pinned, not conditional: a toolbar whose keys all fit
+      // still carries it, because the sheet also holds the pane actions and
+      // a control that appears and disappears is not a landmark.
+      overflowBtn.hidden = false;
+    }
+    return { fitted, overflowed, width, budget };
+  }
+
+  /**
+   * Show a dot on the overflow control while it holds keys the user has not
+   * seen since the set last changed (B.7 step 4).
+   *
+   * @returns {boolean} True when the dot is showing.
+   */
+  _syncToolbarOverflowDot() {
+    const keys = (this._mobileToolbarOverflowKeys || []).join(',');
+    const unseen = keys.length > 0 && keys !== this._mobileToolbarSeenKeys;
+    document.querySelectorAll('.toolbar-overflow-dot').forEach((dot) => {
+      dot.hidden = !unseen;
+    });
+    return unseen;
+  }
+
+  /**
+   * Open the toolbar overflow sheet: the keys that did not fit, then the
+   * pane actions.
+   *
+   * ONE SHEET, not two. B.7 sends overflowed keys to "the overflow sheet",
+   * and A.3.3 sends fifteen pane capabilities to "the pane overflow sheet".
+   * Two sheets reachable from two dots eight pixels apart would be a puzzle,
+   * so the keys are a group at the top of the sheet that already exists.
+   *
+   * @param {number} [slot] - Pane slot; defaults to the active pane.
+   * @returns {void}
+   */
+  showMobileToolbarOverflow(slot) {
+    const target = (slot === undefined || slot === null)
+      ? (this._activeTerminalSlot !== null && this._activeTerminalSlot !== undefined
+        ? this._activeTerminalSlot
+        : this.terminalPanes.findIndex(tp => tp !== null))
+      : slot;
+    if (target === -1 || target === undefined) return;
+    this._mobileToolbarSeenKeys = (this._mobileToolbarOverflowKeys || []).join(',');
+    this._syncToolbarOverflowDot();
+    const pane = this.terminalPanes[target];
+    const title = pane && pane.sessionName ? pane.sessionName : 'Terminal';
+    const items = this.buildMobileToolbarOverflowItems(target)
+      .concat(this.buildMobilePaneOverflowItems(target));
+    this.showActionSheet(title, items);
+  }
+
+  /**
+   * Build the Keys group for the overflow sheet.
+   *
+   * Each row CLICKS the hidden button rather than re-implementing what the
+   * key sends, so the sheet and the strip are the same code path by
+   * construction. That is the same delegation rule the rest of the phone IA
+   * follows and it is why an overflowed key can never behave differently
+   * from a fitted one.
+   *
+   * @param {number} slot - Pane slot index.
+   * @returns {Array<Object>} Action-sheet items, empty when nothing overflowed.
+   */
+  buildMobileToolbarOverflowItems(slot) {
+    const paneEl = document.getElementById('term-pane-' + slot);
+    const toolbar = paneEl ? paneEl.querySelector('.terminal-mobile-toolbar') : null;
+    if (!toolbar) return [];
+    const hidden = Array.from(toolbar.querySelectorAll('[data-key][hidden]'));
+    if (hidden.length === 0) return [];
+    const labels = {
+      enter: 'Enter', ctrlc: 'Ctrl+C', escape: 'Esc', up: 'Up', down: 'Down',
+      tab: 'Tab', copy: 'Copy', ctrld: 'Ctrl+D', select: 'Select mode',
+      copyview: 'Copy view', reader: 'Reader', keyboard: 'Type', upload: 'Image',
+    };
+    // Four overflowed keys ALREADY have a row further down this same sheet,
+    // because A.3.3 routes their capabilities into the pane overflow's Text
+    // and Keys groups. Listing them twice is what the first p11 capture
+    // showed: "Reader" appeared under Keys and again under Text, eight rows
+    // apart. The toolbar group carries only the keys that have no other row.
+    const alreadyInPaneSheet = new Set(['reader', 'select', 'copyview', 'ctrld']);
+    const items = [];
+    for (const btn of hidden) {
+      const key = btn.dataset.key;
+      if (alreadyInPaneSheet.has(key)) continue;
+      items.push({
+        label: labels[key] || (btn.textContent || key || '').trim() || key,
+        action: () => btn.click(),
+      });
+    }
+    if (items.length === 0) return [];
+    // "More keys" rather than "Keys": the pane sheet below this one already
+    // has a Keys group, and the p11 capture showed the two headings reading
+    // as a repeat rather than as two different things.
+    items.unshift({ type: 'sep', label: 'More keys' });
+    return items;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE PERMANENT INPUT ROW   (Notion restyle P10.5)
+
+     MOBILE-EXPERIENCE C.4. On phones the terminal input row is always
+     visible and xterm's hidden textarea never receives focus.
+
+     The old design toggled a "Type" button which showed
+     `.terminal-mobile-input-row.active` and, SEPARATELY, called
+     `TerminalPane.setMobileTypeMode()`, which flipped pointerEvents on
+     the textarea and the screen and called `term.focus()`. Two
+     overlapping mode systems for one intent is why focus fought xterm:
+     autocorrect corrupted a keystroke pipe, and the keyboard was summoned
+     against an element that is deliberately invisible.
+
+     The mock draws the input row as permanent, which is both better UX
+     and structurally simpler. `_mobileTypeMode` is RETAINED in
+     terminal.js and stays reachable through the Raw keys toggle in the
+     pane overflow sheet, which preserves per-keystroke input for a CLI
+     that needs it (a password prompt, a single-key menu, an autocomplete
+     that reacts as you type). Code preservation requires that escape
+     hatch; an always-on input row would otherwise remove a capability.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Add the image and microphone buttons to every fixed-slot input row.
+   *
+   * INJECTED rather than authored into index.html for the same reason the
+   * Select-mode toolbar buttons are: six hand-written copies of one control
+   * drift, and the terminal pane markup belongs to another track. Idempotent,
+   * so a re-init cannot stack duplicates.
+   *
+   * THE MICROPHONE IS THE POINT OF THIS METHOD. app.js has always
+   * feature-detected SpeechRecognition and wired a mic button, and
+   * styles-mobile.css has always set `display: none` on
+   * `.terminal-pane-header`, the button's only host. The capability existed,
+   * was wired, and could not be reached by any phone. The mock puts a
+   * microphone in the input row, which is the correct fix, and this is it.
+   *
+   * @returns {number} How many controls were created (0 when already present).
+   */
+  _injectMobileInputRowControls() {
+    let created = 0;
+    const rows = document.querySelectorAll('.terminal-mobile-input-row');
+    rows.forEach((row) => {
+      const field = row.querySelector('.mobile-type-input');
+      const sendBtn = row.querySelector('.mobile-send-btn');
+
+      // C.4 rule 7: autocorrect and spellcheck stay ON for this field and OFF
+      // for xterm's textarea. The whole reason the row exists is that it is a
+      // normal message composer where autocorrect helps; the textarea is a
+      // keystroke pipe where it corrupts. That distinction was blurred.
+      if (field) {
+        field.setAttribute('autocomplete', 'on');
+        field.setAttribute('autocorrect', 'on');
+        field.setAttribute('autocapitalize', 'sentences');
+        field.setAttribute('spellcheck', 'true');
+        field.setAttribute('enterkeyhint', 'send');
+        if (!field.getAttribute('aria-label')) {
+          field.setAttribute('aria-label', 'Message the terminal');
+        }
+      }
+
+      const specs = [
+        {
+          key: 'image',
+          className: 'mobile-image-btn mobile-input-btn',
+          title: 'Attach an image',
+          ariaLabel: 'Attach an image',
+          svg: '<path d="M3 3.5h10v9H3z"/><path d="M3 10.5l3-3 2.5 2.5L11 7.5l2 2"/><path d="M6 6.5h.01"/>',
+        },
+        {
+          key: 'mic',
+          className: 'mobile-mic-btn mobile-input-btn',
+          title: 'Voice input',
+          ariaLabel: 'Voice input',
+          svg: '<rect x="6" y="1.75" width="4" height="7" rx="2"/>' +
+            '<path d="M3.75 7.5a4.25 4.25 0 0 0 8.5 0"/>' +
+            '<path d="M8 11.75v2.5"/><path d="M6 14.25h4"/>',
+        },
+      ];
+
+      for (const spec of specs) {
+        if (row.querySelector('.' + spec.className.split(' ')[0])) continue;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = spec.className;
+        btn.dataset.mwZone = 'affordance';
+        btn.dataset.inputKey = spec.key;
+        btn.title = spec.title;
+        btn.setAttribute('aria-label', spec.ariaLabel);
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" ' +
+          'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+          'stroke-linejoin="round" aria-hidden="true">' + spec.svg + '</svg>';
+        // Hidden when the API is absent, exactly as the header button was.
+        if (spec.key === 'mic' && !this._speechRecognitionAvailable) btn.hidden = true;
+        if (sendBtn && sendBtn.parentNode === row) row.insertBefore(btn, sendBtn);
+        else row.appendChild(btn);
+        created++;
+      }
+    });
+    return created;
+  }
+
+  /**
+   * Wire the injected input-row controls.
+   *
+   * One delegated listener on the document rather than one per row, because
+   * the rows are static but the panes behind them are not, and a delegated
+   * listener cannot leak.
+   *
+   * @returns {void}
+   */
+  bindMobileInputRowControls() {
+    if (this._mobileInputRowBound) return;
+    this._mobileInputRowBound = true;
+    document.addEventListener('click', (e) => {
+      const btn = e.target && e.target.closest ? e.target.closest('[data-input-key]') : null;
+      if (!btn) return;
+      const paneEl = btn.closest('.terminal-pane');
+      const slot = paneEl ? parseInt(paneEl.dataset.slot, 10) : NaN;
+      const pane = Number.isNaN(slot) ? null : this.terminalPanes[slot];
+      if (!pane) return;
+      if (btn.dataset.inputKey === 'image') {
+        // Routes through the SAME upload target the toolbar camera key uses,
+        // so the two surfaces cannot disagree about which pane receives the
+        // image (A.3.3: the input row is canonical, the overflow is secondary).
+        this._uploadTarget = { terminalPane: pane, groupId: this._activeGroupId };
+        if (this.els.imageUploadInput) this.els.imageUploadInput.click();
+        return;
+      }
+      if (btn.dataset.inputKey === 'mic') {
+        this.toggleVoiceInput(slot);
+      }
+    });
+  }
+
+  /**
+   * Keep xterm's helper textarea from taking focus on a phone.
+   *
+   * C.4 rule 3. Several paths can focus it programmatically, and each one
+   * risks summoning the keyboard against a `.xterm-helper-textarea` that
+   * autocorrect will then corrupt. One delegated `focusin` listener catches
+   * every path, including panes mounted long after boot, and hands focus to
+   * the input row instead.
+   *
+   * Raw keys is the deliberate exception: when a pane is in `_mobileTypeMode`
+   * the user asked for per-keystroke input and the textarea is exactly where
+   * focus belongs.
+   *
+   * @returns {void}
+   */
+  bindMobileTextareaFocusGuard() {
+    if (this._mobileFocusGuardBound) return;
+    this._mobileFocusGuardBound = true;
+    document.addEventListener('focusin', (e) => {
+      if (!this.isMobile) return;
+      const target = e.target;
+      if (!target || !target.classList || !target.classList.contains('xterm-helper-textarea')) return;
+      const paneEl = target.closest ? target.closest('.terminal-pane') : null;
+      if (!paneEl) return;
+      const slot = parseInt(paneEl.dataset.slot, 10);
+      const pane = Number.isNaN(slot) ? null : this.terminalPanes[slot];
+      // Raw keys on: this focus is the point.
+      if (pane && pane._mobileTypeMode) return;
+      target.blur();
+      const field = paneEl.querySelector('.mobile-type-input');
+      if (field && document.activeElement !== field) field.focus({ preventScroll: true });
+    });
+  }
+
+  /**
+   * Toggle Raw keys for a pane: the escape hatch C.4 rule 5 requires.
+   *
+   * ON enters the existing `setMobileTypeMode()` path, which focuses xterm's
+   * textarea and gives the CLI every keystroke as it is typed. OFF restores
+   * the input row. A persistent strip says which mode is live, because a
+   * terminal that silently changed how typing works would be worse than one
+   * that never offered the mode.
+   *
+   * @param {number} slot - Pane slot index.
+   * @returns {boolean} The resulting raw-keys state.
+   */
+  toggleMobileRawKeys(slot) {
+    const pane = this.terminalPanes[slot];
+    if (!pane || typeof pane.setMobileTypeMode !== 'function') return false;
+    const paneEl = document.getElementById(`term-pane-${slot}`);
+    const on = !pane._mobileTypeMode;
+    if (on) {
+      pane.setMobileTypeMode();
+    } else if (typeof pane.setMobileScrollMode === 'function') {
+      pane.setMobileScrollMode();
+    }
+    if (paneEl) {
+      paneEl.classList.toggle('mw-raw-keys', on);
+      let strip = paneEl.querySelector('.mw-raw-keys-strip');
+      if (on && !strip) {
+        strip = document.createElement('div');
+        strip.className = 'mw-raw-keys-strip';
+        strip.setAttribute('role', 'status');
+        strip.textContent = 'Raw keys on. Autocorrect is off.';
+        const inputRow = paneEl.querySelector('.terminal-mobile-input-row');
+        if (inputRow && inputRow.parentNode === paneEl) paneEl.insertBefore(strip, inputRow);
+        else paneEl.appendChild(strip);
+      } else if (!on && strip) {
+        strip.remove();
+      }
+    }
+    this.showToast(on ? 'Raw keys on' : 'Raw keys off', 'info');
+    return on;
+  }
+
+  /* ─── The pane overflow sheet ───────────────────────────────
+     MOBILE-EXPERIENCE A.3.3 routes fifteen pane-scoped capabilities into
+     one sheet, and it is the surface that rescues the six the hidden pane
+     header used to be the only host for. P11.1 moves the pane action
+     sheet OFF the pane container and onto this control plus a chip
+     long-press; this builds the sheet and gives it its first, tappable
+     host so nothing waits on a gesture. */
+
+  /**
+   * Build the pane overflow sheet for a slot.
+   *
+   * Every row delegates to the method the desktop surface already calls.
+   * Groups follow A.3.3: Text, Keys, Pane, Troubleshoot, in that order,
+   * with the destructive row last after a separator (D.3 rule 4).
+   *
+   * @param {number} slot - Pane slot index.
+   * @returns {Array<Object>} Action-sheet items.
+   */
+  buildMobilePaneOverflowItems(slot) {
+    const pane = this.terminalPanes[slot];
+    const items = [];
+    if (!pane) {
+      return [{ label: 'No terminal in this pane', disabled: true }];
+    }
+
+    const scheduleCount = (this._scheduleCounts && this._scheduleCounts[pane.sessionId]) || 0;
+
+    items.push({ type: 'sep', label: 'Text' });
+    items.push({ label: 'Reader', action: () => this.openTerminalReader(pane) });
+    items.push({
+      label: 'Select mode',
+      action: () => this._runMobileSelectToolbarAction('select', pane),
+    });
+    items.push({
+      label: 'Copy view',
+      action: () => this._runMobileSelectToolbarAction('copyview', pane),
+    });
+    // Same two-branch clipboard story the desktop menu uses: the async
+    // Clipboard API is undefined on an insecure origin, so a fire-and-forget
+    // call would silently do nothing (issue #64).
+    const clipboardReadable = !!(navigator.clipboard &&
+      typeof navigator.clipboard.readText === 'function');
+    items.push({
+      label: clipboardReadable ? 'Paste' : 'Paste (Ctrl+V)',
+      action: () => {
+        if (clipboardReadable && typeof pane.pasteFromClipboard === 'function') {
+          pane.pasteFromClipboard();
+        } else {
+          this.showToast(
+            'Clipboard needs HTTPS or localhost. Press Ctrl+V (Cmd+V on Mac) to paste',
+            'info'
+          );
+        }
+      },
+    });
+
+    items.push({ type: 'sep', label: 'Keys' });
+    items.push({
+      label: 'Send Ctrl+D',
+      action: () => {
+        if (pane.ws && pane.ws.readyState === WebSocket.OPEN) {
+          pane.ws.send(JSON.stringify({ type: 'input', data: '\x04' }));
+        }
+      },
+    });
+    items.push({
+      label: 'Send without Enter',
+      action: () => this._sendMobileInput(slot, { withEnter: false }),
+    });
+    items.push({
+      label: 'Send Shift+Enter (newline)',
+      action: () => this._sendMobileInput(slot, { shiftEnter: true }),
+    });
+    items.push({
+      label: 'Raw keys',
+      check: !!pane._mobileTypeMode,
+      action: () => this.toggleMobileRawKeys(slot),
+    });
+
+    // The four capabilities below lived ONLY on `.terminal-pane-header`,
+    // which styles-mobile.css sets `display: none` at phone widths. Each one
+    // routes to the identical method the header button calls; this sheet is
+    // simply a host the phone can see (MOBILE-EXPERIENCE A.3.3, A.5 item 4).
+    items.push({ type: 'sep', label: 'Pane' });
+    items.push({
+      label: scheduleCount > 0 ? `Scheduled messages (${scheduleCount})` : 'Scheduled messages',
+      action: () => {
+        const btn = document.querySelector(`#term-pane-${slot} .terminal-pane-schedule`);
+        if (window.SchedulePopover) window.SchedulePopover.toggle(btn, pane.sessionId);
+        else this.showToast('Scheduled messages are unavailable', 'warning');
+      },
+    });
+    items.push({
+      label: 'Pinned notes',
+      action: () => this._showPinnedNotesModal(slot),
+    });
+    const otherGroups = (this._tabGroups || []).filter(g => g.id !== this._activeGroupId);
+    if (otherGroups.length > 0) {
+      items.push({
+        label: 'Move to tab group',
+        submenu: otherGroups.map(g => ({
+          label: g.name,
+          action: () => this.moveTerminalToGroup(slot, g.id),
+        })),
+      });
+    }
+    // P11.6, MOBILE-EXPERIENCE B.9 rule 4. The user-facing escape hatch for
+    // a problem that cannot be fully solved client-side: one PTY, two
+    // clients, one width. Default ON, so nothing changes for the single
+    // client case; OFF means this device stores its viewport and never
+    // claims, which pins the other device as the owner.
+    items.push({
+      label: 'Follow this device',
+      hint: 'Width',
+      check: this.followsThisDevice(pane.sessionId),
+      action: () => this.toggleFollowThisDevice(pane.sessionId),
+    });
+
+    items.push({ type: 'sep', label: 'Troubleshoot' });
+    items.push({
+      label: 'Fix terminal (reset)',
+      action: () => {
+        // Identical to the desktop menu's entry: a reset COMMAND to the shell,
+        // not a teardown of the pane host.
+        if (typeof pane.sendCommand === 'function') {
+          pane.sendCommand('reset\r');
+          this.showToast('Sent reset to terminal', 'info');
+        }
+      },
+    });
+    items.push({ type: 'sep' });
+    items.push({
+      label: 'Restart session',
+      danger: true,
+      action: () => this.restartSession(pane.sessionId),
+    });
+    return items;
+  }
+
+  /**
+   * Open the pane overflow sheet for the pane the user is looking at.
+   *
+   * @param {number} [slot] - Pane slot; defaults to the active pane.
+   * @returns {void}
+   */
+  showMobilePaneOverflow(slot) {
+    const target = (slot === undefined || slot === null)
+      ? (this._activeTerminalSlot !== null && this._activeTerminalSlot !== undefined
+        ? this._activeTerminalSlot
+        : this.terminalPanes.findIndex(tp => tp !== null))
+      : slot;
+    if (target === -1 || target === undefined) return;
+    const pane = this.terminalPanes[target];
+    const title = pane && pane.sessionName ? pane.sessionName : 'Terminal';
+    this.showActionSheet(title, this.buildMobilePaneOverflowItems(target));
+  }
+
+  /**
+   * Send the input row's text with an explicit Enter policy.
+   *
+   * The default path (tapping Send) is unchanged and lives in bindEvents.
+   * This covers the two provider-specific cases C.4 rule 6 names, which the
+   * Feature Inventory marks partial: an Ink CLI wants ESC then CR for a
+   * newline, and some prompts want the text without a submit at all.
+   *
+   * @param {number} slot - Pane slot index.
+   * @param {Object} opts - { withEnter, shiftEnter }.
+   * @returns {boolean} True when something was sent.
+   */
+  _sendMobileInput(slot, opts) {
+    const options = opts || {};
+    const pane = this.terminalPanes[slot];
+    const paneEl = document.getElementById(`term-pane-${slot}`);
+    const field = paneEl ? paneEl.querySelector('.mobile-type-input') : null;
+    if (!pane || !pane.ws || pane.ws.readyState !== WebSocket.OPEN) return false;
+    const text = field ? field.value : '';
+    if (text) pane.ws.send(JSON.stringify({ type: 'input', data: text }));
+    if (options.shiftEnter) {
+      // Resolved per provider by terminal.js, which reads the spec map:
+      // Claude wants ESC+CR (Ink's "newline in input") and Codex wants a
+      // plain CR. The literal here is the same defensive default that
+      // resolver uses when the spec map has not loaded.
+      const seq = (typeof pane._getShiftEnterSequence === 'function')
+        ? pane._getShiftEnterSequence()
+        : '\x1b\r';
+      pane.ws.send(JSON.stringify({ type: 'input', data: seq }));
+    } else if (options.withEnter !== false) {
+      pane.ws.send(JSON.stringify({ type: 'input', data: '\r' }));
+    }
+    if (field) {
+      field.value = '';
+      field.focus();
+    }
+    return true;
+  }
+
   /**
    * Run a mobile toolbar Select mode / Copy view action against a live pane.
    *
@@ -1949,6 +3293,2099 @@ class CWMApp {
     // matters because the toolbar is the only feedback a phone user gets.
     this._syncMobileSelectToolbar(pane);
     return true;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE THREE-ZONE LONG-PRESS MODEL   (Notion restyle P11.1)
+
+     MOBILE-EXPERIENCE B.2. What this replaces was a DENYLIST: a
+     touchstart on the pane container armed a 600ms timer for every
+     touch that was not inside `.terminal-container, .xterm,
+     .terminal-copyview`. A denylist is wrong here for one reason that
+     is worth stating plainly: every new text surface has to REMEMBER to
+     add itself, and the failure mode is silent. The user's selection
+     gesture is stolen and replaced by a menu whose second item can be
+     destructive.
+
+     The allowlist inverts the failure mode. A surface nobody classified
+     resolves to `chrome`, where a long press does nothing at all. A
+     missing menu is discoverable and harmless; a stolen selection with
+     Restart session one tap away is neither.
+
+     THE THREE ZONES
+
+       text        Native or xterm selection only. No context listener is
+                   ever bound. Declared with data-mw-zone="text", or
+                   matched structurally by MW_TEXT_ZONE_SELECTOR for the
+                   surfaces this file does not author.
+       affordance  Context sheet at MW_LONGPRESS_MS, cancelled by
+                   MW_LONGPRESS_MOVE_PX of travel, confirmed by a
+                   MW_LONGPRESS_HAPTIC_MS haptic, with the platform's own
+                   click and contextmenu swallowed afterwards.
+       chrome      Nothing. Headers, toolbar backgrounds, the gaps
+                   between keys, empty pane area, the tab bar background.
+
+     ONE TIMING CONSTANT. The five long-press call sites in this file
+     used to run at 500ms (four lists) and 600ms (the pane), while
+     terminal.js armed mobile text selection at 400ms. Three durations
+     on adjacent elements is what makes a gesture feel unreliable, so
+     every site now reads MW_LONGPRESS_MS from the viewport driver,
+     which is also the number terminal.js uses.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * The mobile measurement table, from its one owner.
+   *
+   * mobile-viewport.js publishes every `MW_*` constant on
+   * `window.MyrlinMobileViewport.constants`, and MOBILE-EXPERIENCE's appendix
+   * names that module as their home. Reading them here rather than
+   * re-declaring them is what keeps a gesture's slop and the viewport
+   * driver's idea of a phone from drifting apart.
+   *
+   * @returns {Object} The constant table, or the local fallback.
+   */
+  static mwConstants() {
+    const published = (typeof window !== 'undefined' && window.MyrlinMobileViewport)
+      ? window.MyrlinMobileViewport.constants
+      : null;
+    return published || CWMApp.MW_FALLBACK_CONSTANTS;
+  }
+
+  /**
+   * Whether the shell is at phone width right now.
+   *
+   * Routed through the viewport driver so the breakpoint has ONE reader.
+   * `isMobile` remains the pre-restyle spelling and is deliberately left
+   * alone; this is the same question asked of the module that owns it.
+   *
+   * @returns {boolean} True at or below the phone breakpoint.
+   */
+  get isPhone() {
+    if (typeof window !== 'undefined' && window.MyrlinMobileViewport &&
+        typeof window.MyrlinMobileViewport.isPhone === 'function') {
+      return window.MyrlinMobileViewport.isPhone();
+    }
+    return this.isMobile;
+  }
+
+  /**
+   * Resolve which of the three zones a touched element belongs to.
+   *
+   * NEAREST DECLARATION WINS, which is the case that makes the model work
+   * for composed surfaces: a notes field inside a session peek card is a
+   * text zone inside an affordance, and the field is the closer ancestor,
+   * so a long press there selects a word instead of opening a sheet.
+   *
+   * @param {Element} el - The event target.
+   * @returns {string} 'text', 'affordance' or 'chrome'.
+   */
+  _mwZoneOf(el) {
+    if (!el || typeof el.closest !== 'function') return 'chrome';
+    const declared = el.closest('[data-mw-zone]');
+    const textual = el.closest(CWMApp.MW_TEXT_ZONE_SELECTOR);
+    if (declared && textual && declared !== textual) {
+      // Whichever is the DESCENDANT of the other is the closer ancestor of
+      // the touch, because both are on the same ancestor chain.
+      if (declared.contains(textual)) return 'text';
+    }
+    if (declared) {
+      const zone = declared.dataset ? declared.dataset.mwZone : null;
+      return CWMApp.MW_ZONES.includes(zone) ? zone : 'chrome';
+    }
+    if (textual) return 'text';
+    return 'chrome';
+  }
+
+  /**
+   * Whether a touchmove has travelled past the long-press slop.
+   *
+   * The four sidebar and strip long-press sites predate this model and are
+   * PINNED by `test/mobile-ux-fixes.test.js` P1-2(b) and P1-3 down to their
+   * timer variable names and their dragstart handlers, so they keep their own
+   * timers rather than moving onto `_mwBindLongPress`. What they take from
+   * the model is the part that decides how the gesture FEELS: one duration,
+   * one slop, one haptic.
+   *
+   * @param {TouchEvent} e - The move event.
+   * @param {Object} origin - { x, y } recorded at touchstart.
+   * @returns {boolean} True when the hold should be cancelled.
+   */
+  _mwPastSlop(e, origin) {
+    if (!origin || !e.touches || e.touches.length === 0) return true;
+    const slop = CWMApp.mwConstants().MW_LONGPRESS_MOVE_PX;
+    return Math.abs(e.touches[0].clientX - origin.x) > slop ||
+      Math.abs(e.touches[0].clientY - origin.y) > slop;
+  }
+
+  /**
+   * Fire the platform's long-press confirmation, where there is one.
+   *
+   * Wrapped because `navigator.vibrate` throws on a few embedded WebViews
+   * and is absent on iOS Safari entirely; a missing haptic must never cost
+   * the gesture.
+   *
+   * @returns {boolean} True when a haptic was actually requested.
+   */
+  _mwHaptic() {
+    const ms = CWMApp.mwConstants().MW_LONGPRESS_HAPTIC_MS;
+    try {
+      if (navigator && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(ms);
+        return true;
+      }
+    } catch (_) {
+      // A platform that refuses to buzz is not an error.
+    }
+    return false;
+  }
+
+  /**
+   * Swallow the click and the contextmenu that follow a fired long press.
+   *
+   * Two different platforms produce two different sequels to a hold. Android
+   * Chrome fires `contextmenu` at roughly the same moment as our timer and
+   * then a `click` on release; iOS Safari fires only the click. Both would
+   * otherwise reach the row's ordinary tap handler and open the session the
+   * user was long-pressing, on top of the sheet.
+   *
+   * Capture phase on the document, so it lands before any delegated
+   * listener, and self-removing on a timer so a swallow can never leak into
+   * the next deliberate tap.
+   *
+   * @returns {void}
+   */
+  _mwSuppressNextClick() {
+    if (this._mwSwallow) this._mwSwallow();
+    const swallow = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      release();
+    };
+    const release = () => {
+      if (this._mwSwallowTimer) clearTimeout(this._mwSwallowTimer);
+      this._mwSwallowTimer = null;
+      this._mwSwallow = null;
+      document.removeEventListener('click', swallow, true);
+      document.removeEventListener('contextmenu', swallow, true);
+    };
+    this._mwSwallow = release;
+    document.addEventListener('click', swallow, true);
+    document.addEventListener('contextmenu', swallow, true);
+    this._mwSwallowTimer = setTimeout(release, CWMApp.MW_LONGPRESS_SWALLOW_MS);
+  }
+
+  /**
+   * Bind ONE delegated long-press listener to a list container.
+   *
+   * B.2: "One delegated listener per list container, keyed on
+   * [data-mw-zone='affordance']. Not on the pane, not on the document." A
+   * listener per row would leak on every re-render, and a listener on the
+   * document would be the denylist again with extra steps.
+   *
+   * The handler only ever runs when the touch STARTED on an affordance and
+   * the finger stayed inside the slop for the whole hold. Everything else,
+   * including a hold that begins on a text zone nested inside the row, is
+   * left to the platform.
+   *
+   * @param {Element} container - The persistent container to delegate from.
+   * @param {Function} handler - Called with (affordanceEl, point).
+   * @param {Object} [options] - { selector } to narrow the affordance match.
+   * @returns {boolean} True when the binding was installed.
+   */
+  _mwBindLongPress(container, handler, options = {}) {
+    if (!container || typeof container.addEventListener !== 'function') return false;
+    if (container._mwLongPressBound) return false;
+    container._mwLongPressBound = true;
+
+    const selector = options.selector || '[data-mw-zone="affordance"]';
+    let timer = null;
+    let armed = null;
+    let startX = 0;
+    let startY = 0;
+
+    const cancel = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      armed = null;
+    };
+
+    container.addEventListener('touchstart', (e) => {
+      cancel();
+      if (!e.touches || e.touches.length !== 1) return;
+      const target = (e.target && typeof e.target.closest === 'function')
+        ? e.target.closest(selector)
+        : null;
+      if (!target) return;
+      // The selector found an affordance ANCESTOR; the zone resolver decides
+      // whether the point actually touched is one, which is how a text zone
+      // nested inside a row keeps its selection.
+      if (this._mwZoneOf(e.target) !== 'affordance') return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      armed = target;
+      timer = setTimeout(() => {
+        timer = null;
+        const el = armed;
+        armed = null;
+        if (!el || (el.isConnected === false)) return;
+        this._mwHaptic();
+        this._mwSuppressNextClick();
+        handler(el, { clientX: startX, clientY: startY });
+      }, CWMApp.mwConstants().MW_LONGPRESS_MS);
+    }, { passive: true });
+
+    container.addEventListener('touchmove', (e) => {
+      if (!timer || !e.touches || e.touches.length === 0) return;
+      const slop = CWMApp.mwConstants().MW_LONGPRESS_MOVE_PX;
+      const dx = Math.abs(e.touches[0].clientX - startX);
+      const dy = Math.abs(e.touches[0].clientY - startY);
+      if (dx > slop || dy > slop) cancel();
+    }, { passive: true });
+
+    container.addEventListener('touchend', cancel, { passive: true });
+    container.addEventListener('touchcancel', cancel, { passive: true });
+    // DragDropTouch arms a drag at 350ms, inside our 400ms window. A drag
+    // that wins the race must not also open a sheet behind itself.
+    container.addEventListener('dragstart', cancel);
+    return true;
+  }
+
+  /**
+   * Wire every long-press host the phone IA has.
+   *
+   * Called once from bindEvents, after the containers exist. Each entry is a
+   * container plus what a hold on one of its affordances means; adding a
+   * surface means adding a row here, not inventing a fifth timer.
+   *
+   * @returns {void}
+   */
+  bindMwLongPressHosts() {
+    // 1. The bottom tab bar. B.3 row 1: each tab carries a quick-actions
+    //    sheet, which is the one gesture in the app that is purely a
+    //    shortcut, so every item in it has a tap route elsewhere (R4).
+    if (this.els.mobileTabBar) {
+      this._mwBindLongPress(this.els.mobileTabBar, (el) => {
+        this.showMobileTabQuickActions(el.dataset ? el.dataset.view : null);
+      }, { selector: '.mobile-tab' });
+    }
+
+    // 2. The pane chip strip. This is where the pane action sheet MOVED to
+    //    (B.2): a chip is an affordance, the pane container is chrome.
+    if (this.els.terminalTabStrip) {
+      this._mwBindLongPress(this.els.terminalTabStrip, (el) => {
+        const slot = parseInt(el.dataset.slot, 10);
+        if (Number.isNaN(slot)) this.showMobilePaneOverflow();
+        else this.showMobilePaneOverflow(slot);
+      }, { selector: '.terminal-tab[data-slot], .terminal-tab-overflow' });
+    }
+
+    // 3. Home cards and rows, and the Attention rows. Both lists are session
+    //    rows by another name, so a hold opens the session context sheet.
+    if (this.els.mobileHomeScroll) {
+      this._mwBindLongPress(this.els.mobileHomeScroll, (el, point) => {
+        this._openMobileSessionSheetFor(el, point);
+      }, { selector: '.mobile-session-card, .mobile-recent-row' });
+    }
+    if (this.els.mobileAttentionList) {
+      this._mwBindLongPress(this.els.mobileAttentionList, (el, point) => {
+        const id = el.dataset ? el.dataset.sessionId : null;
+        if (id) this.showContextMenu(id, point.clientX, point.clientY);
+      }, { selector: '.mobile-attention-row[data-session-id]' });
+    }
+
+    // 4. The key toolbar and the input row. B.3 gives Ctrl+C the modifier
+    //    sheet, Send the two Enter policies and the image button its three
+    //    sources; every other key does nothing on a hold, which is why this
+    //    binds on the pane grid with a narrow selector rather than on each
+    //    of the six toolbars.
+    if (this.els.terminalGrid) {
+      this._mwBindLongPress(this.els.terminalGrid, (el) => {
+        this._runMobileKeyLongPress(el);
+      }, { selector: '.terminal-mobile-toolbar [data-key], .terminal-mobile-input-row [data-input-key], .terminal-mobile-input-row .mobile-send-btn' });
+    }
+  }
+
+  /**
+   * Open the session context sheet for a Home card or Recent row.
+   *
+   * Both carry `data-recent-key` rather than a session id, because the
+   * recency list merges Workbook sessions with discovered upstream ones.
+   * Only the first kind has a store record and therefore a context sheet;
+   * for the second the tap route (open it) is the only action there is, so
+   * the hold is a no-op rather than an empty sheet.
+   *
+   * @param {Element} el - The card or row.
+   * @param {Object} point - { clientX, clientY } of the hold.
+   * @returns {boolean} True when a sheet was opened.
+   */
+  _openMobileSessionSheetFor(el, point) {
+    const key = (el && el.dataset) ? el.dataset.recentKey : null;
+    if (!key) return false;
+    const row = this.getRecentSessions(0).find(r => r.key === key);
+    const id = row && row.sessionId ? row.sessionId : (row && row.id ? row.id : null);
+    if (!id) return false;
+    const known = (this.state.allSessions || this.state.sessions || [])
+      .some(s => s.id === id);
+    if (!known) return false;
+    this.showContextMenu(id, point ? point.clientX : 0, point ? point.clientY : 0);
+    return true;
+  }
+
+  /**
+   * Run the long-press meaning of one toolbar key or input-row control.
+   *
+   * MOBILE-EXPERIENCE B.3. Three controls have one and the rest deliberately
+   * do not: a key that repeats on hold is a footgun on a terminal, and a
+   * sheet on every key would make the toolbar unpredictable.
+   *
+   * @param {Element} el - The pressed control.
+   * @returns {boolean} True when a sheet was opened.
+   */
+  _runMobileKeyLongPress(el) {
+    if (!el || !el.dataset) return false;
+    const paneEl = el.closest ? el.closest('.terminal-pane') : null;
+    const slot = paneEl ? parseInt(paneEl.dataset.slot, 10) : NaN;
+    if (Number.isNaN(slot)) return false;
+
+    if (el.dataset.key === 'ctrlc') {
+      this.showActionSheet('Control keys', this.buildMobileModifierItems(slot));
+      return true;
+    }
+    if (el.classList && el.classList.contains('mobile-send-btn')) {
+      this.showActionSheet('Send', [
+        { label: 'Send without Enter', action: () => this._sendMobileInput(slot, { withEnter: false }) },
+        { label: 'Send Shift+Enter (newline)', action: () => this._sendMobileInput(slot, { shiftEnter: true }) },
+      ]);
+      return true;
+    }
+    if (el.dataset.inputKey === 'image') {
+      // The three sources the platform offers are chosen by the `capture`
+      // attribute on the shared file input, so this routes through the one
+      // upload path rather than opening a second picker.
+      this.showActionSheet('Attach an image', [
+        { label: 'Camera', action: () => this._openMobileImagePicker(slot, 'environment') },
+        { label: 'Photo library', action: () => this._openMobileImagePicker(slot, null) },
+        { label: 'Files', action: () => this._openMobileImagePicker(slot, null) },
+      ]);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Open the shared image picker for a pane, optionally asking the platform
+   * for the camera rather than the library.
+   *
+   * `capture` is set and then removed, because the attribute is sticky on
+   * the shared input and a later Files tap would otherwise still open the
+   * camera on Android.
+   *
+   * @param {number} slot - Pane slot index.
+   * @param {string|null} capture - 'environment', 'user' or null.
+   * @returns {boolean} True when the picker was opened.
+   */
+  _openMobileImagePicker(slot, capture) {
+    const pane = this.terminalPanes[slot];
+    const input = this.els.imageUploadInput;
+    if (!pane || !input) return false;
+    this._uploadTarget = { terminalPane: pane, groupId: this._activeGroupId };
+    if (capture) input.setAttribute('capture', capture);
+    else input.removeAttribute('capture');
+    input.click();
+    if (capture) {
+      // Cleared on the next tick so the click has already been dispatched
+      // with the attribute in place.
+      setTimeout(() => input.removeAttribute('capture'), 0);
+    }
+    return true;
+  }
+
+  /**
+   * Build the Ctrl+A through Ctrl+Z modifier sheet.
+   *
+   * A.3.3 row "Key: any other Ctrl combination" records this as NOT
+   * AVAILABLE today: the toolbar has Ctrl+C and Ctrl+D and there is no way
+   * to send Ctrl+R, Ctrl+Z or Ctrl+L from a phone at all. This is the route.
+   *
+   * @param {number} slot - Pane slot index.
+   * @returns {Array<Object>} Action-sheet items.
+   */
+  buildMobileModifierItems(slot) {
+    const pane = this.terminalPanes[slot];
+    if (!pane) return [{ label: 'No terminal in this pane', disabled: true }];
+    const send = (letter) => {
+      if (!pane.ws || pane.ws.readyState !== WebSocket.OPEN) return;
+      // Ctrl+<letter> is the control character at the letter's position in
+      // the alphabet: Ctrl+A is 0x01 through Ctrl+Z at 0x1a.
+      const code = letter.toUpperCase().charCodeAt(0) - 64;
+      pane.ws.send(JSON.stringify({ type: 'input', data: String.fromCharCode(code) }));
+    };
+    const items = [{ type: 'sep', label: 'Common' }];
+    // The six a CLI user actually reaches for, then the full alphabet, so
+    // the sheet is useful before it is exhaustive.
+    for (const [letter, what] of [
+      ['C', 'interrupt'], ['D', 'end of input'], ['Z', 'suspend'],
+      ['L', 'clear'], ['R', 'reverse search'], ['U', 'clear line'],
+    ]) {
+      items.push({ label: 'Ctrl+' + letter, hint: what, action: () => send(letter) });
+    }
+    items.push({ type: 'sep', label: 'All' });
+    for (let i = 0; i < 26; i++) {
+      const letter = String.fromCharCode(65 + i);
+      items.push({ label: 'Ctrl+' + letter, action: () => send(letter) });
+    }
+    return items;
+  }
+
+  /**
+   * The bottom tab bar's quick-actions sheet (MOBILE-EXPERIENCE B.3 row 1).
+   *
+   * Every item here has a tap route on the destination itself, which is the
+   * reachability invariant A.5 states: this gesture is a shortcut and never
+   * the only way to anything.
+   *
+   * @param {string} view - The tab's `data-view`.
+   * @returns {boolean} True when a sheet was opened.
+   */
+  showMobileTabQuickActions(view) {
+    const items = [];
+    if (view === 'home') {
+      items.push({ label: 'New session', action: () => this.createSession() });
+      items.push({ label: 'New agent task', action: () => this.openNewTaskDialog() });
+    } else if (view === 'sessions') {
+      items.push({ label: 'New session', action: () => this.createSession() });
+      items.push({ label: 'Select', action: () => this.setMobileSessionSelectMode(true) });
+    } else if (view === 'terminal') {
+      const panes = [];
+      for (let i = 0; i < CWMApp.MAX_PANES; i++) {
+        const tp = this.terminalPanes[i];
+        if (tp) panes.push({ label: tp.sessionName || ('Pane ' + (i + 1)), slot: i });
+      }
+      if (panes.length === 0) items.push({ label: 'No open panes', disabled: true });
+      else {
+        panes.forEach(p => items.push({
+          label: p.label,
+          check: p.slot === this._activeTerminalSlot,
+          action: () => this.switchTerminalTab(p.slot),
+        }));
+      }
+    } else if (view === 'attention') {
+      items.push({ label: 'Stop all', danger: true, action: () => this.stopAllSessions() });
+    } else if (view === 'search') {
+      items.push({ label: 'Commands', action: () => this.openMobileSearchScope('commands') });
+      items.push({ label: 'Conversations', action: () => this.openMobileSearchScope('conversations') });
+      items.push({ label: 'Help', action: () => this.openMobileSearchScope('help') });
+    } else {
+      return false;
+    }
+    this.showActionSheet('Quick actions', items);
+    return true;
+  }
+
+  /**
+   * Stop every running session.
+   *
+   * MOBILE-EXPERIENCE A.3.4 gives the Attention tab exactly one overflow
+   * item, "Stop all", in the danger group. P10 wired that row to
+   * `restartAllSessions`, which is not what the label says and is the more
+   * dangerous of the two: a user asking a queue of stuck sessions to stop
+   * would have restarted every session in the workbook instead. The row now
+   * calls this, and `restartAllSessions` keeps its own separate route in
+   * `showMoreMenu` ("Restart all sessions"), where the label is truthful.
+   *
+   * Sequential rather than parallel, and confirmed first, for the same
+   * reason `restartAllSessions` is: this is a bulk destructive action on
+   * live processes.
+   *
+   * @returns {Promise<number>} How many sessions were asked to stop.
+   */
+  async stopAllSessions() {
+    const running = (this.state.allSessions || this.state.sessions || [])
+      .filter(s => s.status === 'running');
+    if (running.length === 0) {
+      this.showToast('No running sessions', 'info');
+      return 0;
+    }
+    const ok = await this.showConfirmModal({
+      title: 'Stop all sessions?',
+      message: `This stops <strong>${running.length}</strong> running session${running.length === 1 ? '' : 's'}. Their transcripts are kept and each one can be started again.`,
+      confirmText: 'Stop all',
+      confirmClass: 'btn-danger',
+    });
+    if (!ok) return 0;
+    let stopped = 0;
+    for (const session of running) {
+      try {
+        await this.api('POST', `/api/sessions/${session.id}/stop`);
+        stopped++;
+      } catch (_) {
+        // One refusal must not abandon the rest of the queue.
+      }
+    }
+    await this.loadSessions();
+    this.showToast(`Stopped ${stopped} session${stopped === 1 ? '' : 's'}`, 'info');
+    return stopped;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     SHARED-PTY WIDTH DISCIPLINE, THE CLIENT HALF   (P11.6)
+
+     MOBILE-EXPERIENCE B.9. One PTY is shared by N clients and exactly one
+     of them owns the geometry. A phone and a desktop attached to the same
+     session therefore fight: the desktop's wide frames arrive on the
+     phone, the phone claims, the desktop claims back, and every applied
+     resize is a full ConPTY repaint into BOTH clients.
+
+     The server half (an ownership debounce and alternate-buffer-aware
+     replay) shipped in P6. This is the client half, and it is three
+     things:
+
+       1. A CLAIM GATE, published for the pane layer to consult. A claim
+          is only genuinely wanted when the document is visible, the
+          Terminal tab is the active one, and the keyboard is not
+          mid-settle. `onSettle` is where the suppression window is
+          opened and closed, because it already fires exactly once per
+          settle rather than once per resize event.
+       2. A PER-SESSION "Follow this device" SWITCH, default on. Off
+          means this client stores its viewport but never claims, which
+          is the escape hatch for a problem that cannot be fully solved
+          client-side: a user watching from a phone while working on a
+          desktop can pin the desktop as the owner.
+       3. A NOTICE, not a fight. When the applied width is more than
+          MW_WIDTH_NOTICE_RATIO times this client's own fit, the pane says
+          so in one dismissible line and offers to take over. The
+          alternative, claiming automatically, is the thrash.
+
+     WHAT THIS PHASE COULD NOT REACH. `_requestActivate` lives in
+     `terminal.js`, which another track owns this phase, so the gate is
+     PUBLISHED here and consulted by the app-layer claim paths only. The
+     one-line read inside `_requestActivate` is listed in this phase's
+     report as post-P7 mop-up.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Open the claim-suppression window.
+   *
+   * B.9 rule 2: never claim while the keyboard is settling. Keyboard open
+   * and close changes ROWS, not columns, but every applied resize is a full
+   * repaint, and doing it three times during a 250ms keyboard animation is
+   * visible jank on both clients.
+   *
+   * @returns {number} The timestamp until which claims are suppressed.
+   */
+  suppressGeometryClaims() {
+    const c = CWMApp.mwConstants();
+    // The settle window plus its own length again: the driver fires on the
+    // TRAILING edge, so a claim arriving one frame later is still inside the
+    // animation the user is watching.
+    this._claimSuppressedUntil = Date.now() + (c.MW_VP_SETTLE_MS * 2);
+    return this._claimSuppressedUntil;
+  }
+
+  /**
+   * Whether this client may claim PTY geometry right now.
+   *
+   * Published on `window.MyrlinClaimGate` so the pane layer can consult one
+   * answer rather than re-deriving four conditions.
+   *
+   * @param {string} [sessionId] - Session the claim is for, for rule 4.
+   * @returns {boolean} True when a claim is genuinely wanted.
+   */
+  canClaimGeometry(sessionId) {
+    // Rule 1, both halves: the document has to be visible AND the Terminal
+    // tab has to be the surface the user is looking at. A phone showing the
+    // Sessions tab can still satisfy an IntersectionObserver on a pane laid
+    // out behind it, which is a claim the user did not ask for.
+    if (typeof document !== 'undefined' && document.visibilityState &&
+        document.visibilityState !== 'visible') {
+      return false;
+    }
+    if (this.isPhone && this.state.viewMode !== 'terminal') return false;
+    // Rule 2: not while the keyboard is settling.
+    if (this._claimSuppressedUntil && Date.now() < this._claimSuppressedUntil) return false;
+    // Rule 4: the per-session escape hatch.
+    if (sessionId && !this.followsThisDevice(sessionId)) return false;
+    return true;
+  }
+
+  /**
+   * Whether a session follows THIS device's geometry (B.9 rule 4).
+   *
+   * Default ON, so nothing changes for the single-client case that is most
+   * of the world. Persisted per session id, because the answer is a property
+   * of how a person works on one session, not a global preference.
+   *
+   * @param {string} sessionId - Session id.
+   * @returns {boolean} True when this client may own geometry.
+   */
+  followsThisDevice(sessionId) {
+    if (!sessionId) return true;
+    if (!this._followDevice) {
+      this._followDevice = new Set();
+      try {
+        const raw = localStorage.getItem('cwm_noFollowSessions');
+        if (raw) JSON.parse(raw).forEach(id => this._followDevice.add(id));
+      } catch (_) {
+        // Unreadable storage means the default, which is to follow.
+      }
+    }
+    return !this._followDevice.has(sessionId);
+  }
+
+  /**
+   * Toggle "Follow this device" for a session.
+   *
+   * @param {string} sessionId - Session id.
+   * @returns {boolean} The resulting state (true means this device follows).
+   */
+  toggleFollowThisDevice(sessionId) {
+    if (!sessionId) return true;
+    this.followsThisDevice(sessionId);
+    const following = !this._followDevice.has(sessionId);
+    if (following) this._followDevice.add(sessionId);
+    else this._followDevice.delete(sessionId);
+    try {
+      localStorage.setItem('cwm_noFollowSessions', JSON.stringify([...this._followDevice]));
+    } catch (_) {
+      // The choice still applies to this visit.
+    }
+    const now = !following;
+    this.showToast(
+      now ? 'This device sets the width' : 'This device follows the other device',
+      'info'
+    );
+    return now;
+  }
+
+  /**
+   * Compare the applied PTY width against this client's own fit and show or
+   * clear the "another device is setting the width" notice.
+   *
+   * B.9 rule 5. The renderer never assumes `term.cols` equals its own fit
+   * result, because on a shared PTY it frequently does not. Turning a silent
+   * unreadable state into an explained one is the whole point: the user can
+   * see WHY the output is wrapping and has one tap to fix it.
+   *
+   * @param {number} [slot] - Pane slot; defaults to the active pane.
+   * @returns {boolean} True when the notice is showing after the call.
+   */
+  syncPaneWidthNotice(slot) {
+    const target = (slot === undefined || slot === null) ? this._activeTerminalSlot : slot;
+    if (target === null || target === undefined) return false;
+    const pane = this.terminalPanes[target];
+    const paneEl = document.getElementById('term-pane-' + target);
+    if (!pane || !paneEl) return false;
+    if (!this.isPhone) {
+      this._clearPaneWidthNotice(paneEl);
+      return false;
+    }
+
+    let proposed = null;
+    try {
+      if (pane.fitAddon && typeof pane.fitAddon.proposeDimensions === 'function') {
+        proposed = pane.fitAddon.proposeDimensions();
+      }
+    } catch (_) {
+      proposed = null;
+    }
+    const mine = proposed && proposed.cols ? proposed.cols : 0;
+    const applied = pane.term && pane.term.cols ? pane.term.cols : 0;
+    if (!mine || !applied) return false;
+    if (applied <= mine * CWMApp.MW_WIDTH_NOTICE_RATIO) {
+      this._clearPaneWidthNotice(paneEl);
+      return false;
+    }
+    if (paneEl.querySelector('.mw-width-notice')) return true;
+
+    const notice = document.createElement('div');
+    notice.className = 'mw-width-notice';
+    notice.dataset.mwZone = 'affordance';
+    notice.setAttribute('role', 'status');
+    notice.innerHTML =
+      '<span class="mw-width-notice-text">Another device is setting the width. ' +
+      'Tap to take over.</span>' +
+      '<button type="button" class="mw-width-notice-close" aria-label="Dismiss">&times;</button>';
+    notice.addEventListener('click', (e) => {
+      if (e.target && e.target.closest && e.target.closest('.mw-width-notice-close')) {
+        this._clearPaneWidthNotice(paneEl);
+        return;
+      }
+      // Taking over is an EXPLICIT claim, so it bypasses the foreground gate
+      // by definition: the user just said this is the device they are using.
+      if (typeof pane.activate === 'function') pane.activate();
+      this._clearPaneWidthNotice(paneEl);
+    });
+    const toolbar = paneEl.querySelector('.terminal-mobile-toolbar');
+    if (toolbar && toolbar.parentNode === paneEl) paneEl.insertBefore(notice, toolbar);
+    else paneEl.appendChild(notice);
+    return true;
+  }
+
+  /**
+   * Remove the width notice from a pane, if it is showing.
+   *
+   * @param {Element} paneEl - The pane element.
+   * @returns {boolean} True when a notice was removed.
+   */
+  _clearPaneWidthNotice(paneEl) {
+    const el = paneEl ? paneEl.querySelector('.mw-width-notice') : null;
+    if (!el) return false;
+    el.remove();
+    return true;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE SESSIONS TAB SURFACE   (Notion restyle P11, MOBILE-EXPERIENCE A.3.2)
+
+     What P10 left here was the P4 phone floor: the desktop session table
+     with its rows collapsed to cards. Four rows of A.3.2 had no phone
+     route at all, and DECISIONS 15.6 names them as the largest single
+     item this phase inherits: the filter pills, the header overflow,
+     bulk select, and the row swipe actions.
+
+     Every one of them is built as a PHONE-ONLY layer over the same
+     `renderSessions` table. The alternative, a second list renderer for
+     the phone, is the two-engines mistake DV-P10-2 already refused once:
+     the desktop table and the phone list would drift in sort order, in
+     hidden-session handling and in what a row even is.
+
+     WHAT THE DESKTOP SEES. Nothing. The filter is applied only at phone
+     width, the pill row and the overflow button are `display: none`
+     above the breakpoint, select mode cannot be entered without the
+     phone-only control that turns it on, and the swipe layer binds to
+     touch events the desktop does not send.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * The filter pill row's four states (A.3.2 row 2), plus the sort chip
+   * that A.3.6 folds the `recent` view into.
+   *
+   * `needs-input` reads the attention queue rather than the session record,
+   * because "needs input" is a live pane state and not a stored status.
+   *
+   * @returns {Array<Object>} Pill descriptors.
+   */
+  static MOBILE_SESSION_FILTERS = [
+    { id: 'all', label: 'All' },
+    { id: 'running', label: 'Running' },
+    { id: 'needs-input', label: 'Needs input' },
+    { id: 'stopped', label: 'Stopped' },
+  ];
+
+  /**
+   * Apply the phone filter pill to a session list.
+   *
+   * Returns the input untouched above the phone breakpoint, which is the
+   * whole safety story for this feature: a filter chosen on a phone can
+   * never silently hide rows from a desktop that restored the same
+   * localStorage value in a narrow window.
+   *
+   * @param {Array<Object>} sessions - Sessions after the hidden-row filter.
+   * @returns {Array<Object>} The filtered list.
+   */
+  applyMobileSessionFilter(sessions) {
+    const filter = this._mobileSessionFilter || 'all';
+    if (!this.isPhone || filter === 'all') return sessions;
+    if (filter === 'running') return sessions.filter(s => s.status === 'running');
+    if (filter === 'stopped') return sessions.filter(s => s.status !== 'running');
+    if (filter === 'needs-input') {
+      const queue = this._getAttentionQueue().filter(item => item.actionable);
+      const ids = new Set(queue.map(item => item.sessionId));
+      return sessions.filter(s => ids.has(s.id));
+    }
+    return sessions;
+  }
+
+  /**
+   * Set the phone filter and re-render.
+   *
+   * @param {string} id - One of MOBILE_SESSION_FILTERS.
+   * @returns {void}
+   */
+  setMobileSessionFilter(id) {
+    const known = CWMApp.MOBILE_SESSION_FILTERS.some(f => f.id === id);
+    this._mobileSessionFilter = known ? id : 'all';
+    try {
+      localStorage.setItem('cwm_mobileSessionFilter', this._mobileSessionFilter);
+    } catch (_) {
+      // A private-mode browser with no storage still gets the filter for
+      // this visit; only the memory of it is lost.
+    }
+    this.renderMobileSessionChrome();
+    this.renderSessions();
+  }
+
+  /**
+   * Draw the phone chrome that sits above the Sessions table: the filter
+   * pill row, and the select-mode action bar when it is on.
+   *
+   * Injected rather than authored into index.html because the panel header
+   * is shared with the desktop, and because a row that only exists on a
+   * phone should not be a permanent piece of desktop markup that a rule has
+   * to hide. Idempotent: the containers are created once and their contents
+   * are re-rendered.
+   *
+   * @returns {boolean} True when the chrome exists after the call.
+   */
+  renderMobileSessionChrome() {
+    const panel = this.els.sessionListPanel;
+    if (!panel) return false;
+    const header = panel.querySelector('.panel-header');
+    if (!header) return false;
+
+    // 1. The header overflow button, beside the two existing header buttons.
+    if (!panel.querySelector('.mobile-sessions-overflow')) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'mobile-sessions-overflow';
+      btn.dataset.mwZone = 'affordance';
+      btn.dataset.mwRoute = 'sessions-overflow';
+      btn.setAttribute('aria-haspopup', 'dialog');
+      btn.setAttribute('aria-label', 'Session list options');
+      btn.title = 'Session list options';
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">' +
+        '<circle cx="4" cy="8" r="1.35" fill="currentColor"/>' +
+        '<circle cx="8" cy="8" r="1.35" fill="currentColor"/>' +
+        '<circle cx="12" cy="8" r="1.35" fill="currentColor"/>' +
+        '</svg>';
+      btn.addEventListener('click', () => this.showMobileSessionsOverflow());
+      const actions = header.lastElementChild;
+      if (actions && actions !== header.firstElementChild) actions.appendChild(btn);
+      else header.appendChild(btn);
+    }
+
+    // 2. The filter pill row, directly under the header (A.3.2 row 2).
+    let pills = panel.querySelector('.mobile-session-filters');
+    if (!pills) {
+      pills = document.createElement('div');
+      pills.className = 'mobile-session-filters';
+      pills.dataset.mwZone = 'chrome';
+      pills.setAttribute('role', 'tablist');
+      pills.setAttribute('aria-label', 'Filter sessions');
+      pills.addEventListener('click', (e) => {
+        const pill = e.target && e.target.closest ? e.target.closest('[data-mw-filter]') : null;
+        if (pill) this.setMobileSessionFilter(pill.dataset.mwFilter);
+      });
+      header.insertAdjacentElement('afterend', pills);
+    }
+    const active = this._mobileSessionFilter || 'all';
+    const counts = this._mobileSessionFilterCounts();
+    pills.innerHTML = CWMApp.MOBILE_SESSION_FILTERS.map(f => {
+      const on = f.id === active;
+      const count = counts[f.id];
+      return '<button type="button" class="mobile-session-filter' + (on ? ' active' : '') +
+        '" role="tab" aria-selected="' + (on ? 'true' : 'false') + '"' +
+        ' data-mw-zone="affordance" data-mw-filter="' + f.id + '">' +
+        this.escapeHtml(f.label) +
+        (count ? '<span class="mobile-session-filter-count">' + count + '</span>' : '') +
+        '</button>';
+    }).join('');
+
+    // 3. The select-mode action bar, only while select mode is on.
+    let bar = panel.querySelector('.mobile-select-bar');
+    if (this._mobileSessionSelect) {
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.className = 'mobile-select-bar';
+        bar.dataset.mwZone = 'chrome';
+        bar.setAttribute('role', 'toolbar');
+        bar.innerHTML =
+          '<span class="mobile-select-count" aria-live="polite">0 selected</span>' +
+          '<button type="button" class="btn btn-ghost btn-sm mobile-select-all" data-mw-zone="affordance">All</button>' +
+          '<button type="button" class="btn btn-danger btn-sm mobile-select-stop" data-mw-zone="affordance">Stop</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm mobile-select-cancel" data-mw-zone="affordance">Cancel</button>';
+        bar.querySelector('.mobile-select-all').addEventListener('click', () => this.toggleMobileSelectAll());
+        bar.querySelector('.mobile-select-stop').addEventListener('click', () => this.stopMobileSelectedSessions());
+        bar.querySelector('.mobile-select-cancel').addEventListener('click', () => this.setMobileSessionSelectMode(false));
+        panel.appendChild(bar);
+      }
+      const n = this._mobileSelectedSessions ? this._mobileSelectedSessions.size : 0;
+      const countEl = bar.querySelector('.mobile-select-count');
+      if (countEl) countEl.textContent = n + ' selected';
+      const stopBtn = bar.querySelector('.mobile-select-stop');
+      if (stopBtn) stopBtn.disabled = n === 0;
+    } else if (bar) {
+      bar.remove();
+    }
+    return true;
+  }
+
+  /**
+   * Count what each filter pill would show, so the row carries the same
+   * information density the desktop table's header does.
+   *
+   * @returns {Object} Counts keyed by filter id, zero omitted.
+   */
+  _mobileSessionFilterCounts() {
+    const sessions = (this.state.sessions || [])
+      .filter(s => this.state.showHidden || !this.state.hiddenSessions.has(s.id));
+    const attention = new Set(
+      this._getAttentionQueue().filter(i => i.actionable).map(i => i.sessionId)
+    );
+    return {
+      all: 0,
+      running: sessions.filter(s => s.status === 'running').length,
+      'needs-input': sessions.filter(s => attention.has(s.id)).length,
+      stopped: sessions.filter(s => s.status !== 'running').length,
+    };
+  }
+
+  /**
+   * The Sessions header overflow sheet (A.3.2 rows "Bulk select" and
+   * "Restart all sessions", plus the two list-scope switches the sidebar
+   * owns on the desktop).
+   *
+   * @returns {void}
+   */
+  showMobileSessionsOverflow() {
+    const sort = this.getSessionsSort();
+    const items = [
+      {
+        label: this._mobileSessionSelect ? 'Done selecting' : 'Select',
+        action: () => this.setMobileSessionSelectMode(!this._mobileSessionSelect),
+      },
+      {
+        label: 'Sort',
+        hint: sort.key === 'lastActive' ? 'Recent' : sort.key,
+        submenu: [
+          { label: 'Recent', check: sort.key === 'lastActive', action: () => this.setSessionsSort('lastActive', 'desc') },
+          { label: 'Name', check: sort.key === 'name', action: () => this.setSessionsSort('name', 'asc') },
+          { label: 'Project', check: sort.key === 'project', action: () => this.setSessionsSort('project', 'asc') },
+          { label: 'Status', check: sort.key === 'status', action: () => this.setSessionsSort('status', 'asc') },
+          { label: 'Cost', check: sort.key === 'cost', action: () => this.setSessionsSort('cost', 'desc') },
+        ],
+      },
+      { type: 'sep' },
+      { label: 'Discover sessions', action: () => this.discoverSessions() },
+      {
+        label: this.state.showHidden ? 'Hide hidden sessions' : 'Show hidden sessions',
+        check: !!this.state.showHidden,
+        action: () => this.toggleShowHidden(),
+      },
+      { label: 'Projects', action: () => this.openMobileWorkspaceSheet() },
+      { type: 'sep' },
+      { label: 'Restart all sessions', danger: true, action: () => this.restartAllSessions() },
+    ];
+    this.showActionSheet('Sessions', items);
+  }
+
+  /**
+   * Enter or leave bulk select mode.
+   *
+   * @param {boolean} on - Desired state.
+   * @returns {boolean} The resulting state.
+   */
+  setMobileSessionSelectMode(on) {
+    this._mobileSessionSelect = !!on;
+    if (!this._mobileSessionSelect) this._mobileSelectedSessions = new Set();
+    else if (!this._mobileSelectedSessions) this._mobileSelectedSessions = new Set();
+    if (this.els.sessionListPanel) {
+      this.els.sessionListPanel.classList.toggle('mw-select-mode', this._mobileSessionSelect);
+    }
+    this.renderSessions();
+    this.renderMobileSessionChrome();
+    return this._mobileSessionSelect;
+  }
+
+  /**
+   * Toggle one row's checkbox in select mode.
+   *
+   * @param {string} id - Session id.
+   * @returns {boolean} True when the row is now selected.
+   */
+  toggleMobileSessionSelected(id) {
+    if (!this._mobileSelectedSessions) this._mobileSelectedSessions = new Set();
+    const on = !this._mobileSelectedSessions.has(id);
+    if (on) this._mobileSelectedSessions.add(id);
+    else this._mobileSelectedSessions.delete(id);
+    const row = this.els.sessionList
+      ? this.els.sessionList.querySelector(`.session-item[data-id="${CSS.escape(id)}"]`)
+      : null;
+    if (row) {
+      row.classList.toggle('mw-selected', on);
+      const box = row.querySelector('.mw-row-check');
+      if (box) box.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+    this.renderMobileSessionChrome();
+    return on;
+  }
+
+  /**
+   * Select or clear every visible row.
+   *
+   * @returns {number} How many rows are selected afterwards.
+   */
+  toggleMobileSelectAll() {
+    const rows = this.els.sessionList
+      ? Array.from(this.els.sessionList.querySelectorAll('.session-item[data-id]'))
+      : [];
+    const ids = rows.map(r => r.dataset.id);
+    const allOn = ids.length > 0 && this._mobileSelectedSessions &&
+      ids.every(id => this._mobileSelectedSessions.has(id));
+    this._mobileSelectedSessions = new Set(allOn ? [] : ids);
+    rows.forEach(r => {
+      const on = !allOn;
+      r.classList.toggle('mw-selected', on);
+      const box = r.querySelector('.mw-row-check');
+      if (box) box.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    this.renderMobileSessionChrome();
+    return this._mobileSelectedSessions.size;
+  }
+
+  /**
+   * Stop every selected running session.
+   *
+   * Confirmed once for the whole batch rather than once per session, and
+   * sequential so a slow server cannot be hit with twenty parallel stops.
+   *
+   * @returns {Promise<number>} How many were asked to stop.
+   */
+  async stopMobileSelectedSessions() {
+    const ids = this._mobileSelectedSessions ? Array.from(this._mobileSelectedSessions) : [];
+    const running = (this.state.allSessions || this.state.sessions || [])
+      .filter(s => ids.includes(s.id) && s.status === 'running');
+    if (running.length === 0) {
+      this.showToast('No running sessions selected', 'info');
+      return 0;
+    }
+    const ok = await this.showConfirmModal({
+      title: 'Stop selected sessions?',
+      message: `This stops <strong>${running.length}</strong> selected running session${running.length === 1 ? '' : 's'}.`,
+      confirmText: 'Stop',
+      confirmClass: 'btn-danger',
+    });
+    if (!ok) return 0;
+    let stopped = 0;
+    for (const session of running) {
+      try {
+        await this.api('POST', `/api/sessions/${session.id}/stop`);
+        stopped++;
+      } catch (_) {
+        // Keep going: a session that refuses to stop must not strand the rest.
+      }
+    }
+    this.setMobileSessionSelectMode(false);
+    await this.loadSessions();
+    this.showToast(`Stopped ${stopped} session${stopped === 1 ? '' : 's'}`, 'info');
+    return stopped;
+  }
+
+  /* ─── Row swipe actions (MOBILE-EXPERIENCE B.3, R5) ──────────
+     Left reveals Stop and Hide, right reveals Terminal, at a 72px
+     threshold with a spring back below it. A SWIPE NEVER PERFORMS THE
+     ACTION: it reveals buttons, and the buttons are what act. That is
+     rule R5, and it is why there is no second, larger threshold.
+
+     ONE shared action layer rather than per-row markup. `renderSessions`
+     rewrites the whole table on every SSE tick, so per-row buttons would
+     be rebuilt several times a minute and the open row's state would be
+     lost with them. A `<tr>` also cannot legally be wrapped in a div,
+     which is what the pre-existing (and never-built) `.session-item-
+     wrapper` rules in styles-mobile.css assumed. */
+
+  /**
+   * Install the swipe layer on the Sessions list.
+   *
+   * @returns {boolean} True when the layer is bound.
+   */
+  bindMobileSessionSwipe() {
+    const list = this.els.sessionList;
+    if (!list || list._mwSwipeBound) return false;
+    list._mwSwipeBound = true;
+
+    const c = CWMApp.mwConstants();
+    let row = null;
+    let startX = 0;
+    let startY = 0;
+    let dx = 0;
+    let axis = null;
+
+    const closeOpen = () => {
+      if (this._mwSwipeRow) {
+        this._mwSwipeRow.style.transform = '';
+        this._mwSwipeRow.classList.remove('mw-swipe-open');
+      }
+      this._mwSwipeRow = null;
+      this._hideMobileSwipeActions();
+    };
+    this._mwCloseSwipe = closeOpen;
+
+    list.addEventListener('touchstart', (e) => {
+      if (!this.isPhone || !e.touches || e.touches.length !== 1) return;
+      const target = e.target && e.target.closest ? e.target.closest('.session-item[data-id]') : null;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      // R2: the edge belongs to the OS back gesture, so a swipe that starts
+      // there is never ours.
+      if (startX < c.MW_SWIPE_EDGE_PX ||
+          startX > (window.innerWidth - c.MW_SWIPE_EDGE_PX)) {
+        row = null;
+        return;
+      }
+      if (this._mwSwipeRow && this._mwSwipeRow !== target) closeOpen();
+      row = target;
+      dx = 0;
+      axis = null;
+    }, { passive: true });
+
+    list.addEventListener('touchmove', (e) => {
+      if (!row || !e.touches || e.touches.length !== 1) return;
+      const moveX = e.touches[0].clientX - startX;
+      const moveY = e.touches[0].clientY - startY;
+      if (!axis) {
+        if (Math.abs(moveX) < c.MW_LONGPRESS_MOVE_PX &&
+            Math.abs(moveY) < c.MW_LONGPRESS_MOVE_PX) return;
+        // The axis is decided ONCE, on the first meaningful movement, so a
+        // diagonal drag cannot flip between scrolling and revealing.
+        axis = Math.abs(moveX) > Math.abs(moveY) ? 'x' : 'y';
+        if (axis === 'x') this._showMobileSwipeActions(row);
+      }
+      if (axis !== 'x') return;
+      const max = CWMApp.MW_SWIPE_MAX_PX;
+      dx = Math.max(-max, Math.min(max, moveX));
+      row.style.transform = 'translateX(' + dx + 'px)';
+      this._positionMobileSwipeActions(row, dx);
+    }, { passive: true });
+
+    const settle = () => {
+      if (!row) return;
+      const open = Math.abs(dx) >= CWMApp.MW_SWIPE_REVEAL_PX;
+      if (axis === 'x' && open) {
+        const rest = dx > 0 ? CWMApp.MW_SWIPE_REVEAL_PX : -CWMApp.MW_SWIPE_REVEAL_PX;
+        row.style.transform = 'translateX(' + rest + 'px)';
+        row.classList.add('mw-swipe-open');
+        this._mwSwipeRow = row;
+        this._positionMobileSwipeActions(row, rest);
+      } else if (axis === 'x') {
+        row.style.transform = '';
+        row.classList.remove('mw-swipe-open');
+        this._mwSwipeRow = null;
+        this._hideMobileSwipeActions();
+      }
+      row = null;
+      axis = null;
+    };
+    list.addEventListener('touchend', settle, { passive: true });
+    list.addEventListener('touchcancel', () => { closeOpen(); row = null; axis = null; }, { passive: true });
+    // Any tap outside the open row closes it, which is the affordance every
+    // platform's own swipe rows have.
+    list.addEventListener('click', (e) => {
+      if (!this._mwSwipeRow) return;
+      if (e.target && e.target.closest && e.target.closest('.mw-swipe-action')) return;
+      closeOpen();
+    }, true);
+    return true;
+  }
+
+  /**
+   * Create (once) and fill the shared swipe action layer for a row.
+   *
+   * @param {Element} rowEl - The row being swiped.
+   * @returns {Element|null} The layer.
+   */
+  _showMobileSwipeActions(rowEl) {
+    const list = this.els.sessionList;
+    if (!list || !rowEl) return null;
+    let layer = this._mwSwipeLayer;
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.className = 'mw-swipe-actions';
+      layer.dataset.mwZone = 'chrome';
+      layer.hidden = true;
+      list.appendChild(layer);
+      this._mwSwipeLayer = layer;
+    }
+    const id = rowEl.dataset.id;
+    const session = (this.state.allSessions || this.state.sessions || []).find(s => s.id === id);
+    const running = session && session.status === 'running';
+    layer.innerHTML =
+      '<div class="mw-swipe-side mw-swipe-lead">' +
+      '<button type="button" class="mw-swipe-action mw-swipe-terminal" data-mw-zone="affordance"' +
+      ' data-swipe-action="terminal" data-id="' + this.escapeHtml(id) + '">Terminal</button>' +
+      '</div>' +
+      '<div class="mw-swipe-side mw-swipe-trail">' +
+      (running
+        ? '<button type="button" class="mw-swipe-action mw-swipe-stop" data-mw-zone="affordance"' +
+          ' data-swipe-action="stop" data-id="' + this.escapeHtml(id) + '">Stop</button>'
+        : '<button type="button" class="mw-swipe-action mw-swipe-start" data-mw-zone="affordance"' +
+          ' data-swipe-action="start" data-id="' + this.escapeHtml(id) + '">Start</button>') +
+      '<button type="button" class="mw-swipe-action mw-swipe-hide" data-mw-zone="affordance"' +
+      ' data-swipe-action="hide" data-id="' + this.escapeHtml(id) + '">Hide</button>' +
+      '</div>';
+    if (!layer._mwBound) {
+      layer._mwBound = true;
+      layer.addEventListener('click', (e) => {
+        const btn = e.target && e.target.closest ? e.target.closest('[data-swipe-action]') : null;
+        if (!btn) return;
+        e.stopPropagation();
+        this._runMobileSwipeAction(btn.dataset.swipeAction, btn.dataset.id);
+      });
+    }
+    layer.hidden = false;
+    return layer;
+  }
+
+  /**
+   * Keep the action layer aligned with the row it belongs to.
+   *
+   * The layer is absolutely positioned inside the scrolling list, so it
+   * scrolls with the row for free; only its vertical offset and height have
+   * to be written, and only while a row is actually being dragged.
+   *
+   * @param {Element} rowEl - The swiped row.
+   * @param {number} offset - Current row translation.
+   * @returns {void}
+   */
+  _positionMobileSwipeActions(rowEl, offset) {
+    const layer = this._mwSwipeLayer;
+    const list = this.els.sessionList;
+    if (!layer || !list || !rowEl) return;
+    layer.style.top = (rowEl.offsetTop) + 'px';
+    layer.style.height = rowEl.offsetHeight + 'px';
+    layer.classList.toggle('mw-swipe-showing-lead', offset > 0);
+    layer.classList.toggle('mw-swipe-showing-trail', offset < 0);
+  }
+
+  /** Hide the shared swipe layer without destroying it. @returns {void} */
+  _hideMobileSwipeActions() {
+    if (this._mwSwipeLayer) this._mwSwipeLayer.hidden = true;
+  }
+
+  /**
+   * Run one revealed swipe action.
+   *
+   * Each arm calls the SAME method the context sheet and the desktop menu
+   * call, so a revealed action and a menu action can never diverge.
+   *
+   * @param {string} action - 'terminal', 'stop', 'start' or 'hide'.
+   * @param {string} id - Session id.
+   * @returns {boolean} True when an action ran.
+   */
+  _runMobileSwipeAction(action, id) {
+    if (this._mwCloseSwipe) this._mwCloseSwipe();
+    if (!id) return false;
+    if (action === 'terminal') { this.openSessionInCurrentPane(id); return true; }
+    if (action === 'stop') { this.stopSession(id); return true; }
+    if (action === 'start') { this.startSession(id); return true; }
+    if (action === 'hide') { this.deleteSession(id); return true; }
+    return false;
+  }
+
+  /**
+   * Open a session in the pane the phone is already showing, then switch to
+   * the Terminal tab.
+   *
+   * A.3.2 row "Open session in terminal": on a phone the canonical route is
+   * a row TAP, because there is exactly one visible pane and dragging a row
+   * onto it is the gesture B.8 removes. The desktop "Open in Terminal"
+   * looks for an EMPTY slot and refuses when all six are full, which on a
+   * phone would mean the primary action of the primary list failing with a
+   * warning toast.
+   *
+   * @param {string} id - Session id.
+   * @param {Object} [opts] - { newPane: true } to force an empty slot.
+   * @returns {boolean} True when a pane was asked to open.
+   */
+  openSessionInCurrentPane(id, opts = {}) {
+    const session = (this.state.allSessions || this.state.sessions || []).find(s => s.id === id);
+    if (!session) return false;
+    const spawnOpts = {};
+    if (session.resumeSessionId) spawnOpts.resumeSessionId = session.resumeSessionId;
+    if (session.workingDir) spawnOpts.cwd = session.workingDir;
+    if (session.command) spawnOpts.command = session.command;
+    if (session.bypassPermissions) spawnOpts.bypassPermissions = true;
+    if (session.verbose) spawnOpts.verbose = true;
+    if (session.model) spawnOpts.model = session.model;
+    if (session.agentTeams) spawnOpts.agentTeams = true;
+
+    let slot;
+    if (opts.newPane) {
+      slot = this._findEmptyPaneSlot();
+      if (slot === -1) {
+        this.showToast('All terminal panes full. Close one first.', 'warning');
+        return false;
+      }
+    } else {
+      const active = this._activeTerminalSlot;
+      const existing = this.terminalPanes.findIndex(tp => tp && tp.sessionId === id);
+      if (existing !== -1) slot = existing;
+      else if (active !== null && active !== undefined && this.terminalPanes[active]) slot = active;
+      else {
+        const empty = this._findEmptyPaneSlot();
+        slot = empty === -1 ? 0 : empty;
+      }
+    }
+    this.setViewMode('terminal');
+    if (this.terminalPanes[slot] && this.terminalPanes[slot].sessionId === id) {
+      this.switchTerminalTab(slot);
+      return true;
+    }
+    this.openTerminalInPane(slot, id, session.name, spawnOpts);
+    return true;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE PHONE IA: HOME, ATTENTION, SEARCH   (Notion restyle P10.2)
+
+     MOBILE-EXPERIENCE A.1 states the contract in one sentence:
+     every capability the app has on a phone has exactly one canonical
+     home in the five-tab IA and at most one secondary shortcut; nothing
+     is reachable only by a gesture, and nothing is unreachable.
+
+     Three of the five tabs land on view modes the shell already had.
+     The other two are built here, plus Home, which is the surface that
+     absorbs the fourteen orphans the dissolved More sheet carried.
+
+     Everything below RENDERS; nothing below re-implements. Each row
+     calls the same method the desktop surface calls, which is the
+     established idiom in this file (see _runMobileSelectToolbarAction
+     delegating to TerminalPane.toggleSelectMode) and is what keeps the
+     two surfaces from drifting apart in behaviour.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Wire the three phone screens once, at bind time.
+   *
+   * Delegated listeners on the three static containers rather than a
+   * listener per rendered row: these bodies are rebuilt on every SSE tick,
+   * and a listener per row per render is how listener leaks start. Every
+   * handler is guarded on the element existing, so a shell that predates
+   * this markup binds nothing and throws nothing.
+   *
+   * @returns {void}
+   */
+  bindMobileScreens() {
+    // Home: one delegated click for every row type on the screen.
+    if (this.els.mobileHomeScroll && !this._mobileHomeBound) {
+      this._mobileHomeBound = true;
+      this.els.mobileHomeScroll.addEventListener('click', (e) => {
+        const target = e.target && e.target.closest
+          ? e.target.closest('[data-mw-route]')
+          : null;
+        if (!target) return;
+        this._runMobileHomeRoute(target.dataset.mwRoute, target);
+      });
+    }
+
+    // Attention: rows focus their session; the overflow opens the sheet.
+    if (this.els.mobileAttentionList && !this._mobileAttentionBound) {
+      this._mobileAttentionBound = true;
+      this.els.mobileAttentionList.addEventListener('click', (e) => {
+        const row = e.target && e.target.closest
+          ? e.target.closest('.mobile-attention-row')
+          : null;
+        if (!row) return;
+        if (row.dataset.conflictRow === 'true') {
+          this.openConflictCenter();
+          return;
+        }
+        const queue = this._getAttentionQueue();
+        const item = queue.find(entry => entry.sessionId === row.dataset.sessionId);
+        if (item) this._focusAttentionItem(item);
+      });
+    }
+    if (this.els.mobileAttentionOverflow && !this._mobileAttentionOverflowBound) {
+      this._mobileAttentionOverflowBound = true;
+      this.els.mobileAttentionOverflow.addEventListener('click', () => {
+        this.showActionSheet('Attention', this.buildMobileAttentionOverflowItems());
+      });
+    }
+
+    // Search: the field escalates into the existing full-screen Quick Find,
+    // the scope chips route to the surface that already answers that scope,
+    // and the body lists the same recency rows every other surface shows.
+    if (this.els.mobileSearchInput && !this._mobileSearchBound) {
+      this._mobileSearchBound = true;
+      const openScope = () => this.openMobileSearchScope(this._mobileSearchScope || 'all');
+      this.els.mobileSearchInput.addEventListener('focus', openScope);
+      this.els.mobileSearchInput.addEventListener('click', openScope);
+    }
+    if (this.els.mobileSearchScopes && !this._mobileSearchScopesBound) {
+      this._mobileSearchScopesBound = true;
+      this.els.mobileSearchScopes.addEventListener('click', (e) => {
+        const chip = e.target && e.target.closest ? e.target.closest('[data-mw-scope]') : null;
+        if (!chip) return;
+        this._mobileSearchScope = chip.dataset.mwScope;
+        this.renderMobileSearch();
+        this.openMobileSearchScope(chip.dataset.mwScope);
+      });
+    }
+    if (this.els.mobileSearchResults && !this._mobileSearchResultsBound) {
+      this._mobileSearchResultsBound = true;
+      this.els.mobileSearchResults.addEventListener('click', (e) => {
+        const row = e.target && e.target.closest
+          ? e.target.closest('.mobile-recent-row')
+          : null;
+        if (!row) return;
+        const found = this.getRecentSessions(0).find(r => r.key === row.dataset.recentKey);
+        if (found) this.openRecentRow(found);
+      });
+    }
+  }
+
+  /**
+   * Run one Home row's route.
+   *
+   * The route ids are the capability ids MOBILE-EXPERIENCE A.3 enumerates,
+   * so the IA contract test can grep for them and prove every capability
+   * has a reachable home. Every arm calls an existing method.
+   *
+   * @param {string} route - The `data-mw-route` id on the tapped row.
+   * @param {Element} el - The row itself, for row-scoped data.
+   * @returns {void}
+   */
+  _runMobileHomeRoute(route, el) {
+    switch (route) {
+      case 'attention-queue': this.setViewMode('attention'); return;
+      case 'sessions-all': this.setViewMode('workspace'); return;
+      case 'tasks-board': this.setViewMode('tasks'); return;
+      case 'docs-notes': this.setViewMode('docs'); return;
+      case 'costs': this.setViewMode('costs'); return;
+      case 'resources': this.setViewMode('resources'); return;
+      case 'pair-device': this.showPairMobileModal(); return;
+      case 'settings': this.openSettings(); return;
+      case 'more-menu': this.showMoreMenu(); return;
+      case 'session-open': {
+        const key = el && el.dataset ? el.dataset.recentKey : null;
+        const found = key ? this.getRecentSessions(0).find(r => r.key === key) : null;
+        if (found) this.openRecentRow(found);
+        return;
+      }
+      default: return;
+    }
+  }
+
+  /**
+   * Cap a badge numeral so the pill never widens past its 16px box.
+   *
+   * @param {number} count - Raw count.
+   * @returns {string} The numeral, or "9+" past the cap.
+   */
+  _mobileBadgeText(count) {
+    const n = Number(count) || 0;
+    return n > CWMApp.MOBILE_BADGE_MAX ? CWMApp.MOBILE_BADGE_MAX + '+' : String(n);
+  }
+
+  /**
+   * Paint the Attention tab's badge, which is the app's only persistent
+   * alarm (MOBILE-EXPERIENCE A.2).
+   *
+   * The count rides in the tab's ACCESSIBLE NAME rather than in a live
+   * region, per D.6: a live region on a badge that changes on every SSE
+   * tick is a screen-reader flood. Static, never animated: gate G14.
+   *
+   * @returns {void}
+   */
+  renderMobileTabBadge() {
+    const badge = this.els.mobileAttentionBadge;
+    if (!badge) return;
+    const actionable = this._getAttentionQueue().filter(item => item.actionable).length;
+    badge.textContent = this._mobileBadgeText(actionable);
+    badge.hidden = actionable === 0;
+    const tab = this.els.mobileTabBar
+      ? this.els.mobileTabBar.querySelector('.mobile-tab[data-view="attention"]')
+      : null;
+    if (tab) {
+      tab.setAttribute(
+        'aria-label',
+        actionable > 0
+          ? `Attention, ${actionable} item${actionable === 1 ? '' : 's'} needing input`
+          : 'Attention'
+      );
+    }
+  }
+
+  /**
+   * Keep the phone screens current without re-rendering them when they are
+   * not on screen.
+   *
+   * Called from the render paths that already run on every roster change,
+   * so Home and Attention track SSE with no second polling loop.
+   *
+   * @returns {void}
+   */
+  _refreshMobileScreens() {
+    this.renderMobileTabBadge();
+    if (this.state.viewMode === 'home') this.renderMobileHome();
+    else if (this.state.viewMode === 'attention') this.renderMobileAttention();
+  }
+
+  /* ─── Home ───────────────────────────────────────────────── */
+
+  /**
+   * Render the Home screen's seven dynamic blocks.
+   *
+   * MOBILE-EXPERIENCE A.4 composition, in order: attention banner, the
+   * "Active now" label and its bordered cards, the "Recent" label and its
+   * borderless rows, and the "Workspace" label and its rows. The static
+   * eighth block (version and last sync) is filled at the end.
+   *
+   * BORDERED CARDS FOR LIVE THINGS, BORDERLESS ROWS FOR HISTORY is the
+   * semantic BUILD-CONTRACT 2.13.6 asks Home to draw, and it is the reason
+   * the two lists are not one list with a filter.
+   *
+   * Both lists come from getRecentSessions, which BUILD-CONTRACT 2.13
+   * makes the single entry point for every recency surface. Home does not
+   * sort, merge or de-duplicate; if it did, criterion 2 ("the four
+   * recency surfaces show the same session first") could not hold.
+   *
+   * @returns {void}
+   */
+  renderMobileHome() {
+    const host = this.els.mobileHomeBody;
+    if (!host) return;
+
+    const rows = this.getRecentSessions(0);
+    const queue = this._getAttentionQueue();
+    const actionable = queue.filter(item => item.actionable);
+    const stateBySession = new Map(queue.map(item => [item.sessionId, item]));
+
+    const active = rows.filter(r => r.status === 'running');
+    const recent = rows.filter(r => r.status !== 'running');
+
+    const parts = [];
+
+    // 1. Attention banner. Wash plus ink, a 44px tap target, and it goes to
+    //    the Attention tab rather than opening a sheet, because the tab is
+    //    the canonical home and a banner that opened a popover would be a
+    //    second route to a first-class destination.
+    if (actionable.length > 0) {
+      const word = actionable.length === 1 ? 'session needs' : 'sessions need';
+      parts.push(
+        '<button type="button" class="mobile-home-banner" data-mw-zone="affordance" ' +
+        'data-mw-route="attention-queue">' +
+        '<span class="status-dot status-dot-idle" aria-hidden="true"></span>' +
+        `<span class="mobile-home-banner-text">${actionable.length} ${word} your input</span>` +
+        '<span class="mobile-home-banner-chevron" aria-hidden="true">&#8250;</span>' +
+        '</button>'
+      );
+    }
+
+    // 2 and 3. Active now, capped, then a "See all" row into Sessions.
+    if (active.length > 0) {
+      parts.push('<h2 class="mobile-section-label">Active now</h2>');
+      const shown = active.slice(0, CWMApp.MOBILE_HOME_ACTIVE_LIMIT);
+      parts.push(shown.map(r => this._mobileActiveCardHtml(r, stateBySession.get(r.sessionId))).join(''));
+      if (active.length > shown.length) {
+        parts.push(this._mobileSeeAllRowHtml(`See all ${active.length}`, 'sessions-all'));
+      }
+    }
+
+    // 4 and 5. Recent, capped, then "See all".
+    if (recent.length > 0) {
+      parts.push('<h2 class="mobile-section-label">Recent</h2>');
+      const shown = recent.slice(0, CWMApp.MOBILE_HOME_RECENT_LIMIT);
+      parts.push(shown.map(r => this._mobileRecentRowHtml(r)).join(''));
+      if (recent.length > shown.length) {
+        parts.push(this._mobileSeeAllRowHtml('See all', 'sessions-all'));
+      }
+    }
+
+    if (active.length === 0 && recent.length === 0) {
+      parts.push(
+        '<p class="mobile-home-empty">No sessions yet. Start one from the plus in the header.</p>'
+      );
+    }
+
+    // 6 and 7. Workspace: the permanent home for every utility view.
+    parts.push('<h2 class="mobile-section-label">Workspace</h2>');
+    parts.push(this.buildHomeWorkspaceItems().map(item => this._mobileHomeRowHtml(item)).join(''));
+
+    host.innerHTML = parts.join('');
+
+    // 8. Footer meta. Non-interactive by design (A.4 block 8). Both values
+    // are best-effort: the version arrives with the update check and the
+    // sync stamp with the last roster render, so an empty footer means
+    // "not known yet" rather than "broken".
+    if (this.els.mobileHomeMeta) {
+      const version = (this._versionInfo && this._versionInfo.version) || '';
+      const bits = [];
+      if (version) bits.push('v' + version);
+      bits.push('synced ' + this.relativeTime(new Date().toISOString()));
+      this.els.mobileHomeMeta.textContent = bits.join(' · ');
+    }
+
+    this.renderMobileTabBadge();
+  }
+
+  /**
+   * The Home > Workspace section: the replacement for the More tab.
+   *
+   * MOBILE-EXPERIENCE A.3.6 gives every one of the fourteen orphans a row
+   * here, and A.4 draws it as a scrolling list of Notion rows rather than a
+   * menu, deliberately: a menu is a place features go to be forgotten.
+   *
+   * SANCTIONED TEST EDITS SE-9 AND SE-10 point at this builder. The four
+   * labels the More sheet pinned (Settings, Appearance, Pair device, All
+   * sessions) keep their capabilities here: Settings is a row, Appearance
+   * lives inside Settings > Interface on a phone, Pair device is the
+   * "Paired devices" row, and All sessions is the Sessions tab. The
+   * `showMoreMenu` method and its four labels are RETAINED unchanged for
+   * the classic shell.
+   *
+   * @returns {Array<Object>} Row descriptors: { route, label, count, glyph }.
+   */
+  buildHomeWorkspaceItems() {
+    const runningTasks = Array.isArray(this._worktreeTaskCache)
+      ? this._worktreeTaskCache.filter(t => t && (t.status === 'running' || t.status === 'in_progress')).length
+      : 0;
+    const pairedDevices = Number(this._pairedDeviceCount) || 0;
+    return [
+      {
+        route: 'tasks-board',
+        label: 'Agent tasks',
+        detail: runningTasks > 0 ? `${runningTasks} running` : '',
+        glyph: 'M3 3.5h10v9H3z M5.5 8l1.5 1.5L10.5 6',
+      },
+      {
+        route: 'docs-notes',
+        label: 'Project notes',
+        detail: '',
+        glyph: 'M4.5 2h7v12h-7z M6.5 5h3 M6.5 8h3 M6.5 11h2',
+      },
+      {
+        route: 'costs',
+        label: 'Costs',
+        detail: '',
+        glyph: 'M8 2v12 M5.5 4.5c0-.9 1.1-1.5 2.5-1.5s2.5.6 2.5 1.5S9.4 6 8 6 5.5 6.6 5.5 7.5 6.6 9 8 9s2.5.6 2.5 1.5S9.4 12 8 12s-2.5-.6-2.5-1.5',
+      },
+      {
+        route: 'resources',
+        label: 'System resources',
+        detail: '',
+        glyph: 'M2.5 13V8.5h3V13z M6.5 13V4h3v9z M10.5 13V6.5h3V13z',
+      },
+      {
+        route: 'pair-device',
+        label: 'Paired devices',
+        detail: pairedDevices > 0 ? String(pairedDevices) : '',
+        glyph: 'M5 1.5h6v13H5z M7 12.5h2',
+      },
+      {
+        route: 'settings',
+        label: 'Settings',
+        detail: '',
+        glyph: 'M8 5.75a2.25 2.25 0 1 0 0 4.5 2.25 2.25 0 0 0 0-4.5z M13 8l1-1.5-1.5-2.5-1.75.5-1.5-.9L8.75 1.5h-1.5L7 3.6l-1.5.9-1.75-.5L2.25 6.5 3.25 8l-1 1.5 1.5 2.5 1.75-.5 1.5.9.25 2.1h1.5l.25-2.1 1.5-.9 1.75.5 1.5-2.5z',
+      },
+    ];
+  }
+
+  /**
+   * One Home > Workspace row.
+   *
+   * A borderless Notion row: 20px leading glyph, label, optional trailing
+   * count, chevron. The whole row is the button, so the hit box is the row
+   * and no pseudo-element expansion is needed (MOBILE-EXPERIENCE D.1).
+   *
+   * @param {Object} item - Descriptor from buildHomeWorkspaceItems.
+   * @returns {string} Row markup.
+   */
+  _mobileHomeRowHtml(item) {
+    const detail = item.detail
+      ? `<span class="mobile-home-row-detail">${this.escapeHtml(item.detail)}</span>`
+      : '';
+    const paths = String(item.glyph || '').split(' M').map((d, i) => (i === 0 ? d : 'M' + d));
+    const glyph = paths
+      .map(d => `<path d="${this.escapeHtml(d)}"/>`)
+      .join('');
+    return '<button type="button" class="mobile-home-row" data-mw-zone="affordance" ' +
+      `data-mw-route="${this.escapeHtml(item.route)}">` +
+      '<span class="mobile-home-row-glyph" aria-hidden="true">' +
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+      `stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg></span>` +
+      `<span class="mobile-home-row-label">${this.escapeHtml(item.label)}</span>` +
+      detail +
+      '<span class="mobile-home-row-chevron" aria-hidden="true">&#8250;</span>' +
+      '</button>';
+  }
+
+  /**
+   * A "See all" row. Borderless, tertiary ink, routes into Sessions.
+   *
+   * @param {string} label - Row text.
+   * @param {string} route - Capability id to run.
+   * @returns {string} Row markup.
+   */
+  _mobileSeeAllRowHtml(label, route) {
+    return '<button type="button" class="mobile-home-seeall" data-mw-zone="affordance" ' +
+      `data-mw-route="${this.escapeHtml(route)}">${this.escapeHtml(label)}` +
+      '<span class="mobile-home-row-chevron" aria-hidden="true">&#8250;</span></button>';
+  }
+
+  /**
+   * One "Active now" card: bordered, because it is a live thing.
+   *
+   * The status mark is a STATIC SHAPE, never a pulse: a filled disc for
+   * running, a ring for needs-input. The mock draws both with `mwPulse`;
+   * the standing rule recorded in DECISIONS 13.1 and DEVIATIONS DV-21 bans
+   * animated status marks and outranks the mock, and gate G14 enforces it.
+   * The hue is never the only channel: the second line repeats the state
+   * as a word.
+   *
+   * @param {Object} row - A row from getRecentSessions.
+   * @param {Object|null} attention - Its attention-queue entry, when it has one.
+   * @returns {string} Card markup.
+   */
+  _mobileActiveCardHtml(row, attention) {
+    const wantsInput = !!(attention && attention.state === 'needs-input');
+    const dotClass = wantsInput ? 'status-dot-idle' : 'status-dot-running';
+    const activity = attention && attention.label ? attention.label : 'Running';
+    const meta = [row.projectLabel, activity].filter(Boolean).map(t => this.escapeHtml(t)).join(' · ');
+    return '<button type="button" class="mobile-session-card" data-mw-zone="affordance" ' +
+      `data-mw-route="session-open" data-recent-key="${this.escapeHtml(row.key)}"` +
+      (wantsInput ? ' data-attention-state="needs-input"' : '') + '>' +
+      `<span class="status-dot ${dotClass}" aria-hidden="true"></span>` +
+      '<span class="mobile-session-card-body">' +
+      `<span class="mobile-session-card-title">${this.escapeHtml(row.title)}</span>` +
+      `<span class="mobile-session-card-meta">${meta}</span>` +
+      '</span>' +
+      this.providerChipHtml(row.providerId) +
+      '</button>';
+  }
+
+  /**
+   * One "Recent" row: borderless, because it is history.
+   *
+   * Shares recentRowInnerHtml with Quick Find, the sidebar Recent section
+   * and the workbench continue row, so the four cannot drift apart in what
+   * they show (BUILD-CONTRACT 2.13, criterion 2).
+   *
+   * @param {Object} row - A row from getRecentSessions.
+   * @returns {string} Row markup.
+   */
+  _mobileRecentRowHtml(row) {
+    return '<button type="button" class="mobile-recent-row" data-mw-zone="affordance" ' +
+      `data-mw-route="session-open" data-recent-key="${this.escapeHtml(row.key)}">` +
+      this.recentRowInnerHtml(row, { showProvider: false }) +
+      '</button>';
+  }
+
+  /* ─── Attention ──────────────────────────────────────────── */
+
+  /**
+   * The per-surface overflow builder for the Attention tab.
+   *
+   * MOBILE-EXPERIENCE A.3.4 puts exactly one item here, "Stop all", in the
+   * danger group, because the queue itself is the surface and everything
+   * else about it is a row.
+   *
+   * @returns {Array<Object>} Action-sheet items.
+   */
+  buildMobileAttentionOverflowItems() {
+    const conflictCount = (this._currentConflicts || []).length;
+    const items = [
+      { label: 'All sessions', action: () => this.setViewMode('workspace') },
+    ];
+    if (conflictCount > 0) {
+      items.push({
+        label: `Conflicts (${conflictCount})`,
+        action: () => this.openConflictCenter(),
+      });
+    }
+    items.push(
+      { type: 'sep' },
+      // P11: the row now does what its label says. P10 wired "Stop all" to
+      // `restartAllSessions`, which is the more dangerous of the two and not
+      // what A.3.4 asks for: a user asking a queue of stuck sessions to STOP
+      // would have restarted every session in the workbook. "Restart all
+      // sessions" keeps its own route in `showMoreMenu` and in the Sessions
+      // header overflow, where the label is truthful.
+      { label: 'Stop all', danger: true, action: () => this.stopAllSessions() }
+    );
+    return items;
+  }
+
+  /**
+   * Render the Attention tab: everything that wants the user, grouped.
+   *
+   * A running session with nothing to say never appears here (A.2). The
+   * groups are the five the queue can produce plus a conditional Conflicts
+   * group; a group with no members is not drawn, so the screen is never a
+   * list of empty headings.
+   *
+   * The "Held" group has no producer yet: auto-trust either accepts a safe
+   * prompt or flags it as needs-input, so nothing is ever held today. The
+   * group is declared anyway, keyed on a `held` state, so the moment a
+   * producer exists the row appears with no further work here.
+   *
+   * @returns {void}
+   */
+  renderMobileAttention() {
+    const host = this.els.mobileAttentionList;
+    if (!host) return;
+
+    const queue = this._getAttentionQueue();
+    const groups = [
+      { state: 'needs-input', label: 'Waiting for you' },
+      { state: 'held', label: 'Held' },
+      { state: 'failed', label: 'Failed' },
+      { state: 'complete', label: 'Finished' },
+      { state: 'stale', label: 'Stale' },
+    ];
+
+    const parts = [];
+    for (const group of groups) {
+      const members = queue.filter(item => item.state === group.state);
+      if (members.length === 0) continue;
+      parts.push(`<h2 class="mobile-section-label">${this.escapeHtml(group.label)}</h2>`);
+      parts.push(members.map(item => this._mobileAttentionRowHtml(item)).join(''));
+    }
+
+    const conflicts = this._currentConflicts || [];
+    if (conflicts.length > 0) {
+      parts.push('<h2 class="mobile-section-label">Conflicts</h2>');
+      parts.push(
+        '<button type="button" class="mobile-attention-row" data-mw-zone="affordance" ' +
+        'data-mw-route="conflict-center" data-conflict-row="true">' +
+        '<span class="status-dot status-dot-idle" aria-hidden="true"></span>' +
+        '<span class="mobile-attention-row-body">' +
+        `<span class="mobile-attention-row-title">${conflicts.length} file conflict` +
+        `${conflicts.length === 1 ? '' : 's'}</span>` +
+        '<span class="mobile-attention-row-meta">Multiple sessions editing the same files</span>' +
+        '</span></button>'
+      );
+    }
+
+    if (parts.length === 0) {
+      parts.push('<p class="mobile-home-empty">Nothing needs you right now.</p>');
+    }
+
+    host.innerHTML = parts.join('');
+
+    // One polite announcement, rate limited. D.6: announce only transitions
+    // into "needs input", and at most once per five seconds.
+    const actionable = queue.filter(item => item.actionable).length;
+    if (this.els.mobileAttentionLive) {
+      const now = Date.now();
+      const changed = actionable !== this._mobileAttentionLastCount;
+      const cool = !this._mobileAttentionLastAnnounce ||
+        (now - this._mobileAttentionLastAnnounce) >= CWMApp.MOBILE_ATTENTION_ANNOUNCE_MS;
+      if (changed && cool) {
+        this._mobileAttentionLastAnnounce = now;
+        this.els.mobileAttentionLive.textContent = actionable > 0
+          ? `${actionable} session${actionable === 1 ? '' : 's'} need attention`
+          : '';
+      }
+      this._mobileAttentionLastCount = actionable;
+    }
+
+    this.renderMobileTabBadge();
+  }
+
+  /**
+   * One Attention row. The state is carried by a static shape AND by the
+   * label beside it, so the hue is never the only channel (D.4).
+   *
+   * @param {Object} item - An attention-queue entry.
+   * @returns {string} Row markup.
+   */
+  _mobileAttentionRowHtml(item) {
+    const dotClass = item.state === 'needs-input' || item.state === 'stale'
+      ? 'status-dot-idle'
+      : (item.state === 'failed' ? 'status-dot-error' : 'status-dot-running');
+    return '<button type="button" class="mobile-attention-row" data-mw-zone="affordance" ' +
+      `data-mw-route="attention-item" data-session-id="${this.escapeHtml(item.sessionId)}" ` +
+      `data-attention-state="${this.escapeHtml(item.state)}">` +
+      `<span class="status-dot ${dotClass}" aria-hidden="true"></span>` +
+      '<span class="mobile-attention-row-body">' +
+      `<span class="mobile-attention-row-title">${this.escapeHtml(item.sessionName)}</span>` +
+      `<span class="mobile-attention-row-meta">${this.escapeHtml(item.label)}</span>` +
+      '</span></button>';
+  }
+
+  /* ─── Search ─────────────────────────────────────────────── */
+
+  /**
+   * The Search tab's scope set.
+   *
+   * MOBILE-EXPERIENCE A.3.5 unifies the quick switcher, the command
+   * palette, global transcript search and help behind scope chips. Each
+   * scope names the surface that already answers it; none of them is
+   * re-implemented here.
+   *
+   * @returns {Array<Object>} { id, label } chips.
+   */
+  _mobileSearchScopes() {
+    return [
+      { id: 'all', label: 'All' },
+      { id: 'sessions', label: 'Sessions' },
+      { id: 'commands', label: 'Commands' },
+      { id: 'conversations', label: 'Conversations' },
+      { id: 'help', label: 'Help' },
+    ];
+  }
+
+  /**
+   * Open the surface that answers a scope.
+   *
+   * DIVERGENCE, recorded in DECISIONS: the Search TAB is a real screen
+   * (field, scope chips, recent rows), and typing escalates into the
+   * existing full-screen Quick Find overlay rather than into a second
+   * search engine written for the phone. On a phone the overlay covers the
+   * viewport, so the two read as one surface; re-implementing the palette's
+   * scoring, catalogue and result routing would have been a second engine
+   * to keep in step with the first.
+   *
+   * @param {string} scope - One of the ids from _mobileSearchScopes.
+   * @returns {void}
+   */
+  openMobileSearchScope(scope) {
+    if (scope === 'help') {
+      this.openQuickSwitcher('help');
+      return;
+    }
+    if (scope === 'conversations') {
+      this.openGlobalSearch();
+      return;
+    }
+    this.openQuickSwitcher();
+    if (scope === 'commands' && this.els.qsInput) {
+      // The palette's own command mode is the '>' prefix; seeding it is how
+      // the chip routes to Commands without a parallel mode flag.
+      this.els.qsInput.value = '>';
+      this.onQuickSwitcherInput();
+    }
+  }
+
+  /**
+   * Render the Search screen: scope chips plus the recency rows that stand
+   * in for "Recent searches" until a search history exists.
+   *
+   * @returns {void}
+   */
+  renderMobileSearch() {
+    const scope = this._mobileSearchScope || 'all';
+    if (this.els.mobileSearchScopes) {
+      this.els.mobileSearchScopes.innerHTML = this._mobileSearchScopes().map(chip =>
+        '<button type="button" class="mobile-scope-chip' +
+        (chip.id === scope ? ' is-active' : '') + '" ' +
+        `data-mw-zone="affordance" data-mw-scope="${this.escapeHtml(chip.id)}" ` +
+        `aria-pressed="${chip.id === scope}">${this.escapeHtml(chip.label)}</button>`
+      ).join('');
+    }
+    if (this.els.mobileSearchResults) {
+      const rows = this.getRecentSessions(CWMApp.RECENCY_QUICK_FIND_LIMIT);
+      this.els.mobileSearchResults.innerHTML = rows.length > 0
+        ? '<h2 class="mobile-section-label">Recent</h2>' +
+          rows.map(r => this._mobileRecentRowHtml(r)).join('')
+        : '<p class="mobile-home-empty">Nothing to search yet.</p>';
+    }
+  }
+
+  /* ─── The mobile header: back chevron and New session ─────── */
+
+  /**
+   * Inject the two phone-only header controls, once.
+   *
+   * They are INJECTED rather than authored into index.html for the same
+   * reason the Select-mode toolbar buttons are: the header is shared chrome
+   * owned by another track, and one runtime definition cannot drift from
+   * six hand-written copies. Both are ordinary buttons in the header's own
+   * flow, so nothing floats and nothing overlaps.
+   *
+   * "+" is the mock's header affordance with search removed, because Search
+   * is a tab and New session had no header route at all
+   * (MOBILE-EXPERIENCE A.4 deviation 1). The back chevron is the tap
+   * equivalent of the OS back gesture for the Home destinations (A.3.1).
+   *
+   * @returns {number} How many controls were created.
+   */
+  _injectMobileHeaderControls() {
+    const header = document.querySelector('.app-header .header-left');
+    if (!header) return 0;
+    let created = 0;
+
+    if (!header.querySelector('.mobile-header-back')) {
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'mobile-header-back mw-touch-expand';
+      back.dataset.mwZone = 'affordance';
+      back.dataset.mwRoute = 'nav-back';
+      back.setAttribute('aria-label', 'Back to Home');
+      back.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" ' +
+        'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+        'stroke-linejoin="round" aria-hidden="true"><path d="M10 3.5L5.5 8 10 12.5"/></svg>';
+      back.hidden = true;
+      back.addEventListener('click', () => this.setViewMode('home'));
+      header.insertBefore(back, header.firstChild);
+      created++;
+    }
+
+    if (!header.querySelector('.mobile-header-new')) {
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'mobile-header-new mw-touch-expand';
+      add.dataset.mwZone = 'affordance';
+      add.dataset.mwRoute = 'session-new';
+      add.setAttribute('aria-label', 'New session');
+      add.innerHTML = '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" ' +
+        'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+        'aria-hidden="true"><path d="M8 3.5v9"/><path d="M3.5 8h9"/></svg>';
+      add.addEventListener('click', () => this.openLauncher());
+      const switcher = header.querySelector('#account-switcher');
+      if (switcher) header.insertBefore(add, switcher);
+      else header.appendChild(add);
+      created++;
+    }
+
+    // The workspace tile: the mock's leading square opens a workspace sheet.
+    // .header-brand is a div, so it takes the same role/tabindex treatment
+    // the other div-shaped controls in this shell take, and Enter and Space
+    // reach it through bindRowKeyboardActivation.
+    const brand = document.querySelector('.app-header .header-brand');
+    if (brand && !brand.dataset.mwRoute) {
+      brand.dataset.mwZone = 'affordance';
+      brand.dataset.mwRoute = 'workspace-switch';
+      brand.setAttribute('role', 'button');
+      brand.setAttribute('tabindex', '0');
+      brand.setAttribute('aria-label', 'Switch workspace');
+      brand.addEventListener('click', () => {
+        if (this.isMobile) this.openMobileWorkspaceSheet();
+      });
+      created++;
+    }
+
+    return created;
+  }
+
+  /**
+   * Show or hide the injected back chevron for the current view.
+   *
+   * @param {string} mode - The view mode being entered.
+   * @returns {void}
+   */
+  _syncMobileHeader(mode) {
+    const back = document.querySelector('.app-header .mobile-header-back');
+    if (!back) return;
+    back.hidden = !CWMApp.HOME_DESTINATION_MODES.includes(mode);
+  }
+
+  /**
+   * The workspace sheet behind the Home header's tile.
+   *
+   * Replaces the edge-swipe drawer as the workspace-switch route
+   * (MOBILE-EXPERIENCE B.1 rule R2: the edge belongs to the OS). Projects
+   * remain reachable from the Sessions tab, which is the drawer's other
+   * half.
+   *
+   * @returns {void}
+   */
+  openMobileWorkspaceSheet() {
+    const items = (this.state.workspaces || []).map(ws => ({
+      label: ws.name || ws.id,
+      check: this.state.activeWorkspace && this.state.activeWorkspace.id === ws.id,
+      action: () => this.selectWorkspace(ws.id),
+    }));
+    if (items.length > 0) items.push({ type: 'sep' });
+    items.push({ label: 'All sessions', action: () => this.setViewMode('workspace') });
+    items.push({ label: 'Projects', action: () => {
+      this.setViewMode('workspace');
+      this.setProjectsCollapsed(false);
+      if (this.isMobile && !this.state.sidebarOpen) this.toggleSidebar();
+    } });
+    this.showActionSheet('Workspace', items);
   }
 
   /**
@@ -2018,6 +5455,9 @@ class CWMApp {
     // ── WORKSPACE SIDEBAR LIST ───────────────────────────────
     const wsList = this.els.workspaceList;
     let wsLPTimer = null;
+    // P11.1: the touch origin, so the cancel is the contract's 8px slop
+    // rather than "any movement at all", which cancelled on a tremor.
+    let wsLPOrigin = null;
 
     // Click delegation
     wsList.addEventListener('click', (e) => {
@@ -2032,13 +5472,13 @@ class CWMApp {
         const wsId = moreBtn.dataset.id;
         const rect = moreBtn.getBoundingClientRect();
         this._renderContextItems('Workspace', [
-          { icon: '✏️', label: 'Rename', action: () => this.renameWorkspace(wsId) },
-          { icon: '🗑️', label: 'Delete', danger: true, action: () => this.deleteWorkspace(wsId) },
+          { icon: ntIcon('pencil', 15), label: 'Rename', action: () => this.renameWorkspace(wsId) },
+          { icon: ntIcon('trash', 15), label: 'Delete', danger: true, action: () => this.deleteWorkspace(wsId) },
         ], rect.right, rect.bottom);
         return;
       }
 
-      // Pip click — navigate to that instance (handled BEFORE session-item click).
+      // Pip click: navigate to that instance (handled BEFORE session-item click).
       const pip = e.target.closest('.instance-indicator');
       if (pip && pip.dataset.tabId) {
         e.stopPropagation();
@@ -2049,28 +5489,11 @@ class CWMApp {
       const wsSessionItem = e.target.closest('.ws-session-item');
       if (wsSessionItem) {
         e.stopPropagation();
-        const sessionId = wsSessionItem.dataset.sessionId;
-        const session = (this.state.allSessions || this.state.sessions).find(s => s.id === sessionId);
-        if (!session) return;
-        if (this.state.viewMode === 'terminal') {
-          const emptySlot = this._findEmptyPaneSlot();
-          if (emptySlot !== -1) {
-            if (!session.resumeSessionId) this.showToast('Starting new Claude session (no previous conversation to resume)', 'info');
-            const spawnOpts = {};
-            if (session.resumeSessionId) spawnOpts.resumeSessionId = session.resumeSessionId;
-            if (session.workingDir) spawnOpts.cwd = session.workingDir;
-            if (session.command) spawnOpts.command = session.command;
-            if (session.bypassPermissions) spawnOpts.bypassPermissions = true;
-            if (session.verbose) spawnOpts.verbose = true;
-            if (session.model) spawnOpts.model = session.model;
-            if (session.agentTeams) spawnOpts.agentTeams = true;
-            this.openTerminalInPane(emptySlot, sessionId, session.name, spawnOpts);
-          } else {
-            this.showToast('All terminal panes are full. Close one first.', 'warning');
-          }
-        } else {
-          this.selectSession(sessionId);
-        }
+        // The body of this branch moved to openSessionRow so the recency
+        // surfaces can reuse it verbatim (BUILD-CONTRACT 2.13.3: "matching
+        // the session-row idiom already in the sidebar"). Behaviour here is
+        // unchanged; it is the same code, called by name.
+        this.openSessionRow(wsSessionItem.dataset.sessionId);
         return;
       }
 
@@ -2184,36 +5607,59 @@ class CWMApp {
       }
     });
 
-    // Touch long-press delegation
+    // Touch long-press delegation.
+    //
+    // Notion restyle P11.1 (MOBILE-EXPERIENCE B.2): the duration is now the
+    // ONE constant the whole app uses, published by mobile-viewport.js and
+    // matched by terminal.js. It was 500ms here, 600ms on the pane and 400ms
+    // inside xterm; three durations on adjacent elements is exactly what
+    // makes a gesture feel unreliable. The haptic and the 8px movement slop
+    // come from the same table. The listener SHAPE is preserved because
+    // mobile-ux-fixes.test.js P1-2(b) pins it.
     wsList.addEventListener('touchstart', (e) => {
       clearTimeout(wsLPTimer);
+      const lpMs = CWMApp.mwConstants().MW_LONGPRESS_MS;
+      if (e.touches && e.touches[0]) {
+        wsLPOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
       const wsSessionItem = e.target.closest('.ws-session-item');
       if (wsSessionItem) {
         wsLPTimer = setTimeout(() => {
           const touch = e.touches[0];
-          if (touch) this.showContextMenu(wsSessionItem.dataset.sessionId, touch.clientX, touch.clientY);
-        }, 500);
+          if (!touch) return;
+          this._mwHaptic();
+          this._mwSuppressNextClick();
+          this.showContextMenu(wsSessionItem.dataset.sessionId, touch.clientX, touch.clientY);
+        }, lpMs);
         return;
       }
       const workspaceItem = e.target.closest('.workspace-item');
       if (workspaceItem) {
         wsLPTimer = setTimeout(() => {
           const touch = e.touches[0];
-          if (touch) this.showWorkspaceContextMenu(workspaceItem.dataset.id, touch.clientX, touch.clientY);
-        }, 500);
+          if (!touch) return;
+          this._mwHaptic();
+          this._mwSuppressNextClick();
+          this.showWorkspaceContextMenu(workspaceItem.dataset.id, touch.clientX, touch.clientY);
+        }, lpMs);
         return;
       }
       const groupHeader = e.target.closest('.workspace-group-header');
       if (groupHeader) {
         wsLPTimer = setTimeout(() => {
           const touch = e.touches[0];
-          if (touch) this.showGroupContextMenu(groupHeader.dataset.groupId, touch.clientX, touch.clientY);
-        }, 500);
+          if (!touch) return;
+          this._mwHaptic();
+          this._mwSuppressNextClick();
+          this.showGroupContextMenu(groupHeader.dataset.groupId, touch.clientX, touch.clientY);
+        }, lpMs);
         return;
       }
     }, { passive: false });
     wsList.addEventListener('touchend', () => clearTimeout(wsLPTimer));
-    wsList.addEventListener('touchmove', () => clearTimeout(wsLPTimer));
+    wsList.addEventListener('touchmove', (e) => {
+      if (this._mwPastSlop(e, wsLPOrigin)) clearTimeout(wsLPTimer);
+    });
 
     // Double-click for inline rename
     wsList.addEventListener('dblclick', (e) => {
@@ -2393,10 +5839,47 @@ class CWMApp {
     // ── SESSION LIST (main panel) ────────────────────────────
     const sessList = this.els.sessionList;
     let sessLPTimer = null;
+    let sessLPOrigin = null;
 
     sessList.addEventListener('click', (e) => {
+      // Notion restyle P4.3: the Sessions view is a table, so the same
+      // delegated listener now also owns the column headers and the trailing
+      // "New session" row. Both are checked BEFORE the row, because a header
+      // cell is not inside a .session-item and the new-row button is not
+      // either; the order is for readability, not correctness.
+      const sortHeader = e.target.closest('th[data-sort]');
+      if (sortHeader) {
+        this.toggleSessionsSort(sortHeader.dataset.sort);
+        return;
+      }
+      if (e.target.closest('.session-table-new')) {
+        this.createSession();
+        return;
+      }
       const item = e.target.closest('.session-item');
-      if (item) this.selectSession(item.dataset.id);
+      if (!item) return;
+      // Notion restyle P11, MOBILE-EXPERIENCE A.3.2. Two phone-only branches
+      // sit ahead of the desktop behaviour, and neither exists above the
+      // breakpoint:
+      //   1. In bulk select mode a tap toggles the row's checkbox. A tap that
+      //      opened a session while the user was selecting rows would be the
+      //      worst possible outcome of a mis-hit.
+      //   2. Otherwise a tap OPENS the session in the pane the phone is
+      //      already showing and switches to Terminal, which is what A.3.2
+      //      makes the canonical route now that dragging a row onto a pane is
+      //      removed (B.8). The peek sheet keeps its route through the row's
+      //      long-press sheet, "View Details".
+      if (this.isPhone && this._mobileSessionSelect) {
+        this.toggleMobileSessionSelected(item.dataset.id);
+        return;
+      }
+      if (this.isPhone) {
+        // Deliberately NOT selectSession first: that opens the detail peek,
+        // which setViewMode('terminal') would then close in the same frame.
+        this.openSessionInCurrentPane(item.dataset.id);
+        return;
+      }
+      this.selectSession(item.dataset.id);
     });
 
     sessList.addEventListener('contextmenu', (e) => {
@@ -2404,18 +5887,31 @@ class CWMApp {
       if (item) { e.preventDefault(); e.stopPropagation(); this.showContextMenu(item.dataset.id, e.clientX, e.clientY); }
     });
 
+    // P11.1: unified duration, slop and haptic, exactly as on wsList above.
+    // The Sessions row is the affordance A.3.2 routes the most capabilities
+    // through, so this is the hold that has to feel right.
     sessList.addEventListener('touchstart', (e) => {
       clearTimeout(sessLPTimer);
+      if (e.touches && e.touches[0]) {
+        sessLPOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
       const item = e.target.closest('.session-item');
-      if (item) {
+      // Select mode owns the row: a hold there would open a context sheet for
+      // a row the user is in the middle of ticking.
+      if (item && !(this.isPhone && this._mobileSessionSelect)) {
         sessLPTimer = setTimeout(() => {
           const touch = e.touches[0];
-          if (touch) this.showContextMenu(item.dataset.id, touch.clientX, touch.clientY);
-        }, 500);
+          if (!touch) return;
+          this._mwHaptic();
+          this._mwSuppressNextClick();
+          this.showContextMenu(item.dataset.id, touch.clientX, touch.clientY);
+        }, CWMApp.mwConstants().MW_LONGPRESS_MS);
       }
     }, { passive: false });
     sessList.addEventListener('touchend', () => clearTimeout(sessLPTimer));
-    sessList.addEventListener('touchmove', () => clearTimeout(sessLPTimer));
+    sessList.addEventListener('touchmove', (e) => {
+      if (this._mwPastSlop(e, sessLPOrigin)) clearTimeout(sessLPTimer);
+    });
 
     // Session list drag (moved from initDragAndDrop)
     sessList.addEventListener('dragstart', (e) => {
@@ -2437,6 +5933,7 @@ class CWMApp {
     const projList = this.els.projectsList;
     if (projList) {
       let projLPTimer = null;
+      let projLPOrigin = null;
 
       projList.addEventListener('click', (e) => {
         const header = e.target.closest('.project-accordion-header');
@@ -2466,7 +5963,7 @@ class CWMApp {
           e.preventDefault(); e.stopPropagation();
           const accordion = header.closest('.project-accordion');
           // Forward the project's provider so "New Session Here" spawns the
-          // right CLI (was always Claude before — see showProjectContextMenu).
+          // right CLI (was always Claude before; see showProjectContextMenu).
           const accProvider = (accordion && accordion.dataset.provider) || 'claude'; /* gsd:provider-literal-allowed (back-compat default) */
           this.showProjectContextMenu(accordion.dataset.encoded, header.querySelector('.project-name').textContent, accordion.dataset.path, e.clientX, e.clientY, accProvider);
         }
@@ -2516,17 +6013,24 @@ class CWMApp {
         if (el) el.classList.remove('dragging');
       });
 
+      // P11.1: unified duration, slop and haptic (MOBILE-EXPERIENCE B.2).
       projList.addEventListener('touchstart', (e) => {
         clearTimeout(projLPTimer);
+        const lpMs = CWMApp.mwConstants().MW_LONGPRESS_MS;
+        if (e.touches && e.touches[0]) {
+          projLPOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
         const sessionItem = e.target.closest('.project-session-item');
         if (sessionItem) {
           projLPTimer = setTimeout(() => {
             const touch = e.touches[0];
             if (touch) {
               const itemProvider = sessionItem.dataset.provider || 'claude'; /* gsd:provider-literal-allowed (back-compat default) */
+              this._mwHaptic();
+              this._mwSuppressNextClick();
               this.showProjectSessionContextMenu(sessionItem.dataset.sessionName, sessionItem.dataset.projectPath, touch.clientX, touch.clientY, itemProvider);
             }
-          }, 500);
+          }, lpMs);
           return;
         }
         const header = e.target.closest('.project-accordion-header');
@@ -2536,13 +6040,17 @@ class CWMApp {
             if (touch) {
               const accordion = header.closest('.project-accordion');
               const accProvider = (accordion && accordion.dataset.provider) || 'claude'; /* gsd:provider-literal-allowed (back-compat default, mirrors mouse contextmenu) */
+              this._mwHaptic();
+              this._mwSuppressNextClick();
               this.showProjectContextMenu(accordion.dataset.encoded, header.querySelector('.project-name').textContent, accordion.dataset.path, touch.clientX, touch.clientY, accProvider);
             }
-          }, 500);
+          }, lpMs);
         }
       }, { passive: false });
       projList.addEventListener('touchend', () => clearTimeout(projLPTimer));
-      projList.addEventListener('touchmove', () => clearTimeout(projLPTimer));
+      projList.addEventListener('touchmove', (e) => {
+        if (this._mwPastSlop(e, projLPOrigin)) clearTimeout(projLPTimer);
+      });
     }
 
     // ── TERMINAL TAB GROUP STRIP (P1-3) ──────────────────────
@@ -2553,11 +6061,17 @@ class CWMApp {
     // _renderContextItems (an action sheet on mobile). Mirrors the wsList pattern.
     const tabStrip = this.els.terminalGroupsTabs;
     if (tabStrip) {
-      // Long-press threshold, matched to the sidebar lists for a consistent feel.
-      const TAB_LONG_PRESS_MS = 500;
+      // Long-press threshold, matched to the sidebar lists for a consistent
+      // feel. P11.1: "matched to the sidebar lists" is now literal rather
+      // than aspirational, because both read the one published constant.
+      const TAB_LONG_PRESS_MS = CWMApp.mwConstants().MW_LONGPRESS_MS;
       let tabLPTimer = null;
+      let tabLPOrigin = null;
       tabStrip.addEventListener('touchstart', (e) => {
         clearTimeout(tabLPTimer);
+        if (e.touches && e.touches[0]) {
+          tabLPOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
         const tabEl = e.target.closest && e.target.closest('.terminal-group-tab');
         if (!tabEl) return;
         tabLPTimer = setTimeout(() => {
@@ -2566,11 +6080,15 @@ class CWMApp {
           const groupId = tabEl.dataset.groupId;
           const group = this._tabGroups.find(g => g.id === groupId);
           const items = this._buildTerminalTabContextItems(groupId, tabEl);
+          this._mwHaptic();
+          this._mwSuppressNextClick();
           this._renderContextItems(group ? group.name : 'Tab Group', items, touch.clientX, touch.clientY);
         }, TAB_LONG_PRESS_MS);
       }, { passive: false });
       tabStrip.addEventListener('touchend', () => clearTimeout(tabLPTimer));
-      tabStrip.addEventListener('touchmove', () => clearTimeout(tabLPTimer));
+      tabStrip.addEventListener('touchmove', (e) => {
+        if (this._mwPastSlop(e, tabLPOrigin)) clearTimeout(tabLPTimer);
+      });
       // Guard: tabs are draggable (reorder). Cancel the long-press the instant a
       // drag begins so it does not pop a sheet over the drag. Delegated on the
       // container so it covers the freshly-rendered tab buttons every render.
@@ -2802,6 +6320,20 @@ class CWMApp {
     const savedViewMode = localStorage.getItem('cwm_viewMode');
     if (savedViewMode && ['workspace', 'all', 'costs', 'recent', 'terminal', 'docs', 'resources', 'tasks'].includes(savedViewMode)) {
       this.state.viewMode = savedViewMode;
+    }
+    // Notion restyle P10.2: the three phone-only modes are honoured only on a
+    // phone. A desktop that restores `home` from a phone session would land
+    // on a screen laid out for a 390px column, so it falls through to the
+    // list above and keeps the desktop default.
+    if (savedViewMode && CWMApp.MOBILE_ONLY_VIEW_MODES.includes(savedViewMode) && this.isMobile) {
+      this.state.viewMode = savedViewMode;
+    }
+    // OQ-1, answered: Home is the phone's landing tab, because Home is the
+    // orientation surface and recency is the first thing a phone should
+    // show (BUILD-CONTRACT 2.13.6). A user who has chosen a tab before keeps
+    // it; only a first run lands on Home.
+    if (!savedViewMode && this.isMobile) {
+      this.state.viewMode = 'home';
     }
     // Always apply the current view mode (handles default 'terminal' for new users)
     this.setViewMode(this.state.viewMode);
@@ -3288,6 +6820,9 @@ class CWMApp {
     } else {
       this.els.detailPanel.hidden = true;
     }
+    // The main column gets its two collapsed table columns back the moment the
+    // peek closes, so the class comes off here as well as in renderSessionDetail.
+    this._setPeekOpen(false);
     this.els.sessionListPanel.classList.remove('detail-active');
     this.renderSessions();
   }
@@ -3462,7 +6997,7 @@ class CWMApp {
         this.state.selectedSession = updated;
         this.renderSessionDetail();
       }
-      // Sync terminal pane titles — if this session is open in a terminal,
+      // Sync terminal pane titles. If this session is open in a terminal,
       // update the TerminalPane instance and the DOM tab header.
       if (result.name) {
         for (let i = 0; i < this.terminalPanes.length; i++) {
@@ -3825,7 +7360,7 @@ class CWMApp {
 
     items.push({ type: 'sep' });
 
-    // Naming submenu — rename and auto-title grouped together
+    // Naming submenu: rename and auto-title grouped together
     items.push({
       label: 'Naming', icon: '&#9998;',
       submenu: [
@@ -3855,7 +7390,7 @@ class CWMApp {
       }
     });
 
-    // Insights submenu — session analysis and export
+    // Insights submenu: session analysis and export
     items.push({
       label: 'Insights', icon: '&#128220;',
       submenu: [
@@ -3868,13 +7403,13 @@ class CWMApp {
       ],
     });
 
-    // Spinoff Tasks — AI-extract tasks from conversation and create worktree branches
+    // Spinoff Tasks: AI-extract tasks from conversation and create worktree branches
     items.push({
       label: 'Create agent tasks', icon: '&#10547;',
       action: () => this.openSpinoffDialog(sessionId),
     });
 
-    // Advanced submenu — templates, context, refocus, worktrees
+    // Advanced submenu: templates, context, refocus, worktrees
     const advancedItems = [
       { label: 'Start with Context', action: () => this.startSessionWithContext(sessionId) },
       { label: 'Save as Template', action: () => this.saveSessionAsTemplate(session) },
@@ -4754,17 +8289,93 @@ class CWMApp {
       themeMeta && themeMeta.appearance === 'light' ? 'light' : 'dark';
     document.documentElement.style.colorScheme =
       themeMeta && themeMeta.appearance === 'light' ? 'light' : 'dark';
-    const themeColor = document.querySelector('meta[name="theme-color"]');
-    if (themeColor) {
-      const color = getComputedStyle(document.documentElement)
-        .getPropertyValue('--bg-secondary')
-        .trim();
-      if (color) themeColor.content = color;
-    }
+    this.syncThemeColorMeta();
 
     if (this.els.appearanceOverlay && !this.els.appearanceOverlay.hidden) {
       this.renderAppearance();
     }
+  }
+
+  /**
+   * Point the mobile status-bar tint at the active chrome ground.
+   *
+   * Notion restyle P1.4. This was inlined at the end of setTheme() and read
+   * --bg-secondary, the sidebar ground, through a single querySelector. Two
+   * things changed and both matter:
+   *
+   *   1. index.html now carries a PAIR of theme-color tags, one per
+   *      prefers-color-scheme, so the first paint is right before any script
+   *      runs. A querySelector would only ever rewrite the first of them and
+   *      the operating system would keep honouring the other one. Hence
+   *      querySelectorAll.
+   *   2. It reads --app-bg-primary, the chrome canvas, rather than
+   *      --bg-secondary. The status bar sits above the page ground, not above
+   *      the sidebar, and the canvas is the token that actually changes with
+   *      the chrome theme.
+   *
+   * Called from both setTheme() and setChrome(), because either can change
+   * what the ground resolves to.
+   *
+   * @returns {void}
+   */
+  syncThemeColorMeta() {
+    const tags = document.querySelectorAll('meta[name="theme-color"]');
+    if (!tags.length) return;
+    const color = getComputedStyle(document.documentElement)
+      .getPropertyValue('--app-bg-primary')
+      .trim();
+    if (!color) return;
+    tags.forEach(tag => { tag.content = color; });
+  }
+
+  /**
+   * Set the chrome theme: the light or dark ground, ink, border and wash set
+   * that every non-terminal surface paints with.
+   *
+   * Notion restyle P1.4. This is deliberately NOT setTheme(). The two are
+   * independent axes and conflating them was rejected in BUILD-CONTRACT 1.1.2:
+   *
+   *   data-theme   one of 13 persisted terminal palette ids, stored under
+   *                cwm_theme, read by terminal.js and pinned by three test
+   *                files. It drives the terminal surface.
+   *   data-chrome  light or dark, stored under cwm_chrome. It drives the
+   *                application chrome.
+   *
+   * A light terminal palette on dark chrome is a legal, supported combination
+   * (DESIGN-SPEC 10.5), which is only possible because these are two
+   * attributes rather than one.
+   *
+   * An unrecognised value is coerced to the operating system preference rather
+   * than being written through, so a corrupted localStorage entry can never
+   * leave the document with a chrome attribute that no CSS block matches,
+   * which would paint light tokens with no dark override anywhere.
+   *
+   * @param {string} chrome - Either "light" or "dark".
+   * @param {{persist?: boolean}} [options] - Set persist false to preview a
+   *   chrome theme without writing it to localStorage.
+   * @returns {string} The chrome value actually applied.
+   */
+  setChrome(chrome, { persist = true } = {}) {
+    let next = chrome === 'light' || chrome === 'dark' ? chrome : null;
+    if (!next) {
+      const prefersLight = window.matchMedia &&
+        window.matchMedia('(prefers-color-scheme: light)').matches;
+      next = prefersLight ? 'light' : 'dark';
+    }
+
+    document.documentElement.dataset.chrome = next;
+    if (persist) {
+      try {
+        localStorage.setItem('cwm_chrome', next);
+      } catch (_) {
+        // A locked-down storage context is not a reason to refuse the switch.
+        // The attribute is already set; only the preference fails to survive
+        // a reload, and the pre-paint bootstrap falls back to the OS setting.
+      }
+    }
+
+    this.syncThemeColorMeta();
+    return next;
   }
 
   setDensity(value, { persist = true } = {}) {
@@ -5505,19 +9116,120 @@ class CWMApp {
     return window.InstanceColors.getSessionInstances(sessionId, this._tabGroups || []);
   }
 
-  /** Return the (positional) colour for a tab — global index across all tabs. */
+  /** Return the (positional) colour for a tab, global index across all tabs. */
   getTabColor(tabId) {
     return window.InstanceColors.getTabColor(tabId, this._tabGroups || []);
   }
 
-  /** Render one indicator: top half = tab colour, bottom half = slot colour, 1px divider. */
+  /* ─── Chrome hue resolution (BUILD-CONTRACT 1.8, P2.7) ──────────────────
+     Every inline style in this file that paints an identity colour goes
+     through one of these three. They exist so no render path concatenates
+     `var(--` and a palette name again: DESIGN-SPEC 10.4 lists what the
+     terminal palette may paint, and the sidebar, the tab strip, a chip and a
+     folder header are not on that list.
+
+     instance-colors.js owns the name-to-hue table because it is the one
+     module that is both a browser <script> and requireable from Node, so the
+     mapping is unit-testable. These wrappers add only the degradation
+     policy, which is a client-side concern: instance-colors.js is loaded
+     without a cachebuster, so a browser holding a stale copy must still
+     render a legible dot rather than throw inside a template literal. */
+
+  /**
+   * The CSS value that paints a persisted palette name as an identity mark:
+   * a dot, a pip, a tab colour, a folder tint, a workspace accent.
+   *
+   * @param {string} name - Persisted palette name ('mauve') or block hue ('purple').
+   * @returns {string} e.g. `var(--app-text-purple)`.
+   */
+  _hueVar(name) {
+    const ic = window.InstanceColors;
+    if (ic && typeof ic.blockHueVar === 'function') return ic.blockHueVar(name);
+    return this._hueResolverMissing();
+  }
+
+  /**
+   * The block BACKGROUND that pairs with `_hueVar`, for content labels
+   * (BUILD-CONTRACT 2.3 row 3: user-authored tags are named block colours,
+   * not chips).
+   *
+   * @param {string} name - Persisted palette name or block hue name.
+   * @returns {string} e.g. `var(--app-bg-purple)`.
+   */
+  _hueBgVar(name) {
+    const ic = window.InstanceColors;
+    if (ic && typeof ic.blockHueBgVar === 'function') return ic.blockHueBgVar(name);
+    return CWMApp.FALLBACK_HUE_BG_VAR;
+  }
+
+  /**
+   * The CHIP pair for a user-authored tag: chip ink on chip fill.
+   *
+   * Not the block pair. DECISIONS 11.5 item 2 measured the block pair at
+   * 2.41:1 to 3.85:1 against a 4.5:1 floor, because a coloured Notion callout
+   * carries default ink on a coloured ground and never coloured-on-coloured.
+   * The chip pair measures 4.95:1 to 7.26:1 across both chromes. Same hue,
+   * same identity, legible.
+   *
+   * Degradation matches _hueVar: a missing or stale instance-colors.js warns
+   * once and falls back to the neutral chip, never to a palette token.
+   *
+   * @param {string} name - Persisted palette name or block hue name.
+   * @returns {{ink: string, fill: string}} Two ready-to-inline var() strings.
+   */
+  _chipHuePair(name) {
+    const ic = window.InstanceColors;
+    if (ic && typeof ic.chipHueInkVar === 'function' && typeof ic.chipHueFillVar === 'function') {
+      return { ink: ic.chipHueInkVar(name), fill: ic.chipHueFillVar(name) };
+    }
+    this._hueResolverMissing();
+    return { ink: CWMApp.FALLBACK_CHIP_INK_VAR, fill: CWMApp.FALLBACK_CHIP_FILL_VAR };
+  }
+
+  /**
+   * The identity ink mixed down over whatever it sits on, for surfaces that
+   * tint rather than mark. Derived from the same ink so a wash can never
+   * drift away from the dot it belongs to.
+   *
+   * @param {string} name - Persisted palette name or block hue name.
+   * @param {number} percent - Ink share, 0 to 100.
+   * @returns {string} A `color-mix(...)` CSS value.
+   */
+  _hueWash(name, percent) {
+    const ic = window.InstanceColors;
+    if (ic && typeof ic.blockHueWash === 'function') return ic.blockHueWash(name, percent);
+    return 'color-mix(in srgb, ' + this._hueResolverMissing() + ' ' + percent + '%, transparent)';
+  }
+
+  /**
+   * Report a missing or stale instance-colors.js exactly once, then hand back
+   * the neutral block ink. Warned rather than swallowed: a silent fallback
+   * that greys every identity colour in the product is a bug report nobody
+   * can diagnose from a screenshot.
+   *
+   * @returns {string} The neutral identity ink.
+   */
+  _hueResolverMissing() {
+    if (!this._hueResolverWarned) {
+      this._hueResolverWarned = true;
+      console.warn('[cwm] instance-colors.js is missing or stale; identity colours ' +
+        'fall back to ' + CWMApp.FALLBACK_HUE_VAR + '. A hard reload should fix it.');
+    }
+    return CWMApp.FALLBACK_HUE_VAR;
+  }
+
+  /** Render one indicator: top half = tab colour, bottom half = slot colour, 1px divider.
+   *  Both halves are identity marks, so both resolve through the chrome hue
+   *  projection rather than through the terminal palette (P2.7). The pip's
+   *  MEANING is unchanged: outer is still the tab's positional colour and
+   *  inner is still the slot's. */
   renderInstanceIndicator({ tabColor, slotColor, title, tabId, slot }) {
     return `<span class="instance-indicator"
       title="${this.escapeHtml(title || '')}"
       data-tab-id="${this.escapeHtml(tabId)}"
       data-slot="${slot}"
-      style="--c-outer:var(--${tabColor});
-             --c-inner:var(--${slotColor})">
+      style="--c-outer:${this._hueVar(tabColor)};
+             --c-inner:${this._hueVar(slotColor)}">
       <span class="instance-indicator-square">
         <span class="instance-indicator-inner"></span>
       </span>
@@ -5778,7 +9490,7 @@ class CWMApp {
         for (const item of hiddenItems) {
           html += `
             <div class="settings-hidden-item" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--surface0);border-radius:6px;">
-              <span class="settings-hidden-item-type" style="font-size:10px;text-transform:uppercase;opacity:0.5;min-width:60px;">${this.escapeHtml(item.type)}</span>
+              <span class="settings-hidden-item-type" style="font-size:12px;opacity:0.6;min-width:60px;">${this.escapeHtml(item.type)}</span>
               <span class="settings-hidden-item-name" style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.escapeHtml(item.name)}</span>
               <button class="btn btn-ghost btn-icon btn-sm settings-unhide-btn" data-unhide-type="${item.type}" data-unhide-id="${this.escapeHtml(item.id)}" title="Unhide" style="opacity:0.5;flex-shrink:0;">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3C4.5 3 1.7 5.1 1 8c.7 2.9 3.5 5 7 5s6.3-2.1 7-5c-.7-2.9-3.5-5-7-5zm0 8a3 3 0 110-6 3 3 0 010 6zm0-5a2 2 0 100 4 2 2 0 000-4z"/></svg>
@@ -5827,7 +9539,7 @@ class CWMApp {
         this.els.settingsBody.querySelectorAll('input[data-provider-toggle]').forEach(input => {
           input.addEventListener('change', (e) => this._handleProviderToggleChange(e));
         });
-        // alpha.9: providers section landed — append it to the rail and
+        // alpha.9: providers section landed, so append it to the rail and
         // mark the section element with the slug id so click/spy work.
         const section = this.els.settingsBody.querySelector('.settings-category[data-section="providers"]');
         if (section) {
@@ -5882,9 +9594,20 @@ class CWMApp {
         const r = await fetch('/api/tunnel/named', { headers: { Authorization: 'Bearer ' + this.state.token } });
         const d = await r.json();
         if (ntStatus) {
-          const dot = d.running ? (d.status === 'connected' ? '🟢' : '🟡') : (d.configured ? '⚫' : '⚪');
+          /* P12: the tunnel state is a status DOT, not four emoji from
+             whatever the platform font happens to ship. Same 7px block-palette
+             mark the rest of the application uses, so a state means the same
+             SHAPE here as it does in the sidebar, and the not-configured case
+             lands on the ring rather than on a white circle that disappears on
+             a light canvas. The label is appended as a TEXT NODE rather than
+             interpolated, so a server-supplied status string never reaches the
+             HTML parser. */
+          const dotClass = d.running
+            ? (d.status === 'connected' ? 'status-dot-running' : 'status-dot-idle')
+            : (d.configured ? 'status-dot-stopped' : 'status-dot-idle');
           const label = d.running ? d.status : (d.configured ? 'stopped (token saved)' : 'not configured');
-          ntStatus.textContent = dot + ' ' + label;
+          ntStatus.innerHTML = '<span class="status-dot ' + dotClass + '"></span>';
+          ntStatus.append(' ' + label);
         }
         if (ntAutoStart) ntAutoStart.checked = !!d.autoStart;
         if (ntStartBtn) ntStartBtn.disabled = d.running;
@@ -6725,7 +10448,7 @@ class CWMApp {
     } catch (err) {
       const msg = err.message || 'unknown error';
       if (msg.includes('not initialized')) {
-        // td isn't initialized — show a helpful prompt rather than a raw error
+        // td isn't initialized: show a helpful prompt rather than a raw error
         panel.textContent = '';
         const toolbar = document.createElement('div');
         toolbar.className = 'tasks-td-toolbar';
@@ -7620,10 +11343,11 @@ class CWMApp {
 
       const listTagBadges = (t.tags || []).slice(0, 3).map(tag => {
         const color = this._tagColor(tag);
-        return `<span class="session-badge session-badge-tag" style="background:color-mix(in srgb, var(--${color}) 15%, transparent);color:var(--${color});">${this.escapeHtml(tag)}</span>`;
+        const pair = this._chipHuePair(color);
+        return `<span class="session-badge session-badge-tag" style="background:${pair.fill};color:${pair.ink};">${this.escapeHtml(tag)}</span>`;
       }).join('');
 
-      return `<div class="task-item" data-session-id="${t.sessionId || ''}" data-task-id="${t.id}">
+      return `<div class="task-item" data-session-id="${t.sessionId || ''}" data-task-id="${t.id}" role="button" tabindex="0">
         <span class="task-item-dot ${dotClass}"></span>
         <span class="task-item-branch">${this.escapeHtml(t.branch || t.description || t.id)}</span>
         ${openBtn}
@@ -7692,7 +11416,22 @@ class CWMApp {
     this._wireKanbanEvents();
   }
 
-  /** Map a tag name to a consistent Catppuccin color variable */
+  /** Map a tag name to a consistent colour NAME, by hash.
+   *
+   *  The eight-name ramp and the hash are unchanged, deliberately: a tag's
+   *  colour has to be stable across renders, sessions and devices, and the
+   *  hash is the only thing that makes it so. What changed in P2.7 is where
+   *  the name is painted from. Callers resolve it through _hueBgVar plus
+   *  _hueVar, which is the named block colour pair: user-authored tags are
+   *  CONTENT LABELS (PROCEDURE 3.3 rule 5, BUILD-CONTRACT 2.3 row 3), so
+   *  they take the block palette rather than the chip palette. The eight
+   *  names collapse onto six block hues (sky joins teal, rosewater joins
+   *  flamingo as brown), which is the intended collapse: contract 1.8 row 3
+   *  spells out that pairing.
+   *
+   *  @param {string} tag - The tag text.
+   *  @returns {string} A palette name for _hueVar / _hueBgVar.
+   */
   _tagColor(tag) {
     const palette = ['teal', 'pink', 'sky', 'peach', 'lavender', 'flamingo', 'sapphire', 'rosewater'];
     let hash = 0;
@@ -7800,10 +11539,11 @@ class CWMApp {
     // Tag badges
     const tagBadges = (task.tags || []).map(tag => {
       const color = this._tagColor(tag);
-      return `<span class="session-badge session-badge-tag" style="background:color-mix(in srgb, var(--${color}) 15%, transparent);color:var(--${color});">${this.escapeHtml(tag)}</span>`;
+      const pair = this._chipHuePair(color);
+      return `<span class="session-badge session-badge-tag" style="background:${pair.fill};color:${pair.ink};">${this.escapeHtml(tag)}</span>`;
     }).join('');
 
-    return `<div class="kanban-card${task.blockedBy && task.blockedBy.length > 0 ? ' kanban-card-blocked-state' : ''}" draggable="true" data-task-id="${task.id}" data-session-id="${task.sessionId || ''}">
+    return `<div class="kanban-card${task.blockedBy && task.blockedBy.length > 0 ? ' kanban-card-blocked-state' : ''}" draggable="true" role="button" tabindex="0" data-task-id="${task.id}" data-session-id="${task.sessionId || ''}">
       <div class="kanban-card-title">${this.escapeHtml(task.branch || task.description || task.id)}</div>
       <div class="kanban-card-meta">
         ${modelShort ? `<span class="session-badge session-badge-model">${this.escapeHtml(modelShort)}</span>` : ''}
@@ -8734,20 +12474,20 @@ class CWMApp {
       const html = `
         <div style="display:flex;flex-direction:column;gap:16px;">
           <div>
-            <div style="font-size:11px;text-transform:uppercase;color:var(--overlay0);font-weight:600;margin-bottom:6px;">Overall Theme</div>
+            <div style="font-size:12px;color:var(--app-text-tertiary);font-weight:500;margin-bottom:6px;">Overall Theme</div>
             <div style="font-size:13px;color:var(--text-primary);line-height:1.5;background:var(--surface0);padding:10px 12px;border-radius:8px;">${this.escapeHtml(data.overallTheme)}</div>
           </div>
           <div>
-            <div style="font-size:11px;text-transform:uppercase;color:var(--overlay0);font-weight:600;margin-bottom:6px;">Most Recent Tasking</div>
+            <div style="font-size:12px;color:var(--app-text-tertiary);font-weight:500;margin-bottom:6px;">Most Recent Tasking</div>
             <div style="font-size:13px;color:var(--text-primary);line-height:1.5;background:var(--surface0);padding:10px 12px;border-radius:8px;">${this.escapeHtml(data.recentTasking)}</div>
           </div>
           ${data.recentAssistant ? `<div>
-            <div style="font-size:11px;text-transform:uppercase;color:var(--overlay0);font-weight:600;margin-bottom:6px;">Last Assistant Response</div>
+            <div style="font-size:12px;color:var(--app-text-tertiary);font-weight:500;margin-bottom:6px;">Last Assistant Response</div>
             <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;background:var(--surface0);padding:10px 12px;border-radius:8px;max-height:120px;overflow-y:auto;">${this.escapeHtml(data.recentAssistant)}</div>
           </div>` : ''}
           <div style="font-size:11px;color:var(--overlay0);">File size: ${this.formatSize(data.fileSize)}</div>
           ${this.state.workspaces.length > 0 ? `<div style="border-top:1px solid var(--border-subtle);padding-top:12px;">
-            <div style="font-size:11px;text-transform:uppercase;color:var(--overlay0);font-weight:600;margin-bottom:8px;">Send to Project</div>
+            <div style="font-size:12px;color:var(--app-text-tertiary);font-weight:500;margin-bottom:8px;">Send to Project</div>
             <div style="display:flex;gap:8px;">
               <select id="summary-ws-select" style="flex:1;padding:8px;border-radius:6px;background:var(--surface0);color:var(--text-primary);border:1px solid var(--surface1);font-size:13px;">
                 ${wsOptions}
@@ -9386,7 +13126,36 @@ class CWMApp {
     if (els.accountChipLabel) els.accountChipLabel.textContent = chipName;
     if (els.accountChipMeta) {
       const fiveHour = active && active.usage && active.usage.five_hour;
-      if (fiveHour && fiveHour.resets_at) {
+      // DESIGN-SPEC 4 draws the chip as `{name} · {n}%`, so the meta slot
+      // carries the session UTILIZATION and not the reset countdown.
+      //
+      // The percentage is the more useful of the two at a glance and it is the
+      // one the mock chose, for a reason worth stating: a countdown answers
+      // "when does this reset", which only matters once you already know you
+      // are near the ceiling, while the percentage is what tells you whether
+      // to care at all. The countdown is not lost; it keeps its place in the
+      // account panel's own usage rows, one click away.
+      //
+      // data-reset-at is REMOVED in this branch, and that is load-bearing
+      // rather than tidy. _tickAccountCountdowns rewrites the textContent of
+      // every [data-reset-at] element inside .account-switcher once a minute,
+      // so leaving the attribute on a percentage would have the tick silently
+      // replace "42%" with "Resets in 2 hr 14 min" within sixty seconds, on a
+      // timer, which is the hardest possible version of this bug to reproduce.
+      // The attribute stays on the panel rows and the usage meter, which is
+      // where the countdown actually lives.
+      const pct = fiveHour && typeof fiveHour.utilization === 'number'
+        ? Math.max(0, Math.min(100, Math.round(fiveHour.utilization)))
+        : null;
+      if (pct !== null) {
+        els.accountChipMeta.textContent = pct + '%';
+        delete els.accountChipMeta.dataset.resetAt;
+        els.accountChipMeta.hidden = false;
+        els.accountChipMeta.classList.toggle('is-stale', this._isUsageStale(active));
+      } else if (fiveHour && fiveHour.resets_at) {
+        // No utilization number, but a window exists: fall back to the
+        // countdown rather than to nothing, so a partial payload still says
+        // something true.
         els.accountChipMeta.textContent = this._formatResetText(fiveHour.resets_at);
         els.accountChipMeta.dataset.resetAt = fiveHour.resets_at;
         els.accountChipMeta.hidden = false;
@@ -11348,6 +15117,22 @@ class CWMApp {
     // Migrate legacy "all" mode to "workspace" for existing users
     if (mode === 'all') mode = 'workspace';
 
+    // NOTION RESTYLE P10.2. The three phone screens are display:none above
+    // the phone breakpoint, so entering one on a wider layout renders an
+    // EMPTY main column under a breadcrumb that says Home. Measured at 900px
+    // in the P10 capture, and reachable four ways: a tablet rotating out of
+    // portrait, a desktop window dragged wider, a stale `cwm_viewMode`
+    // restored on another device, and a direct call.
+    //
+    // The guard lives HERE rather than only on the breakpoint listener
+    // because it is the one place all four paths pass through. Sessions is
+    // the fallback because all three phone screens are about finding a
+    // session, and Sessions is the desktop surface that answers the same
+    // question.
+    if (CWMApp.MOBILE_ONLY_VIEW_MODES.includes(mode) && !this.isMobile) {
+      mode = 'workspace';
+    }
+
     this.state.viewMode = mode;
     localStorage.setItem('cwm_viewMode', mode);
     document.documentElement.dataset.viewMode = mode;
@@ -11366,11 +15151,22 @@ class CWMApp {
     }
 
     // Update mobile tab bar
+    //
+    // NOTION RESTYLE P10.1. `isMoreDestination` is retained verbatim: the
+    // `more` tab no longer exists in the five-tab bar, so the second clause
+    // is simply never true, and the classic shell keeps the behaviour it
+    // had. `isHomeDestination` is its replacement: Costs, Resources, Project
+    // notes, Agent tasks and Recent are now reached from Home > Workspace, so
+    // Home is the tab that stays lit while one of them is showing.
     if (this.els.mobileTabBar) {
       const isMoreDestination = ['costs', 'recent', 'docs', 'resources'].includes(mode);
+      const isHomeDestination = CWMApp.HOME_DESTINATION_MODES.includes(mode);
       this.els.mobileTabBar.querySelectorAll('.mobile-tab').forEach(tab => {
+        const tabMode = CWMApp.MOBILE_TAB_VIEW[tab.dataset.view] || tab.dataset.view;
         const isActive = tab.dataset.view === mode ||
-          (tab.dataset.view === 'more' && isMoreDestination);
+          (tab.dataset.view === 'more' && isMoreDestination) ||
+          tabMode === mode ||
+          (tab.dataset.view === 'home' && isHomeDestination);
         tab.classList.toggle('active', isActive);
         if (isActive) tab.setAttribute('aria-current', 'page');
         else tab.removeAttribute('aria-current');
@@ -11383,14 +15179,35 @@ class CWMApp {
       this._resourcesInterval = null;
     }
 
+    // The topbar's scrolled shadow belongs to the view that was scrolled, not
+    // to the shell. Switching views swaps the scroller out from under it, and
+    // no scroll event is fired by the swap, so the state is reset here and
+    // the next real scroll re-asserts it within a frame.
+    this._updateHeaderScrolled(null);
+
+    // The breadcrumb names the view, so it changes with the view.
+    this.renderBreadcrumb();
+
     // Toggle terminal grid vs session panels vs docs vs resources vs costs vs tasks
     const isTerminal = mode === 'terminal';
     const isDocs = mode === 'docs';
     const isResources = mode === 'resources';
     const isCosts = mode === 'costs';
     const isTasks = mode === 'tasks';
-    this.els.sessionListPanel.hidden = isTerminal || isDocs || isResources || isCosts || isTasks;
-    this.els.detailPanel.hidden = isTerminal || isDocs || isResources || isCosts || isTasks || !this.state.selectedSession;
+    // Notion restyle P10.2: the three phone screens are ordinary panels in
+    // this same switch, so exactly one surface is ever visible and no second
+    // navigation system exists.
+    const isHome = mode === 'home';
+    const isAttention = mode === 'attention';
+    const isSearch = mode === 'search';
+    const isMobileScreen = isHome || isAttention || isSearch;
+    this.els.sessionListPanel.hidden = isTerminal || isDocs || isResources || isCosts || isTasks || isMobileScreen;
+    this.els.detailPanel.hidden = isTerminal || isDocs || isResources || isCosts || isTasks || isMobileScreen || !this.state.selectedSession;
+    // A view switch can open or close the peek without going through
+    // renderSessionDetail (switching to Costs hides it; switching back to
+    // Sessions with a selection still made shows it), so the body class is
+    // resolved from the same expression that decides the panel.
+    this._setPeekOpen(!this.els.detailPanel.hidden);
     if (this.els.terminalGrid) {
       this.els.terminalGrid.hidden = !isTerminal;
     }
@@ -11419,6 +15236,30 @@ class CWMApp {
     }
     if (this.els.tasksPanel) {
       this.els.tasksPanel.hidden = !isTasks;
+    }
+    // Notion restyle P10.2: the phone screens follow the same hidden-property
+    // idiom as every other panel, so [hidden] stays the single source of
+    // truth for what is on screen (DO-NOT-BREAK rule 3).
+    if (this.els.mobileHomePanel) {
+      this.els.mobileHomePanel.hidden = !isHome;
+    }
+    if (this.els.mobileAttentionPanel) {
+      this.els.mobileAttentionPanel.hidden = !isAttention;
+    }
+    if (this.els.mobileSearchPanel) {
+      this.els.mobileSearchPanel.hidden = !isSearch;
+    }
+    // The mobile back chevron only exists while a Home destination is
+    // showing, because that is the only phone surface with a parent to
+    // return to (MOBILE-EXPERIENCE A.3.1, "Back from a detail surface").
+    this._syncMobileHeader(mode);
+
+    if (isHome) {
+      this.renderMobileHome();
+    } else if (isAttention) {
+      this.renderMobileAttention();
+    } else if (isSearch) {
+      this.renderMobileSearch();
     }
 
     if (isTasks) {
@@ -11576,6 +15417,43 @@ class CWMApp {
     handle.addEventListener('touchstart', (e) => { e.preventDefault(); startResize(e.touches[0].clientX); }, { passive: false });
   }
 
+  /**
+   * Measure everything in the sidebar that is NOT one of the two resizable
+   * lists, so the section splitter knows how much height it may not spend.
+   *
+   * This replaces a hard-coded `- 200`. That constant was a measurement of a
+   * sidebar that no longer exists: P2 cut the launch button, the tabs and the
+   * two section headers to Notion metrics, and the recency work adds a whole
+   * new section above Projects. A guessed reserve that is too large makes the
+   * splitter refuse the bottom of its range; too small and it lets the user
+   * drag the discovered list to zero height with no way back. Neither failure
+   * announces itself, which is why BUILD-CONTRACT 2.13.3 says this number is
+   * "measured, not guessed" and risk R12 names it.
+   *
+   * Measuring the complement (sidebar minus the two lists) rather than
+   * summing a list of chrome elements means a section added later is counted
+   * automatically and nobody has to remember to extend an array.
+   *
+   * @returns {number} Pixels of sidebar height the two lists cannot use.
+   */
+  measureSidebarChromeHeight() {
+    const sidebar = this.els.sidebar;
+    if (!sidebar) return CWMApp.SIDEBAR_CHROME_FALLBACK_PX;
+    const total = sidebar.getBoundingClientRect().height;
+    const wsList = this.els.workspaceList;
+    const projList = this.els.projectsList;
+    const lists = (wsList ? wsList.getBoundingClientRect().height : 0)
+      + (projList ? projList.getBoundingClientRect().height : 0);
+    const chrome = total - lists;
+    // A sidebar mid-animation, display:none, or a first paint before layout
+    // can all report nonsense. Fall back rather than hand the splitter a
+    // negative range.
+    if (!Number.isFinite(chrome) || chrome <= 0 || chrome >= total) {
+      return CWMApp.SIDEBAR_CHROME_FALLBACK_PX;
+    }
+    return chrome;
+  }
+
   initSidebarSectionResize() {
     const handle = document.getElementById('sidebar-section-resize');
     if (!handle) return;
@@ -11593,7 +15471,7 @@ class CWMApp {
       const dy = clientY - startY;
       const sidebar = this.els.sidebar;
       const sidebarRect = sidebar.getBoundingClientRect();
-      const totalAvailable = sidebarRect.height - 200; // Reserve space for headers/footer
+      const totalAvailable = sidebarRect.height - this.measureSidebarChromeHeight();
       const newWsHeight = Math.max(80, Math.min(totalAvailable, startWsHeight + dy));
       wsList.style.flex = 'none';
       wsList.style.height = newWsHeight + 'px';
@@ -11732,18 +15610,44 @@ class CWMApp {
         ...shortcuts.map(e => ({ type: 'shortcut', item: e, score: 30 })),
       ];
     }
-    // Default mode, empty query: recent sessions + workspaces (original behavior)
+    // Default mode, empty query: THE RECENTS PATTERN (BUILD-CONTRACT 2.13.2).
+    //
+    // This is the highest-leverage change in the recency work: from a cold
+    // load, the most recently active session anywhere on the machine is two
+    // keystrokes away (Ctrl+K, Enter), which is acceptance criterion 1.
+    //
+    // It replaces a list that sorted `state.sessions`, the view-filtered
+    // slice, and therefore showed nothing at all in terminal view and never
+    // showed a Codex session the workbook had not adopted. The merged list
+    // spans providers and includes discovered sessions, so criterion 4
+    // (Claude and Codex interleave correctly by time) holds here too.
+    //
+    // Implemented as a new BRANCH inside this method, not a new method, and
+    // the results still flow through this.qsResults, the same highlight index
+    // and the same click binding, exactly as 2.13.2's DO-NOT-BREAK note
+    // requires.
     else if (!query) {
-      const recentWorkspaces = [...this.state.workspaces].sort((a, b) =>
-        new Date(b.lastActive || b.createdAt) - new Date(a.lastActive || a.createdAt)
-      ).slice(0, 3);
-      const recentSessions = [...this.state.sessions].sort((a, b) =>
-        new Date(b.lastActive || b.createdAt) - new Date(a.lastActive || a.createdAt)
-      ).slice(0, 5);
-      this.qsResults = [
-        ...recentWorkspaces.map(w => ({ type: 'workspace', item: w, score: 50 })),
-        ...recentSessions.map(s => ({ type: 'session', item: s, score: 40 })),
-      ];
+      const recents = this.getRecentSessions(CWMApp.RECENCY_QUICK_FIND_LIMIT);
+      this.qsResults = recents.map(r => ({ type: 'recent', item: r, score: 60 }));
+      // The first row is highlighted on open so Enter opens it. Without this
+      // the palette opened with nothing selected and Enter did nothing, which
+      // is the two-keystroke path failing on its second keystroke.
+      if (this.qsResults.length > 0 && this.qsHighlightIndex < 0) this.qsHighlightIndex = 0;
+      // Nothing recent yet (a fresh install, or everything hidden): fall back
+      // to the previous workspace-plus-session list rather than an empty
+      // palette.
+      if (this.qsResults.length === 0) {
+        const recentWorkspaces = [...this.state.workspaces].sort((a, b) =>
+          new Date(b.lastActive || b.createdAt) - new Date(a.lastActive || a.createdAt)
+        ).slice(0, 3);
+        const recentSessions = [...this.state.sessions].sort((a, b) =>
+          new Date(b.lastActive || b.createdAt) - new Date(a.lastActive || a.createdAt)
+        ).slice(0, 5);
+        this.qsResults = [
+          ...recentWorkspaces.map(w => ({ type: 'workspace', item: w, score: 50 })),
+          ...recentSessions.map(s => ({ type: 'session', item: s, score: 40 })),
+        ];
+      }
     }
     // Search mode: search everything
     else {
@@ -11815,6 +15719,7 @@ class CWMApp {
 
     // Group labels for display
     const groupLabels = {
+      recent: 'Recent',
       workspace: 'Projects', session: 'Sessions', action: 'Actions',
       feature: 'Features', shortcut: 'Shortcuts', setting: 'Settings',
     };
@@ -11828,7 +15733,17 @@ class CWMApp {
       }
       const highlighted = i === this.qsHighlightIndex ? ' highlighted' : '';
 
-      if (r.type === 'workspace') {
+      if (r.type === 'recent') {
+        // The recency row anatomy from 2.13.2: 7px status dot, title, project,
+        // provider chip, spacer, relative time. It reuses the shared
+        // recentRowInnerHtml so this row and the sidebar Recent row and the
+        // workbench continue card cannot say different things about the same
+        // session.
+        html += `
+          <div class="qs-result qs-result-recent${highlighted}" data-index="${i}">
+            ${this.recentRowInnerHtml(r.item, { showProvider: true, timeClass: 'qs-result-time' })}
+          </div>`;
+      } else if (r.type === 'workspace') {
         html += `
           <div class="qs-result${highlighted}" data-index="${i}">
             <div class="qs-result-icon">
@@ -11914,7 +15829,11 @@ class CWMApp {
   onQuickSwitcherSelect(result) {
     this.closeQuickSwitcher();
 
-    if (result.type === 'workspace') {
+    if (result.type === 'recent') {
+      // A recency row opens the same way a sidebar session row does, whether
+      // it is a workbook session or a discovered upstream transcript.
+      this.openRecentRow(result.item);
+    } else if (result.type === 'workspace') {
       this.setViewMode('workspace');
       this.selectWorkspace(result.item.id);
     } else if (result.type === 'session') {
@@ -11973,9 +15892,18 @@ class CWMApp {
       this.modalResolve = resolve;
       this.els.modalTitle.textContent = title;
 
-      // Swatches preview the theme token (var(--name)) rather than a hardcoded
-      // Mocha hex, so the color picker shows each option's real color in every
-      // Catppuccin flavor. data-color still stores the token name.
+      // Swatches preview the token rather than a hardcoded hex, so the picker
+      // shows each option's real colour under the live theme. data-color still
+      // stores the palette NAME, which is what gets persisted.
+      //
+      // P2.7: the swatch resolves through _hueVar, exactly as the workspace
+      // row, the group header and the folder header do. Contract 1.8 row 5
+      // requires it: a picker that previewed the terminal palette while the
+      // row it feeds painted from the chrome layer would be lying about what
+      // the user is choosing. Twelve options against colorMap's thirteen keys
+      // is pre-existing (rosewater renders if persisted but is not offered);
+      // both lists now resolve through the same table, so the two can differ
+      // in membership without ever differing in hue.
       const colorOptions = [
         'mauve', 'blue', 'green', 'red', 'peach', 'teal',
         'pink', 'yellow', 'lavender', 'sapphire', 'sky', 'flamingo',
@@ -11996,7 +15924,7 @@ class CWMApp {
                 ${colorOptions.map(name => `
                   <div class="color-swatch${name === selectedColor ? ' selected' : ''}"
                        data-color="${name}"
-                       style="background: var(--${name})"
+                       style="background: ${this._hueVar(name)}"
                        title="${name}">
                   </div>
                 `).join('')}
@@ -12498,7 +16426,34 @@ class CWMApp {
     });
   }
 
-  showToast(message, level = 'info') {
+  /**
+   * Show a toast.
+   *
+   * NOTION RESTYLE P11.2, MOBILE-EXPERIENCE B.5. THE ROOT CAUSE, FIRST.
+   *
+   * `.toast` sets `pointer-events: auto` and `cursor: grab`, so every toast
+   * is a full-width interactive rectangle. The container is
+   * `pointer-events: none`, which does nothing for the children. On the
+   * Terminal tab the bottom stack is the tab bar plus the input row plus the
+   * key toolbar, and a toast anchored above it still covered a control the
+   * moment the anchor was wrong. P10 fixed the ANCHOR, which is placement;
+   * this fixes the CAUSE, which is that a notice is not a control.
+   *
+   * A toast with no action button is now `.toast-notice`, and the stylesheet
+   * makes that class `pointer-events: none`. The class is set here rather
+   * than relying on `:has(.toast-action)` alone because `:has()` is not
+   * universal on older WebKit, and this is the one rule that must never fail
+   * to apply.
+   *
+   * The signature is BACK-COMPATIBLE. Ninety-odd call sites pass
+   * `(message, level)` and are unchanged; the third argument is opt-in.
+   *
+   * @param {string} message - The text.
+   * @param {string} [level] - 'info', 'success', 'warning' or 'error'.
+   * @param {Object} [options] - { action: { label, onClick }, duration }.
+   * @returns {Element|null} The toast element.
+   */
+  showToast(message, level = 'info', options = {}) {
     const icons = {
       info: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M9 8v4M9 6v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
       success: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M6 9.5l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -12506,11 +16461,17 @@ class CWMApp {
       error: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     };
 
+    const action = options && options.action && options.action.label ? options.action : null;
     const toast = document.createElement('div');
-    toast.className = `toast toast-${level}`;
+    // B.5 rule 1 and 6: a toast is a NOTICE unless it carries an action, and
+    // only the interactive kind keeps its pointer events, its swipe and its
+    // indefinite lifetime.
+    toast.className = `toast toast-${level}` + (action ? ' toast-actionable' : ' toast-notice');
+    toast.setAttribute('role', level === 'error' || level === 'warning' ? 'alert' : 'status');
     toast.innerHTML = `
       <span class="toast-icon">${icons[level] || icons.info}</span>
       <span class="toast-message">${this.escapeHtml(message)}</span>
+      ${action ? `<button type="button" class="toast-action" data-mw-zone="affordance">${this.escapeHtml(String(action.label))}</button>` : ''}
       <button class="toast-close" aria-label="Dismiss">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -12519,6 +16480,13 @@ class CWMApp {
     `;
 
     toast.querySelector('.toast-close').addEventListener('click', () => this.dismissToast(toast));
+    if (action) {
+      const actionBtn = toast.querySelector('.toast-action');
+      actionBtn.addEventListener('click', () => {
+        this.dismissToast(toast);
+        if (typeof action.onClick === 'function') action.onClick();
+      });
+    }
 
     // Swipe-to-dismiss: drag right to remove
     let startX = 0, currentX = 0, dragging = false;
@@ -12562,8 +16530,30 @@ class CWMApp {
 
     this.els.toastContainer.appendChild(toast);
 
-    // Auto-dismiss after 60 seconds
-    setTimeout(() => this.dismissToast(toast), 60000);
+    // B.5 rule 3: at most two on a phone, oldest evicted. A third toast on a
+    // 390px screen is a wall, and the one underneath is the one the user was
+    // reading. The desktop keeps its unbounded stack, where there is room.
+    if (this.isPhone) {
+      const live = Array.from(this.els.toastContainer.querySelectorAll('.toast:not(.toast-exit)'));
+      while (live.length > CWMApp.TOAST_MAX_VISIBLE_PHONE) {
+        this.dismissToast(live.shift());
+      }
+    }
+
+    // B.5 rule 3: 3500ms, 6000ms for warnings and errors, indefinite only
+    // when an action is attached, because dismissing a toast the user has to
+    // press would remove the action with it. The old value was a flat 60
+    // SECONDS for every toast, which on a phone meant a permanent band across
+    // the bottom of the app.
+    const duration = (options && typeof options.duration === 'number')
+      ? options.duration
+      : (action
+        ? 0
+        : ((level === 'error' || level === 'warning')
+          ? CWMApp.TOAST_DURATION_LOUD_MS
+          : CWMApp.TOAST_DURATION_MS));
+    if (duration > 0) setTimeout(() => this.dismissToast(toast), duration);
+    return toast;
   }
 
   dismissToast(toast) {
@@ -12777,8 +16767,13 @@ class CWMApp {
         // Update status display if the settings panel is currently open
         const ntEl = document.getElementById('named-tunnel-status');
         if (ntEl) {
-          const dot = data.running ? (data.status === 'connected' ? '🟢' : '🟡') : '⚫';
-          ntEl.textContent = dot + ' ' + (data.running ? data.status : 'stopped');
+          /* P12: same status DOT vocabulary as the settings-panel path, and
+             the same text-node append, for the same two reasons. */
+          const dotClass = data.running
+            ? (data.status === 'connected' ? 'status-dot-running' : 'status-dot-idle')
+            : 'status-dot-stopped';
+          ntEl.innerHTML = '<span class="status-dot ' + dotClass + '"></span>';
+          ntEl.append(' ' + (data.running ? data.status : 'stopped'));
           const startBtn = document.getElementById('named-tunnel-start-btn');
           const stopBtn = document.getElementById('named-tunnel-stop-btn');
           if (startBtn) startBtn.disabled = data.running;
@@ -12963,17 +16958,33 @@ class CWMApp {
       return;
     }
 
-    // Emit theme tokens (var(--name)) rather than hardcoded Mocha hexes so the
-    // workspace/group color stripes follow every Catppuccin flavor. Each value
-    // feeds an inline CSS custom property (--ws-color / --group-color /
-    // --ws-group-color) that CSS consumes via var(), so a token resolves and
-    // re-resolves on theme switch. Matches the var(--${color}) pattern used by
-    // tag badges elsewhere in this file.
+    // Emit tokens rather than hardcoded hexes, so a colour resolves and
+    // re-resolves on a theme switch. Each value feeds an inline CSS custom
+    // property (--ws-color / --group-color / --ws-group-color) that the
+    // stylesheet consumes via var().
+    //
+    // P2.7: the KEYS are persisted state and do not move. workspace.color and
+    // group.color hold these exact strings on every existing install, and the
+    // colour picker writes them back. The VALUES moved from the terminal
+    // palette onto the chrome layer, because a workspace accent is chrome and
+    // DESIGN-SPEC 10.4 says the palette paints the transcript and nothing
+    // else. Thirteen keys because that is the full set the picker plus any
+    // older persisted value can produce; unrecognised values still fall
+    // through to the raw-colour branch below.
     const colorMap = {
-      mauve: 'var(--mauve)', blue: 'var(--blue)', green: 'var(--green)', red: 'var(--red)',
-      peach: 'var(--peach)', teal: 'var(--teal)', pink: 'var(--pink)', yellow: 'var(--yellow)',
-      lavender: 'var(--lavender)', sapphire: 'var(--sapphire)', sky: 'var(--sky)', flamingo: 'var(--flamingo)',
-      rosewater: 'var(--rosewater)',
+      mauve: this._hueVar('mauve'),
+      blue: this._hueVar('blue'),
+      green: this._hueVar('green'),
+      red: this._hueVar('red'),
+      peach: this._hueVar('peach'),
+      teal: this._hueVar('teal'),
+      pink: this._hueVar('pink'),
+      yellow: this._hueVar('yellow'),
+      lavender: this._hueVar('lavender'),
+      sapphire: this._hueVar('sapphire'),
+      sky: this._hueVar('sky'),
+      flamingo: this._hueVar('flamingo'),
+      rosewater: this._hueVar('rosewater'),
     };
 
     // Phase 18-02: render-time provider filter. 'all' lets every session
@@ -13032,24 +17043,35 @@ class CWMApp {
         const isHidden = this.state.hiddenSessions.has(s.id);
         const name = s.name || s.id.substring(0, 12);
 
-        // Tri-state dot for worktree task sessions, simple dot for regular sessions
-        let statusDot, tristateAttr = '';
+        // Tri-state dot for worktree task sessions, simple dot for regular
+        // sessions.
+        //
+        // Notion restyle P4: the hue used to be written here as an INLINE
+        // style (`style="background: var(--green)"`). An inline style beats
+        // every rule in every stylesheet, so BUILD-CONTRACT 2.3's .status-dot
+        // recipe could not reach this dot at all: it kept the terminal
+        // palette's green while every other dot in the app had moved to the
+        // block palette, and it was the blocker DECISIONS 10.7.6 item 4 and
+        // 11.3.1 item 2 both name. The state now travels as a CLASS or as the
+        // existing data-tristate attribute, and styles.css owns the hue. The
+        // three data-tristate values are byte-identical to before, because
+        // they are a behaviour contract as well as a style hook.
+        let dotClass = '';
+        let tristateAttr = '';
         const wtTask = s.worktreeTask ? (this._worktreeTaskCache || []).find(t => t.sessionId === s.id) : null;
         if (wtTask) {
           // Check if terminal pane is actively producing output
           const tp = this.terminalPanes.find(p => p && p.sessionId === s.id);
           const isOutputActive = tp && (Date.now() - tp._lastOutputTime) < 3000;
           if (s.status === 'running' && isOutputActive) {
-            statusDot = 'var(--green)'; tristateAttr = ' data-tristate="busy"';
+            tristateAttr = ' data-tristate="busy"';
           } else if (s.status === 'running') {
-            statusDot = 'var(--peach)'; tristateAttr = ' data-tristate="waiting"';
+            tristateAttr = ' data-tristate="waiting"';
           } else if (wtTask.branchAhead > 0) {
-            statusDot = 'var(--blue)'; tristateAttr = ' data-tristate="ready"';
-          } else {
-            statusDot = 'var(--overlay0)'; tristateAttr = '';
+            tristateAttr = ' data-tristate="ready"';
           }
-        } else {
-          statusDot = s.status === 'running' ? 'var(--green)' : 'var(--overlay0)';
+        } else if (s.status === 'running') {
+          dotClass = ' is-running';
         }
         const timeStr = s.lastActive ? this.relativeTime(s.lastActive) : '';
         // Look up JSONL file size via resumeSessionId
@@ -13087,7 +17109,19 @@ class CWMApp {
             badges += `<span class="session-badge session-badge-cost">$${Number(cachedCost).toFixed(2)}</span>`;
           }
         } else {
-          badges += `<span class="session-badge session-badge-cost-na" title="Cost not tracked for this provider">&mdash;</span>`;
+          // P9 CONSUMPTION (DEVIATIONS DV-P9-1): the same three-way branch the
+          // sessions table uses. The element and its class stay identical
+          // whichever text it carries, so _patchCostBadges keeps finding it
+          // and keeps refusing to overwrite it with a dollar amount.
+          const cachedTokens = this._getSessionTokensCached
+            ? this._getSessionTokensCached(s.id)
+            : null;
+          const supportsTokens = costProvider ? costProvider.supportsTokenUsage === true : false;
+          if (supportsTokens && typeof cachedTokens === 'number' && cachedTokens > 0) {
+            badges += `<span class="session-badge session-badge-cost-na" title="Token usage. This provider has no price model, so no cost is shown.">${this.escapeHtml(this.formatTokenTotal(cachedTokens))}</span>`;
+          } else {
+            badges += `<span class="session-badge session-badge-cost-na" title="Cost not tracked for this provider">&ndash;</span>`;
+          }
         }
         // Subagent badge (from cached data)
         const cachedSubagents = this._getSubagentsCached(s.id);
@@ -13098,22 +17132,23 @@ class CWMApp {
         if (s.tags && s.tags.length > 0) {
           for (const tag of s.tags.slice(0, 3)) {
             const color = this._tagColor(tag);
-            badges += `<span class="session-badge session-badge-tag" style="background:color-mix(in srgb, var(--${color}) 15%, transparent);color:var(--${color});">${this.escapeHtml(tag)}</span>`;
+            const pair = this._chipHuePair(color);
+            badges += `<span class="session-badge session-badge-tag" style="background:${pair.fill};color:${pair.ink};">${this.escapeHtml(tag)}</span>`;
           }
         }
 
-        // Three-layer indicator — one per place this session is open across all tab groups
+        // Three-layer indicator: one per place this session is open across all tab groups
         const pip = this.renderInstanceIndicatorRow(s.id);
 
-        // Build meta row (badges + size + time) — only if there's something to show
+        // Build meta row (badges + size + time), only if there's something to show
         const metaParts = [badges, sizeStr ? `<span class="ws-session-size">${sizeStr}</span>` : ''].filter(Boolean).join('');
         const metaRow = metaParts ? `<div class="ws-session-meta-row">${metaParts}</div>` : '';
         const timeEl = timeStr ? `<span class="ws-session-time">${timeStr}</span>` : '';
 
         // Phase 18 data-provider default for sessions from pre-v1.2 servers lacking the field.
         const sessProvider = this.escapeHtml(s.provider || 'claude'); /* gsd:provider-literal-allowed */
-        return `<div class="ws-session-item${isHidden ? ' ws-session-hidden' : ''}" data-session-id="${s.id}" data-provider="${sessProvider}" draggable="true" title="${this.escapeHtml(s.workingDir || '')}">
-          <span class="ws-session-dot${tristateAttr}" style="background: ${statusDot}"></span>
+        return `<div class="ws-session-item${isHidden ? ' ws-session-hidden' : ''}" data-session-id="${s.id}" data-provider="${sessProvider}" draggable="true" role="button" tabindex="0" title="${this.escapeHtml(s.workingDir || '')}">
+          <span class="ws-session-dot${dotClass}"${tristateAttr}></span>
           <span class="ws-session-name">${this.escapeHtml(name)}</span>${pip}${timeEl}
           ${metaRow}
         </div>`;
@@ -13157,7 +17192,7 @@ class CWMApp {
 
       return `
         <div class="workspace-accordion${isWsHidden ? ' hidden-item' : ''}" data-id="${ws.id}">
-          <div class="workspace-item${isActive ? ' active' : ''}" data-id="${ws.id}"${groupAttrs} draggable="true" style="--ws-color: ${color};${groupColor ? ' --ws-group-color: ' + groupColor + ';' : ''}">
+          <div class="workspace-item${isActive ? ' active' : ''}" data-id="${ws.id}"${groupAttrs} draggable="true" role="button" tabindex="0" style="--ws-color: ${color};${groupColor ? ' --ws-group-color: ' + groupColor + ';' : ''}">
             <span class="ws-chevron${showBody ? ' open' : ''}">&#9654;</span>
             ${(() => {
               const iconSvg = ws.icon
@@ -13243,6 +17278,15 @@ class CWMApp {
     if (this._scheduleCounts) this.applyScheduleIndicators();
 
     this.els.workspaceCount.textContent = `${workspaces.length} project${workspaces.length !== 1 ? 's' : ''}`;
+
+    // The Recent section and the workbench continue row read the same session
+    // roster this tree does, so they refresh on the same beat. Every path that
+    // changes a session already calls renderWorkspaces, including the SSE
+    // handlers, which is what makes acceptance criterion 3 (a relative time
+    // updates within 5 seconds over SSE, with no polling) hold without a
+    // second subscription.
+    this.renderRecentSection();
+    this.renderWorkbenchRecent();
   }
 
   showWorkspaceContextMenu(workspaceId, x, y) {
@@ -13392,7 +17436,21 @@ class CWMApp {
   async summarizeSessionToDocs(sessionId) {
     try {
       this.showToast('Summarizing session...', 'info');
-      const data = await this.api('POST', `/api/sessions/${sessionId}/summarize`);
+      // P9 CONSUMPTION (DEVIATIONS DV-P9-4). Two handlers were registered on
+      // this one path and they return DIFFERENT shapes to DIFFERENT callers:
+      // the modal summariser reads `overallTheme` and `recentTasking`, and
+      // this method reads `summary`. The second registration was shadowed and
+      // could never run, so this method has been reading a field the live
+      // handler does not return.
+      //
+      // P9 resolved it by delegation rather than by deleting a registration:
+      // the docs summariser is now a named function reachable on its own
+      // unshadowed route AND from the live handler on `{toDocs: true}`. The
+      // flag is OPT-IN on purpose, because the server cannot tell the two
+      // callers apart and a modal that silently wrote into a user's project
+      // notes every time it opened would be a worse bug than the one being
+      // fixed. This is the frontend half: one flag.
+      const data = await this.api('POST', `/api/sessions/${sessionId}/summarize`, { toDocs: true });
       if (data && data.summary) {
         this.showToast('Summary added to project docs', 'success');
         // Refresh docs if currently in docs view
@@ -13494,7 +17552,7 @@ class CWMApp {
       const data = await r.json();
       this._scheduleCounts = (data && data.counts) || {};
       this.applyScheduleIndicators();
-    } catch (_) { /* network blip — try again next tick */ }
+    } catch (_) { /* network blip, try again next tick */ }
   }
 
   applyScheduleIndicators() {
@@ -13570,10 +17628,32 @@ class CWMApp {
     }
   }
 
+  /**
+   * The Sessions view, as the measured Notion database table.
+   *
+   * BUILD-CONTRACT 2.6 and 2.13.4, DESIGN-SPEC 6. Seven columns: Name,
+   * Project, Provider, Status, Model, Cost, Last active. The header is 36px,
+   * the rows are 32px, cells are `0 8px`, and every column is sortable
+   * through the same `[data-sort]` idiom the Costs table already uses.
+   *
+   * What did NOT change, deliberately: the row is still `.session-item`, it
+   * still carries `data-id`, it is still `draggable`, and it still takes
+   * `.active` and `.attention-state`. Every delegation path in
+   * DO-NOT-BREAK D.5 resolves through `closest('.session-item')`, so moving
+   * from a div list to a table body costs those handlers nothing.
+   */
   renderSessions() {
     const list = this.els.sessionList;
-    const sessions = this.state.sessions.filter(s => this.state.showHidden || !this.state.hiddenSessions.has(s.id));
+    const visible = this.state.sessions.filter(s => this.state.showHidden || !this.state.hiddenSessions.has(s.id));
+    // Notion restyle P11, MOBILE-EXPERIENCE A.3.2: the phone filter pill row.
+    // A no-op above the phone breakpoint and a no-op at 'all', so the desktop
+    // table is byte-identical to what it was.
+    const sessions = this.applyMobileSessionFilter(visible);
     const empty = this.els.sessionEmpty;
+    // The phone chrome is drawn even when the list is empty, because an empty
+    // list is often the RESULT of a filter and the way back is the pill row.
+    this.renderMobileSessionChrome();
+    this.bindMobileSessionSwipe();
 
     if (sessions.length === 0) {
       list.innerHTML = '';
@@ -13584,35 +17664,93 @@ class CWMApp {
 
     empty.hidden = true;
 
-    list.innerHTML = sessions.map(s => {
+    const sort = this.getSessionsSort();
+    const sorted = this.sortSessionsBy(sessions, sort.key, sort.dir);
+
+    const columns = [
+      { key: 'name', label: 'Name', cls: 'session-col-name' },
+      { key: 'project', label: 'Project', cls: 'session-col-project' },
+      { key: 'provider', label: 'Provider', cls: 'session-col-provider' },
+      { key: 'status', label: 'Status', cls: 'session-col-status' },
+      { key: 'model', label: 'Model', cls: 'session-col-model' },
+      { key: 'cost', label: 'Cost', cls: 'session-col-cost' },
+      { key: 'lastActive', label: 'Last active', cls: 'session-col-time' },
+    ];
+
+    const head = columns.map(c => {
+      const active = c.key === sort.key;
+      const cls = [c.cls, active ? 'sort-active' : '', active && sort.dir === 'asc' ? 'sort-asc' : '']
+        .filter(Boolean).join(' ');
+      const ariaSort = active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none';
+      return `<th class="${cls}" data-sort="${c.key}" scope="col" aria-sort="${ariaSort}">${c.label}</th>`;
+    }).join('');
+
+    const rows = sorted.map(s => {
       const isSelected = this.state.selectedSession && this.state.selectedSession.id === s.id;
+      const isHidden = this.state.hiddenSessions.has(s.id);
       const statusClass = `status-dot-${s.status || 'stopped'}`;
       const attentionState = this._attentionStateForSession(s.id, s.status);
+      const rowCls = ['session-item'];
+      if (isSelected) rowCls.push('active');
+      if (attentionState) rowCls.push('attention-state');
+      if (isHidden) rowCls.push('is-hidden-row');
+      // P11: bulk select (A.3.2). The class carries the state so a re-render
+      // triggered by an SSE tick mid-selection does not clear the checkboxes.
+      const isChecked = !!(this._mobileSelectedSessions && this._mobileSelectedSessions.has(s.id));
+      if (this._mobileSessionSelect && isChecked) rowCls.push('mw-selected');
+      const checkCell = this._mobileSessionSelect
+        ? '<span class="mw-row-check" role="checkbox" aria-checked="' + (isChecked ? 'true' : 'false') +
+          '" aria-label="Select session"></span>'
+        : '';
+      // B.8: drag and drop is removed on phones, so the row does not advertise
+      // a gesture the shell will not honour. The attribute is unchanged at
+      // every other width, where the desktop drop targets exist.
+      const draggable = this.isPhone ? 'false' : 'true';
 
-      // Build flags badges
-      const flagBadges = [];
-      if (s.bypassPermissions) flagBadges.push('<span class="status-badge" style="font-size:10px;padding:1px 6px;background:rgba(249,226,175,0.1);color:var(--yellow);">bypass</span>');
-      if (s.model) {
-        const modelShort = s.model.includes('opus') ? 'opus' : s.model.includes('haiku') ? 'haiku' : s.model.includes('sonnet') ? 'sonnet' : '';
-        if (modelShort) flagBadges.push('<span class="status-badge" style="font-size:10px;padding:1px 6px;background:rgba(203,166,247,0.1);color:var(--mauve);">' + modelShort + '</span>');
-      }
+      // The Project cell shows the folder NAME, not the path. DESIGN-SPEC 6
+      // draws it as "{emoji} {name}", and a truncated absolute path in a 18
+      // percent column shows the drive letter and nothing that identifies the
+      // project. The full path stays on the title attribute.
+      const project = s.workingDir ? this.projectLabelFromPath(s.workingDir) : '';
+      const modelLabel = this.shortModelLabel(s.model);
+      // The bypass flag is a property of the session, not a status, so it
+      // rides in the Model cell as a chip rather than shouting in the title.
+      const bypass = s.bypassPermissions
+        ? '<span class="session-badge session-badge-warn">bypass</span>'
+        : '';
 
       return `
-        <div class="session-item${isSelected ? ' active' : ''}${attentionState ? ' attention-state' : ''}"
-             data-id="${s.id}"${attentionState ? ` data-attention-state="${attentionState}"` : ''} draggable="true">
-          <div class="session-status">
-            <span class="status-dot ${statusClass}"></span>
-          </div>
-          <div class="session-info">
-            <div class="session-name">${this.escapeHtml(s.name)} ${flagBadges.join(' ')}</div>
-            <div class="session-meta-row">
-              ${s.workingDir ? `<span class="session-dir" title="${this.escapeHtml(s.workingDir)}">${this.escapeHtml(this.truncatePath(s.workingDir))}</span>` : ''}
+        <tr class="${rowCls.join(' ')}" tabindex="0" data-mw-zone="affordance"
+             data-id="${s.id}"${attentionState ? ` data-attention-state="${attentionState}"` : ''} draggable="${draggable}">
+          <td class="session-cell-name">
+            <div class="session-info">
+              ${checkCell}
+              <span class="session-status"><span class="status-dot ${statusClass}"></span></span>
+              <span class="session-name">${this.escapeHtml(s.name)}</span>
               ${s.topic ? `<span class="session-topic">${this.escapeHtml(s.topic)}</span>` : ''}
             </div>
-          </div>
-          <span class="session-time">${this.relativeTime(s.lastActive || s.createdAt)}</span>
-        </div>`;
+          </td>
+          <td class="session-cell-project">
+            <span class="session-meta-row">
+              <span class="session-dir" title="${this.escapeHtml(s.workingDir || '')}">${this.escapeHtml(project)}</span>
+            </span>
+          </td>
+          <td class="session-cell-provider">${this.providerChipHtml(s.provider)}</td>
+          <td class="session-cell-status">${this.statusChipHtml(s.status)}</td>
+          <td class="session-cell-model">${modelLabel ? this.escapeHtml(modelLabel) : ''}${bypass}</td>
+          <td class="session-cell-cost">${this.sessionCostLabel(s)}</td>
+          <td class="session-cell-time"><span class="session-time">${this.relativeTime(s.lastActive || s.createdAt)}</span></td>
+        </tr>`;
     }).join('');
+
+    list.innerHTML = `
+      <table class="nt-table session-table">
+        <thead><tr>${head}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <button type="button" class="session-table-new" id="session-table-new">
+        <span aria-hidden="true">+</span> New session
+      </button>`;
 
     this.renderAttentionQueue();
 
@@ -13638,15 +17776,726 @@ class CWMApp {
     });
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     THE RECENCY SYSTEM (BUILD-CONTRACT 2.13)
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * The one merged, cross-provider recency list every recency surface reads.
+   *
+   * BUILD-CONTRACT 2.13.1 asks for exactly one recency field and exactly one
+   * formatter, and forbids a surface computing its own. This is that one
+   * source on the client: Quick Find's zero-query state, the sidebar Recent
+   * section, the workbench continue row and the Sessions table default sort
+   * all order by the same number, so 2.13.7 criterion 2 ("all four surfaces
+   * show the same session first") holds by construction rather than by
+   * coincidence.
+   *
+   * WHERE THE NUMBER COMES FROM. Two sources, merged:
+   *
+   *   1. Workbook-owned session records (`state.allSessions`), whose
+   *      `lastActive` is the field 2.13.1 names and which already appears
+   *      thirty times in this file. No second name is introduced.
+   *   2. Discovered upstream sessions (`state.projectsByProvider`), which
+   *      carry `lastActiveMs` per session straight from the discover route.
+   *      For Codex that number is `threads.recency_at_ms`, the desktop app's
+   *      own sort key, which is what makes Codex recency reliable and is the
+   *      direct payoff of the P8 SQLite work. For the filesystem-walk
+   *      fallback it is the rollout file mtime.
+   *
+   * There is deliberately no fetch here. `GET /api/sessions/recent` is the
+   * server half of the contract (work package P4.7) and it is not in this
+   * agent's ownership set; every field that endpoint would return is already
+   * on the client, so the merge happens where the data already is. When the
+   * endpoint lands, this method is the single place that has to change.
+   *
+   * DEDUPLICATION. A workbook session that resumes an upstream conversation
+   * carries its id in `resumeSessionId`. The upstream copy is dropped, so a
+   * session the user has adopted appears once, under its own name, and not
+   * twice under two different titles.
+   *
+   * EXCLUSIONS. Hidden sessions, hidden project sessions, hidden projects and
+   * archived threads never appear on any recency surface (2.13.1 and
+   * criterion 6).
+   *
+   * @param {number} limit - Maximum rows to return. 0 or absent means all.
+   * @returns {Array<Object>} Rows, most recently active first.
+   */
+  getRecentSessions(limit) {
+    const rows = [];
+    const adopted = new Set();
+
+    const hiddenSessions = this.state.hiddenSessions || new Set();
+    const hiddenProjectSessions = this.state.hiddenProjectSessions || new Set();
+    const hiddenProjects = this.state.hiddenProjects || new Set();
+
+    for (const s of (this.state.allSessions || [])) {
+      if (!s || !s.id) continue;
+      if (hiddenSessions.has(s.id)) continue;
+      if (s.resumeSessionId) adopted.add(s.resumeSessionId);
+      const stamp = s.lastActive || s.createdAt;
+      rows.push({
+        key: 'session:' + s.id,
+        kind: 'session',
+        id: s.id,
+        sessionId: s.id,
+        upstreamId: s.resumeSessionId || null,
+        providerId: s.provider || 'claude', /* gsd:provider-literal-allowed */
+        title: s.name || s.id,
+        projectPath: s.workingDir || '',
+        projectLabel: this.projectLabelFromPath(s.workingDir),
+        status: s.status || 'stopped',
+        model: s.model || '',
+        lastActiveAt: stamp ? new Date(stamp).getTime() : 0,
+      });
+    }
+
+    const byProvider = this.state.projectsByProvider || {};
+    for (const [providerId, projects] of Object.entries(byProvider)) {
+      if (!Array.isArray(projects)) continue;
+      for (const p of projects) {
+        if (!p) continue;
+        if (hiddenProjects.has(p.encodedName || '')) continue;
+        for (const s of (p.sessions || [])) {
+          if (!s || !s.claudeSessionId) continue;
+          if (s.archived) continue;
+          if (hiddenProjectSessions.has(s.claudeSessionId)) continue;
+          if (adopted.has(s.claudeSessionId)) continue;
+          const stamp = typeof s.lastActiveMs === 'number'
+            ? s.lastActiveMs
+            : (s.modified ? new Date(s.modified).getTime() : 0);
+          rows.push({
+            key: 'upstream:' + s.claudeSessionId,
+            kind: 'upstream',
+            id: s.claudeSessionId,
+            sessionId: null,
+            upstreamId: s.claudeSessionId,
+            providerId: s.provider || providerId || 'claude', /* gsd:provider-literal-allowed */
+            title: this.getProjectSessionTitle(s.claudeSessionId) || s.title || s.claudeSessionId,
+            projectPath: p.realPath || '',
+            projectEncoded: p.encodedName || '',
+            projectLabel: p.displayName || this.projectLabelFromPath(p.realPath),
+            status: s.live ? 'running' : 'stopped',
+            model: '',
+            lastActiveAt: Number.isFinite(stamp) ? stamp : 0,
+          });
+        }
+      }
+    }
+
+    // One flat list across providers, newest first, ties broken on id
+    // DESCENDING so the order is stable across renders (2.13.1 merge rule).
+    rows.sort((a, b) => {
+      if (a.lastActiveAt !== b.lastActiveAt) return b.lastActiveAt - a.lastActiveAt;
+      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+    });
+
+    return limit && limit > 0 ? rows.slice(0, limit) : rows;
+  }
+
+  /**
+   * THE SESSION-ROW IDIOM. Open a workbook-owned session the way the sidebar
+   * tree has always opened one: into the first empty pane when the workbench
+   * is showing, otherwise by selecting it in the list.
+   *
+   * Extracted from the `.ws-session-item` click handler in P4 so that the
+   * sidebar Recent section, Quick Find and the workbench continue row all
+   * behave identically to the tree, rather than each reimplementing the
+   * spawn-option assembly and drifting the first time a flag is added.
+   *
+   * @param {string} sessionId - A workbook session id.
+   */
+  openSessionRow(sessionId) {
+    if (!sessionId) return;
+    const session = (this.state.allSessions || this.state.sessions).find(s => s.id === sessionId);
+    if (!session) return;
+    if (this.state.viewMode === 'terminal') {
+      const emptySlot = this._findEmptyPaneSlot();
+      if (emptySlot !== -1) {
+        if (!session.resumeSessionId) this.showToast('Starting new Claude session (no previous conversation to resume)', 'info');
+        const spawnOpts = {};
+        if (session.resumeSessionId) spawnOpts.resumeSessionId = session.resumeSessionId;
+        if (session.workingDir) spawnOpts.cwd = session.workingDir;
+        if (session.command) spawnOpts.command = session.command;
+        if (session.bypassPermissions) spawnOpts.bypassPermissions = true;
+        if (session.verbose) spawnOpts.verbose = true;
+        if (session.model) spawnOpts.model = session.model;
+        if (session.agentTeams) spawnOpts.agentTeams = true;
+        this.openTerminalInPane(emptySlot, sessionId, session.name, spawnOpts);
+      } else {
+        this.showToast('All terminal panes are full. Close one first.', 'warning');
+      }
+    } else {
+      this.selectSession(sessionId);
+    }
+  }
+
+  /**
+   * Resume a DISCOVERED (upstream) session in the first empty pane.
+   *
+   * An upstream session has no workbook record, so there is nothing to
+   * select; the only sensible open is to resume its transcript. The command
+   * is resolved from the provider so a Codex thread resumes through
+   * `codex resume` and not `claude resume`, which is the same rule the drag
+   * and context-menu paths already follow.
+   *
+   * @param {string} upstreamId - The provider's own session id.
+   * @param {string} projectPath - Working directory for the resumed session.
+   * @param {string} providerId - Provider that owns the transcript.
+   */
+  resumeProjectSessionInPane(upstreamId, projectPath, providerId) {
+    if (!upstreamId) return;
+    if (this.state.viewMode !== 'terminal') this.setViewMode('terminal');
+    const slot = this._findEmptyPaneSlot();
+    if (slot === -1) {
+      this.showToast('All terminal panes are full. Close one first.', 'warning');
+      return;
+    }
+    const provider = providerId || 'claude'; /* gsd:provider-literal-allowed */
+    const label = this.getProjectSessionTitle(upstreamId) || upstreamId;
+    const spawnOpts = {
+      resumeSessionId: upstreamId,
+      command: this.getProviderCliBinary(provider),
+      provider,
+    };
+    if (projectPath) spawnOpts.cwd = projectPath;
+    // The upstream id is passed as the pane's session id, which is what the
+    // existing "Open in Terminal" context-menu action does for the same kind
+    // of row. Passing null here would make the pane anonymous and break the
+    // instance indicator's identity matching.
+    this.openTerminalInPane(slot, upstreamId, label, spawnOpts);
+  }
+
+  /**
+   * RECENCY SURFACE 2: the sidebar Recent section (BUILD-CONTRACT 2.13.3).
+   *
+   * Five rows at the sidebar's own 27px geometry, above Projects, with a
+   * trailing "See all" that routes to the existing `recent` view mode. The
+   * section hides itself entirely when there is nothing to show rather than
+   * rendering a label over an empty box, which 2.13.3 requires and which also
+   * keeps the sidebar honest on a first run.
+   *
+   * Density: under `quiet` the section is present but shorter, because the
+   * density model's job is to reduce noise per row, not to remove the one
+   * affordance the user asked for. Under a density that shows zero sessions
+   * it disappears with them.
+   */
+  renderRecentSection() {
+    const section = this.els.sidebarRecentSection;
+    const list = this.els.sidebarRecentList;
+    if (!section || !list) return;
+
+    const rows = this.getRecentSessions(CWMApp.RECENCY_SIDEBAR_LIMIT);
+    if (rows.length === 0) {
+      section.hidden = true;
+      list.innerHTML = '';
+      return;
+    }
+    section.hidden = false;
+
+    const collapsed = this.isRecentCollapsed();
+    section.classList.toggle('is-collapsed', collapsed);
+    if (this.els.sidebarRecentToggle) {
+      this.els.sidebarRecentToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    }
+    list.hidden = collapsed;
+    if (collapsed) {
+      list.innerHTML = '';
+      return;
+    }
+
+    const rowsHtml = rows.map(r => `
+      <div class="sidebar-recent-row" role="button" tabindex="0"
+           data-recent-key="${this.escapeHtml(r.key)}"
+           title="${this.escapeHtml(r.title)}${r.projectLabel ? '\n' + this.escapeHtml(r.projectLabel) : ''}">
+        ${this.recentRowInnerHtml(r, { showProvider: false })}
+      </div>`).join('');
+
+    list.innerHTML = rowsHtml +
+      '<button type="button" class="sidebar-recent-all" id="sidebar-recent-all">See all</button>';
+  }
+
+  /**
+   * RECENCY SURFACE 4: "Continue where you left off" (BUILD-CONTRACT 2.13.5).
+   *
+   * Up to four bordered cards inside the workbench empty state, above the
+   * actions and never in place of the drop slot. The empty workbench used to
+   * be a dead end for the single most common intent, which is resuming.
+   *
+   * Bordered cards here and borderless rows in the sidebar is not decoration:
+   * 2.13.6 states the semantic explicitly, "bordered cards for live things,
+   * borderless rows for history", and this row is the resume affordance
+   * rather than a list of history.
+   */
+  renderWorkbenchRecent() {
+    const wrap = this.els.workbenchRecent;
+    const row = this.els.workbenchRecentRow;
+    if (!wrap || !row) return;
+
+    const rows = this.getRecentSessions(CWMApp.RECENCY_WORKBENCH_LIMIT);
+    if (rows.length === 0) {
+      wrap.hidden = true;
+      row.innerHTML = '';
+      return;
+    }
+    wrap.hidden = false;
+    row.innerHTML = rows.map(r => {
+      const dotClass = r.status === 'running' ? 'status-dot-running' : 'status-dot-stopped';
+      const time = r.lastActiveAt
+        ? `<span class="workbench-recent-time">${this.relativeTime(new Date(r.lastActiveAt).toISOString())}</span>`
+        : '';
+      const project = r.projectLabel
+        ? `<span class="workbench-recent-project">${this.escapeHtml(r.projectLabel)}</span>`
+        : '';
+      return `
+        <button type="button" class="workbench-recent-card" data-recent-key="${this.escapeHtml(r.key)}">
+          <span class="workbench-recent-card-head">
+            <span class="status-dot ${dotClass}"></span>
+            <span class="workbench-recent-title">${this.escapeHtml(r.title)}</span>
+          </span>
+          <span class="workbench-recent-meta">${project}${this.providerChipHtml(r.providerId)}${time}</span>
+        </button>`;
+    }).join('');
+  }
+
+  /**
+   * The topbar breadcrumb (DESIGN-SPEC 4, DECISIONS 11.5 item 9).
+   *
+   * Two crumbs: a root that routes to the workbench, and a leaf naming the
+   * current view. In the workbench the leaf also carries the active tab
+   * group's name, because that is the only place in the shell where "where
+   * am I" has a second level.
+   *
+   * The view tabs say what is AVAILABLE; they do not say what is showing,
+   * because an active pill is a state on a control rather than a statement.
+   * The breadcrumb is that statement, and it is the reason the topbar can be
+   * 44px with no title bar of its own.
+   */
+  renderBreadcrumb() {
+    const host = this.els.headerBreadcrumb;
+    if (!host) return;
+
+    const mode = this.state.viewMode || 'terminal';
+    const labels = {
+      terminal: 'Workbench',
+      workspace: 'Sessions',
+      recent: 'Recent',
+      tasks: 'Agent tasks',
+      costs: 'Costs',
+      docs: 'Docs',
+      resources: 'System resources',
+      // Notion restyle P10.2: the three phone screens name themselves too, so
+      // a tablet that crosses the breakpoint mid-session never shows a
+      // breadcrumb leaf that says "Workbench" over the Home screen.
+      home: 'Home',
+      attention: 'Attention',
+      search: 'Search',
+    };
+    let leaf = labels[mode] || labels.terminal;
+
+    // In the workbench the leaf carries the active tab group, which is the
+    // one place this shell has a genuine second level.
+    if (mode === 'terminal' && Array.isArray(this._tabGroups)) {
+      const active = this._tabGroups.find(t => t && t.id === this._activeGroupId);
+      if (active && active.name) leaf += ' · ' + active.name;
+    }
+
+    const root = this.escapeHtml('Myrlin');
+    host.innerHTML =
+      `<button type="button" class="crumb crumb-root" data-crumb="root">${root}</button>` +
+      '<span class="crumb-sep" aria-hidden="true">/</span>' +
+      `<span class="crumb crumb-leaf" aria-current="page">${this.escapeHtml(leaf)}</span>`;
+  }
+
+  /**
+   * Keyboard activation for the row controls that are divs and table rows
+   * rather than buttons.
+   *
+   * P3 shipped a focus ring for these and DECISIONS 11.3.1 item 3 recorded
+   * the gap: eleven custom controls could not take focus at all, so the rings
+   * never fired. P4 gives six of them `tabindex="0"`; a tab stop that cannot
+   * be activated from the keyboard is only half the fix, so this translates
+   * Enter and Space into the click their delegated handlers already listen
+   * for.
+   *
+   * ONE delegated listener on the document, capture phase off, rather than
+   * one per container: these rows are re-rendered constantly, and a listener
+   * per container per render is how listener leaks start. Space is prevented
+   * from scrolling the page, Enter is not, because Enter has no default here.
+   *
+   * A row inside a text input or a real button is ignored, so typing a space
+   * into the projects filter never activates the row behind it.
+   */
+  bindRowKeyboardActivation() {
+    const ROW_SELECTOR = '.ws-session-item, .workspace-item, .project-session-item, ' +
+      '.session-item, .kanban-card, .task-item';
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const target = e.target;
+      if (!target || typeof target.closest !== 'function') return;
+      if (target.matches('input, textarea, select, button, a')) return;
+      const row = target.closest(ROW_SELECTOR);
+      if (!row) return;
+      // Only the focused row itself, never a row that merely contains the
+      // focused element, so a button inside a card keeps its own behaviour.
+      if (row !== target) return;
+      if (e.key === ' ') e.preventDefault();
+      row.click();
+    });
+  }
+
+  /**
+   * Bind the workbench continue row. Delegated on the container so a
+   * re-render never leaks a listener.
+   */
+  bindWorkbenchRecent() {
+    const row = this.els.workbenchRecentRow;
+    if (!row) return;
+    row.addEventListener('click', (e) => {
+      const card = e.target.closest('.workbench-recent-card');
+      if (!card) return;
+      const found = this.getRecentSessions(0).find(r => r.key === card.dataset.recentKey);
+      if (found) this.openRecentRow(found);
+    });
+  }
+
+  /**
+   * Whether the sidebar Recent section is collapsed. Persisted under
+   * cwm_recentCollapsed (BUILD-CONTRACT 2.13.3), defaulting to expanded:
+   * a recency affordance that starts hidden is not an affordance.
+   *
+   * @returns {boolean} True when collapsed.
+   */
+  isRecentCollapsed() {
+    try {
+      return localStorage.getItem(CWMApp.RECENT_COLLAPSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  /** Flip the Recent section's collapsed state and persist it. */
+  toggleRecentCollapsed() {
+    const next = !this.isRecentCollapsed();
+    try {
+      localStorage.setItem(CWMApp.RECENT_COLLAPSED_KEY, next ? 'true' : 'false');
+    } catch { /* storage blocked: the toggle still applies for this session */ }
+    this.renderRecentSection();
+  }
+
+  /**
+   * Bind the sidebar Recent section. One delegated listener on the list plus
+   * one on the header toggle, matching how every other sidebar section is
+   * wired, so re-rendering the rows never leaks a listener.
+   */
+  bindRecentSection() {
+    const list = this.els.sidebarRecentList;
+    const toggle = this.els.sidebarRecentToggle;
+    if (toggle) toggle.addEventListener('click', () => this.toggleRecentCollapsed());
+    if (!list) return;
+
+    const activate = (target) => {
+      if (target.closest('.sidebar-recent-all')) {
+        this.setViewMode('recent');
+        return;
+      }
+      const row = target.closest('.sidebar-recent-row');
+      if (!row) return;
+      const found = this.getRecentSessions(0).find(r => r.key === row.dataset.recentKey);
+      if (found) this.openRecentRow(found);
+    };
+
+    list.addEventListener('click', (e) => activate(e.target));
+    // Rows are div role="button" with tabindex, so they need the keyboard
+    // activation the browser gives a real button for free.
+    list.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const row = e.target.closest('.sidebar-recent-row, .sidebar-recent-all');
+      if (!row) return;
+      e.preventDefault();
+      activate(e.target);
+    });
+    // Right click opens the existing session context menu, which is what the
+    // sidebar tree already does for a session row (2.13.3).
+    list.addEventListener('contextmenu', (e) => {
+      const row = e.target.closest('.sidebar-recent-row');
+      if (!row) return;
+      const found = this.getRecentSessions(0).find(r => r.key === row.dataset.recentKey);
+      if (!found || found.kind !== 'session') return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.showContextMenu(found.sessionId, e.clientX, e.clientY);
+    });
+  }
+
+  /**
+   * Open a recency row, whichever kind it is.
+   *
+   * A workbook-owned row goes through the sidebar's own session-row idiom
+   * (2.13.3: "matching the session-row idiom already in the sidebar"), so a
+   * click in Quick Find, the sidebar Recent section and the workbench
+   * continue row all do the same thing as a click in the tree. An upstream
+   * row has no workbook record yet, so it routes to the existing
+   * resume-in-pane path rather than inventing a second one.
+   *
+   * @param {Object} row - A row from getRecentSessions.
+   */
+  openRecentRow(row) {
+    if (!row) return;
+    if (row.kind === 'session') {
+      this.openSessionRow(row.sessionId);
+      return;
+    }
+    this.resumeProjectSessionInPane(row.upstreamId, row.projectPath, row.providerId);
+  }
+
+  /**
+   * Render one recency row's inner markup, shared by Quick Find, the sidebar
+   * Recent section and the workbench continue row so the three cannot drift
+   * apart in what they show.
+   *
+   * @param {Object} row - A row from getRecentSessions.
+   * @param {Object} opts - { showProvider, showProject, timeClass }.
+   * @returns {string} Inner HTML for the row.
+   */
+  recentRowInnerHtml(row, opts = {}) {
+    const dotClass = row.status === 'running' ? 'status-dot-running' : 'status-dot-stopped';
+    const project = opts.showProject === false || !row.projectLabel
+      ? ''
+      : `<span class="recent-row-project">${this.escapeHtml(row.projectLabel)}</span>`;
+    const provider = opts.showProvider
+      ? this.providerChipHtml(row.providerId)
+      : '';
+    const time = row.lastActiveAt
+      ? `<span class="${opts.timeClass || 'recent-row-time'}">${this.relativeTime(new Date(row.lastActiveAt).toISOString())}</span>`
+      : '';
+    return `<span class="status-dot ${dotClass}"></span>` +
+      `<span class="recent-row-title">${this.escapeHtml(row.title)}</span>` +
+      project + provider + '<span class="recent-row-spacer"></span>' + time;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     SESSIONS TABLE: sort state, cell renderers (P4.3, 2.13.4)
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Read the persisted sessions-table sort, defaulting to last active,
+   * newest first.
+   *
+   * BUILD-CONTRACT 2.13.4: "Absent means { key: 'lastActive', dir: 'desc' }."
+   * The default is the whole point of the surface. A user who has never
+   * touched a column header still lands on the most recent session at the
+   * top, which is one of the four places 2.13.7 criterion 2 requires to agree.
+   *
+   * @returns {{key: string, dir: string}} The active sort.
+   */
+  getSessionsSort() {
+    const fallback = { key: 'lastActive', dir: 'desc' };
+    try {
+      const raw = localStorage.getItem(CWMApp.SESSIONS_SORT_KEY);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.key !== 'string') return fallback;
+      return { key: parsed.key, dir: parsed.dir === 'asc' ? 'asc' : 'desc' };
+    } catch {
+      return fallback;
+    }
+  }
+
+  /**
+   * Persist a sessions-table sort and re-render.
+   *
+   * @param {string} key - A column key from the seven in renderSessions.
+   * @param {string} dir - 'asc' or 'desc'.
+   */
+  setSessionsSort(key, dir) {
+    try {
+      localStorage.setItem(CWMApp.SESSIONS_SORT_KEY, JSON.stringify({ key, dir }));
+    } catch { /* storage full or blocked: the sort still applies this session */ }
+    this.renderSessions();
+  }
+
+  /**
+   * Toggle the sort on a column header click. A new column starts descending
+   * for time and cost (most first, which is what anyone asking the question
+   * wants) and ascending for text.
+   *
+   * @param {string} key - The column key that was clicked.
+   */
+  toggleSessionsSort(key) {
+    const current = this.getSessionsSort();
+    if (current.key === key) {
+      this.setSessionsSort(key, current.dir === 'asc' ? 'desc' : 'asc');
+      return;
+    }
+    const descFirst = key === 'lastActive' || key === 'cost';
+    this.setSessionsSort(key, descFirst ? 'desc' : 'asc');
+  }
+
+  /**
+   * Sort a session array by a table column, without mutating the input.
+   *
+   * Ties break on session id descending, which is the same stable tie-break
+   * the recency contract (2.13.1) uses server side, so two surfaces looking
+   * at the same two equally-recent sessions agree on which is first.
+   *
+   * @param {Array} sessions - Sessions to sort.
+   * @param {string} key - Column key.
+   * @param {string} dir - 'asc' or 'desc'.
+   * @returns {Array} A new sorted array.
+   */
+  sortSessionsBy(sessions, key, dir) {
+    const sign = dir === 'asc' ? 1 : -1;
+    const text = (v) => String(v == null ? '' : v).toLowerCase();
+    const value = (s) => {
+      switch (key) {
+        case 'name': return text(s.name);
+        case 'project': return text(s.workingDir);
+        case 'provider': return text(s.provider || 'claude'); /* gsd:provider-literal-allowed */
+        case 'status': return text(s.status);
+        case 'model': return text(this.shortModelLabel(s.model));
+        case 'cost': {
+          const c = this._getSessionCostCached ? this._getSessionCostCached(s.id) : null;
+          return typeof c === 'number' ? c : -1;
+        }
+        case 'lastActive':
+        default: {
+          const t = s.lastActive || s.createdAt;
+          return t ? new Date(t).getTime() : 0;
+        }
+      }
+    };
+    return sessions.slice().sort((a, b) => {
+      const va = value(a);
+      const vb = value(b);
+      if (va < vb) return -1 * sign;
+      if (va > vb) return 1 * sign;
+      // Stable, deterministic tie-break so a re-render never reshuffles rows.
+      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+    });
+  }
+
+  /**
+   * The display name of a project directory: its last path segment, on either
+   * separator, with any trailing separator ignored.
+   *
+   * @param {string} dir - An absolute working directory.
+   * @returns {string} The folder name, or the input when it has no separator.
+   */
+  projectLabelFromPath(dir) {
+    if (!dir) return '';
+    const parts = String(dir).replace(/[\\/]+$/, '').split(/[\\/]/);
+    return parts[parts.length - 1] || dir;
+  }
+
+  /**
+   * Short model label for a table cell ("opus", "sonnet", "haiku", or the
+   * last dash-separated segment for anything else).
+   *
+   * @param {string} model - The full model id.
+   * @returns {string} A short label, or '' when there is no model.
+   */
+  shortModelLabel(model) {
+    if (!model) return '';
+    if (model.includes('opus')) return 'opus';
+    if (model.includes('sonnet')) return 'sonnet';
+    if (model.includes('haiku')) return 'haiku';
+    return model.split('-').pop();
+  }
+
+  /**
+   * Provider identity as a property chip (BUILD-CONTRACT 2.3: purple for
+   * Claude, green for Codex). Identity, never status.
+   *
+   * @param {string} providerId - The session's provider id.
+   * @returns {string} Chip markup.
+   */
+  providerChipHtml(providerId) {
+    const id = providerId || 'claude'; /* gsd:provider-literal-allowed */
+    const prov = this._getProviderById ? this._getProviderById(id) : null;
+    // The chip carries the SHORT name. A provider's displayName is a product
+    // name ("Claude Code", "ChatGPT Codex") and does not fit an 11 percent
+    // column at chip size; the id is the identity and reads as a one-word
+    // label, which is what a property chip is for. The full display name
+    // stays reachable as the chip's title.
+    const label = id.charAt(0).toUpperCase() + id.slice(1);
+    const full = (prov && prov.displayName) || label;
+    return `<span class="session-provider-chip" data-provider="${this.escapeHtml(id)}" title="${this.escapeHtml(full)}">${this.escapeHtml(label)}</span>`;
+  }
+
+  /**
+   * Session status as a STATUS chip: a property chip at the 10px radius with
+   * a leading 8px currentColor dot.
+   *
+   * This is the first consumer of `.nt-chip-dot`. P3 shipped the class and
+   * recorded in DECISIONS 11.2.4 that nothing carried it yet because the
+   * markup lives in the files P3 did not own. This is that markup.
+   *
+   * @param {string} status - Session status.
+   * @returns {string} Chip markup.
+   */
+  statusChipHtml(status) {
+    const key = status || 'stopped';
+    const labels = {
+      running: 'Running',
+      'needs-input': 'Needs input',
+      idle: 'Idle',
+      error: 'Failed',
+      failed: 'Failed',
+      complete: 'Complete',
+      stale: 'Stale',
+      stopped: 'Stopped',
+    };
+    const label = labels[key] || key;
+    return `<span class="status-badge status-badge-${this.escapeHtml(key)}">` +
+      '<span class="nt-chip-dot"></span>' + this.escapeHtml(label) + '</span>';
+  }
+
+  /**
+   * Cost cell text. Providers that do not track cost render an em-dash rather
+   * than a misleading $0.00, which is the same rule the sidebar badge follows
+   * (Phase 18-04 COST-02).
+   *
+   * @param {Object} s - Session record.
+   * @returns {string} Cell markup.
+   */
+  sessionCostLabel(s) {
+    const provider = this._getProviderById
+      ? this._getProviderById(s.provider || 'claude') /* gsd:provider-literal-allowed */
+      : null;
+    const supportsCost = provider ? (provider.supportsCost !== false) : true;
+    if (!supportsCost) {
+      // P9 CONSUMPTION (DEVIATIONS DV-P9-1). A provider can have real token
+      // counts and no price model, and P9 added `supportsTokenUsage` precisely
+      // so the two claims stop being one flag. Money where money exists,
+      // TOKENS where tokens exist and money does not, and the em-dash only
+      // where neither does. The em-dash branch is retained verbatim as the
+      // last of the three, because "not tracked" is still the honest answer
+      // for a provider that reports nothing.
+      const tokens = this._getSessionTokensCached ? this._getSessionTokensCached(s.id) : null;
+      const supportsTokens = provider ? provider.supportsTokenUsage === true : false;
+      if (supportsTokens && typeof tokens === 'number' && tokens > 0) {
+        return '<span title="Token usage. This provider has no price model, so no cost is shown.">' +
+          this.escapeHtml(this.formatTokenTotal(tokens)) + '</span>';
+      }
+      return '<span title="Cost not tracked for this provider">&ndash;</span>';
+    }
+    const cached = this._getSessionCostCached ? this._getSessionCostCached(s.id) : null;
+    if (cached === null || cached === undefined) return '';
+    return '$' + Number(cached).toFixed(2);
+  }
+
   renderSessionDetail() {
     const session = this.state.selectedSession;
     // Never show detail panel in terminal, docs, or resources view
     if (!session || this.state.viewMode === 'terminal' || this.state.viewMode === 'docs' || this.state.viewMode === 'resources') {
       this.els.detailPanel.hidden = true;
+      this._setPeekOpen(false);
       return;
     }
 
     this.els.detailPanel.hidden = false;
+    this._setPeekOpen(true);
 
     // Status dot
     this.els.detailStatusDot.className = `detail-status-dot status-dot-${session.status || 'stopped'}`;
@@ -13667,6 +18516,21 @@ class CWMApp {
     // Meta
     const ws = this.state.workspaces.find(w => w.id === session.workspaceId);
     this.els.detailWorkspace.textContent = ws ? ws.name : 'None';
+
+    // Provider and Model, the two properties DESIGN-SPEC 7 lists that the
+    // panel had no row for. Both reuse the helpers the sessions table already
+    // calls, so a provider chip means the same thing in both places and there
+    // is exactly one short-model rule in the app.
+    if (this.els.detailProvider) {
+      this.els.detailProvider.innerHTML = this.providerChipHtml(session.provider);
+    }
+    if (this.els.detailModel) {
+      // An unset property renders BLANK, which is the Notion idiom and which
+      // this row can afford because the label beside it never disappears.
+      this.els.detailModel.textContent = this.shortModelLabel(session.model) || '';
+    }
+    this.renderSessionNotes(session.id);
+
     this.els.detailDir.textContent = session.workingDir || '--';
     this.els.detailTopic.textContent = session.topic || '--';
     // Build full command display with flags
@@ -13730,6 +18594,100 @@ class CWMApp {
     } else if (this.els.detailAnalytics) {
       this.els.detailAnalytics.hidden = true;
     }
+  }
+
+  /**
+   * Mirror the side peek's open state onto <body> as a class.
+   *
+   * The peek is a fixed 420px sibling of the main column (DESIGN-SPEC 7), so
+   * opening it takes 420px away from whatever the main column is showing. The
+   * Sessions table is `table-layout: fixed` with seven percentage columns, and
+   * in the remainder at a 1280 viewport those percentages resolve small enough
+   * to CLIP the property chips rather than truncate them. The stylesheet
+   * collapses the two lowest-value columns while the peek is open, and it needs
+   * a hook to do that.
+   *
+   * A class on <body> rather than a `:has(#session-detail-panel:not([hidden]))`
+   * selector, for two reasons. The peek is a sibling of `.main-content` and
+   * comes AFTER it, so no combinator reaches backwards from the peek to the
+   * table. And four `[hidden]` occurrences in a selector would inflate gate G3,
+   * which counts guards paired with display rules and would then be describing
+   * a rule that is not one.
+   *
+   * @param {boolean} open - Whether the peek is currently visible.
+   * @returns {void}
+   */
+  _setPeekOpen(open) {
+    if (document.body) document.body.classList.toggle('cwm-peek-open', !!open);
+  }
+
+  /**
+   * Read the per-session notes map out of localStorage.
+   *
+   * Every failure mode returns an empty map rather than throwing: a private
+   * window with storage disabled, a quota error, and a value some other tool
+   * wrote over the top all look the same to the caller, and a peek that cannot
+   * remember a note is a much smaller problem than a peek that cannot render.
+   *
+   * @returns {Object<string, string>} Session id to note text.
+   */
+  _readSessionNotes() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CWMApp.SESSION_NOTES_KEY) || '{}');
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /**
+   * Persist one session's note. An empty note DELETES its entry rather than
+   * storing an empty string, so clearing a note reclaims the space and the map
+   * never accumulates a row per session the user merely looked at.
+   *
+   * @param {string} sessionId - Session the note belongs to.
+   * @param {string} text - Note text; empty or whitespace removes the entry.
+   * @returns {void}
+   */
+  _writeSessionNote(sessionId, text) {
+    if (!sessionId) return;
+    try {
+      const map = this._readSessionNotes();
+      if (text && text.trim()) map[sessionId] = text;
+      else delete map[sessionId];
+      localStorage.setItem(CWMApp.SESSION_NOTES_KEY, JSON.stringify(map));
+    } catch (_) {
+      // Storage is full, disabled or unavailable. The note stays in the
+      // textarea for this session; nothing else in the panel depends on it.
+    }
+  }
+
+  /**
+   * Load a session's note into the peek's borderless editor and make sure the
+   * one persistence listener is bound.
+   *
+   * The listener is bound ONCE and reads the currently selected session at
+   * event time rather than closing over the id, because renderSessionDetail
+   * runs on every SSE session event and a per-render listener would stack up
+   * one handler per event on the same element.
+   *
+   * @param {string} sessionId - Session whose note should be shown.
+   * @returns {void}
+   */
+  renderSessionNotes(sessionId) {
+    const editor = this.els.detailNotes;
+    if (!editor) return;
+    // Never clobber what the user is typing. A background render must not
+    // reach into a focused editor and replace the caret's text.
+    if (document.activeElement !== editor) {
+      editor.value = this._readSessionNotes()[sessionId] || '';
+    }
+    if (this._detailNotesBound) return;
+    this._detailNotesBound = true;
+    editor.addEventListener('input', () => {
+      const current = this.state.selectedSession;
+      if (current && current.id) this._writeSessionNote(current.id, editor.value);
+    });
   }
 
   async loadSessionCost(sessionId) {
@@ -13890,7 +18848,14 @@ class CWMApp {
       </div>
       <div class="analytics-card">
         <div class="analytics-card-label">Running</div>
-        <div class="analytics-card-value" style="color:var(--green)">${data.runningSessions}</div>
+        <!-- The hue is KEPT and re-pointed, unlike the four Costs stat cards
+             that lost theirs in the same phase. The difference is meaning:
+             those four were assigned by position and said nothing, while green
+             is what "running" is in this design (P3.2's running-is-green
+             ruling), so a green running count agrees with every status dot and
+             status chip in the app. What changes is only the resolution: the
+             block palette instead of the terminal's, per DESIGN-SPEC 10.4. -->
+        <div class="analytics-card-value" style="color:var(--app-text-green)">${data.runningSessions}</div>
       </div>`;
 
     if (data.costAvailable) {
@@ -14529,7 +19494,7 @@ class CWMApp {
         const liveDot = s.live
           ? '<span class="session-live-dot" title="Active within last 2 min (transcript recently written; not proof a process is running)"></span>'
           : '';
-        return `<div class="project-session-item" draggable="true" data-session-name="${this.escapeHtml(sessName)}" data-project-path="${this.escapeHtml(p.realPath || '')}" data-project-encoded="${this.escapeHtml(encoded)}" data-provider="${projProvider}" data-live="${s.live ? '1' : '0'}" title="${this.escapeHtml(tooltip)}">
+        return `<div class="project-session-item" draggable="true" data-session-name="${this.escapeHtml(sessName)}" data-project-path="${this.escapeHtml(p.realPath || '')}" data-project-encoded="${this.escapeHtml(encoded)}" data-provider="${projProvider}" data-live="${s.live ? '1' : '0'}" role="button" tabindex="0" title="${this.escapeHtml(tooltip)}">
           ${liveDot}<span class="project-session-name">${this.escapeHtml(displayName)}</span>
           ${archivedBadge}
           ${sessSize ? `<span class="project-session-size">${sessSize}</span>` : ''}
@@ -14545,11 +19510,17 @@ class CWMApp {
           ${sizeStr ? `<span class="project-size">${sizeStr}</span>` : ''}
         </div>
         <div class="project-accordion-body" hidden>
-          ${sessionItems || '<div style="padding: 6px 12px 6px 28px; font-size: 11px; color: var(--overlay0);">No sessions</div>'}
+          ${sessionItems || '<div class="project-session-empty">No sessions</div>'}
         </div>
       </div>`;
     }).join('');
 
+    // Discovery is the second half of the merged recency list (2.13.1), so a
+    // fresh discover result has to reach the Recent section as well as the
+    // tree. Cheap: the merge is a sort over a few hundred rows and it only
+    // runs when discovery itself changed.
+    this.renderRecentSection();
+    this.renderWorkbenchRecent();
   }
 
   setProjectsCollapsed(collapsed, persist = true) {
@@ -14912,7 +19883,7 @@ class CWMApp {
 
           // Terminal pane swap/reposition - drag a pane header onto another pane.
           // Use truthy check: native DataTransfer.getData returns '' for missing
-          // keys, but the touch polyfill returns undefined — both must skip.
+          // keys, but the touch polyfill returns undefined; both must skip.
           const swapSource = e.dataTransfer.getData('cwm/terminal-swap');
           if (swapSource) {
             const srcSlot = parseInt(swapSource, 10);
@@ -15089,7 +20060,7 @@ class CWMApp {
           });
         }
 
-        // Pinned notes (bookmark) button — shows modal of all pinned notes for this pane's session
+        // Pinned notes (bookmark) button: shows modal of all pinned notes for this pane's session
         const pinDocBtn = pane.querySelector('.terminal-pane-pinnedoc');
         if (pinDocBtn) {
           pinDocBtn.addEventListener('click', (e) => {
@@ -15098,7 +20069,7 @@ class CWMApp {
           });
         }
 
-        // Schedule clock button — opens the schedule popover for this pane's session
+        // Schedule clock button: opens the schedule popover for this pane's session
         const scheduleBtn = pane.querySelector('.terminal-pane-schedule');
         if (scheduleBtn) {
           scheduleBtn.addEventListener('click', (e) => {
@@ -15109,7 +20080,7 @@ class CWMApp {
           });
         }
 
-        // Pane view back button — restores terminal after a non-terminal view (E003)
+        // Pane view back button: restores terminal after a non-terminal view (E003)
         const backBtn = pane.querySelector('.pane-view-back');
         if (backBtn) {
           backBtn.addEventListener('click', (e) => {
@@ -15204,6 +20175,7 @@ class CWMApp {
 
         // Long-press for mobile terminal context menu
         let termLongPress = null;
+        let paneLPOrigin = null;
         // P1-2(a): terminal.js already arms mobile text-selection at 400ms on a
         // still hold inside the xterm surface. Firing the pane context sheet
         // here on the same hold double-fires. Skip when the touch lands on the
@@ -15216,20 +20188,52 @@ class CWMApp {
         // over it both cancels the selection and puts Kill Session one tap from
         // a copy gesture. Verified in QA before this line existed.
         const TERMINAL_SURFACE_SELECTOR = '.terminal-container, .xterm, .terminal-copyview';
+        //
+        // NOTION RESTYLE P11.1, MOBILE-EXPERIENCE B.2. THE PANE CONTAINER IS
+        // CHROME, NOT AN AFFORDANCE.
+        //
+        // The selector above is a DENYLIST, and a denylist is the wrong shape
+        // for this question. Every new text surface has to remember to add
+        // itself, and the failure mode is silent: the user's selection gesture
+        // is stolen and replaced by a sheet whose last item is Restart
+        // session. The Reader overlay, the scrollback-history surface and any
+        // future inline diff are each one forgotten line away from that.
+        //
+        // On a PHONE the pane sheet now has two explicit hosts, both of them
+        // affordances: the pinned overflow chip at the end of the chip strip
+        // (a tap, P10.5) and a long press on a pane chip (P11.1). So the
+        // container listener no longer arms at phone widths at all.
+        //
+        // It is RETAINED, unchanged, for every other width. A desktop or
+        // tablet touchscreen has no right-click, the pane header IS visible
+        // there, and this is that pointer's only route to the pane menu.
+        // Deleting it would remove a capability from a device the mobile
+        // contract does not speak for. `_mwZoneOf` is consulted rather than
+        // the denylist so the two models cannot disagree about what a text
+        // surface is.
         pane.addEventListener('touchstart', (e) => {
           if (this.isMobile && e.target && e.target.closest &&
               e.target.closest(TERMINAL_SURFACE_SELECTOR)) {
             return;
           }
+          // P11.1: the phone's pane container is chrome. Nothing is armed.
+          if (this.isPhone) return;
+          if (this._mwZoneOf(e.target) === 'text') return;
+          if (e.touches && e.touches[0]) {
+            paneLPOrigin = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+          }
           termLongPress = setTimeout(() => {
             const tp = this.terminalPanes[slotIdx];
             if (!tp) return;
             const touch = e.touches[0];
+            this._mwHaptic();
             this.showTerminalContextMenu(slotIdx, touch.clientX, touch.clientY);
-          }, 600);
+          }, CWMApp.mwConstants().MW_LONGPRESS_MS);
         }, { passive: true });
         pane.addEventListener('touchend', () => clearTimeout(termLongPress));
-        pane.addEventListener('touchmove', () => clearTimeout(termLongPress));
+        pane.addEventListener('touchmove', (e) => {
+          if (this._mwPastSlop(e, paneLPOrigin)) clearTimeout(termLongPress);
+        });
 
       // Double-click on pane title for inline rename
       const paneTitleEl = pane.querySelector('.terminal-pane-title');
@@ -15436,7 +20440,7 @@ class CWMApp {
       pillEl.hidden = !pid;
     }
     // Plan 22-01: render the Codex bottom status strip on Codex panes.
-    // No-op on Claude panes. Idempotent — re-render on subsequent attach.
+    // No-op on Claude panes. Idempotent, so it re-renders on subsequent attach.
     if (typeof this._renderCodexStatusStrip === 'function') {
       this._renderCodexStatusStrip(slotIdx);
     }
@@ -15951,6 +20955,11 @@ class CWMApp {
   }
 
   renderAttentionQueue() {
+    // Notion restyle P10.2: the phone's Attention TAB and its badge ride
+    // the same render path as the desktop header button, so the two can
+    // never disagree about the count. Runs before the desktop guard below,
+    // because the phone shell has no #attention-queue-btn on screen.
+    if (typeof this._refreshMobileScreens === 'function') this._refreshMobileScreens();
     const button = this.els && this.els.attentionQueueBtn;
     const badge = this.els && this.els.attentionQueueBadge;
     if (!button || !badge) return;
@@ -16337,7 +21346,7 @@ class CWMApp {
    * Idempotent: safe to call multiple times on the same pane; the
    * function replaces innerHTML on the existing strip if one exists.
    * Bails (and removes any existing strip) on empty panes or non-Codex
-   * panes — the CSS selector restricts visibility too, but cleaning the
+   * panes. The CSS selector restricts visibility too, but cleaning the
    * DOM avoids leftover nodes after pane provider swaps.
    *
    * @param {number} slotIdx
@@ -17826,6 +22835,28 @@ class CWMApp {
       return false;
     }
 
+    // DV-26, and the reason the desktop composer could not have worked
+    // without this. `setActiveTerminalPane` ends in `tp.focus()`, which moves
+    // focus to xterm's hidden textarea. This listener is on the PANE in the
+    // capture phase, so a mousedown on the pane's own input row would reach
+    // it first, activate the pane, and hand focus to xterm before the field
+    // ever received it: the caret would appear and vanish on every click and
+    // the row would be untypeable.
+    //
+    // The composer is a text zone inside a chrome container (B.2), so the
+    // rule is the same one the zone model states: a click there belongs to
+    // the field. The pane is still made active when it is not, because that
+    // is what decides which PTY the typing reaches.
+    const composer = (eventTarget && eventTarget.closest)
+      ? eventTarget.closest('.terminal-mobile-input-row')
+      : null;
+    if (composer) {
+      if (this._activeTerminalSlot !== focusSlot) this.setActiveTerminalPane(focusSlot);
+      const field = composer.querySelector('.mobile-type-input');
+      if (field) field.focus({ preventScroll: true });
+      return false;
+    }
+
     this.setActiveTerminalPane(focusSlot);
     return true;
   }
@@ -17854,11 +22885,26 @@ class CWMApp {
     const tp = this.terminalPanes[slotIdx];
     if (tp) {
       tp.setFocused(true);
-      tp.focus();
+      // NOTION RESTYLE P10.5 (MOBILE-EXPERIENCE C.4 rule 4): `term.focus()` is
+      // not called on phones. Focusing xterm's hidden helper textarea summons
+      // the soft keyboard against an element autocorrect then corrupts, and it
+      // is also what fires the focus-based width claim that B.9 rule 3 wants
+      // silenced on a phone. The permanent input row is where a phone types,
+      // and Raw keys is the explicit opt-in for the other case.
+      if (!this.isMobile || tp._mobileTypeMode) {
+        tp.focus();
+      }
       // Re-assert this pane's geometry on the shared PTY. Clicking into a
       // pane means the user works here now, so this client's viewport wins
       // over any other device that resized the same session.
-      if (typeof tp.activate === 'function') tp.activate();
+      //
+      // P11.6: gated on the session still FOLLOWING this device (B.9 rule 4).
+      // Focusing a pane whose owner the user deliberately pinned elsewhere
+      // must not silently unpin it; the pane overflow sheet is where that
+      // choice is made and unmade.
+      if (typeof tp.activate === 'function' && this.followsThisDevice(tp.sessionId)) {
+        tp.activate();
+      }
 
       // Acknowledge completion on focus. An unresolved needs-input signal is
       // deliberately not cleared simply because the pane received focus;
@@ -17909,7 +22955,18 @@ class CWMApp {
     }
 
     title.textContent = pane.sessionName || 'Terminal Output';
-    content.textContent = lines.join('\n');
+    // P11.8, MOBILE-EXPERIENCE E.3: the Reader is capped at 200k characters,
+    // tail-biased. Unbounded, this line built one string and one text node the
+    // size of the whole buffer, which at a desktop-owned 200 columns by 10000
+    // rows is about 2 MB of each, on a phone, to read the last screen. The cap
+    // itself lives in terminal.js beside the buffer readers it belongs with;
+    // this is the one call site. Feature-detected so a page served without a
+    // matching terminal.js keeps the previous behaviour rather than breaking.
+    const readerText = lines.join('\n');
+    content.textContent = (typeof TerminalPane === 'function' &&
+      typeof TerminalPane.capReaderText === 'function')
+      ? TerminalPane.capReaderText(readerText)
+      : readerText;
     overlay.hidden = false;
 
     // Scroll to the bottom (most recent output) by default
@@ -17957,7 +23014,7 @@ class CWMApp {
     grid.addEventListener('touchmove', (e) => {
       // Only intercept when terminal is the active view on mobile
       if (!document.body.classList.contains('terminal-active')) return;
-      // Scope this to the xterm viewport only — otherwise we eat touchmoves on
+      // Scope this to the xterm viewport only, or we eat touchmoves on
       // pane headers / resize handles and break things like the
       // DragDropTouch polyfill (which listens on document in bubble phase).
       // We don't stop propagation here anymore to allow index.html's hack 
@@ -17969,6 +23026,21 @@ class CWMApp {
   /**
    * Initialize horizontal swipe gesture to switch between terminal panes.
    * Only active on mobile. Scoped to terminal-grid to avoid sidebar conflicts.
+   *
+   * NOTION RESTYLE P11.5, MOBILE-EXPERIENCE B.3 row "Terminal body". The
+   * guards below are ADDITIVE to the gesture that was here; none of them
+   * makes the swipe do anything new, and each one names a case where it used
+   * to fire when the user meant something else:
+   *
+   *   1. 96px of travel, not 80. On a 360px device 80px is 22 percent of the
+   *      width, which collides with a lazy vertical scroll.
+   *   2. 32px of edge exclusion on BOTH sides, not 30px on the left. The
+   *      edge belongs to the OS back gesture (B.1 rule R2), and the right
+   *      edge is the back gesture on Android.
+   *   3. Inert while a selection exists, while Select mode is on and while
+   *      the Copy view is open. All three are states in which a horizontal
+   *      drag is the user EXTENDING a selection, and switching panes under
+   *      them throws the selection away.
    */
   initTerminalPaneSwipe() {
     // Enable touch pane swipe on any touch-capable device, not just phones.
@@ -17988,6 +23060,8 @@ class CWMApp {
       const activeTP = this._activeTerminalSlot !== null
         ? this.terminalPanes[this._activeTerminalSlot] : null;
       if (activeTP && activeTP._mobileTypeMode) return;
+      // P11.5 guard 3: a horizontal drag over live text is a selection.
+      if (this._paneSwipeInert(activeTP)) return;
 
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
@@ -18003,12 +23077,22 @@ class CWMApp {
       const dx = touch.clientX - startX;
       const dy = touch.clientY - startY;
       const elapsed = Date.now() - startTime;
+      const c = CWMApp.mwConstants();
 
-      // Must be: fast (<300ms), predominantly horizontal, >80px travel
-      if (elapsed > 300 || Math.abs(dy) > Math.abs(dx) * 0.7 || Math.abs(dx) < 80) return;
+      // Must be: fast (<300ms), predominantly horizontal, and past the
+      // published travel threshold.
+      if (elapsed > 300 || Math.abs(dy) > Math.abs(dx) * 0.7 ||
+          Math.abs(dx) < c.MW_SWIPE_MIN_PX) return;
 
-      // Don't trigger if started near left edge (sidebar swipe zone)
-      if (startX < 30) return;
+      // P11.5 guard 2: both edges belong to the OS.
+      if (startX < c.MW_SWIPE_EDGE_PX) return;
+      if (startX > (window.innerWidth - c.MW_SWIPE_EDGE_PX)) return;
+
+      // Re-checked on release as well as on press: Select mode can be turned
+      // on, or a selection made, between the two events.
+      const activeAtEnd = this._activeTerminalSlot !== null
+        ? this.terminalPanes[this._activeTerminalSlot] : null;
+      if (this._paneSwipeInert(activeAtEnd)) return;
 
       // Get ordered list of active pane indices
       const activePanes = this.terminalPanes
@@ -18029,6 +23113,43 @@ class CWMApp {
     }, { passive: true });
   }
 
+  /**
+   * Whether the pane-switch swipe must stay inert right now.
+   *
+   * MOBILE-EXPERIENCE B.3: "inert while a selection exists, while Select mode
+   * is on, and while the Copy view is open". Each is read from the pane
+   * rather than tracked here, so this can never disagree with the pane about
+   * its own state. Every access is guarded because a mirror pane occupies the
+   * same slot array without being a full TerminalPane.
+   *
+   * @param {Object} pane - The pane under the gesture, or null.
+   * @returns {boolean} True when the swipe must not fire.
+   */
+  _paneSwipeInert(pane) {
+    if (!pane) return false;
+    // `_selectMode` and `_copyOverlayOpen` are the pane's own flag names; the
+    // pane also publishes both through `cwm:select-chrome`, which is what the
+    // mobile toolbar syncs from.
+    if (pane._selectMode || pane._copyOverlayOpen) return true;
+    try {
+      if (typeof pane.getCopySelection === 'function') {
+        const sel = pane.getCopySelection();
+        if (sel && sel.hasSelection) return true;
+      } else if (pane.term && typeof pane.term.hasSelection === 'function' && pane.term.hasSelection()) {
+        return true;
+      }
+    } catch (_) {
+      // A pane mid-teardown must not wedge the gesture; treat it as free.
+    }
+    // A native DOM selection over the Copy view or the Reader is the same
+    // case and is not visible to xterm's model.
+    try {
+      const sel = window.getSelection ? window.getSelection() : null;
+      if (sel && !sel.isCollapsed && String(sel).length > 0) return true;
+    } catch (_) { /* selection API unavailable */ }
+    return false;
+  }
+
   _setupResizeDrag(handle, direction) {
     const start = (clientX, clientY, isTouch) => {
       const grid = this.els.terminalGrid;
@@ -18046,13 +23167,26 @@ class CWMApp {
 
       handle.classList.add('active');
 
+      // DV-27, the second half. The drag has to measure the same box the
+      // handle is positioned against, which is the grid's CONTENT box: the
+      // tracks live there, the padding does not. Zero pad today, so this is
+      // the identical arithmetic; non-zero pad later, and the handle still
+      // lands on the seam rather than a pad-width away from it.
+      const dragStyle = window.getComputedStyle(grid);
+      const padL = parseFloat(dragStyle.paddingLeft || '0') || 0;
+      const padR = parseFloat(dragStyle.paddingRight || '0') || 0;
+      const padT = parseFloat(dragStyle.paddingTop || '0') || 0;
+      const padB = parseFloat(dragStyle.paddingBottom || '0') || 0;
+
       const move = (cx, cy) => {
         if (direction === 'col') {
-          const ratio = (cx - gridRect.left) / gridRect.width;
+          const inner = Math.max(1, gridRect.width - padL - padR);
+          const ratio = (cx - gridRect.left - padL) / inner;
           const clamped = Math.max(0.15, Math.min(0.85, ratio));
           this._gridColSizes = [clamped, 1 - clamped];
         } else {
-          const ratio = (cy - gridRect.top) / gridRect.height;
+          const inner = Math.max(1, gridRect.height - padT - padB);
+          const ratio = (cy - gridRect.top - padT) / inner;
           const clamped = Math.max(0.15, Math.min(0.85, ratio));
           this._gridRowSizes = [clamped, 1 - clamped];
         }
@@ -18065,7 +23199,7 @@ class CWMApp {
         move(e.touches[0].clientX, e.touches[0].clientY);
       };
       // Capture phase, because the terminal-grid has a bubble-phase touchmove
-      // listener that calls stopPropagation() — would otherwise eat our event.
+      // listener that calls stopPropagation(), which would otherwise eat our event.
       const touchOpts = { passive: false, capture: true };
       const onEnd = () => {
         handle.classList.remove('active');
@@ -18126,13 +23260,37 @@ class CWMApp {
 
     // Position and show/hide resize handles
     // Column resize only works for 2-col layouts (2-4 panes); 5-6 panes use equal 3-col grid
+    //
+    // DV-27 RESOLVED, the app.js half. DESIGN-SPEC 5.2 gives the pane grid
+    // `padding: 12px 16px 16px`, and P5 shipped the gap and the ground but
+    // NOT the padding, because these two handles are absolutely positioned
+    // children of the grid and a percentage on such a child resolves against
+    // the containing block's PADDING box while the grid TRACKS live in its
+    // CONTENT box. A 16px horizontal pad would therefore offset the handle
+    // from the seam it drags by up to 16px, on the only control in the region
+    // whose entire job is to be exactly on that seam.
+    //
+    // The fix is to convert the track percentage into a padding-box offset:
+    // the seam sits `padLeft + pct% of the content width` from the padding
+    // box's left edge. Written as a `calc()` over the measured pad so it is
+    // correct BEFORE the padding lands (both terms are zero today, so this is
+    // a no-op that produces the identical string) and correct AFTER it lands
+    // without a second edit. The stylesheet half belongs to whoever owns
+    // styles.css next; this side is now ready for it either way.
+    const gridStyle = window.getComputedStyle(grid);
+    const padLeft = parseFloat(gridStyle.paddingLeft || '0') || 0;
+    const padRight = parseFloat(gridStyle.paddingRight || '0') || 0;
+    const padTop = parseFloat(gridStyle.paddingTop || '0') || 0;
+    const padBottom = parseFloat(gridStyle.paddingBottom || '0') || 0;
     if (this._colResizeHandle) {
       const showCol = filledCount >= 2 && filledCount <= 4;
       this._colResizeHandle.hidden = !showCol;
       if (showCol) {
         const totalFr = this._gridColSizes[0] + this._gridColSizes[1];
         const pct = (this._gridColSizes[0] / totalFr) * 100;
-        this._colResizeHandle.style.left = `calc(${pct}% - 3px)`;
+        this._colResizeHandle.style.left = (padLeft || padRight)
+          ? `calc(${padLeft}px + (100% - ${padLeft + padRight}px) * ${pct / 100} - 3px)`
+          : `calc(${pct}% - 3px)`;
       }
     }
     if (this._rowResizeHandle) {
@@ -18141,7 +23299,9 @@ class CWMApp {
       if (showRow) {
         const totalFr = this._gridRowSizes[0] + this._gridRowSizes[1];
         const pct = (this._gridRowSizes[0] / totalFr) * 100;
-        this._rowResizeHandle.style.top = `calc(${pct}% - 3px)`;
+        this._rowResizeHandle.style.top = (padTop || padBottom)
+          ? `calc(${padTop}px + (100% - ${padTop + padBottom}px) * ${pct / 100} - 3px)`
+          : `calc(${pct}% - 3px)`;
       }
     }
   }
@@ -18424,8 +23584,11 @@ class CWMApp {
             if (sub.check) sCls.push('ctx-checked');
             if (sub.danger) sCls.push('ctx-danger');
             const sCheck = sub.check !== undefined ? `<span class="ctx-check">${sub.check ? '&#10003;' : ''}</span>` : '';
+            // Notion restyle P4.1: the label is wrapped so it can ellipsise
+            // inside the 240px menu. A bare text node is an anonymous flex
+            // item and text-overflow has no box to act on.
             return `<button class="${sCls.join(' ')}" data-sub-idx="${si}" role="menuitem">
-              ${this.escapeHtml(String(sub.label || ''))}${sCheck}
+              <span class="ctx-label">${this.escapeHtml(String(sub.label || ''))}</span>${sCheck}
             </button>`;
           }).join('') + '</div>';
       }
@@ -18436,7 +23599,7 @@ class CWMApp {
         ? ` data-attention-state="${item.attentionState}"`
         : '';
       return `<div class="ctx-item-wrapper" data-idx="${idx}" role="none"><button class="${cls.join(' ')}"${disabledAttr}${attentionAttr} data-action="${safeLabel}" role="menuitem"${submenuAttrs}>
-        <span class="ctx-icon">${item.icon || ''}</span>${safeLabel}${hint}${checkMark}${arrow}
+        <span class="ctx-icon">${item.icon || ''}</span><span class="ctx-label">${safeLabel}</span>${hint}${checkMark}${arrow}
       </button>${submenuHtml}</div>`;
     }).join('');
 
@@ -18637,14 +23800,32 @@ class CWMApp {
           ? (p.tp.sessionName || 'Terminal')
           : (p.mirror.title || p.mirror.providerSessionId || 'Mirror')
       );
+      // P11.1: a chip is an AFFORDANCE, which is what makes it a legal host
+      // for the pane action sheet that moved off the pane container (B.2).
       return `<div class="terminal-tab-item${isActive ? ' active' : ''}" data-slot="${p.idx}">
-        <button type="button" class="terminal-tab${isActive ? ' active' : ''}" data-slot="${p.idx}">
+        <button type="button" class="terminal-tab${isActive ? ' active' : ''}" data-mw-zone="affordance" data-slot="${p.idx}">
           ${paneName}
         </button>
-        <button type="button" class="terminal-tab-close" data-slot="${p.idx}"
+        <button type="button" class="terminal-tab-close" data-mw-zone="affordance" data-slot="${p.idx}"
           title="Close pane" aria-label="Close ${paneName} pane">&times;</button>
       </div>`;
-    }).join('') + `<button class="terminal-tab terminal-tab-add" title="Open terminal">+</button>`;
+    }).join('') +
+      `<button class="terminal-tab terminal-tab-add" data-mw-zone="affordance" title="Open terminal">+</button>` +
+      // NOTION RESTYLE P10.5. The pane overflow, pinned at the end of the chip
+      // strip. Fifteen pane-scoped capabilities route here (A.3.3), four of
+      // which had NO phone route at all because their only host was
+      // `.terminal-pane-header`, which this stylesheet hides. P11.1 adds the
+      // second, green-band route (a long press on a chip) and removes the
+      // pane-container listener; this is the tappable host, so nothing waits
+      // on a gesture in the meantime (B.1 rule R4).
+      '<button type="button" class="terminal-tab terminal-tab-overflow"' +
+      ' data-mw-zone="affordance" data-mw-route="pane-overflow"' +
+      ' aria-haspopup="dialog" aria-label="Terminal options" title="Terminal options">' +
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+      '<circle cx="4" cy="8" r="1.35" fill="currentColor"/>' +
+      '<circle cx="8" cy="8" r="1.35" fill="currentColor"/>' +
+      '<circle cx="12" cy="8" r="1.35" fill="currentColor"/>' +
+      '</svg></button>';
 
     // Add pane indicator dots (mobile)
     if (window.innerWidth <= 768 && strip) {
@@ -18667,13 +23848,22 @@ class CWMApp {
       }
     }
 
-    // Bind tab click handlers
-    strip.querySelectorAll('.terminal-tab:not(.terminal-tab-add)').forEach(tab => {
+    // Bind tab click handlers.
+    // The overflow chip is excluded alongside "+": both are strip controls
+    // rather than panes, and neither carries a data-slot, so a shared handler
+    // would call switchTerminalTab(NaN).
+    strip.querySelectorAll('.terminal-tab:not(.terminal-tab-add):not(.terminal-tab-overflow)').forEach(tab => {
       tab.addEventListener('click', (e) => {
         if (e.target.classList.contains('terminal-tab-close')) return;
         this.switchTerminalTab(parseInt(tab.dataset.slot, 10));
       });
     });
+
+    // Bind the pane overflow chip (P10.5).
+    const overflowBtn = strip.querySelector('.terminal-tab-overflow');
+    if (overflowBtn) {
+      overflowBtn.addEventListener('click', () => this.showMobilePaneOverflow());
+    }
 
     // Bind close handlers
     strip.querySelectorAll('.terminal-tab-close').forEach(btn => {
@@ -18776,6 +23966,10 @@ class CWMApp {
       // still be open from an earlier visit to this tab, so both are re-read
       // from the pane rather than assumed off.
       this._syncMobileSelectToolbar(tp, activeEl);
+      // P11.4: the toolbar that just became visible has never been measured,
+      // because a toolbar inside a hidden pane reports zero width. Next frame,
+      // once the pane has been laid out.
+      requestAnimationFrame(() => this.layoutMobileToolbars());
     }
 
     // Update pane indicator dots
@@ -18796,11 +23990,45 @@ class CWMApp {
 
   /* ─── Touch Gestures ─────────────────────────────────────── */
 
+  /**
+   * Publish whether drag and drop is available at this width.
+   *
+   * MOBILE-EXPERIENCE B.8. The desktop model is "drag a session onto a
+   * pane". On a phone there is exactly one visible pane, so there is no
+   * meaningful drop target, and the DragDropTouch polyfill listens on the
+   * document in the bubble phase and already has a documented interaction
+   * with the terminal's touchmove handling. The gesture buys nothing and
+   * costs a conflict with vertical scroll.
+   *
+   * The polyfill itself is initialised in `index.html` before this class
+   * exists and is deliberately left alone: it is what makes drag work on a
+   * TABLET touchscreen, which this contract does not speak for. What changes
+   * on a phone is that nothing advertises a drag (`draggable="false"` on the
+   * rows) and the shell says so in one attribute, which is both the CSS hook
+   * and the thing a test can read.
+   *
+   * @returns {string} 'off' at phone widths, 'on' above them.
+   */
+  syncMobileDndState() {
+    const state = this.isPhone ? 'off' : 'on';
+    if (document.documentElement.dataset.mwDnd !== state) {
+      document.documentElement.dataset.mwDnd = state;
+      // The rows carry `draggable` from their render, so a rotation across
+      // the breakpoint has to re-render them rather than only re-label the
+      // shell. Cheap: this fires on a breakpoint CROSSING, not on a resize.
+      if (this.els && this.els.sessionList && this.state && this.state.sessions) {
+        this.renderSessions();
+      }
+    }
+    return state;
+  }
+
   initTouchGestures() {
     let startX = 0;
     let startY = 0;
     let startTime = 0;
     let tracking = false;
+    this.syncMobileDndState();
 
     document.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
@@ -18822,11 +24050,29 @@ class CWMApp {
       // Only count as swipe if: fast (<300ms), mostly horizontal, >60px distance
       if (elapsed > 300 || Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 60) return;
 
-      // Swipe right from left edge → open sidebar
+      const c = CWMApp.mwConstants();
+
+      // Swipe right from left edge → open sidebar.
+      //
+      // NOTION RESTYLE P11.5, MOBILE-EXPERIENCE B.1 rule R2: no app gesture
+      // starts within the edge zone, because that zone is the operating
+      // system's back gesture on both platforms. This gesture starts INSIDE
+      // it by definition, so on a phone it is retired. That is the correct
+      // trade and it costs nothing: the drawer's contents are the Sessions
+      // tab and the Home workspace sheet, both of which are taps, and the
+      // drawer itself is still reachable from "Projects" in either.
+      //
+      // Above the phone breakpoint the gesture is UNCHANGED. A tablet has
+      // room for the drawer, its edge zone is a smaller fraction of the
+      // screen, and the phone IA is not what it is running.
       if (dx > 0 && startX < 30 && !this.state.sidebarOpen) {
+        if (this.isPhone) return;
         this.toggleSidebar();
         return;
       }
+      // A swipe that starts in the right-hand edge zone is the OS back
+      // gesture on Android and belongs to nobody here.
+      if (this.isPhone && startX > (window.innerWidth - c.MW_SWIPE_EDGE_PX)) return;
 
       // Swipe left while sidebar open → close sidebar
       if (dx < 0 && this.state.sidebarOpen) {
@@ -18862,8 +24108,15 @@ class CWMApp {
     if (diff < 0) return 'just now';
 
     const seconds = Math.floor(diff / 1000);
-    if (seconds < 30) return 'just now';
-    if (seconds < 60) return `${seconds}s ago`;
+    // BUILD-CONTRACT 2.13.1, the reduced-precision rule: "never render a
+    // timestamp more precise than the update cadence. Under one minute is
+    // `just now`." The old 30-to-59 second `{n}s ago` branch claimed a
+    // precision nothing in the system has: recency arrives on SSE events and
+    // render passes, not on a per-second tick, so a row reading "47s ago"
+    // was already stale when it painted and stayed wrong until something
+    // else re-rendered it. This is an extension of the ONE formatter, which
+    // is what 2.13.1 asks for; no second helper exists.
+    if (seconds < 60) return 'just now';
 
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}m ago`;
@@ -19117,7 +24370,7 @@ class CWMApp {
     if (this.els.docsRoadmapCount) this.els.docsRoadmapCount.textContent = docsCounts.roadmap;
     if (this.els.docsRulesCount) this.els.docsRulesCount.textContent = docsCounts.rules;
 
-    // Notes — built with DOM APIs to support pin buttons safely (no user HTML injected)
+    // Notes: built with DOM APIs to support pin buttons safely (no user HTML injected)
     if (this.els.docsNotesList) {
       const notes = docs.notes || [];
       while (this.els.docsNotesList.firstChild) {
@@ -19146,7 +24399,7 @@ class CWMApp {
 
           const pinBtn = document.createElement('button');
           pinBtn.className = 'doc-pin-btn btn btn-ghost btn-icon btn-sm';
-          pinBtn.textContent = '📌';
+          pinBtn.innerHTML = ntIcon('pin', 14);
           pinBtn.title = 'Pin to focused terminal session';
           pinBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -19399,7 +24652,7 @@ class CWMApp {
 
 
   /* ═══════════════════════════════════════════════════════════
-     TD ISSUES — docs panel integration
+     TD ISSUES: docs panel integration
      github.com/marcus/td
      ═══════════════════════════════════════════════════════════ */
 
@@ -19450,7 +24703,7 @@ class CWMApp {
         return;
       }
 
-      // td is ready — hide setup bar and load issues
+      // td is ready: hide setup bar and load issues
       if (this.els.docsTdSetupBar) this.els.docsTdSetupBar.hidden = true;
       await this._fetchAndRenderTdIssues(ws.id, requestSequence);
 
@@ -19595,7 +24848,7 @@ class CWMApp {
 
   /**
    * Wire one-time click events for the td section header buttons.
-   * Safe to call multiple times — guards with a flag.
+   * Safe to call multiple times; guards with a flag.
    */
   _wireTdEvents() {
     if (this._tdEventsWired) return;
@@ -20183,7 +25436,7 @@ class CWMApp {
       <button type="button" class="terminal-group-tab${isActive ? ' active' : ''}${attentionState ? ' attention-state' : ''}"
         data-group-id="${g.id}"
         ${attentionState ? `data-attention-state="${attentionState}"` : ''}
-        style="--tab-color:var(--${tabColor})">
+        style="--tab-color:${this._hueVar(tabColor)}">
         <span class="terminal-group-tab-dot${hasActive ? '' : ' inactive'}"></span>
         <span class="terminal-group-tab-name">${escapedName}</span>
         ${paneCount > 0 ? `<span class="terminal-group-tab-count">${paneCount}</span>` : ''}
@@ -20196,7 +25449,10 @@ class CWMApp {
   renderTerminalGroupTabs() {
     if (!this.els.terminalGroupsTabs) return;
 
-    // Available folder colors - maps to Catppuccin CSS vars
+    // Available folder colours. The eight NAMES are persisted on the folder
+    // record and stay as they are; P2.7 re-points what they paint onto the
+    // chrome layer through _hueVar, so a folder tint stops following whichever
+    // terminal palette happens to be selected (DESIGN-SPEC 10.4).
     const FOLDER_COLORS = ['mauve', 'blue', 'green', 'peach', 'red', 'pink', 'teal', 'yellow'];
 
     // Build HTML: folders first (with their tabs), then ungrouped tabs
@@ -20209,7 +25465,7 @@ class CWMApp {
       const color = folder.color || 'mauve';
 
       html += `<div class="tab-folder${folder.collapsed ? ' collapsed' : ''}" data-folder-id="${folder.id}">`;
-      html += `<button class="tab-folder-header" data-folder-id="${folder.id}" style="--folder-color: var(--${color})">`;
+      html += `<button class="tab-folder-header" data-folder-id="${folder.id}" style="--folder-color: ${this._hueVar(color)}">`;
       html += `<span class="tab-folder-chevron">${folder.collapsed ? '&#9656;' : '&#9662;'}</span>`;
       html += `<span class="tab-folder-name">${this.escapeHtml(folder.name)}</span>`;
       if (totalPanes > 0) html += `<span class="tab-folder-count">${totalPanes}</span>`;
@@ -20273,7 +25529,7 @@ class CWMApp {
 
         const colorItems = FOLDER_COLORS.map(c => ({
           label: c.charAt(0).toUpperCase() + c.slice(1),
-          icon: `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--${c})"></span>`,
+          icon: `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${this._hueVar(c)}"></span>`,
           action: () => { folder.color = c; this.renderTerminalGroupTabs(); this.saveTerminalLayout(); },
         }));
 
@@ -20773,7 +26029,7 @@ class CWMApp {
         // restore time (e.g., Codex toggled off between save and restore).
         // Without this, openTerminalInPane would fall back to the allSessions
         // lookup which is empty, and the pane would be re-tagged with the
-        // v1.1 default — visually mis-rendering Codex panes as Claude.
+        // v1.1 default, visually mis-rendering Codex panes as Claude.
         const paneProvider = (paneEl && paneEl.dataset && paneEl.dataset.provider) || 'claude'; // gsd:provider-literal-allowed (Phase 18 default)
         group.panes.push({
           slot: i,
@@ -21282,7 +26538,7 @@ class CWMApp {
         .filter(f => !group || group.folderId !== f.id)
         .map(f => ({
           label: f.name,
-          icon: `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--${f.color || 'mauve'})"></span>`,
+          icon: `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${this._hueVar(f.color || 'mauve')}"></span>`,
           action: () => {
             if (group) group.folderId = f.id;
             this.renderTerminalGroupTabs();
@@ -21386,7 +26642,7 @@ class CWMApp {
    */
   saveTerminalLayout() {
     // Flush live pane state into _tabGroups[*].panes synchronously so the
-    // sidebar indicator (which reads from _tabGroups) is fresh — the
+    // sidebar indicator (which reads from _tabGroups) is fresh, so the
     // server PUT below stays debounced.
     this.saveCurrentGroupPanes();
     if (typeof this.renderWorkspaces === 'function') {
@@ -21687,8 +26943,15 @@ class CWMApp {
       return m.replace('claude-', '');
     };
 
-    // Color palette for breakdown bars (Catppuccin accent colors)
-    const barColors = ['var(--green)', 'var(--blue)', 'var(--mauve)', 'var(--peach)', 'var(--red)', 'var(--yellow)', 'var(--teal)', 'var(--pink)'];
+    // THE SIXTH COLOUR MAP (DECISIONS 10.7.6 item 5). P2.7 re-pointed five
+    // JS colour maps through the chrome hue projection and recorded this one,
+    // the Costs breakdown ramp, as the same shape but not on 1.8's list. It
+    // is a chrome ramp painting chrome bars, so DESIGN-SPEC 10.4 applies to
+    // it exactly as it did to the other five: the terminal's palette never
+    // paints chrome. The names and their ORDER are unchanged, so no bar
+    // changed which position it sits at; only the resolution moved.
+    const barColors = ['green', 'blue', 'mauve', 'peach', 'red', 'yellow', 'teal', 'pink']
+      .map(name => this._hueVar(name));
 
     let html = '';
 
@@ -21805,7 +27068,7 @@ class CWMApp {
         const rowLacksCost = this._sessionProviderLacksCost(s);
         const rowProvider = this.escapeHtml(s.provider || 'claude'); /* gsd:provider-literal-allowed */
         const costCell = rowLacksCost
-          ? `<td class="cost-cell cost-cell-na" title="Cost not tracked for this provider">&mdash;</td>`
+          ? `<td class="cost-cell cost-cell-na" title="Cost not tracked for this provider">&ndash;</td>`
           : `<td class="cost-cell">${fmtCost(s.cost)}</td>`;
         html += `<tr data-session-id="${s.id}" data-provider="${rowProvider}" class="costs-session-row">
           <td class="name-cell" title="${this.escapeHtml(s.name)}">${this.escapeHtml(s.name)}</td>
@@ -21939,7 +27202,7 @@ class CWMApp {
       const rowLacksCost = this._sessionProviderLacksCost(s);
       const rowProvider = this.escapeHtml(s.provider || 'claude'); /* gsd:provider-literal-allowed */
       const costCell = rowLacksCost
-        ? `<td class="cost-cell cost-cell-na" title="Cost not tracked for this provider">&mdash;</td>`
+        ? `<td class="cost-cell cost-cell-na" title="Cost not tracked for this provider">&ndash;</td>`
         : `<td class="cost-cell">${fmtCost(s.cost)}</td>`;
       rowsHtml += `<tr data-session-id="${s.id}" data-provider="${rowProvider}" class="costs-session-row" style="cursor:pointer">
         <td class="name-cell" title="${this.escapeHtml(s.name)}">${this.escapeHtml(s.name)}</td>
@@ -23741,7 +29004,7 @@ class CWMApp {
         try {
           await this.api('DELETE', `/api/refocus-cleanup?filePath=${encodeURIComponent(filePath)}`);
         } catch (_) {
-          // Non-critical — file may already be gone
+          // Non-critical: the file may already be gone
         }
       }, cleanupDelay);
 
@@ -23931,6 +29194,27 @@ class CWMApp {
   }
 
   /**
+   * The token half of the same cache, for a provider with real counts and no
+   * price model (P9, DEVIATIONS DV-P9-1).
+   *
+   * A separate reader rather than a widened return from the method above,
+   * because every existing caller of that method expects a number-or-null it
+   * can format as money, and widening it would have made each of them decide
+   * what kind of number it received.
+   *
+   * @param {string} sessionId - Session id.
+   * @returns {number|null} Total tokens, or null when unknown or stale.
+   */
+  _getSessionTokensCached(sessionId) {
+    if (!this._costCache) this._costCache = {};
+    const entry = this._costCache[sessionId];
+    if (entry && (Date.now() - entry.ts < 300000) && typeof entry.tokens === 'number') {
+      return entry.tokens;
+    }
+    return null;
+  }
+
+  /**
    * Fetch costs for all sessions in a single batch request instead of N+1
    * individual requests. Results are cached for 5 minutes. Only re-renders
    * the sidebar once after all costs are received.
@@ -23947,7 +29231,15 @@ class CWMApp {
       this._costBatchTs = Date.now();
       if (data && data.costs) {
         for (const [sid, entry] of Object.entries(data.costs)) {
-          this._costCache[sid] = { cost: entry.cost, ts: Date.now() };
+          // P9 CONSUMPTION: the token total rides alongside the cost, so a
+          // synchronous render (the sessions table cell) can disclose it
+          // without a second fetch.
+          this._costCache[sid] = {
+            cost: entry.cost,
+            costSupported: entry.costSupported,
+            tokens: typeof entry.tokens === 'number' ? entry.tokens : null,
+            ts: Date.now(),
+          };
         }
         // Patch cost badges in-place instead of full renderWorkspaces() rebuild.
         // Full re-renders freeze the UI for hundreds of ms with many sessions.
@@ -23971,6 +29263,8 @@ class CWMApp {
     if (!list) return;
 
     for (const [sid, entry] of Object.entries(costs)) {
+      // P9: tokens before the null-cost guard. See _patchTokenBadge.
+      if (entry.costSupported === false) this._patchTokenBadge(list, sid, entry.tokens);
       if (!entry.cost && entry.cost !== 0) continue;
       const costText = '$' + Number(entry.cost).toFixed(2);
 
@@ -24001,6 +29295,51 @@ class CWMApp {
         }
       }
     }
+  }
+
+  /**
+   * Replace a row's "not tracked" em-dash with a real token total.
+   *
+   * P9 CONSUMPTION, per DEVIATIONS DV-P9-1. `supportsCost` was deliberately
+   * NOT flipped to true for Codex, because flipping it with no price model
+   * would have replaced a false `$0.00` with a differently-false `$0.00`,
+   * which is the outcome P9.3's own done criterion forbids. A new optional
+   * capability, `supportsTokenUsage`, was added instead, and `parseUsage`
+   * backs it with real counts read from `token_count.info.total_token_usage`.
+   *
+   * So the honest render is: money where money exists, TOKENS where tokens
+   * exist and money does not, and the em-dash only where neither does. The
+   * em-dash element is REUSED rather than replaced, so the render-side
+   * decision in renderSessionItem stays the owner of which badge exists.
+   *
+   * @param {Element} list - The sidebar list to search.
+   * @param {string} sessionId - Session id.
+   * @param {number} tokens - Total tokens for the session.
+   * @returns {boolean} True when a badge was updated.
+   */
+  _patchTokenBadge(list, sessionId, tokens) {
+    if (!list || !Number.isFinite(tokens) || tokens <= 0) return false;
+    const sessionEl = list.querySelector(`[data-session-id="${sessionId}"]`);
+    if (!sessionEl) return false;
+    const badge = sessionEl.querySelector('.session-badge-cost-na');
+    if (!badge) return false;
+    const text = this.formatTokenTotal(tokens);
+    if (badge.textContent !== text) badge.textContent = text;
+    badge.title = 'Token usage. This provider has no price model, so no cost is shown.';
+    return true;
+  }
+
+  /**
+   * Format a token total for a badge: compact, never scientific.
+   *
+   * @param {number} tokens - Total tokens.
+   * @returns {string} For example "1.5M tok", "218k tok", "940 tok".
+   */
+  formatTokenTotal(tokens) {
+    const n = Number(tokens) || 0;
+    if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M tok';
+    if (n >= 1000) return Math.round(n / 1000) + 'k tok';
+    return n + ' tok';
   }
 
   async checkForConflicts() {
@@ -25311,8 +30650,11 @@ class CWMApp {
   _syncTerminalTabHighlight() {
     if (!this.els.terminalTabStrip) return;
     const activeSlot = this._activeTerminalSlot;
+    // The overflow chip is excluded for the same reason "+" is: it has no
+    // data-slot, so parseInt(undefined) is NaN and the toggle would be a
+    // no-op that still costs a class write on every highlight sync.
     this.els.terminalTabStrip
-      .querySelectorAll('.terminal-tab:not(.terminal-tab-add)')
+      .querySelectorAll('.terminal-tab:not(.terminal-tab-add):not(.terminal-tab-overflow)')
       .forEach(tab => {
         tab.classList.toggle(
           'active',
@@ -25577,7 +30919,14 @@ class CWMApp {
       }
 
       listEl.innerHTML = devices.map(d => {
-        const platformIcon = d.platform === 'ios' ? '\uD83D\uDCF1' : '\uD83E\uDD16';
+        /* P12: the context sheet's platform mark joins the one icon family.
+           It was a phone emoji and a robot emoji, which are two different
+           vendor illustration sets rendered at whatever the platform font
+           decides, next to chrome drawn on a 16-unit stroked grid. DESIGN-SPEC
+           11's rule is that all icons come from one family; a paired device is
+           either a handset or a machine, so it takes the handset or the
+           machine glyph at the sheet's 20px scale. */
+        const platformIcon = ntIcon(d.platform === 'ios' ? 'phone' : 'desktop', 20);
         const onlineClass = d.isOnline ? 'online' : '';
         const pairedTime = d.pairedAt ? this.relativeTime(d.pairedAt) : 'unknown';
         const lastSeen = d.isOnline ? 'Online' : (d.lastSeenAt ? this.relativeTime(d.lastSeenAt) : 'never');
@@ -25672,6 +31021,10 @@ class CWMApp {
     try {
       const res = await this.api('GET', '/api/devices');
       const count = (res.devices || []).length;
+      // Notion restyle P10.2: Home > Workspace shows "Paired devices (n)",
+      // and this is the only place the count is known. Cached rather than
+      // re-fetched so the Home render stays synchronous.
+      this._pairedDeviceCount = count;
       if (count > 0) {
         badge.textContent = String(count);
         badge.hidden = false;

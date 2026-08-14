@@ -123,10 +123,10 @@ for (const g of layout.tabGroups || []) {
       continue;
     }
 
-    // (b) unmatched — insert a fresh session record carrying the pane's metadata.
+    // (b) unmatched, insert a fresh session record carrying the pane's metadata.
     const ws = pickWorkspaceForGroup(g.name);
     if (!ws) {
-      console.warn('NO WORKSPACE FOR GROUP:', g.name, '— skipping pane', p.sessionName);
+      console.warn('NO WORKSPACE FOR GROUP:', g.name, ', skipping pane', p.sessionName);
       continue;
     }
     if (!insertSet.has(sid)) {
@@ -167,7 +167,7 @@ plan.resumeClears.forEach((c) =>
 );
 
 if (DRY) {
-  console.log('\n(dry run — no files written)');
+  console.log('\n(dry run, no files written)');
   process.exit(0);
 }
 

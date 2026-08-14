@@ -110,6 +110,19 @@ try {
 
 const { getStore } = require('../state/store');
 
+// ── VT sidecar (Notion-restyle P6) ────────────────────────────────────────
+// The sidecar is a headless @xterm terminal shadowing each PTY, used for
+// exact state replay on attach, an authoritative buffer-mode signal, and a
+// deep normal-buffer line log. It is loaded here but constructs NOTHING until
+// CWM_VT_SIDECAR=1: the module resolves @xterm/headless lazily and every
+// consumer below degrades to the pre-existing byte-ring path when the sidecar
+// is off, unavailable, at capacity, or unhealthy. See src/web/vt-sidecar.js.
+const {
+  VtSidecarRegistry,
+  isSnapshotReplayEnabled,
+  getVtSidecarAvailability,
+} = require('./vt-sidecar');
+
 /**
  * Capability probe for the native PTY engine. Consumed by the server's health
  * endpoint, the degraded-boot banner, and the defensive spawn guards below.
@@ -206,6 +219,97 @@ const WS_BACKPRESSURE_BYTES = 65536; // 64KB
 // 'exit'/'resumeId'/'error': raw PTY data is sent as plain strings, control
 // messages as JSON-stringified objects with a 'type' field.
 const RESET_MSG = JSON.stringify({ type: 'reset' });
+
+// ─── Viewport-ownership contention control (Notion-restyle P6.4) ──────────
+//
+// PROBLEM (MOBILE-EXPERIENCE.md B.9, H.2 item 1): one PTY, N clients, one
+// geometry. A phone and a desktop attached to the same session fight over
+// `sizeOwner`. The phone claims through `activate`, which its
+// IntersectionObserver and its hidden-textarea focus handler both fire
+// WITHOUT the user asking, so ownership can oscillate. Every applied resize
+// makes ConPTY repaint the entire viewport into every client's stream, so an
+// oscillation is not a cosmetic wobble: it is a repaint storm that corrupts
+// incremental TUI redraws for everyone.
+//
+// MECHANISM. A single ownership flip is ALWAYS applied immediately, because a
+// user switching devices must not wait, and because an attach handoff at a
+// dead owner must not be delayed. What is throttled is OSCILLATION: a flip
+// back to a client that already held ownership inside the current window
+// latches the session as contended, and from that moment every further claim
+// is coalesced into one trailing apply per window (last claimant wins) until
+// the session has been quiet for CONTENTION_CLEAR. That yields at most one
+// applied resize per settle window under contention while leaving the
+// single-flip, hand-over-the-laptop case instantaneous.
+//
+// Chosen over a plain leading-edge debounce because a plain debounce would
+// also delay the FIRST flip, which is the common, intentional, user-visible
+// case; and over a pure rate limit because a rate limit cannot tell an
+// intentional handover from a two-device tug of war.
+
+/**
+ * Settle window for ownership flips. TERMINAL-ARCHITECTURE's width-thrash
+ * design specifies 300-500ms; 400ms is the midpoint. Long enough to swallow
+ * an IntersectionObserver / focus / visibility burst, short enough that a
+ * deliberate device switch still feels immediate.
+ */
+const OWNERSHIP_DEBOUNCE_MS = (() => {
+  const raw = parseInt(process.env.CWM_PTY_OWNERSHIP_DEBOUNCE_MS, 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 400;
+})();
+
+/**
+ * Quiet period after which a contended session is treated as calm again and
+ * the next single flip is once more instantaneous. Deliberately longer than
+ * the settle window so a storm cannot escape the coalescer by pausing for one
+ * window and resuming.
+ */
+const OWNERSHIP_CONTENTION_CLEAR_MS = (() => {
+  const raw = parseInt(process.env.CWM_PTY_OWNERSHIP_CONTENTION_CLEAR_MS, 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 1200;
+})();
+
+/**
+ * Alternate-buffer-aware replay, aggressive variant. When a session is in the
+ * alternate buffer the byte ring is the WRONG thing to replay: its prefix
+ * (including `CSI ?1049h` and the whole frame construction) has usually been
+ * pruned, so what survives paints a handful of in-place patches onto a blank
+ * screen (defect D3). The default alt-aware behaviour is therefore "prefer
+ * the sidecar snapshot, fall back to the ring", which never regresses.
+ *
+ * Setting CWM_PTY_ALT_SUPPRESS_RING=1 additionally suppresses the ring on an
+ * alternate-buffer attach even when NO snapshot is available, leaving the
+ * pane blank until the application's next repaint (which the attach-time
+ * width claim usually triggers immediately). That is the behaviour the design
+ * describes, and it is flagged OFF by default because "blank until the app
+ * repaints" is a worse failure than "torn frame" for a genuinely idle
+ * full-screen application.
+ *
+ * @returns {boolean} True when the ring is suppressed on alt-buffer attach.
+ */
+function isAltRingSuppressionEnabled() {
+  return process.env.CWM_PTY_ALT_SUPPRESS_RING === '1';
+}
+
+/**
+ * Send one JSON control frame to a client, tolerating a dead socket.
+ * Control frames use the same envelope convention as 'reset' / 'exit' /
+ * 'resumeId' / 'error': raw PTY data is a plain string, control messages are
+ * JSON objects carrying a 'type' field. Clients ignore unknown types, which
+ * is what makes adding the 'mode' frame safe in a mixed-version window.
+ *
+ * @param {object} ws - WebSocket client.
+ * @param {string} payload - Pre-stringified JSON frame.
+ * @returns {boolean} True when the frame was handed to the socket.
+ */
+function sendControlFrame(ws, payload) {
+  try {
+    if (ws && ws.readyState === 1) {
+      ws.send(payload);
+      return true;
+    }
+  } catch (_) { /* dead socket; the close handler cleans up */ }
+  return false;
+}
 
 /**
  * Watch one or more directories for the appearance of a *.jsonl file that is
@@ -337,6 +441,179 @@ class PtySession {
     this.cols = cols;              // Current PTY width in columns
     this.rows = rows;              // Current PTY height in rows
     this.sizeOwner = null;         // ws that owns PTY geometry (null = unclaimed)
+
+    // ── VT sidecar (P6) ──
+    // Headless shadow of this PTY. Null whenever the subsystem is off,
+    // unavailable, or at capacity; every read below is written so null means
+    // "use the byte ring", never "fail".
+    this.vt = null;
+
+    // ── Ownership contention state (P6.4) ──
+    // See the OWNERSHIP_DEBOUNCE_MS block above for the mechanism. All of
+    // this is inert until a second client actually contends for geometry.
+    this._ownershipWindowStartedAt = 0;   // start of the current settle window
+    this._ownersInWindow = new Set();     // clients that owned during it
+    this._ownershipContended = false;     // latched by a detected oscillation
+    this._pendingOwner = null;            // coalesced claimant awaiting apply
+    this._ownershipTimer = null;          // trailing apply timer
+    this._contentionTimer = null;         // quiet-period unlatch timer
+
+    // Applied/suppressed/deferred resize counters. The width-thrash gate is
+    // stated as "each applied resize is counted and asserted", so the count
+    // is a first-class observable rather than something a test has to infer
+    // from a spy on node-pty.
+    this.resizeStats = { applied: 0, suppressed: 0, deferredClaims: 0, flips: 0 };
+  }
+
+  /**
+   * Request that `ws` become the PTY geometry owner.
+   *
+   * Single flips apply immediately. Oscillation (a flip back to a client that
+   * already owned inside the current settle window) latches contention, after
+   * which claims are coalesced into one trailing apply per window. See the
+   * OWNERSHIP_DEBOUNCE_MS block for why this shape was chosen.
+   *
+   * @param {object} ws - The claiming WebSocket client.
+   * @param {string} reason - 'input' | 'activate' | 'attach' | 'handoff'.
+   *   'attach' and 'handoff' are structural (a new sole client, or the owner
+   *   leaving) and are never debounced: there is nothing to contend with.
+   * @returns {{applied: boolean, deferred: boolean, reason: string}}
+   */
+  requestSizeOwnership(ws, reason) {
+    if (!ws) return { applied: false, deferred: false, reason: 'no-client' };
+    const now = Date.now();
+    this._armContentionClear();
+
+    if (reason === 'attach' || reason === 'handoff') {
+      this._commitSizeOwnership(ws, now);
+      return { applied: true, deferred: false, reason };
+    }
+
+    if (this.sizeOwner === ws) {
+      // Not a flip. Refresh recency (it decides the next handoff target) and
+      // re-assert this client's viewport, which applyViewport suppresses as a
+      // no-op unless something actually changed.
+      ws._lastActiveAt = now;
+      if (ws._viewport) this.applyViewport(ws._viewport.cols, ws._viewport.rows);
+      return { applied: true, deferred: false, reason: 'refresh' };
+    }
+
+    // Roll the settle window forward when the previous one has expired, and
+    // seed it with the incumbent so a flip straight back to them is still
+    // recognised as an oscillation.
+    if (now - this._ownershipWindowStartedAt > OWNERSHIP_DEBOUNCE_MS) {
+      this._ownershipWindowStartedAt = now;
+      this._ownersInWindow.clear();
+      if (this.sizeOwner) this._ownersInWindow.add(this.sizeOwner);
+    }
+
+    const oscillating = this._ownershipContended || this._ownersInWindow.has(ws);
+    if (!oscillating) {
+      this._commitSizeOwnership(ws, now);
+      return { applied: true, deferred: false, reason };
+    }
+
+    // Contended: coalesce. The claimant is remembered (last one wins) and a
+    // single trailing apply lands at the end of the window.
+    this._ownershipContended = true;
+    this._pendingOwner = ws;
+    ws._lastActiveAt = now;
+    this.resizeStats.deferredClaims++;
+    if (!this._ownershipTimer) {
+      const delay = Math.max(0, OWNERSHIP_DEBOUNCE_MS - (now - this._ownershipWindowStartedAt));
+      this._ownershipTimer = setTimeout(() => {
+        this._ownershipTimer = null;
+        this._resolvePendingOwner();
+      }, delay);
+      if (typeof this._ownershipTimer.unref === 'function') this._ownershipTimer.unref();
+    }
+    return { applied: false, deferred: true, reason };
+  }
+
+  /**
+   * Make `ws` the owner and apply its stored viewport. The apply goes through
+   * applyViewport, so an unchanged geometry is still a suppressed no-op.
+   *
+   * @private
+   * @param {object} ws
+   * @param {number} now - Timestamp, passed in so one claim uses one clock read.
+   */
+  _commitSizeOwnership(ws, now) {
+    const previous = this.sizeOwner;
+    this.sizeOwner = ws;
+    ws._lastActiveAt = now;
+    if (previous !== ws) {
+      this.resizeStats.flips++;
+      if (this._ownershipWindowStartedAt === 0) this._ownershipWindowStartedAt = now;
+    }
+    if (previous) this._ownersInWindow.add(previous);
+    this._ownersInWindow.add(ws);
+    if (ws._viewport) this.applyViewport(ws._viewport.cols, ws._viewport.rows);
+  }
+
+  /**
+   * Apply the coalesced claimant at the end of a contended window. A claimant
+   * that disconnected while waiting is discarded rather than resurrected.
+   *
+   * @private
+   */
+  _resolvePendingOwner() {
+    const pending = this._pendingOwner;
+    this._pendingOwner = null;
+    if (!pending || !this.alive) return;
+    if (!this.clients.has(pending)) return;
+    const now = Date.now();
+    this._ownershipWindowStartedAt = now;
+    this._ownersInWindow.clear();
+    this._commitSizeOwnership(pending, now);
+  }
+
+  /**
+   * (Re)arm the quiet-period timer that unlatches contention. Called on every
+   * claim, so the latch survives exactly as long as claims keep arriving.
+   *
+   * @private
+   */
+  _armContentionClear() {
+    if (this._contentionTimer) clearTimeout(this._contentionTimer);
+    this._contentionTimer = setTimeout(() => {
+      this._contentionTimer = null;
+      this._ownershipContended = false;
+      this._ownersInWindow.clear();
+      this._ownershipWindowStartedAt = 0;
+    }, OWNERSHIP_CONTENTION_CLEAR_MS);
+    if (typeof this._contentionTimer.unref === 'function') this._contentionTimer.unref();
+  }
+
+  /**
+   * Drop every ownership timer. Called when the last client leaves and on
+   * session teardown, so a dead session can never hold a timer or a client
+   * reference.
+   */
+  clearOwnershipTimers() {
+    if (this._ownershipTimer) { clearTimeout(this._ownershipTimer); this._ownershipTimer = null; }
+    if (this._contentionTimer) { clearTimeout(this._contentionTimer); this._contentionTimer = null; }
+    this._pendingOwner = null;
+  }
+
+  /**
+   * Broadcast one JSON control frame to every attached client.
+   *
+   * @param {object} frame - Serialisable control frame with a `type` field.
+   * @returns {number} How many clients received it.
+   */
+  broadcastControl(frame) {
+    let payload;
+    try {
+      payload = JSON.stringify(frame);
+    } catch (_) {
+      return 0;
+    }
+    let delivered = 0;
+    for (const ws of this.clients) {
+      if (sendControlFrame(ws, payload)) delivered++;
+    }
+    return delivered;
   }
 
   /**
@@ -357,7 +634,10 @@ class PtySession {
     const r = Math.max(1, Math.min(MAX_PTY_ROWS, Number(rows)));
     if (!Number.isFinite(c) || !Number.isFinite(r)) return false;
     // No-op suppression: identical dims must not trigger a ConPTY repaint
-    if (c === this.cols && r === this.rows) return false;
+    if (c === this.cols && r === this.rows) {
+      this.resizeStats.suppressed++;
+      return false;
+    }
     try {
       this.pty.resize(c, r);
     } catch (_) {
@@ -365,6 +645,15 @@ class PtySession {
     }
     this.cols = c;
     this.rows = r;
+    this.resizeStats.applied++;
+    // Keep the VT shadow's grid identical to the PTY's. This is the ONLY
+    // resize path, so the shadow's geometry cannot drift; a snapshot taken
+    // after an attach-time resize is therefore already at the attaching
+    // client's width, which is what makes the snapshot render correctly
+    // instead of at the previous (possibly phone-sized) owner's width.
+    if (this.vt) {
+      try { this.vt.resize(c, r); } catch (_) { /* sidecar is never fatal */ }
+    }
     return true;
   }
 
@@ -387,6 +676,79 @@ class PtySession {
 class PtySessionManager {
   constructor() {
     this.sessions = new Map(); // sessionId -> PtySession
+    // Instance-scoped rather than a module singleton so two managers (server
+    // plus a test, or two tests) never share sidecar state. Constructing the
+    // registry allocates nothing and loads nothing while CWM_VT_SIDECAR is
+    // unset, which is the default for one release.
+    this.vtRegistry = new VtSidecarRegistry();
+  }
+
+  /**
+   * Attach a VT sidecar to a freshly spawned session, if the subsystem is
+   * enabled and has capacity. Failure is silent-by-design at this layer: the
+   * registry has already logged, and a null sidecar simply means every
+   * consumer takes the byte-ring path.
+   *
+   * @private
+   * @param {PtySession} session
+   * @param {number} cols
+   * @param {number} rows
+   */
+  _attachSidecar(session, cols, rows) {
+    try {
+      session.vt = this.vtRegistry.create(session.sessionId, {
+        cols,
+        rows,
+        // Mode changes are broadcast to every attached client so all of them
+        // route history identically and instantly, rather than each sniffing
+        // its own xterm and disagreeing during the transition.
+        onModeChange: (frame) => {
+          try { session.broadcastControl(frame); } catch (_) {}
+        },
+      });
+    } catch (_) {
+      session.vt = null;
+    }
+  }
+
+  /**
+   * Decide what a client should be sent to bring its screen up to date, on
+   * first attach and on a lag resync alike.
+   *
+   * Preference order, and why:
+   *   1. The sidecar SNAPSHOT. It describes the screen, so it has no prefix
+   *      to lose and cannot render a torn frame (defect D3).
+   *   2. Nothing at all, when the session is in the alternate buffer, no
+   *      snapshot exists, and ring suppression is explicitly enabled. The
+   *      ring's surviving suffix for an alternate-screen pane is in-place
+   *      patches with no frame under them.
+   *   3. The byte ring, exactly as before. This is the default whenever the
+   *      sidecar is off, unavailable, or unhealthy, so the pre-existing
+   *      behaviour is preserved bit for bit.
+   *
+   * @param {PtySession} session
+   * @returns {{payload: string|null, source: string, altBuffer: boolean|null}}
+   */
+  buildReplay(session) {
+    let altBuffer = null;
+    let snapshot = null;
+    if (session.vt) {
+      try {
+        const mode = session.vt.getMode();
+        if (mode) altBuffer = mode.altBuffer;
+      } catch (_) { /* sidecar is never fatal */ }
+      if (isSnapshotReplayEnabled()) {
+        try { snapshot = session.vt.snapshot(); } catch (_) { snapshot = null; }
+      }
+    }
+    if (snapshot) return { payload: snapshot, source: 'snapshot', altBuffer };
+    if (altBuffer === true && isAltRingSuppressionEnabled()) {
+      return { payload: null, source: 'alt-suppressed', altBuffer };
+    }
+    if (session.scrollback.length > 0) {
+      return { payload: session.scrollback.join(''), source: 'ring', altBuffer };
+    }
+    return { payload: null, source: 'empty', altBuffer };
   }
 
   /**
@@ -726,6 +1088,11 @@ class PtySessionManager {
     const session = new PtySession(sessionId, ptyProcess, { cols, rows });
     this.sessions.set(sessionId, session);
 
+    // VT sidecar lifecycle, half one: create on spawn, sized to the PTY.
+    // Half two (dispose) is in the onExit handler and in killSession, so a
+    // sidecar can outlive neither its PTY nor its session record.
+    this._attachSidecar(session, cols, rows);
+
     // Handle asynchronous PTY process errors (e.g. process crashes after spawn).
     // Guard with typeof check since node-pty's IPty may not always expose .on()
     if (typeof ptyProcess.on === 'function') {
@@ -745,6 +1112,14 @@ class PtySessionManager {
     ptyProcess.onData((data) => {
       session.appendScrollback(data);
 
+      // Feed the VT shadow the SAME bytes, before the broadcast so the mode
+      // signal is as fresh as possible. This only queues; the headless
+      // terminal parses asynchronously, and its queue is bounded inside the
+      // sidecar, so it can neither block nor outgrow the PTY data path.
+      if (session.vt) {
+        try { session.vt.write(data); } catch (_) { /* sidecar is never fatal */ }
+      }
+
       // Broadcast immediately to all connected WebSocket clients
       for (const ws of session.clients) {
         try {
@@ -756,13 +1131,20 @@ class PtySessionManager {
               continue;
             }
             if (ws._lagged) {
-              // Buffer drained: resynchronize with a reset + full scrollback
-              // replay. The current chunk was already appended to scrollback
-              // above, so the replay includes it; sending it again separately
-              // would duplicate it on screen.
+              // Buffer drained: resynchronize with a reset + full replay.
+              // The current chunk was already appended to scrollback above,
+              // so the replay includes it; sending it again separately would
+              // duplicate it on screen.
+              //
+              // P6: routed through buildReplay so a lag resync gets the same
+              // exact-state snapshot an attach does. A resync suffers from
+              // defect D3 for exactly the same reason an attach does, and
+              // fixing only one of the two would leave a torn screen behind
+              // on the harder-to-reproduce path.
               ws._lagged = false;
               ws.send(RESET_MSG);
-              ws.send(session.scrollback.join(''));
+              const resync = this.buildReplay(session);
+              if (resync.payload !== null) ws.send(resync.payload);
               continue;
             }
             ws.send(data);
@@ -793,6 +1175,15 @@ class PtySessionManager {
     ptyProcess.onExit(({ exitCode }) => {
       session.alive = false;
       session.exitCode = exitCode;
+
+      // VT sidecar lifecycle, half two: the shadow dies with its PTY. Doing
+      // this here (rather than only in killSession) covers the case where the
+      // child exits on its own and the session record lingers for reconnect.
+      try {
+        this.vtRegistry.dispose(sessionId);
+      } catch (_) { /* sidecar is never fatal */ }
+      session.vt = null;
+      session.clearOwnershipTimers();
 
       // Send structured exit message to all clients (this one IS JSON)
       const exitMsg = JSON.stringify({ type: 'exit', exitCode });
@@ -1032,6 +1423,22 @@ class PtySessionManager {
       if (Number.isFinite(attachCols) && attachCols > 0 &&
           Number.isFinite(attachRows) && attachRows > 0) {
         session.applyViewport(attachCols, attachRows);
+        // P6.4, "ownable width": remember the geometry this client attached
+        // with, so a later ownership handoff can restore it. Previously the
+        // attach dims were applied to the PTY but never recorded on the
+        // client, so a handoff back to this client after another device had
+        // resized restored nothing and the PTY kept the other device's width.
+        ws._viewport = { cols: attachCols, rows: attachRows };
+      }
+      // Seed ownership only when nobody live holds it. A sole client whose
+      // geometry has just been applied IS the owner in every meaningful
+      // sense; leaving sizeOwner null (or pointing at a socket that is gone)
+      // meant the next arrival could take the width with a bare resize. This
+      // never steals from a live owner, and it starts the settle window so
+      // the contention control below has a baseline.
+      if (session.alive &&
+          (!session.sizeOwner || !session.clients.has(session.sizeOwner))) {
+        session.requestSizeOwnership(ws, 'attach');
       }
     }
 
@@ -1049,18 +1456,36 @@ class PtySessionManager {
       // ignore; close handler cleans up dead sockets
     }
 
-    // Replay scrollback buffer BEFORE adding to broadcast set.
-    // This ensures the client receives the full historical output first,
-    // then starts receiving only NEW live data, no interleaving.
-    if (session.scrollback.length > 0) {
-      const replay = session.scrollback.join('');
+    // Replay BEFORE adding to the broadcast set. This ensures the client
+    // receives the full historical output first, then starts receiving only
+    // NEW live data, no interleaving.
+    //
+    // P6.2 + P6.4: the payload comes from buildReplay, which prefers the VT
+    // sidecar's exact-state snapshot and falls back to this byte ring
+    // untouched. Because the attach-time viewport was applied just above,
+    // and applyViewport resizes the shadow too, a snapshot taken here is
+    // already rendered at the width this client is about to view it at.
+    const replay = this.buildReplay(session);
+    if (replay.payload !== null) {
       try {
         if (ws.readyState === 1) {
-          ws.send(replay);
+          ws.send(replay.payload);
         }
       } catch (_) {
         // ignore
       }
+    }
+
+    // P6.3: hand the new client the authoritative mode signal immediately,
+    // so it can route its history layer without waiting for the next change
+    // (a settled agent pane can sit in the alternate buffer for hours without
+    // emitting one). Older clients ignore unknown control types, so this is
+    // safe in a mixed-version window.
+    if (session.vt) {
+      try {
+        const frame = session.vt.getModeFrame();
+        if (frame) sendControlFrame(ws, JSON.stringify(frame));
+      } catch (_) { /* sidecar is never fatal */ }
     }
 
     // NOW add client to the broadcast set for live PTY data
@@ -1082,13 +1507,15 @@ class PtySessionManager {
     // Make this client the PTY geometry owner and apply its last known
     // viewport. Shared by 'input' and 'activate' handling: interacting with
     // a device is the signal that its geometry should win.
-    const claimSizeOwnership = () => {
-      session.sizeOwner = ws;
-      ws._lastActiveAt = Date.now();
-      if (ws._viewport) {
-        session.applyViewport(ws._viewport.cols, ws._viewport.rows);
-      }
-    };
+    //
+    // P6.4: the assignment moved into PtySession.requestSizeOwnership so a
+    // two-device tug of war is coalesced instead of producing a ConPTY
+    // repaint storm. A single flip still applies synchronously here, which is
+    // what keeps handing the laptop over instantaneous. The `reason` is
+    // carried through because an automatic 'activate' (fired by an
+    // IntersectionObserver or a focus event) and a deliberate 'input' deserve
+    // to be distinguishable in the stats even though both currently claim.
+    const claimSizeOwnership = (reason) => session.requestSizeOwnership(ws, reason || 'activate');
 
     // Handle incoming messages from this WebSocket client
     ws.on('message', (raw) => {
@@ -1099,8 +1526,10 @@ class PtySessionManager {
         const msg = JSON.parse(raw.toString());
 
         if (msg.type === 'input' && msg.data !== undefined) {
-          // Typing on a device claims PTY geometry for that device
-          claimSizeOwnership();
+          // Typing on a device claims PTY geometry for that device.
+          // The claim may be coalesced under contention; the WRITE never is,
+          // so typing always reaches the PTY on the first keystroke.
+          claimSizeOwnership('input');
           // Write user input directly to PTY - NO BUFFERING
           session.pty.write(msg.data);
         } else if (msg.type === 'resize' && msg.cols && msg.rows) {
@@ -1118,7 +1547,9 @@ class PtySessionManager {
         } else if (msg.type === 'activate') {
           // Focus/visibility signal from the client: claims geometry
           // ownership exactly like typing, but writes nothing to stdin.
-          claimSizeOwnership();
+          // This is the message a phone sends automatically, so it is the
+          // main source of the oscillation P6.4 coalesces.
+          claimSizeOwnership('activate');
         }
         // Unknown JSON control types fall through and are deliberately
         // ignored (forward compatibility with newer clients).
@@ -1132,11 +1563,19 @@ class PtySessionManager {
     ws.on('close', () => {
       session.clients.delete(ws);
 
+      // P6.4: a claimant that disconnected while its coalesced claim was
+      // still waiting must not be resurrected by the trailing timer.
+      if (session._pendingOwner === ws) session._pendingOwner = null;
+
       // Ownership handoff: when the geometry owner leaves, the most recently
       // active remaining client takes over and its stored viewport is
       // restored. This is what snaps a desktop terminal back to desktop size
       // after a phone viewer disconnects (bug B). With no clients left the
       // size is left as-is and ownership resets to unclaimed.
+      //
+      // A handoff is NEVER debounced: there is nothing to contend with once
+      // the owner is gone, and delaying it would strand the PTY at the
+      // departed device's width for the length of the settle window.
       if (session.sizeOwner === ws) {
         let nextOwner = null;
         for (const client of session.clients) {
@@ -1144,11 +1583,16 @@ class PtySessionManager {
             nextOwner = client;
           }
         }
-        session.sizeOwner = nextOwner;
-        if (nextOwner && nextOwner._viewport) {
-          session.applyViewport(nextOwner._viewport.cols, nextOwner._viewport.rows);
+        if (nextOwner) {
+          session.requestSizeOwnership(nextOwner, 'handoff');
+        } else {
+          session.sizeOwner = null;
         }
       }
+
+      // No viewers left: drop the ownership timers so a dormant session holds
+      // neither a timer nor a reference to a closed socket.
+      if (session.clients.size === 0) session.clearOwnershipTimers();
 
       console.log(`[PTY] Client detached from session ${sessionId} (${session.clients.size} remaining)`);
     });
@@ -1219,6 +1663,13 @@ class PtySessionManager {
       session._cancelWatch = null;
     }
 
+    // Drop the ownership timers and the VT shadow. Both are idempotent, and
+    // both must happen here as well as in onExit because killSession is also
+    // the path taken for a session that never exited on its own.
+    session.clearOwnershipTimers();
+    try { this.vtRegistry.dispose(sessionId); } catch (_) {}
+    session.vt = null;
+
     // Kill the PTY process
     if (session.alive) {
       try {
@@ -1247,6 +1698,78 @@ class PtySessionManager {
     console.log(`[PTY] Destroying all sessions (${this.sessions.size} active)`);
     for (const [sessionId] of this.sessions) {
       this.killSession(sessionId);
+    }
+    // Belt and braces: killSession already disposes each sidecar, but a
+    // sidecar for a session that vanished from the map some other way would
+    // otherwise leak a headless terminal past shutdown.
+    try { this.vtRegistry.disposeAll(); } catch (_) {}
+  }
+
+  /**
+   * The authoritative mode signal for a session, or null when the sidecar is
+   * off, unavailable, or the session does not exist. Read-only.
+   *
+   * @param {string} sessionId
+   * @returns {{altBuffer: boolean, mouseTracking: string,
+   *            mouseTrackingActive: boolean, bracketedPaste: boolean}|null}
+   */
+  getSessionMode(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.vt) return null;
+    try { return session.vt.getMode(); } catch (_) { return null; }
+  }
+
+  /**
+   * Read a page of deep normal-buffer history from a session's VT sidecar.
+   *
+   * This is the server-side data source for the history layer's `deep`
+   * segment (BUILD-CONTRACT P7.5). The HTTP route that exposes it
+   * (`GET /api/sessions/:id/history`) belongs to P7 and to `server.js`, which
+   * this phase deliberately does not touch; the read API is provided here so
+   * P7 is a routing change rather than a data-layer change.
+   *
+   * Returns the same empty shape as getScrollbackLines when there is nothing
+   * to read, so a caller never has to branch on null.
+   *
+   * @param {string} sessionId
+   * @param {object} [options]
+   * @param {number} [options.beforeLine] - Absolute line index to page back from.
+   * @param {number} [options.lines=2000] - Page size, clamped inside the sidecar.
+   * @returns {{lines: Array<{t: string, w: boolean}>, firstLine: number,
+   *            beforeLine: number, total: number, oldestAvailable: number,
+   *            hasMore: boolean, lostLines: number, available: boolean}}
+   */
+  getHistoryLines(sessionId, options = {}) {
+    const empty = {
+      lines: [], firstLine: 0, beforeLine: 0, total: 0,
+      oldestAvailable: 0, hasMore: false, lostLines: 0, available: false,
+    };
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.vt) return empty;
+    try {
+      const page = session.vt.readLines(options);
+      page.available = true;
+      return page;
+    } catch (_) {
+      return empty;
+    }
+  }
+
+  /**
+   * Sidecar diagnostics: whether the subsystem is enabled, how many shadows
+   * exist, and each one's memory and health counters. Safe to expose on a
+   * health surface (it carries no terminal content, only counts).
+   *
+   * @returns {object}
+   */
+  getSidecarStats() {
+    try {
+      return Object.assign(
+        { availability: getVtSidecarAvailability() },
+        this.vtRegistry.getStats()
+      );
+    } catch (_) {
+      return { availability: { available: false }, enabled: false, count: 0, sidecars: [] };
     }
   }
 
@@ -1334,5 +1857,11 @@ module.exports = {
   // load without importing node-pty themselves or string-matching a message.
   getPtyAvailability,
   PTY_UNAVAILABLE_CODE,
-  __test: { waitForNewJsonl },
+  // VT sidecar (P6): re-exported so the health surface and the tests can
+  // probe the headless engine through the same module they already import,
+  // exactly as getPtyAvailability does for node-pty.
+  getVtSidecarAvailability,
+  OWNERSHIP_DEBOUNCE_MS,
+  OWNERSHIP_CONTENTION_CLEAR_MS,
+  __test: { waitForNewJsonl, isAltRingSuppressionEnabled, sendControlFrame },
 };

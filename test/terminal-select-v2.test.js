@@ -1141,7 +1141,11 @@ check('the overlay is selectable, scrollable, focusable, and monospaced', () => 
   assert.ok(/overflow:auto/.test(ensure), 'the snapshot pane must scroll');
   assert.ok(/white-space:pre-wrap/.test(ensure), 'long lines must wrap instead of overflowing');
   assert.ok(/tabIndex/.test(ensure), 'the snapshot must be focusable so its key handler receives keys');
-  assert.ok(/JetBrains Mono/.test(ensure), 'terminal text must stay monospaced');
+  // SANCTIONED EDIT SE-4 (BUILD-CONTRACT.md 5.4, phase P1.2): Notion restyle:
+  // the terminal mono stack is --font-code per PROCEDURE 5.3 option C. The
+  // assertion still proves the same property, that the snapshot cannot render
+  // proportionally; it just names the token the family now comes from.
+  assert.ok(/var\(--font-code/.test(ensure), 'terminal text must stay monospaced');
 });
 
 check('the overlay is themed with CSS custom properties plus literal fallbacks', () => {

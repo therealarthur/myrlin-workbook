@@ -1,0 +1,99 @@
+/* ==========================================================================
+   Notion design bundle / self-hosted faces
+   --------------------------------------------------------------------------
+   Created: 2026-08-13, Notion restyle phase P1, work package P1.2.
+   BUILD-CONTRACT.md 3.1 (file plan) and 1.4 (table C, typography).
+
+   WHY THIS FILE EXISTS
+
+   Before P1.2 this application loaded Plus Jakarta Sans and JetBrains Mono
+   from fonts.googleapis.com. That is the one external origin the whole app
+   requested, and it is wrong for this design system twice over:
+
+     1. The captured system ships NO webfont on the app surface. Its own
+        drop-in sheet says so in as many words: "do not load a webfont into
+        the document body of an app-surface page". --font-app-ui is the OS
+        UI stack, and setting a webfont on the editor body is instantly
+        recognisable as not-Notion on both macOS and Windows.
+     2. A third-party font request is a render-blocking round trip on every
+        cold load, and this application is frequently run on a LAN or behind
+        a tunnel where that origin may not resolve at all.
+
+   So the body stack becomes the OS stack (see --font-sans in styles.css) and
+   the only faces that ship are the two families the capture genuinely
+   redistributes, self hosted from the vendored bundle beside this file.
+
+   WHAT SHIPS, AND WHY IT MAY
+
+     iA Writer Mono S   SIL OFL 1.1   four faces, roman and italic.
+                        Consumed through --font-mono: code blocks, ids,
+                        branch names, diff hunks. NOT the terminal, which
+                        reads --font-code and stays on native metrics per
+                        DECISIONS.md 3.3.
+     Permanent Marker   Apache 2.0    one face.
+                        Consumed through --font-handwriting. Nothing uses it
+                        yet; the art-direction pass in P12 owns it. The face
+                        is declared here rather than later because the binary
+                        is already vendored and a font-family that resolves
+                        to nothing is a silent fallback to Times.
+
+   NOT SHIPPED, because the licences do not permit it: NotionInter (a Notion
+   specific cut of Inter, no public grant) and Lyon Text (Commercial Type
+   retail). Both already have declared fallbacks inside their token stacks.
+
+   THE ONE EDIT MADE TO THE CAPTURED RULES
+
+   Notion declares its bold mono at weight 600, not 700. The two bold faces
+   below widen that to `600 700` so a `font-weight: 700` rule resolves to the
+   real bold file instead of a synthetic emboldening of the regular. This is
+   the capture's own documented widening and it is carried over verbatim.
+
+   PATHS. src points at /design/notion/fonts/, the vendored location. The
+   binaries are byte-identical to docs/design/notion-import/_ds/assets/fonts/
+   and test/notion-token-parity.test.js asserts their SHA-256 on every run, so
+   a swapped or corrupted face fails CI rather than shipping.
+
+   font-display: swap on every face: text paints immediately in the fallback
+   and reflows when the face arrives, which is the right trade for a mono used
+   in code blocks rather than for body copy.
+   ========================================================================== */
+
+@font-face {
+  font-family: "iA Writer Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/design/notion/fonts/iAWriterMonoS-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "iA Writer Mono";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/design/notion/fonts/iAWriterMonoS-Italic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "iA Writer Mono";
+  font-style: normal;
+  font-weight: 600 700; /* inferred: Notion declares 600; widened so 700 resolves to the real file */
+  font-display: swap;
+  src: url("/design/notion/fonts/iAWriterMonoS-Bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "iA Writer Mono";
+  font-style: italic;
+  font-weight: 600 700; /* inferred: as above */
+  font-display: swap;
+  src: url("/design/notion/fonts/iAWriterMonoS-BoldItalic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Permanent Marker";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/design/notion/fonts/permanent-marker.woff") format("woff");
+}

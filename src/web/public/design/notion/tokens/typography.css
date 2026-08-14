@@ -1,0 +1,303 @@
+/* ==========================================================================
+   Notion / typography tokens
+   --------------------------------------------------------------------------
+   THE SINGLE MOST IMPORTANT TYPE FACT IN THIS BUNDLE:
+
+   The Notion editor ships NO WEBFONT for its default text. Measured
+   font-family on .notion-frame, on notion.so and on twelve public
+   *.notion.site pages, is the OS UI stack and nothing else. Loading Inter,
+   Geist, or any other webfont into a Notion-alike document body is instantly
+   wrong on both macOS and Windows, and it is the mistake almost everyone
+   makes. --font-app-ui below is that stack, verbatim, in source order.
+
+   Marketing is the opposite case. notion.com does load a webfont, a Notion
+   specific cut of Inter called NotionInter, in exactly four roman weights:
+   400, 500, 600, 700. Every italic, every i18n subset and every math subset
+   is declared and never loads. NotionInter is not redistributable, so the
+   marketing stack keeps Notion's own declared fallback chain, which already
+   names plain Inter second. Self host Inter (SIL OFL 1.1) into the project
+   and it is picked up with no token change and no metric correction.
+
+   Two scales live here and they are not interchangeable.
+   Marketing scale: rem based, fifteen steps, tracking runs NEGATIVE above
+   16px and is never positive except at the 12px micro step.
+   App scale: fixed px, no rem, headings all at exactly 1.3 line-height, body
+   at 1.5, page title at 1.2.
+
+   Source: raw/css/2280490c7edd474a.css :root (raw/notes/root_nonclr.txt and
+   raw/notes/typography_tokens.txt) for marketing; computed styles on
+   notion.so/28ffdd08 and twelve public editor pages for the app.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Families
+   -------------------------------------------------------------------------- */
+/* @source computed .notion-frame on notion.so (raw/probes/probe3_notionso.json) */
+
+:root {
+  /* THE EDITOR STACK. Ship this verbatim. Segoe UI Variable Display before
+     Segoe UI is what makes Windows 11 look right; ui-sans-serif first is what
+     makes macOS pick SF. There is no webfont here on purpose. */
+  --font-app-ui:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display",
+    "Segoe UI", Helvetica, "Apple Color Emoji", "Noto Sans Arabic",
+    "Noto Sans Hebrew", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+/* @source raw/css/2280490c7edd474a.css --font-family-* (raw/notes/root_nonclr.txt) */
+
+:root {
+  /* Marketing sans. NotionInter is not shipped. Inter sits second exactly as
+     Notion declares it, so self hosting Inter upgrades this stack for free. */
+  --font-mkt-sans:
+    NotionInter, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+    "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+
+  /* Lyon Text is Commercial Type retail and is not shipped. This is Notion's
+     own declared serif fallback, unedited. */
+  --font-serif:
+    "Lyon Text", Georgia, YuMincho, "Yu Mincho", "Hiragino Mincho ProN",
+    "Hiragino Mincho Pro", "Songti TC", "Songti SC", SimSun, "Nanum Myeongjo",
+    NanumMyeongjo, Batang, serif;
+
+  /* iA Writer Mono S IS shipped, SIL OFL 1.1. Notion's declared fallback is
+     Nitti, Menlo, Courier, monospace. */
+  --font-mono: "iA Writer Mono", Nitti, Menlo, Courier, monospace;
+
+  /* Permanent Marker IS shipped, Apache 2.0. Used as a rare handwriting
+     accent on marketing, never for body copy or UI labels. */
+  --font-handwriting:
+    "Permanent Marker", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+    "Apple Color Emoji", Arial, sans-serif;
+
+  /* Editor code blocks use a different stack from marketing mono. */
+  --font-code: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+
+  --font-emoji:
+    "Apple Color Emoji", "Segoe UI Emoji", NotoColorEmoji, "Noto Color Emoji",
+    "Segoe UI Symbol", "Android Emoji", EmojiSymbols;
+
+  /* Feature settings. Lining numerals forced on everywhere, localized forms
+     off. The serif adds standard ligatures. */
+  --font-feature-sans: "lnum" 1, "locl" 0;
+  --font-feature-mono: "lnum" 1, "locl" 0;
+  --font-feature-serif: "lnum" 1, "locl" 0, "liga" 1;
+}
+
+/* --------------------------------------------------------------------------
+   2. Weights.
+   Marketing uses four. The homepage hero h1 is the ONLY weight 600 text on
+   the whole site; every other heading is 700. Body and nav are 400, buttons
+   and labels are 500. App headings are all 600 and body is 400. There is no
+   300, no 800, no 900 anywhere.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css --font-weight-* */
+
+:root {
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Variable axis equivalents, for the variable cut of the face. */
+  --weight-variable-regular: 420;
+  --weight-variable-medium: 520;
+  --weight-variable-semibold: 620;
+  --weight-variable-bold: 680;
+}
+
+/* --------------------------------------------------------------------------
+   3. Marketing type scale.
+   Fifteen steps. Each size pairs with a line-height, and tracking is
+   published per weight because a bold 54px needs far less negative tracking
+   than a regular 54px. Both are given where Notion publishes both.
+   -------------------------------------------------------------------------- */
+/* @source raw/css/2280490c7edd474a.css --font-size-*, --font-line-height-*, --font-letter-spacing-sans-* */
+
+:root {
+  --text-50-size: 0.75rem;      /* 12px, template counts and micro labels */
+  --text-50-line: 1rem;         /* 16px */
+  --text-50-track: 0.0078125rem; /* +0.125px, the only positive tracking in the system */
+
+  --text-100-size: 0.875rem;    /* 14px, eyebrows, captions, tags, code chips */
+  --text-100-line: 1.25rem;     /* 20px */
+  --text-100-track: 0;
+
+  --text-150-size: 0.9375rem;   /* 15px, form fields, list links, figcaptions */
+  --text-150-line: 1.25rem;     /* 20px */
+  --text-150-track: 0;
+
+  --text-200-size: 1rem;        /* 16px, BODY DEFAULT, nav links, buttons */
+  --text-200-line: 1.5rem;      /* 24px */
+  --text-200-track: 0;
+
+  --text-300-size: 1.125rem;    /* 18px, lead paragraphs */
+  --text-300-line: 1.75rem;     /* 28px */
+  --text-300-track: -0.0078125rem; /* -0.125px */
+
+  --text-350-size: 1.25rem;     /* 20px, large body */
+  --text-350-line: 1.75rem;     /* 28px */
+  --text-350-track: -0.0078125rem;
+
+  --text-400-size: 1.375rem;    /* 22px, card and plan headings, and the PRICE */
+  --text-400-line: 1.75rem;     /* 28px */
+  --text-400-track: -0.015625rem; /* -0.25px */
+
+  --text-450-line: 1.875rem;    /* 30px, a line-height with no size of its own */
+
+  --text-500-size: 1.625rem;    /* 26px, template gallery row headings */
+  --text-500-line: 2rem;        /* 32px */
+  --text-500-track: -0.0390625rem; /* -0.625px */
+
+  --text-600-size: 2rem;        /* 32px, pricing section headings */
+  --text-600-line: 2.5rem;      /* 40px */
+  --text-600-track: -0.0625rem;     /* -1px regular */
+  --text-600-track-bold: -0.046875rem; /* -0.75px bold and semibold */
+
+  --text-700-size: 2.625rem;    /* 42px, final CTA and customer story h1 */
+  --text-700-line: 3rem;        /* 48px */
+  --text-700-track: -0.125rem;      /* -2px regular */
+  --text-700-track-bold: -0.09375rem;  /* -1.5px bold and semibold */
+
+  --text-800-size: 3.375rem;    /* 54px, the standard section h2 */
+  --text-800-line: 3.5rem;      /* 56px */
+  --text-800-track: -0.21875rem;    /* -3.5px regular */
+  --text-800-track-bold: -0.1171875rem; /* -1.875px bold and semibold */
+
+  --text-900-size: 4rem;        /* 64px, pricing page h1 */
+  --text-900-line: 4rem;        /* 64px, exactly 1.0 */
+  --text-900-track: -0.171875rem;   /* -2.75px regular */
+  --text-900-track-bold: -0.1328125rem; /* -2.125px bold and semibold */
+
+  --text-1000-size: 4.75rem;    /* 76px, campaign display */
+  --text-1000-line: 5rem;       /* 80px */
+  --text-1000-track: -0.25rem;      /* -4px regular */
+  --text-1000-track-bold: -0.15625rem; /* -2.5px bold */
+
+  --text-1100-size: 6rem;       /* 96px, the homepage hero cap */
+  --text-1100-line: 6.25rem;    /* 100px */
+  --text-1100-track: -0.2875rem;    /* -4.6px semibold */
+
+  /* Serif tracking. Steps 200 to 600 are flat zero; only the display steps
+     pull in. This is why a serif section reads calmer than a sans one. */
+  --text-serif-700-track: -0.09375rem; /* -1.5px */
+  --text-serif-800-track: -0.125rem;   /* -2px */
+  --text-serif-900-track: -0.125rem;   /* -2px */
+
+  /* Mono tracking, a fine negative ramp across the same steps. */
+  --text-mono-50-track: -0.00669375rem;
+  --text-mono-100-track: -0.0078125rem;
+  --text-mono-200-track: -0.00893125rem;
+  --text-mono-300-track: -0.01004375rem;
+  --text-mono-400-track: -0.012275rem;
+  --text-mono-500-track: -0.01450625rem;
+  --text-mono-600-track: -0.01785625rem;
+  --text-mono-700-track: -0.0234375rem;
+  --text-mono-800-track: -0.03013125rem;
+  --text-mono-900-track: -0.0357125rem;
+}
+
+/* --------------------------------------------------------------------------
+   4. The fluid hero.
+   Only the homepage h1 does this. Every other heading snaps between fixed
+   steps. Measured: 375, 430 and 600 viewports all give 42px; 768 gives
+   60.9px; 834 gives 68.3px; 1024 gives 89.7px; 1280 and above give 96px.
+   The clamp below reproduces that curve and caps at 1280 exactly.
+   -------------------------------------------------------------------------- */
+/* @source computed h1 font-size by viewport on notion.com/ (raw/probes/mkt.json) */
+
+:root {
+  /* 42px floor, 96px cap. The slope is derived from the two measured
+     endpoints, 42px at 600 viewport and 96px at 1280 viewport, which gives
+     7.941vw minus 5.647px. Checked against the 768, 834 and 1024
+     measurements: predicted 55.3, 60.6, 75.7 versus measured 60.9, 68.3,
+     89.7, so the real curve is slightly steeper than linear in the middle.
+     Treat this as a close reproduction, not a byte match. */
+  --hero-size: clamp(2.625rem, 7.941vw - 0.353rem, 6rem); /* inferred: fitted curve, see note */
+  --hero-line: 1.0417;   /* 100/96, applied as a unitless ratio so it scales */
+  --hero-track: -0.0479em; /* -4.6px at 96px, expressed in em so it scales too */
+  --hero-weight: var(--weight-semibold);
+}
+
+/* --------------------------------------------------------------------------
+   5. App UI type scale.
+   Fixed px against a 16px root. No rem, no fluid anything. Every heading is
+   exactly 1.3 line-height, body is 1.5, the page title is 1.2. Those three
+   ratios are the whole system.
+   -------------------------------------------------------------------------- */
+/* @source computed on notion.so/28ffdd08 and 12 public editor pages */
+
+:root {
+  --app-title-size: 40px;
+  --app-title-line: 48px;   /* 1.2 */
+  --app-title-weight: 700;
+
+  --app-h1-size: 30px;
+  --app-h1-line: 39px;      /* 1.3 */
+  --app-h2-size: 24px;
+  --app-h2-line: 31.2px;    /* 1.3 */
+  --app-h3-size: 20px;
+  --app-h3-line: 26px;      /* 1.3 */
+  --app-h4-size: 18px;
+  --app-h4-line: 23.4px;    /* 1.3 */
+  --app-heading-weight: 600;
+
+  --app-body-size: 16px;
+  --app-body-line: 24px;    /* 1.5 */
+  --app-body-weight: 400;
+
+  /* Small text mode, a per page toggle. Same 1.5 and 1.2 ratios. */
+  --app-small-body-size: 14px;
+  --app-small-body-line: 21px;
+  --app-small-title-size: 32px;
+  --app-small-title-line: 38.4px;
+
+  /* Database chips and property values. */
+  --app-chip-size: 14px;
+  --app-chip-line: 16.8px;  /* 1.2 */
+  --app-chip-weight: 500;
+  --app-property-size: 14px;
+  --app-property-line: 21px;
+  --app-property-weight: 400;
+
+  /* The three ratios, exposed so a new role can be derived correctly. */
+  --app-ratio-heading: 1.3;
+  --app-ratio-body: 1.5;
+  --app-ratio-title: 1.2;
+}
+
+/* --------------------------------------------------------------------------
+   6. Roles for the semantic layer.
+   --font-body flips with data-surface. On marketing it is the Inter chain, on
+   the app it is the OS stack. That single switch is most of the difference
+   between the two surfaces.
+   -------------------------------------------------------------------------- */
+/* @source derived: semantic alias over the two family sets above */
+
+:root {
+  --font-body: var(--font-mkt-sans);
+  --font-display: var(--font-mkt-sans);
+  --root-font-size: 16px;
+  --body-size: var(--text-200-size);
+  --body-line: var(--text-200-line);
+  --body-weight: var(--weight-regular);
+  --heading-weight: var(--weight-bold);
+  --font-features: var(--font-feature-sans);
+}
+
+:root[data-surface="app"],
+[data-surface="app"] {
+  --font-body: var(--font-app-ui);
+  --font-display: var(--font-app-ui);
+  --body-size: var(--app-body-size);
+  --body-line: var(--app-body-line);
+  --body-weight: var(--weight-regular);
+  --heading-weight: var(--weight-semibold);
+  --font-features: normal;
+}
+
+/* Per page font options the editor exposes to the user. Three choices, page
+   scoped, never block scoped. */
+.app-font-default { font-family: var(--font-app-ui); }
+.app-font-serif { font-family: var(--font-serif); font-feature-settings: var(--font-feature-serif); }
+.app-font-mono { font-family: var(--font-mono); font-feature-settings: var(--font-feature-mono); }

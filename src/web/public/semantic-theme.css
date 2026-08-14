@@ -4,41 +4,97 @@
  * Legacy palettes continue to define their raw color ramps in styles.css.
  * Product components consume the roles below, keeping appearance, focus,
  * provider identity, and session status independent from palette names.
+ *
+ * ---------------------------------------------------------------------------
+ * Notion restyle phase P1, work package P1.3. BUILD-CONTRACT.md 1.6, table E.
+ *
+ * Every right-hand side below moved from the Catppuccin palette to the Notion
+ * chrome tokens authored in the styles.css :root block. Not one name changed
+ * and not one call site was touched, which is the point: this 93-line file is
+ * the single choke point for the colour contract and therefore the cheapest
+ * rollback lever in the whole programme. Reverting this file plus the two root
+ * attributes returns the application to Catppuccin even if every other phase
+ * has landed (BUILD-CONTRACT section 8).
+ *
+ * TWO HARD CONSTRAINTS, both pinned by test/experience-ux-contract.test.js and
+ * re-checked by gate G11:
+ *
+ *   1. All 15 named role tokens stay defined, spelled exactly as they are.
+ *   2. ZERO raw colours. The regex #[0-9a-f]{3,8}\b|rgba?\s*\(|hsla?\s*\( must
+ *      not match anywhere in this file. Every right-hand side is a var() or a
+ *      color-mix() over var()s. That is why the raw Notion values live in the
+ *      styles.css :root block and this file only ever points at them.
+ *
+ * ONE DELIBERATE HUE CHANGE: --status-complete moves from green to teal, per
+ * DESIGN-SPEC 6 and contested mapping C5. Running is the green state and
+ * complete is the teal one; collapsing both onto green would destroy a
+ * distinction that experience-model.js models and that the sidebar dots, the
+ * table chips and the attention list all read. The count of attention states
+ * is unchanged at five, which experience-model.test.js pins.
+ * ---------------------------------------------------------------------------
  */
 
 :root {
-  --surface-canvas: var(--base);
-  --surface-sidebar: var(--mantle);
-  --surface-raised: var(--surface0);
-  --surface-interactive: color-mix(in srgb, var(--surface1) 42%, transparent);
-  --surface-selected: color-mix(in srgb, var(--accent) 12%, var(--base));
+  --surface-canvas: var(--app-bg-primary);
+  --surface-sidebar: var(--app-bg-secondary);
+  --surface-raised: var(--app-bg-elevated);
+  /* Was a 42 percent mix of a palette border colour. Notion has a real hover
+     wash token, so this points at it rather than deriving one. */
+  --surface-interactive: var(--app-wash-hover);
+  --surface-selected: var(--app-sidebar-item-selected);
 
+  /* Text unchanged: --color-focus follows --accent, which styles.css re-points
+     to var(--app-ui-blue) in P1.1. Both pinned :focus-visible rules therefore
+     pick up the Notion blue with no edit here and no edit at the call site. */
   --color-focus: var(--accent);
-  --color-info: var(--blue);
-  --color-attention: var(--yellow);
-  --color-success: var(--green);
-  --color-danger: var(--red);
-  --color-stale: var(--overlay1);
+  --color-info: var(--app-text-blue);
+  --color-attention: var(--app-text-yellow);
+  --color-success: var(--app-text-green);
+  --color-danger: var(--app-text-red);
+  --color-stale: var(--app-text-brown);
 
   --status-needs-input: var(--color-attention);
-  --status-running: var(--color-info);
-  --status-complete: var(--color-success);
+  /* RUNNING IS GREEN. Notion restyle phase P3, work package P3.2.
+     DECISIONS.md 9.2.4 recorded that table E left this state with two hues: the
+     ink on --color-info, which is blue, and the wash already on --app-bg-green.
+     P1 shipped table E verbatim and handed the choice forward because the
+     phase that builds the status system should make it. That is this phase, and
+     the orchestrator ruled green, which is also what contested mapping C5's
+     supporting sentence says and what DESIGN-SPEC 6's status-chip table gives
+     (running renders nt-chip-green). It points at the block-palette green
+     directly rather than at --color-success, because a session that is running
+     has not succeeded at anything yet and collapsing the two roles would make
+     that impossible to say later. --status-running-surface is unchanged: it was
+     already --app-bg-green, and it is the half that was right all along. */
+  --status-running: var(--app-text-green);
+  /* See the hue-change note in the file header: complete is teal, not green. */
+  --status-complete: var(--app-text-teal);
   --status-failed: var(--color-danger);
   --status-stale: var(--color-stale);
-  --status-needs-input-surface: color-mix(in srgb, var(--status-needs-input) 12%, transparent);
-  --status-running-surface: color-mix(in srgb, var(--status-running) 10%, transparent);
-  --status-complete-surface: color-mix(in srgb, var(--status-complete) 10%, transparent);
-  --status-failed-surface: color-mix(in srgb, var(--status-failed) 10%, transparent);
-  --status-stale-surface: color-mix(in srgb, var(--status-stale) 10%, transparent);
+  /* The five state washes become the captured tinted surfaces rather than
+     ad-hoc 10 to 12 percent mixes, so a status ink always sits on the wash it
+     was contrast-tested against. Only --status-needs-input-surface has a
+     consumer today (focused-shell.css). */
+  --status-needs-input-surface: var(--app-bg-yellow);
+  --status-running-surface: var(--app-bg-green);
+  --status-complete-surface: var(--app-bg-teal);
+  --status-failed-surface: var(--app-bg-red);
+  --status-stale-surface: var(--app-bg-brown);
 
-  --action-warning: var(--color-attention);
-  --action-success: var(--color-success);
-  --action-danger: var(--color-danger);
+  /* Action roles. Warning becomes the captured orange rather than reusing the
+     attention yellow, so a warning action and an attention state stop being
+     the same colour. All three have zero consumers today. */
+  --action-warning: var(--app-text-orange);
+  --action-success: var(--app-text-green);
+  --action-danger: var(--app-text-red);
 
-  --selection-bg: color-mix(in srgb, var(--color-focus) 25%, transparent);
-  --drop-target-bg: color-mix(in srgb, var(--color-focus) 6%, var(--surface-canvas));
-  --resize-handle-hover: color-mix(in srgb, var(--color-focus) 44%, transparent);
-  --focus-ring: 0 0 0 2px var(--surface-canvas), 0 0 0 4px var(--color-focus);
+  --selection-bg: var(--app-selection-token);
+  --drop-target-bg: var(--app-bg-blue);
+  /* Kept as a mix rather than a flat token: the resize handle has to read as a
+     translucent overlay on whatever it is dragged across. 28 percent is the
+     DESIGN-SPEC 3.7 value, down from 44. */
+  --resize-handle-hover: color-mix(in srgb, var(--app-ui-blue) 28%, transparent);
+  --focus-ring: var(--app-focus-shadow);
 }
 
 ::selection {
@@ -46,9 +102,16 @@
   color: var(--text-primary);
 }
 
+/* The glow is gone. A coloured halo on a status dot is the "any hue in a
+   shadow" idiom DESIGN-SPEC 1.5 and the rejection list both refuse, and it was
+   the last one left in this file. The dot keeps its hue and nothing else: the
+   pulse this comment used to point at was removed in the P4 remainder, and the
+   non-colour channel is now a static SHAPE, the ring on the needs-input family
+   (DECISIONS 13.1). A shape survives greyscale exactly the way motion did, and
+   unlike motion it also survives a screenshot and prefers-reduced-motion. */
 :root[data-ui-shell] .stat-dot-running {
   background: var(--status-running);
-  box-shadow: 0 0 5px color-mix(in srgb, var(--status-running) 52%, transparent);
+  box-shadow: none;
 }
 
 :root[data-ui-shell] .terminal-pane-empty.drag-over .terminal-container {
@@ -79,12 +142,147 @@
   --attention-color: var(--status-stale);
 }
 
+/*
+ * FORCED COLOURS, Notion restyle phase P3, work package P3.5.
+ * Accessibility floor A9: "forced colours keeps every boundary."
+ *
+ * Windows High Contrast and the forced-colors media feature throw away every
+ * author colour and substitute a system palette. Anything this design draws
+ * with a FILL rather than a border therefore disappears: a property chip
+ * becomes invisible text on Canvas, a status dot becomes nothing at all, a
+ * switch becomes an empty rectangle and the primary button becomes
+ * indistinguishable from the secondary one. Every component P3 shipped is a
+ * fill, so every one of them needs a boundary here.
+ *
+ * The four original rows are kept exactly as they were: experience-ux-contract
+ * .test.js requires .resource-row-menu-btn to appear inside this block, and
+ * the other three are P1 and P2 components whose boundaries are still correct.
+ *
+ * System colour keywords only. Author colours are ignored inside this block,
+ * and gate G11 forbids raw colour anywhere in this file regardless.
+ */
 @media (forced-colors: active) {
   .attention-state,
   .theme-gallery-card,
   .density-choice,
   .resource-row-menu-btn {
     border: 1px solid ButtonText;
+  }
+
+  /* Buttons. The two CTA weights are one hue apart and nothing else, so under
+     forced colours they collapse into each other. The primary is re-drawn as
+     the system's own accent pair, which is the only way to keep "this is the
+     confirming action" legible without a colour of our own. */
+  .btn-primary {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    border: 1px solid Highlight;
+  }
+
+  .btn-ghost,
+  .btn-danger,
+  .btn-icon {
+    border: 1px solid ButtonText;
+  }
+
+  .btn:disabled {
+    color: GrayText;
+    border-color: GrayText;
+  }
+
+  /* Chips. The translucent fill is gone, so the boundary has to come back as a
+     border or a status chip is just floating text. */
+  .status-badge,
+  .session-badge,
+  .template-chip,
+  .pane-provider-pill,
+  .mirror-provider-pill,
+  .codex-status-chip,
+  .ws-group-chip {
+    border: 1px solid CanvasText;
+  }
+
+  /* Dots. A filled circle with no border is erased entirely, which would take
+     the only live-state signal in the sidebar with it. */
+  .status-dot,
+  .nt-chip-dot,
+  .stat-dot,
+  .ws-session-dot,
+  .detail-status-dot,
+  .subagent-dot {
+    forced-color-adjust: none;
+    background: CanvasText;
+    border: 1px solid CanvasText;
+  }
+
+  /* The RING survives forced colours. The rule above fills every dot with
+     CanvasText, which would collapse the two shapes the P4 remainder
+     introduced back into one and lose the only non-colour channel the status
+     system has left now that nothing pulses (DECISIONS 13.1). Under forced
+     colours hue is gone entirely, so here the shape is not merely the
+     strongest channel, it is the ONLY one. Canvas centre, CanvasText stroke. */
+  .status-dot-idle,
+  .ws-session-dot[data-tristate="waiting"],
+  .task-item-dot.waiting {
+    forced-color-adjust: none;
+    background: Canvas;
+    border: 1px solid CanvasText;
+    box-shadow: inset 0 0 0 2px CanvasText;
+  }
+
+  /* Fields. The hairline is an author colour and disappears with the rest. */
+  .input,
+  .form-input,
+  .form-select,
+  .form-textarea,
+  .settings-number-input,
+  .projects-search-input,
+  .find-convo-input,
+  .tasks-search-input,
+  .launcher-form-input {
+    border: 1px solid CanvasText;
+  }
+
+  /* Borderless editors are the one deliberate exception: they are page
+     content, not controls, and a border here would contradict the idiom on the
+     one surface where forced colours already supplies a readable ink. */
+
+  /* Switch. Off and on are a background swap, which forced colours flattens
+     into one shape, so the state moves onto the system's accent pair and the
+     track keeps a boundary either way. */
+  .settings-toggle-track {
+    border: 1px solid CanvasText;
+  }
+
+  .settings-toggle input:checked + .settings-toggle-track {
+    forced-color-adjust: none;
+    background: Highlight;
+    border-color: Highlight;
+  }
+
+  .settings-toggle-thumb {
+    forced-color-adjust: none;
+    background: CanvasText;
+    border: 1px solid Canvas;
+  }
+
+  /* Meters. A progress bar that is a coloured fill inside a coloured track is
+     two rectangles of the same system colour. The track keeps its outline and
+     every fill takes the accent, so the ratio is still readable as a length. */
+  .usage-meter-bar,
+  .account-usage-bar,
+  .token-bar,
+  .resource-bar {
+    border: 1px solid CanvasText;
+  }
+
+  .usage-meter-fill,
+  .account-usage-fill,
+  .token-bar-fill,
+  .resource-bar-fill {
+    forced-color-adjust: none;
+    background: Highlight;
   }
 
   :focus-visible {

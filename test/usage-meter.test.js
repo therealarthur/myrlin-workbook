@@ -255,10 +255,14 @@ check('credential-manager mapper captures top-level seven_day_opus / seven_day_s
 
 // ─── 7. CSS: semantic tokens only, mobile mirror media-scoped ────────────
 
+// Sanctioned test edit SE-6 (BUILD-CONTRACT.md 5.4), spent in phase P3, work
+// package P3.3, in the same commit as its source change. Token names only; the
+// three rules are still matched as whitespace-exact single lines.
+// Notion restyle: meter thresholds use the named block palette.
 check('meter CSS uses semantic theme tokens for fills (all 13 themes, light included)', () => {
-  assert(STYLES_CSS.includes('.usage-meter-fill.u-low { background: var(--green); }'), 'u-low token fill');
-  assert(STYLES_CSS.includes('.usage-meter-fill.u-mid { background: var(--yellow); }'), 'u-mid token fill');
-  assert(STYLES_CSS.includes('.usage-meter-fill.u-high { background: var(--red); }'), 'u-high token fill');
+  assert(STYLES_CSS.includes('.usage-meter-fill.u-low { background: var(--app-text-green); }'), 'u-low token fill');
+  assert(STYLES_CSS.includes('.usage-meter-fill.u-mid { background: var(--app-text-yellow); }'), 'u-mid token fill');
+  assert(STYLES_CSS.includes('.usage-meter-fill.u-high { background: var(--app-text-red); }'), 'u-high token fill');
 });
 
 check('meter CSS block contains no hardcoded hex colors', () => {

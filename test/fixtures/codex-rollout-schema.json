@@ -6,13 +6,15 @@
   "properties": {
     "type": {
       "type": "string",
-      "description": "Discriminant for the envelope variant. Five values are observed in the wild on Codex >= 0.45 rollouts.",
+      "description": "Discriminant for the envelope variant. Five values were observed on Codex >= 0.45 rollouts in 2026-05; two more (world_state, inter_agent_communication_metadata) were measured on 2026-08-13 across the 60 largest rollouts on the reference machine, written by CLI 0.144.0-alpha.4 through 0.146.0-alpha.3.1. Both of the new ones are metadata rather than conversation and are deliberately skipped by the parser, but they are enumerated here so the P9.2 unknown-payload counter reports genuine drift rather than a permanent background hum.",
       "enum": [
         "session_meta",
         "turn_context",
         "event_msg",
         "response_item",
-        "compacted"
+        "compacted",
+        "world_state",
+        "inter_agent_communication_metadata"
       ]
     },
     "timestamp": {
@@ -28,9 +30,18 @@
   "_meta": {
     "source": "hand-coded fallback; replace via 'node scripts/regen-codex-schema.js' when a Codex CLI with 'app-server generate-internal-json-schema' is installed",
     "generatedFrom": "Codex CLI >= 0.45 (envelope-shaped rollouts)",
-    "lastVerifiedAgainst": "0.125.0-alpha.3 (dev machine, 2026-05-10)",
+    "lastVerifiedAgainst": "0.146.0-alpha.3.1 (reference machine, 2026-08-13)",
     "phase": "17",
     "plan": "17-01",
-    "requirementId": "CDX-09"
+    "requirementId": "CDX-09",
+    "driftLog": [
+      {
+        "date": "2026-08-13",
+        "phase": "P9",
+        "added": ["world_state", "inter_agent_communication_metadata"],
+        "method": "type histogram over the 60 largest rollouts under $CODEX_HOME/sessions, read-only",
+        "note": "Regenerating this fixture from the CLI will drop these two unless the CLI's own schema has caught up. Re-measure before trusting a regenerated enum."
+      }
+    ]
   }
 }

@@ -157,7 +157,7 @@ console.log('\n  Plan 14-04 PTY pass-through tests');
 console.log('  ' + '-'.repeat(42));
 
 // ──────────────────────────────────────────────────────────────────────
-// Test 1: Descriptor flow — provider.spawnCommand descriptor flows to pty.spawn
+// Test 1: Descriptor flow, provider.spawnCommand descriptor flows to pty.spawn
 // ──────────────────────────────────────────────────────────────────────
 // To exercise the provider path (NOT the bypass branch), call with the
 // default command 'claude' and override the claude provider's spawnCommand
@@ -332,7 +332,7 @@ check('Test 4 (PTY-03): Claude invalid cwd resolves via cwdFromJsonl fallback', 
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Test 5: PTY-01 regression — Claude descriptor.cmd === 'claude'
+// Test 5: PTY-01 regression, Claude descriptor.cmd === 'claude'
 // ──────────────────────────────────────────────────────────────────────
 check('Test 5 (PTY-01): Claude descriptor uses --resume when resumeSessionId provided', () => {
   const { ptyMgr, store } = buildFixture({ includeClaude: true });
@@ -358,7 +358,7 @@ check('Test 5 (PTY-01): Claude descriptor uses --resume when resumeSessionId pro
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Test 6: Non-default-command bypass — command:'td' bypasses provider lookup
+// Test 6: Non-default-command bypass, command:'td' bypasses provider lookup
 // ──────────────────────────────────────────────────────────────────────
 // Plan 19-01 PTY-02 refactor note: under the new sentinel
 // (useProvider = provider.cliBinary === command), the registry IS consulted
@@ -369,7 +369,7 @@ check('Test 5 (PTY-01): Claude descriptor uses --resume when resumeSessionId pro
 // descriptor builder so descriptor.cmd === command. Test 6 now asserts the
 // outcome (descriptor.cmd, fullCommand prefix) without overconstraining the
 // internal lookup path. The registry IS consulted, but provider.spawnCommand
-// is NOT — that's the real bypass guarantee.
+// is NOT, that's the real bypass guarantee.
 check('Test 6 (PTY-03 safety net): command:"td" bypasses provider, fullCommand starts with td', () => {
   const { ptyMgr, store, registry } = buildFixture({ includeClaude: true });
 
@@ -384,7 +384,7 @@ check('Test 6 (PTY-03 safety net): command:"td" bypasses provider, fullCommand s
     return realSpawnCommand.call(claude, init);
   };
 
-  // Create a session tagged with claude — but the deciding factor for
+  // Create a session tagged with claude, but the deciding factor for
   // bypass is `command !== provider.cliBinary`. Since the requested
   // command is 'td' and claude.cliBinary is 'claude', the sentinel returns
   // useProvider=false and the inline descriptor builder fires.

@@ -15,15 +15,54 @@
   display: none;
 }
 
+/*
+ * Notion restyle phase P2, work package P2.1. BUILD-CONTRACT.md 1.7 table F.
+ *
+ * THE FOUR GEOMETRY TOKENS are re-pointed onto the chrome layer rather than
+ * carrying their own literals, so the shell reads its measurements from the
+ * same place every other Notion rule does: 58px becomes --app-topbar-height
+ * (44px), 264px becomes --app-sidebar-width (240px), 34px becomes
+ * --app-icon-button-size (28px, lifted back to 44px by the coarse-pointer
+ * block at the foot of this file), and the content measure becomes the 1100px
+ * Sessions and Costs measure from DESIGN-SPEC.md 6 and 9.2.
+ *
+ * THE TWO ALIAS RE-DERIVATIONS below them are the shadowing DECISIONS.md 9.3.1
+ * handed to this phase. data-ui-shell is ALWAYS set, so these two declarations
+ * beat the :root alias flip P1 shipped, and --text-muted and --border-subtle
+ * stayed Catppuccin for 95 consumption sites (36 and 59) while every other
+ * alias had already moved. They are re-pointed, not deleted: the names, the
+ * declarations and this block all survive, and their right-hand sides now name
+ * exactly what :root names, so the focused shell agrees with the base layer
+ * instead of overriding it.
+ *
+ * The original intent of the color-mix() re-derivation was legibility of small
+ * supporting copy across the light and dark palette families. That intent now
+ * lives in the chrome layer itself: --app-text-disabled is a real disabled ink
+ * with a dark-chrome variant, which is what BUILD-CONTRACT table B specifies
+ * for --text-muted, and it no longer has to be mixed by hand per family.
+ */
 :root[data-ui-shell="focused"] {
-  --focused-header-height: 58px;
-  --focused-sidebar-width: 264px;
-  --focused-control-height: 34px;
-  --focused-content-max: 1120px;
+  --focused-header-height: var(--app-topbar-height);
+  --focused-sidebar-width: var(--app-sidebar-width);
+  --focused-control-height: var(--app-icon-button-size);
+  --focused-content-max: 1100px;
 
-  /* Small text must remain readable in both dark and light families. */
-  --text-muted: color-mix(in srgb, var(--subtext1) 35%, var(--subtext0));
-  --border-subtle: color-mix(in srgb, var(--surface1) 44%, transparent);
+  /* Small text must remain readable in both dark and light families.
+     Kept at the same value :root now carries, so this declaration agrees with
+     the base layer instead of shadowing it. See the long note at the
+     --text-muted definition in styles.css and DEVIATIONS.md DV-10 for why the
+     value is tertiary rather than the disabled ink table B names.
+
+     P12: the base layer moved to the --ink-meta role token and this shadow
+     follows it, because the whole point of this declaration is to agree with
+     the base rather than to shadow it. The two role tokens are re-declared
+     here for the same reason the P1 flip needed re-declaring: data-ui-shell is
+     always set, so a value that exists only at :root is reachable but a value
+     this block is expected to own is not. 4.27:1 light, 7.52:1 dark. */
+  --ink-meta: var(--app-text-secondary);
+  --edge-control: var(--app-text-secondary);
+  --text-muted: var(--ink-meta);
+  --border-subtle: var(--app-border-secondary);
 }
 
 /* Latte's stock tertiary token lands just below AA for 12px labels. */
@@ -31,12 +70,20 @@
   --text-tertiary: var(--subtext1);
 }
 
+/*
+ * The topbar has no ground of its own (DESIGN-SPEC.md 4). The painted band was
+ * the second half of the shadowing noted in DECISIONS.md 9.3.1: even after the
+ * P1 alias flip this rule kept mixing the Catppuccin mantle, which is why the
+ * P1 screenshots still show a palette-coloured header over a Notion canvas.
+ * Transparent lets the canvas run to the top edge, and the single hairline in
+ * styles.css is the only thing that separates the bar from the content.
+ */
 :root[data-ui-shell="focused"] .app-header {
   height: var(--focused-header-height);
   min-height: var(--focused-header-height);
   padding: 0 12px;
-  gap: 14px;
-  background: color-mix(in srgb, var(--mantle) 94%, var(--base));
+  gap: 8px;
+  background: transparent;
 }
 
 :root[data-ui-shell="focused"] .header-left {
@@ -44,9 +91,11 @@
   flex: 1 1 240px;
 }
 
+/* A 36px mark does not fit inside a 44px bar with any air around it. 20px is
+   the row-icon scale the rest of the chrome uses. */
 :root[data-ui-shell="focused"] .header-logo-img {
-  width: 36px;
-  height: 36px;
+  width: 20px;
+  height: 20px;
   filter: none;
 }
 
@@ -54,10 +103,13 @@
   filter: none;
 }
 
+/* 14px / 600 is the application scale's name row (DESIGN-SPEC.md 1.3). The
+   captured system tracks negative only above 16px, so the letter-spacing goes
+   to normal here rather than staying slightly tightened. */
 :root[data-ui-shell="focused"] .header-title {
   font-size: 14px;
-  font-weight: 650;
-  letter-spacing: -0.012em;
+  font-weight: 600;
+  letter-spacing: normal;
 }
 
 :root[data-ui-shell="focused"] .header-center {
@@ -65,32 +117,39 @@
   min-width: 0;
 }
 
+/*
+ * The nav cluster loses its container chrome. A bordered, filled, raised
+ * segmented control is the iOS-toolbar idiom the restyle replaces; the pill
+ * recipe (BUILD-CONTRACT 2.7) carries the whole affordance on the active pill
+ * itself, so the wrapper is now nothing but a flex row that fits inside the
+ * 44px bar.
+ */
 :root[data-ui-shell="focused"] .view-nav-cluster {
   display: flex;
   align-items: center;
-  min-height: 38px;
-  padding: 3px;
-  gap: 1px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--surface0) 62%, transparent);
+  min-height: 28px;
+  padding: 0;
+  gap: 2px;
+  border: 0;
+  border-radius: var(--radius-app-button);
+  background: transparent;
 }
 
 :root[data-ui-shell="focused"] .view-tabs {
-  min-height: 30px;
+  min-height: 28px;
   padding: 0;
-  gap: 1px;
+  gap: 2px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-cover);
   background: transparent;
 }
 
 :root[data-ui-shell="focused"] .view-tab {
-  min-height: 30px;
-  padding: 5px 11px;
+  min-height: 26px;
+  padding: 4px 10px;
   gap: 6px;
-  border-radius: 6px;
-  color: var(--text-tertiary);
+  border-radius: var(--radius-block-hover);
+  color: var(--app-text-secondary);
 }
 
 :root[data-ui-shell="focused"] .view-tab[data-shell-tier="secondary"],
@@ -98,15 +157,19 @@
   display: none;
 }
 
-:root[data-ui-shell="focused"] .view-tab:hover {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--surface1) 36%, transparent);
+:root[data-ui-shell="focused"] .nt-enable-hover .view-tab:hover {
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 
+/* Active is a selection wash plus ink weight, never a raised card. The
+   box-shadow that lifted the active tab off the segmented control is gone with
+   the control itself: on this surface only overlays carry depth. */
 :root[data-ui-shell="focused"] .view-tab.active {
-  color: var(--text-primary);
-  background: var(--base);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--crust) 45%, transparent);
+  color: var(--app-text-primary);
+  background: var(--app-sidebar-item-selected);
+  box-shadow: none;
+  font-weight: 600;
 }
 
 :root[data-ui-shell="focused"] .focused-more-btn {
@@ -114,13 +177,13 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 30px;
-  padding: 5px 9px;
+  min-height: 26px;
+  padding: 4px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-block-hover);
   background: transparent;
-  color: var(--text-tertiary);
-  font: 500 12px var(--font-sans);
+  color: var(--app-text-secondary);
+  font: 500 13px var(--font-sans);
   cursor: pointer;
   transition: color var(--transition-fast), background var(--transition-fast);
 }
@@ -128,10 +191,14 @@
 :root[data-ui-shell="focused"] .focused-more-btn:hover,
 :root[data-ui-shell="focused"] .focused-more-btn:focus-visible,
 :root[data-ui-shell="focused"] .focused-more-btn.active {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--surface1) 36%, transparent);
+  color: var(--app-text-primary);
+  background: var(--app-wash-hover);
 }
 
+/* PINNED, verbatim: focused-shell.test.js line 154 matches this rule's outline
+   and outline-offset declarations as written. --accent already resolves to the
+   Notion --app-ui-blue after the P1 alias flip, so the ring is the right colour
+   without touching the two declarations the test reads. */
 :root[data-ui-shell="focused"] .focused-more-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -170,28 +237,35 @@
   max-width: 210px;
 }
 
+/* The warm sunken ground, straight from the chrome layer. The color-mix() over
+   the Catppuccin mantle was the third shadowing site: it kept the sidebar on
+   the terminal palette after the P1 alias flip. */
 :root[data-ui-shell="focused"] .sidebar {
   width: var(--focused-sidebar-width);
-  background: color-mix(in srgb, var(--mantle) 96%, var(--base));
+  background: var(--app-bg-secondary);
 }
 
+/* The focused shell kept its own filled, bordered treatment on top of the base
+   rule, which is the pair that produced the grey-on-grey control DECISIONS.md
+   9.5 called out. Both are now the sidebar row recipe (DESIGN-SPEC.md 3.6):
+   27px, no fill, no border, hover wash. */
 :root[data-ui-shell="focused"] .sidebar-launch-btn {
   justify-content: flex-start;
-  min-height: 36px;
-  margin: 10px 10px 6px;
-  width: calc(100% - 20px);
-  padding: 8px 10px;
-  border: 1px solid var(--border-default);
+  min-height: var(--app-sidebar-item-height);
+  margin: 8px 8px 2px;
+  width: calc(100% - 16px);
+  padding: 4px 8px;
+  border: 1px solid transparent;
   border-style: solid;
-  border-radius: 8px;
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--surface0) 72%, transparent);
+  border-radius: var(--radius-block-hover);
+  color: var(--app-text-secondary);
+  background: transparent;
 }
 
-:root[data-ui-shell="focused"] .sidebar-launch-btn:hover {
-  color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--accent) 52%, var(--border-default));
-  background: color-mix(in srgb, var(--surface1) 54%, transparent);
+:root[data-ui-shell="focused"] .nt-enable-hover .sidebar-launch-btn:hover {
+  color: var(--app-text-primary);
+  border-color: transparent;
+  background: var(--app-wash-hover);
 }
 
 :root[data-ui-shell="focused"] #sidebar-view-toggle,
@@ -201,17 +275,21 @@
 }
 
 :root[data-ui-shell="focused"] .sidebar-header {
-  min-height: 38px;
-  padding-top: 8px;
-  padding-bottom: 8px;
+  min-height: var(--app-sidebar-item-height);
+  padding-top: 4px;
+  padding-bottom: 2px;
 }
 
+/* The section label, DESIGN-SPEC.md 3.3: 12px, weight 500, sentence case, in
+   --app-sidebar-section-label. The uppercase tracked-out treatment is gone.
+   Exactly one uppercase tracked label survives anywhere in the finished
+   design, the Quick Find group header, and this is not it (gate G7). */
 :root[data-ui-shell="focused"] .sidebar-title {
-  color: var(--text-tertiary);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--app-sidebar-section-label);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 /* Legacy sidebar rules use the palette's raw overlay token for several small
@@ -232,7 +310,7 @@
   .sidebar-section-divider-label
 ),
 :root[data-ui-shell="focused"] .sidebar-list [style*="color: var(--overlay0)"] {
-  color: var(--text-tertiary) !important;
+  color: var(--ink-meta) !important;
 }
 
 /* On a genuine zero-data first run, keep the one useful Projects create
@@ -266,15 +344,26 @@
   width: 2px;
 }
 
+/* The canvas ground. var(--base) was the Catppuccin canvas, which is what kept
+   the work surface on the terminal palette after the P1 flip; --app-bg-primary
+   is the chrome canvas and is what the topbar now runs into. The two container
+   declarations are PINNED verbatim by experience-ux-contract.test.js and by the
+   @container query further down this file: do not touch them. */
 :root[data-ui-shell="focused"] .main-content {
-  background: var(--base);
+  background: var(--app-bg-primary);
   container-name: workbook-main;
   container-type: inline-size;
 }
 
+/* The tab bar sits directly under the topbar. A second painted band there is
+   the single loudest remaining "chrome stack" cue, so the ground goes and a
+   hairline does the separating, exactly as the topbar's does (DESIGN-SPEC.md
+   5.1). The pills inside it are a tab family and belong to P4.4; only the
+   bar's own ground moves here. */
 :root[data-ui-shell="focused"] .terminal-groups-bar {
   min-height: 38px;
-  background: color-mix(in srgb, var(--mantle) 76%, var(--base));
+  background: transparent;
+  border-bottom: 1px solid var(--app-border-secondary);
 }
 
 :root[data-ui-shell="focused"] .terminal-grid {
@@ -400,13 +489,16 @@
   display: none;
 }
 
+/* The radial glow behind the empty state was two rejection-list items at once,
+   a gradient and a glow, and it is the faint purple halo visible in the P1
+   workbench screenshots. The ground underneath it was var(--base), the
+   Catppuccin canvas, rather than the chrome canvas. Both go; the empty state
+   sits on the same flat canvas as everything else. */
 :root[data-ui-shell="focused"] .terminal-pane-empty .terminal-container {
   margin: 0;
   border: 0;
-  border-radius: 0;
-  background:
-    radial-gradient(circle at 50% 34%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 38%),
-    var(--base);
+  border-radius: var(--radius-cover);
+  background: var(--app-bg-primary);
 }
 
 :root[data-ui-shell="focused"] .terminal-pane-empty .terminal-container::after {
@@ -434,17 +526,29 @@
   display: none;
 }
 
+/*
+ * THE ROUNDED SQUARE IS GONE, Notion restyle P4.5.
+ * BUILD-CONTRACT 2.12's empty-state row names it directly: "Art slot takes a
+ * hand-inked line drawing or NOTHING. Never a line icon in a rounded square."
+ * This was also the only shadowed element on the default screen once P2.4's
+ * elevation sweep had finished, which DECISIONS 11.5 item 4 recorded as a
+ * standing delta.
+ *
+ * The glyph itself is retained, at the same size, in tertiary ink. The frame,
+ * the ground and the shadow are what carried the idiom, and all three go. The
+ * figurative illustration OQ-3 contemplates would land in exactly this slot.
+ */
 :root[data-ui-shell="focused"] .workbench-empty-icon {
   display: grid;
   place-items: center;
   width: 54px;
   height: 54px;
   margin-bottom: 18px;
-  border: 1px solid var(--border-default);
-  border-radius: 15px;
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--surface0) 58%, transparent);
-  box-shadow: var(--shadow-sm);
+  border: none;
+  border-radius: 0;
+  color: var(--app-icon-tertiary);
+  background: none;
+  box-shadow: none;
 }
 
 :root[data-ui-shell="focused"] .workbench-empty-state h1 {
@@ -459,7 +563,7 @@
 :root[data-ui-shell="focused"] .workbench-empty-state p {
   max-width: 490px;
   margin-top: 9px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -472,15 +576,152 @@
   pointer-events: auto;
 }
 
+/*
+ * Notion restyle phase P3, work package P3.1. The workbench empty state used
+ * to grow its two buttons to 38px, which was the old design's way of saying
+ * "this is the important control on the screen". In this system importance is
+ * carried by the fill, not by the size: there is exactly one 28px button scale
+ * and DESIGN-SPEC 12 gives no large variant, so a 38px CTA next to a 28px one
+ * reads as two different components rather than as one emphasised.
+ *
+ * The 44px override inside the phone media query below is untouched: that one
+ * is a touch-target floor, not an emphasis choice.
+ */
 :root[data-ui-shell="focused"] .workbench-empty-actions .btn {
-  min-height: 38px;
-  padding-inline: 15px;
+  min-height: var(--focused-control-height);
+  padding-inline: 10px;
 }
 
 :root[data-ui-shell="focused"] .workbench-empty-hint {
   margin-top: 15px;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/*
+ * RECENCY SURFACE 4: "Continue where you left off" (BUILD-CONTRACT 2.13.5).
+ *
+ * It lives here rather than in styles.css because the whole empty state is
+ * authored in this file, including the `pointer-events: none` that makes the
+ * pane behind it a drop target. The cards therefore have to opt back in, the
+ * same way .workbench-empty-actions does; without that the pane would swallow
+ * every click on a card.
+ *
+ * BORDERED cards, deliberately. 2.13.6 states the semantic: bordered cards
+ * for live things, borderless rows for history. This row is the resume
+ * affordance, not a history list, and the sidebar's Recent rows stay
+ * borderless for the same reason.
+ */
+:root[data-ui-shell="focused"] .workbench-recent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  pointer-events: auto;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent[hidden] {
+  display: none;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-sidebar-section-label);
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 214px;
+  max-width: 214px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-callout);
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+/* The gate class rides on <body> and on #app, both of which are inside
+   :root, so the descendant order here is html then the gate then the card. */
+:root[data-ui-shell="focused"] .nt-enable-hover .workbench-recent-card:hover {
+  background: var(--app-bg-secondary);
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ink-meta);
+  /* One line. The project name is the only part allowed to shrink; the chip
+     and the timestamp are already at their minimum and wrapping either one
+     turns a 3-line card into a 4-line card and breaks the row's rhythm. */
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-project {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-card .session-provider-chip,
+:root[data-ui-shell="focused"] .workbench-recent-time {
+  flex-shrink: 0;
+}
+
+/*
+ * The card's chip is 12px, not the system 14px, by the same principle the
+ * orchestrator ruled on for row chips (DECISIONS 11.2.3): a property is never
+ * louder than its subject. This card's title is 13px, so a 14px chip in the
+ * meta line under it would be the largest type on the card. The 14px chip
+ * stays the default everywhere the surrounding type is 14px or larger.
+ */
+:root[data-ui-shell="focused"] .workbench-recent-card .session-provider-chip {
+  font-size: 12px;
+  height: 18px;
+}
+
+:root[data-ui-shell="focused"] .workbench-recent-time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
 
 :root[data-ui-shell="focused"] .terminal-pane-empty.drag-over .terminal-container {
@@ -511,7 +752,7 @@
 
 :root[data-ui-shell="focused"] .empty-state,
 :root[data-ui-shell="focused"] .session-empty {
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
 }
 
 /* Accordion actions are siblings of the semantic disclosure button. This
@@ -536,7 +777,7 @@
 }
 
 .docs-section-heading > .docs-section-header:focus-visible {
-  border-radius: 6px;
+  border-radius: var(--radius-app-button);
   outline: 2px solid var(--color-focus, var(--accent));
   outline-offset: 2px;
 }
@@ -612,7 +853,7 @@
   gap: 7px;
   padding: 5px 9px;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-pane-frame);
   color: var(--text-secondary);
   background: transparent;
   font: 600 11px var(--font-sans);
@@ -646,7 +887,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text-primary);
   background: var(--surface-raised);
   font-size: 10px;
@@ -661,7 +902,7 @@
   width: 7px;
   height: 7px;
   margin-right: 1px;
-  border-radius: 50%;
+  border-radius: var(--radius-avatar);
   background: var(--attention-color, var(--status-running));
   flex: 0 0 auto;
 }
@@ -693,6 +934,31 @@
   box-shadow: none;
 }
 
+/*
+ * THE RING, carried through the attention layer. P4 remainder, work package A;
+ * the mapping table is DECISIONS 13.1.
+ *
+ * Every status mark in this app is now a static shape, and the one shape that
+ * is not a filled disc is the RING, spent on NEEDS INPUT because DV-14
+ * measures its yellow at 2.68:1 and the pulse that used to be its second
+ * channel is gone. The three rules above re-colour a row's dot from the
+ * attention layer at a higher specificity than the styles.css shape rules can
+ * reach, so without these four selectors a needs-input row would be re-filled
+ * into a plain disc and the shape channel would survive everywhere EXCEPT the
+ * rows that need it most.
+ *
+ * The ring is applied by attention STATE rather than by dot class, which also
+ * makes it uniform: whatever a row's own status class says, a row the system
+ * is waiting on draws an outline.
+ */
+.attention-state[data-attention-state="needs-input"]::before,
+.session-item[data-attention-state="needs-input"] .status-dot,
+.terminal-group-tab[data-attention-state="needs-input"] .terminal-group-tab-dot,
+.ws-session-item[data-attention-state="needs-input"] .ws-session-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--attention-color, var(--status-needs-input));
+}
+
 /* ─── Explicit Project Notes context ────────────────────────── */
 
 :root[data-ui-shell="focused"] .docs-header-left {
@@ -711,8 +977,8 @@
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .docs-workspace-select {
@@ -720,7 +986,7 @@
   min-height: 32px;
   padding: 5px 28px 5px 9px;
   border: 1px solid var(--border-subtle);
-  border-radius: 7px;
+  border-radius: var(--radius-pill);
   color: var(--text-primary);
   background: var(--surface-canvas);
   font: 500 12px var(--font-sans);
@@ -742,7 +1008,7 @@
   align-content: center;
   min-height: 300px;
   padding: 44px 24px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   text-align: center;
 }
 
@@ -757,7 +1023,7 @@
   height: 48px;
   margin-bottom: 13px;
   border: 1px solid var(--border-subtle);
-  border-radius: 13px;
+  border-radius: var(--radius-lg);
   color: var(--color-focus);
   background: var(--surface-raised);
   font-size: 20px;
@@ -791,7 +1057,7 @@ body.appearance-open {
   max-height: min(820px, calc(100vh - 48px));
   overflow: auto;
   border: 1px solid var(--border-subtle);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   color: var(--text-primary);
   background: var(--surface-canvas);
   box-shadow: var(--shadow-xl);
@@ -818,7 +1084,7 @@ body.appearance-open {
 .appearance-header p,
 .appearance-section-heading p {
   margin-top: 4px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -850,7 +1116,7 @@ body.appearance-open {
   min-height: 76px;
   padding: 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-callout);
   color: var(--text-primary);
   background: transparent;
   text-align: left;
@@ -874,7 +1140,7 @@ body.appearance-open {
 
 .density-choice-description {
   grid-column: 1 / -1;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -900,8 +1166,8 @@ body.appearance-open {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 750;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .theme-gallery-grid {
@@ -922,7 +1188,7 @@ body.appearance-open {
   gap: 9px;
   padding: 9px 10px;
   border: 1px solid var(--border-subtle);
-  border-radius: 9px;
+  border-radius: var(--radius-pill);
   color: var(--text-primary);
   background: transparent;
   font: 550 11px var(--font-sans);
@@ -944,7 +1210,7 @@ body.appearance-open {
   width: 28px;
   height: 28px;
   border: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius-pane-frame);
   background: var(--surface-raised);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, white 8%, transparent);
 }
@@ -957,7 +1223,7 @@ body.appearance-open {
 .theme-gallery-more > summary {
   min-height: 38px;
   padding: 9px 4px;
-  border-radius: 7px;
+  border-radius: var(--radius-pill);
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 650;
@@ -985,7 +1251,7 @@ body.appearance-open {
   height: 34px;
   margin-left: auto;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-pill);
   color: var(--text-secondary);
   background: transparent;
   font: 700 16px/1 var(--font-sans);
@@ -1012,7 +1278,7 @@ body.appearance-open {
 .resource-value-muted,
 .resource-workspace-cell,
 .resource-message-count {
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
 }
 
 .resource-session-status {
@@ -1040,7 +1306,7 @@ body.appearance-open {
 :root[data-ui-shell="focused"] .context-menu-sep-labeled .ctx-sep-label {
   margin: 0;
   padding: 0 4px;
-  color: var(--text-tertiary);
+  color: var(--ink-meta);
   line-height: 14px;
 }
 
@@ -1148,21 +1414,63 @@ body.appearance-open {
     min-width: min(88vw, 320px);
   }
 
+  /*
+   * P12.5, the first of DV-P10-5's two relocations.
+   *
+   * This height used to say 60px, and styles-mobile.css carried a rule whose
+   * ONLY purpose was to beat it: `:root[data-ui-shell] nav.mobile-tab-bar`,
+   * where the `nav` element qualifier bought one point of specificity because
+   * this sheet loads afterwards. That is a load-order artefact rather than a
+   * design decision, and DV-P10-5 flagged it for exactly this pass.
+   *
+   * The fix is not to move the winning rule, it is to stop disagreeing. The
+   * mock and MOBILE-EXPERIENCE C.7 both give the bar 64px of content plus the
+   * home-indicator inset, which is what --mw-tabbar-h resolves to; 60px was
+   * this shell's own pre-restyle number and it lost every time anyway. Naming
+   * the token here means the two sheets now agree by construction, the
+   * qualifier is deleted rather than carried, and there is one definition of
+   * the bar's height instead of two and a tiebreaker.
+   */
   :root[data-ui-shell="focused"] .mobile-tab-bar {
-    height: calc(60px + env(safe-area-inset-bottom, 0px));
+    height: var(--mw-tabbar-h);
     justify-content: stretch;
     padding-inline: 8px;
+  }
+
+  /*
+   * P12.5, the second relocation. styles-mobile.css carried
+   * `:root[data-ui-shell] .app-header .sidebar-toggle, ... .account-chip`
+   * at 44px, and the `[data-ui-shell]` prefix on a MOBILE sheet's rule existed
+   * only to out-specify this sheet's own `.account-chip` min-height. The floor
+   * belongs to the sheet that authors the base value, so it lives here now, in
+   * this sheet's native selector form, and the mobile rule is gone rather than
+   * qualified.
+   *
+   * D.2's reason for growing the box rather than the hit area is unchanged and
+   * still load-bearing: the header sets `overflow: hidden` and would clip a
+   * pseudo-element. The width condition is also unchanged, which matters,
+   * because a narrow desktop window gets the phone layout with a mouse
+   * attached and the coarse-pointer block at the foot of this file never
+   * fires there.
+   */
+  :root[data-ui-shell="focused"] .app-header .sidebar-toggle,
+  :root[data-ui-shell="focused"] .app-header .account-chip {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   :root[data-ui-shell="focused"] .mobile-tab {
     flex: 1;
     min-width: 0;
     min-height: 48px;
-    color: var(--text-muted);
+    color: var(--ink-meta);
   }
 
+  /* The mock marks the active mobile tab with INK ALONE, no colour
+     (BUILD-CONTRACT 1.2, the --green row). The five-tab bar itself is P10.1's;
+     this is only the two inks the bar draws with today. */
   :root[data-ui-shell="focused"] .mobile-tab.active {
-    color: var(--accent);
+    color: var(--app-text-primary);
   }
 
   :root[data-ui-shell="focused"] .app-body {
@@ -1270,7 +1578,7 @@ body.appearance-open {
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
-    border-radius: 18px 18px 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) var(--radius-cover) var(--radius-cover);
   }
 
   .appearance-header,
@@ -1314,7 +1622,7 @@ body.appearance-open {
     margin-bottom: 10px;
     padding: 12px 48px 12px 12px;
     border: 1px solid var(--border-subtle);
-    border-radius: 10px;
+    border-radius: var(--radius-callout);
     background: color-mix(in srgb, var(--surface-raised) 38%, transparent);
   }
 
@@ -1332,8 +1640,8 @@ body.appearance-open {
     color: var(--text-muted);
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    letter-spacing: normal;
+    text-transform: none;
   }
 
   :root[data-ui-shell="focused"] .claude-session-table td.session-name-cell {
