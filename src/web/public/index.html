@@ -52,6 +52,27 @@
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <!--
+    Notion restyle P12.6, MOBILE-EXPERIENCE F.
+
+    The two iOS installability tags. Safari does not read the manifest for
+    standalone launch or for the home-screen title; it reads these. Without
+    the first, "Add to Home Screen" produces a bookmark that opens in a Safari
+    tab with its chrome, which is not what the manifest's display:standalone
+    promised on every other platform.
+
+    status-bar-style stays DEFAULT rather than black-translucent. That is
+    P12.2's own deferral and the reason is still live: black-translucent takes
+    the status bar OUT of the layout flow, so the 44px header would slide under
+    the clock until the safe-area header padding has shipped AND been verified
+    on a real device, which the G.5 script has not yet done. The status bar
+    tint still tracks the chrome, because that is the theme-color pair above,
+    not this tag.
+  -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Workbook">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="manifest" href="/manifest.webmanifest">
   <!--
     Notion restyle P1.2. Three tags were removed here and are recorded rather

@@ -571,3 +571,14 @@ phase on this branch has hit.
 | **What it costs** | Unchanged from DV-12: the one accent-filled control in the application carries a 14px/500 label that clears the 3:1 UI floor and misses the 4.5:1 body floor by 0.6. Mitigations unchanged: the button is never the only route to its action, the label is always a verb phrase rather than an icon, and the disabled state uses opacity rather than colour. |
 | **Approved by** | P12 implementation agent, under the orchestrator's own "else record" branch. |
 | **Date** | 2026-08-13 |
+
+### DV-P12-3. The caching service worker is not built, and the stub is not removed
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | `BUILD-CONTRACT.md` P12.3 specifies a service worker "last and behind a flag": network-first HTML with a 2s timeout, stale-while-revalidate for the `?v=`-keyed assets, cache-first for fonts and vendor, `/api/*` never cached, a build stamp separate from the cachebusters, an update toast with an action, and a kill switch that unregisters on a version mismatch. |
+| **What shipped** | None of it. `sw.js` keeps the three-line no-op stub that predates this program: `skipWaiting`, `clients.claim`, and a `fetch` listener with an empty body. |
+| **Why** | The orchestrator's P12 ruling puts it out of scope, and the shape of the work agrees. Every clause above is a caching policy, and a caching policy interacts with gate G10, whose whole premise is that a changed asset is revalidated because `express.static` serves this tree with `maxAge 0` and an ETag (DV-28, DV-P11-5). A worker that started caching would make the cachebusters load-bearing for the first time, which is a change to the deployment contract rather than to the restyle. The flag, the build stamp and the kill switch are three more moving parts in the phase that is supposed to be closing them out. |
+| **What it costs** | No offline shell. A reload with no network shows the browser's error page rather than the application's, which is exactly the behaviour before this program started, so nothing regressed. The stub is deliberately NOT deleted: it is registered by `index.html`, and unregistering a worker that installed clients already hold is a migration, not a cleanup. `pwa-manifest.test.js` asserts the stub can neither touch the Cache API nor call `respondWith`, so "no-op" is now a property under test rather than an assumption. |
+| **Approved by** | P12 implementation agent, under the orchestrator's explicit P12 scope ruling. |
+| **Date** | 2026-08-13 |
