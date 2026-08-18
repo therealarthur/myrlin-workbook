@@ -26,8 +26,10 @@ so a UI change never strands the marketing set on an old build.
   resting state (a settled UI), so the loop has no jump.
 - Frame rate: 10 fps for the hero, 12 fps for feature clips, 8 fps for the
   themes clip (large deltas). Duration 8 to 12 s per feature clip, 30 s hero.
-- Fonts in stills are the app's own (Plus Jakarta Sans, JetBrains Mono), rendered
-  by the browser, never substituted by sharp.
+- Fonts in stills are the app's own real font stacks as served by the app surface
+  (the restyle removed the webfont from the surface, so the stacks resolve to the
+  bundled and system faces; JetBrains Mono for code), rendered by the browser,
+  never substituted by sharp, and each still asserts the face that resolved.
 - No status pill with a dot indicator anywhere in any frame (global UI rule).
 - No em dashes or double hyphens in any on-screen copy.
 - No real project paths, session ids, account names or costs from Arthur's

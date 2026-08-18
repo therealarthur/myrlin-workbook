@@ -30,7 +30,7 @@
 
 <div align="center">
   <a href="https://github.com/therealarthur/myrlin-workbook/blob/main/docs/media/hero.mp4">
-    <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/hero.webp" alt="The sidebar, a live terminal with scrollback, a Codex session, the phone layout and the cost panel" width="900">
+    <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/hero.webp" alt="The sidebar, a live terminal with scrollback, a Codex session and the cost panel" width="900">
   </a>
   <br>
   <sub><a href="https://github.com/therealarthur/myrlin-workbook/blob/main/docs/media/hero.mp4">Watch the 30 second tour</a></sub>
