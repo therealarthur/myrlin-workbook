@@ -1384,4 +1384,5 @@ module.exports = {
   assertH264Safety,
   resolveRoutePath,
   human,
+  printTable,
 };
