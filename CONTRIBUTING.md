@@ -94,7 +94,7 @@ src/
 |----------|---------|-------------|
 | `PORT` | `3456` | Server port |
 | `CWM_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` for LAN access) |
-| `CWM_PASSWORD` | `myrlin` | Login password |
+| `CWM_PASSWORD` | random, saved to `~/.myrlin/config.json` on first launch | Login password override (see `src/web/auth.js`) |
 | `CWM_NO_OPEN` | unset | Skip auto-opening browser on start |
 
 ## Questions?
