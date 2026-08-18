@@ -67,15 +67,15 @@ jobs:
         id: dist-tag
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          if echo "$VERSION" | grep -qE -- '-alpha'; then
-            TAG="alpha"
-          elif echo "$VERSION" | grep -qE -- '-beta'; then
-            TAG="beta"
-          elif echo "$VERSION" | grep -qE -- '-rc'; then
-            TAG="rc"
-          else
-            TAG="latest"
-          fi
+          # A shell case statement rather than grep: it needs no end-of-options
+          # marker (the repo's prose gate rejects a bare double hyphen), and it
+          # matches the prerelease identifier anywhere after the patch number.
+          case "$VERSION" in
+            *-alpha*) TAG="alpha" ;;
+            *-beta*)  TAG="beta" ;;
+            *-rc*)    TAG="rc" ;;
+            *)        TAG="latest" ;;
+          esac
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Publishing $VERSION under npm dist-tag '$TAG'"
 
