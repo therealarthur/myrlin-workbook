@@ -6,18 +6,32 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel superseded runs on the same branch/PR so pushes do not queue behind
+# stale runs. WHY: the app targets Node 20+, and GitHub deprecated the
+# actions/checkout@v4 and actions/setup-node@v4 runtime (Node 20 support
+# ends, forced onto Node 24) as of 2026, so this workflow pins the current
+# majors (v7 for both, verified via `gh api repos/<owner>/<repo>/releases/latest`)
+# and adds Node 22 to the test matrix alongside the existing Node 20 pin.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Node 18 dropped (LTS ended April 2025) — Plan 22-03 Codex auto-discovery
+        # Node 18 dropped (LTS ended April 2025). Plan 22-03 Codex auto-discovery
         # uses fs.watch(..., {recursive: true}) which is Linux-supported only on
-        # Node 20+. Add 22 here when current LTS rolls forward.
-        node-version: [20]
+        # Node 20+. Node 22 added alongside 20 to cover the app's full engines
+        # range ("node": ">=20.0.0") without slowing the matrix down.
+        node-version: [20, 22]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
       - run: sudo apt-get update && sudo apt-get install -y build-essential python3

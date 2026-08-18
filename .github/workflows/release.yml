@@ -1,0 +1,104 @@
+name: Release
+
+# Publishes to npm and cuts a GitHub Release whenever a `v*` tag is pushed.
+#
+# WHY: up to this point every release has been pushed to npm by hand from a
+# developer machine. That means no provenance attestation, no repeatable
+# publish step and no guarantee the tag actually matches the version being
+# published. This workflow makes tagging the single source of truth: push
+# `vX.Y.Z[-alpha.N|-beta.N|-rc.N]`, and it publishes exactly that version
+# with npm provenance, then builds a GitHub Release from the CHANGELOG.
+#
+# SETUP REQUIRED: this workflow needs an NPM_TOKEN secret. It must be a
+# granular automation token (https://docs.npmjs.com/creating-and-viewing-access-tokens)
+# scoped to the myrlin-workbook package with publish rights, created with
+# 2FA bypass so the workflow can publish without an interactive OTP prompt.
+# Add it at: GitHub repo -> Settings -> Secrets and variables -> Actions ->
+# "New repository secret", named NPM_TOKEN.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# id-token: write is required for `npm publish --provenance` (OIDC signing).
+# contents: write is required to create the GitHub Release.
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: sudo apt-get update && sudo apt-get install -y build-essential python3
+
+      - run: npm ci
+
+      - run: npm test
+
+      # Fail loudly if the pushed tag does not match package.json's version.
+      # WHY: a mismatch here means the wrong code would be published under
+      # the wrong version number, silently. Better to stop the workflow with
+      # an unambiguous message than to publish something nobody asked for.
+      - name: Verify tag matches package.json version
+        id: version
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          EXPECTED_TAG="v${PKG_VERSION}"
+          if [ "$TAG_NAME" != "$EXPECTED_TAG" ]; then
+            echo "::error::Tag '$TAG_NAME' does not match package.json version '$PKG_VERSION' (expected tag '$EXPECTED_TAG'). Fix package.json or delete and re-push the correct tag."
+            exit 1
+          fi
+          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+
+      # Prerelease identifiers (-alpha, -beta, -rc) publish under the
+      # matching npm dist-tag instead of "latest", so `npm install
+      # myrlin-workbook` never silently pulls a prerelease build.
+      - name: Determine npm dist-tag
+        id: dist-tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if echo "$VERSION" | grep -qE -- '-alpha'; then
+            TAG="alpha"
+          elif echo "$VERSION" | grep -qE -- '-beta'; then
+            TAG="beta"
+          elif echo "$VERSION" | grep -qE -- '-rc'; then
+            TAG="rc"
+          else
+            TAG="latest"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Publishing $VERSION under npm dist-tag '$TAG'"
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public --tag "${{ steps.dist-tag.outputs.tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Build release notes
+        id: notes
+        run: |
+          node scripts/changelog-section.js "${{ steps.version.outputs.version }}" > release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [ "${{ steps.dist-tag.outputs.tag }}" != "latest" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --notes-file release-notes.md \
+            --generate-notes \
+            $PRERELEASE_FLAG

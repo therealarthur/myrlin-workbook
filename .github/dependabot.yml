@@ -1,0 +1,36 @@
+# Dependabot configuration.
+#
+# WHY: dependency updates were entirely manual before this, which means
+# security patches for npm packages and the GitHub Actions used in the
+# workflows in this directory could sit unnoticed for months. This file
+# turns that into weekly, low-noise pull requests: minor and patch npm
+# bumps are grouped into a single PR instead of one PR per package, and
+# node-pty, the @xterm/* family and express are excluded from automatic
+# major bumps because their versions are pinned on purpose (native PTY
+# binding compatibility for node-pty, and a coordinated terminal/renderer
+# pairing for @xterm/*; see package.json comments and CHANGELOG history
+# for the terminal work). Those three still get reviewed manually.
+version: 2
+updates:
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - 'minor'
+          - 'patch'
+    ignore:
+      - dependency-name: 'node-pty'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@xterm/*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'express'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'

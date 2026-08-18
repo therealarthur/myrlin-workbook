@@ -1,0 +1,63 @@
+name: Security
+
+# WHY: no automated security scanning existed before this. CodeQL catches
+# common JavaScript vulnerability patterns (injection, unsafe regex, prototype
+# pollution, etc.) on every push and PR against main, plus a weekly sweep to
+# catch newly published query patterns against unchanged code. `npm audit`
+# runs alongside it as an informational, non-blocking job: it flags known
+# vulnerable dependency versions without gating merges, because audit
+# findings are often in transitive dev-only packages that need a human to
+# triage rather than a red X blocking every PR.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Every Monday 06:00 UTC. Catches new CodeQL query coverage landing
+    # against code that has not otherwise changed that week.
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['javascript']
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: '/language:${{ matrix.language }}'
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    # Informational only: a known-vulnerability finding should not block a
+    # merge on its own, since many are in transitive dev dependencies with
+    # no available fix yet. This job still runs and reports on every push
+    # and PR so findings are visible without gating anything.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - run: npm audit --omit=dev --audit-level=high
