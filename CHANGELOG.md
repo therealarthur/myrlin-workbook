@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0-alpha.30] - 2026-08-18
+
+The first build of the 1.3 line published to npm under the `alpha` tag (`npx myrlin-workbook@alpha`); until now the tag pointed at 1.2.0-alpha.9 from May, so a fresh install got none of the restyle, the Codex parity work or the mobile layout.
+
+### Fixed
+
+- **A Codex search result on macOS or Linux is labelled with its folder name, not its whole path.** Codex records a session's working directory the way the operating system that ran it writes paths. The search results took the last piece of that path with a routine that only understands the current machine's separator, so a session recorded on Windows and searched from a Mac (a synced Codex home, or simply the project's own test suite running on Linux) came back labelled `C:\Users\...\project` instead of `project`, and disagreed with the sidebar, which had always split on either separator. Search now uses the sidebar's own label routine, and a test pins it there. This is also what turned the continuous-integration run red on every push since the restyle merged; the suite itself was fine, the label was not.
+
 ## [1.3.0-alpha.29] - 2026-08-14
 
 ### Fixed

@@ -69,6 +69,13 @@ const os = require('os');
 // provider barrel.
 const stateDb = require('./state-db');
 const discover = require('./discover');
+// The folder label for a search hit is derived by the SAME helper the sidebar
+// uses (paths.js splits on either separator), never by path.basename: a Codex
+// cwd is recorded in the format of the OS that ran the session, so a
+// backslash path read on a POSIX host (a synced CODEX_HOME, or CI running the
+// Windows-authored fixtures) would otherwise surface the whole path as the
+// name and disagree with the sidebar's label for the same project.
+const { projectDisplayNameFor } = require('./paths');
 
 // ─── Blocking-read guards (2026-07-02, mirrors claude/search.js) ─────────
 // Rollouts are usually small, but the same failure class applies: a sync
@@ -641,7 +648,9 @@ async function search({ query, limit, timeBudgetMs } = {}) {
               projectPath = findCwd(lines);
             } catch (_) { projectPath = null; }
           }
-          projectName = projectPath ? path.basename(projectPath) : null;
+          // Separator-agnostic on purpose (see the require above): the label
+          // must equal what the sidebar shows for this project on ANY host.
+          projectName = projectPath ? (projectDisplayNameFor(projectPath) || null) : null;
           lazyResolved = true;
         }
 

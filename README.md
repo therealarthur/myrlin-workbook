@@ -10,11 +10,11 @@
 </p>
 
 <p align="center">
-Open-source workspace manager for AI coding CLIs. <b>Now multi-provider</b> (v1.2 alpha): Claude Code <i>and</i> ChatGPT Codex through one unified interface, with Gemini next. Multi-pane embedded terminals, cross-provider search, kanban with PR automation, cost tracking, conflict detection, per-project docs, session templates, 13 themes, <a href="#full-feature-list">and more</a>. Discovers every session across every provider, organizes them into projects. Runs in your browser, everything stays local.
+Open-source workspace manager for AI coding CLIs. <b>Now multi-provider</b> (v1.3 alpha): Claude Code <i>and</i> ChatGPT Codex through one unified interface, with Gemini next. The 1.3 alpha ships the redesigned interface, full ChatGPT Codex session parity (the same folders and sessions the ChatGPT app shows), a terminal built for scrolling and copying history, and a phone layout. Multi-pane embedded terminals, cross-provider search, kanban with PR automation, cost tracking, conflict detection, per-project docs, session templates, 13 themes, <a href="#full-feature-list">and more</a>. Discovers every session across every provider, organizes them into projects. Runs in your browser, everything stays local.
 </p>
 
 <p align="center">
-  <b>v1.2 alpha:</b> <code>npm i myrlin-workbook@alpha</code> — multi-provider, off by default for existing Claude users.<br>
+  <b>v1.3 alpha:</b> <code>npm i myrlin-workbook@alpha</code>, multi-provider, redesigned, phone-ready.<br>
   <b>v0.9 stable:</b> <code>npm i myrlin-workbook</code> — Claude-only, unchanged.
 </p>
 
@@ -29,12 +29,12 @@ Open-source workspace manager for AI coding CLIs. <b>Now multi-provider</b> (v1.
 ### Try it now
 
 ```bash
-npx myrlin-workbook          # Stable (Claude only). Add @alpha for v1.2 multi-provider.
-npx myrlin-workbook@alpha    # v1.2 alpha: Claude + ChatGPT Codex (off by default)
+npx myrlin-workbook          # Stable (Claude only). Add @alpha for v1.3 multi-provider.
+npx myrlin-workbook@alpha    # v1.3 alpha: Claude + ChatGPT Codex, redesigned UI, phone layout
 npx myrlin-workbook --demo   # Opens browser with sample data (no real sessions needed)
 ```
 
-> **On the old version?** `npx myrlin-workbook` (and `@latest`) installs the stable line. All v1.2 multi-provider work ships under the `@alpha` tag until 1.2 goes stable. Use `npx myrlin-workbook@alpha` for the latest features.
+> **On the old version?** `npx myrlin-workbook` (and `@latest`) installs the stable line. All v1.3 multi-provider work ships under the `@alpha` tag until 1.3 goes stable. Use `npx myrlin-workbook@alpha` for the latest features.
 
 ### Install from source
 

@@ -170,6 +170,22 @@ async function runSearch() {
     assert.strictEqual(r.projectName, 'alpha', 'the folder label is the basename');
   });
 
+  // 2026-08-18: this file's fixture cwd is Windows-shaped, and CI runs on
+  // Linux, where path.basename leaves a backslash path whole. The label must
+  // come from the separator-agnostic sidebar helper on every host, so the
+  // regression is pinned at the source: search.js must not derive the folder
+  // label with path.basename, and the helper it uses must reduce BOTH shapes.
+  await test('the folder label is host-independent (same helper as the sidebar)', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'providers', 'codex', 'search.js'), 'utf8');
+    assert(!/projectName\s*=\s*projectPath\s*\?\s*path\.basename/.test(src),
+      'search.js must not label a hit with path.basename (host-dependent)');
+    assert(/projectDisplayNameFor\(projectPath\)/.test(src),
+      'search.js labels a hit with paths.projectDisplayNameFor');
+    const { projectDisplayNameFor } = require('../src/providers/codex/paths');
+    assert.strictEqual(projectDisplayNameFor('C:\\Users\\Fixture\\Documents\\alpha'), 'alpha');
+    assert.strictEqual(projectDisplayNameFor('/home/fixture/documents/alpha'), 'alpha');
+  });
+
   await test('the title index is cached and keyed by CODEX_HOME', async () => {
     const first = await _internal.getTitleIndex();
     const second = await _internal.getTitleIndex();
