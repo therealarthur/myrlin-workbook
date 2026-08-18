@@ -1,988 +1,448 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Myrlin - Manage Your Claude Code Sessions</title>
-  <meta name="description" content="Open source workspace manager for Claude Code. Terminal grid, cost tracking, session search, and more. Free forever.">
-  <meta name="theme-color" content="#1e1e2e">
-  <meta property="og:title" content="Myrlin Workbook - Claude Code Session Manager">
-  <meta property="og:description" content="Browser-based workspace manager for Claude Code. Session discovery, multi-terminal, cost tracking, docs, and kanban board.">
-  <meta property="og:image" content="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/marketing/screenshots/hero-dashboard.png">
-  <meta property="og:url" content="https://github.com/therealarthur/myrlin-workbook">
-  <meta property="og:type" content="website">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Myrlin Workbook - Claude Code Session Manager">
-  <meta name="twitter:description" content="Browser-based workspace manager for Claude Code. Session discovery, multi-terminal, cost tracking, and more.">
-  <meta name="twitter:image" content="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/marketing/screenshots/hero-dashboard.png">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎩</text></svg>">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <style>
-    /* ═══════════════════════════════════════════════════════
-       CATPPUCCIN MOCHA PALETTE
-       ═══════════════════════════════════════════════════════ */
-    :root {
-      --base: #1e1e2e;
-      --mantle: #181825;
-      --crust: #11111b;
-      --surface0: #313244;
-      --surface1: #45475a;
-      --surface2: #585b70;
-      --overlay0: #6c7086;
-      --overlay1: #7f849c;
-      --text: #cdd6f4;
-      --subtext0: #a6adc8;
-      --subtext1: #bac2de;
-      --mauve: #cba6f7;
-      --blue: #89b4fa;
-      --green: #a6e3a1;
-      --yellow: #f9e2af;
-      --red: #f38ba8;
-      --peach: #fab387;
-      --teal: #94e2d5;
-      --sky: #89dceb;
-      --pink: #f5c2e7;
-      --lavender: #b4befe;
-      --flamingo: #f2cdcd;
-      --rosewater: #f5e0dc;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       RESET & BASE
-       ═══════════════════════════════════════════════════════ */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    html {
-      scroll-behavior: smooth;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-    }
-
-    body {
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: var(--base);
-      color: var(--text);
-      line-height: 1.6;
-      overflow-x: hidden;
-    }
-
-    ::selection {
-      background: var(--mauve);
-      color: var(--crust);
-    }
-
-    a { color: var(--mauve); text-decoration: none; transition: color 0.2s; }
-    a:hover { color: var(--lavender); text-decoration: none; }
-
-    code, .mono {
-      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       ANIMATIONS
-       ═══════════════════════════════════════════════════════ */
-    @keyframes fadeInUp {
-      from { opacity: 0; transform: translateY(24px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    @keyframes float {
-      0%, 100% { transform: translateY(0) rotate(0deg); }
-      25%      { transform: translateY(-6px) rotate(-2deg); }
-      75%      { transform: translateY(-3px) rotate(1deg); }
-    }
-
-    @keyframes gradientShift {
-      0%, 100% { background-position: 0% 50%; }
-      50%      { background-position: 100% 50%; }
-    }
-
-    @keyframes shimmer {
-      0%   { opacity: 0.5; }
-      50%  { opacity: 1; }
-      100% { opacity: 0.5; }
-    }
-
-    @keyframes hatTip {
-      0%, 80%, 100% { transform: rotate(0deg); }
-      85%           { transform: rotate(-12deg) translateY(-4px); }
-      92%           { transform: rotate(3deg); }
-    }
-
-    .anim-1  { animation: fadeInUp 0.7s ease-out 0.05s both; }
-    .anim-2  { animation: fadeInUp 0.7s ease-out 0.15s both; }
-    .anim-3  { animation: fadeInUp 0.7s ease-out 0.25s both; }
-    .anim-4  { animation: fadeInUp 0.7s ease-out 0.35s both; }
-    .anim-5  { animation: fadeInUp 0.7s ease-out 0.45s both; }
-    .anim-6  { animation: fadeInUp 0.7s ease-out 0.55s both; }
-    .anim-7  { animation: fadeInUp 0.7s ease-out 0.65s both; }
-    .anim-8  { animation: fadeInUp 0.7s ease-out 0.75s both; }
-    .anim-9  { animation: fadeInUp 0.7s ease-out 0.85s both; }
-    .anim-10 { animation: fadeInUp 0.7s ease-out 0.95s both; }
-
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-        scroll-behavior: auto !important;
-      }
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       LAYOUT
-       ═══════════════════════════════════════════════════════ */
-    .container {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 0 24px;
-    }
-
-    section {
-      padding: 80px 0;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       NAV
-       ═══════════════════════════════════════════════════════ */
-    nav {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 100;
-      background: rgba(30, 30, 46, 0.8);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border-bottom: 1px solid rgba(49, 50, 68, 0.5);
-      padding: 0 24px;
-    }
-
-    .nav-inner {
-      max-width: 1100px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 56px;
-    }
-
-    .nav-logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 18px;
-      font-weight: 700;
-      color: var(--text);
-      letter-spacing: -0.3px;
-      cursor: default;
-    }
-
-    .nav-hat {
-      font-size: 28px;
-      display: inline-block;
-      transition: transform 0.3s ease;
-      filter: drop-shadow(0 0 8px rgba(203, 166, 247, 0.3));
-    }
-
-    .nav-logo:hover .nav-hat {
-      animation: hatTip 0.6s ease;
-    }
-
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 24px;
-    }
-
-    .nav-links a {
-      color: var(--subtext0);
-      font-size: 14px;
-      font-weight: 500;
-      transition: color 0.2s;
-    }
-
-    .nav-links a:hover {
-      color: var(--text);
-    }
-
-    .nav-gh {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 14px;
-      background: rgba(49, 50, 68, 0.6);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(69, 71, 90, 0.4);
-      border-radius: 8px;
-      color: var(--text) !important;
-      font-size: 13px;
-      font-weight: 500;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .nav-gh:hover {
-      background: rgba(69, 71, 90, 0.6);
-      border-color: var(--mauve);
-      box-shadow: 0 4px 16px rgba(203, 166, 247, 0.1);
-      transform: translateY(-1px);
-    }
-
-    .nav-gh svg { width: 16px; height: 16px; fill: var(--text); }
-
-    /* ═══════════════════════════════════════════════════════
-       HERO
-       ═══════════════════════════════════════════════════════ */
-    .hero {
-      padding-top: 140px;
-      padding-bottom: 60px;
-      text-align: center;
-      position: relative;
-    }
-
-    /* Subtle radial glow behind hero */
-    .hero::before {
-      content: '';
-      position: absolute;
-      top: 60px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 600px;
-      height: 400px;
-      background: radial-gradient(ellipse, rgba(203, 166, 247, 0.06) 0%, transparent 70%);
-      pointer-events: none;
-      z-index: -1;
-    }
-
-    .hero-hat {
-      font-size: 96px;
-      display: inline-block;
-      margin-bottom: 20px;
-      animation: float 5s ease-in-out infinite;
-      filter: drop-shadow(0 8px 32px rgba(203, 166, 247, 0.25));
-      cursor: default;
-      transition: filter 0.3s;
-    }
-
-    .hero-hat:hover {
-      filter: drop-shadow(0 8px 40px rgba(203, 166, 247, 0.5));
-    }
-
-    .hero-tag {
-      display: inline-block;
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--mauve);
-      background: rgba(203, 166, 247, 0.08);
-      border: 1px solid rgba(203, 166, 247, 0.15);
-      padding: 5px 14px;
-      border-radius: 20px;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-      margin-bottom: 24px;
-    }
-
-    .hero h1 {
-      font-size: clamp(38px, 5.5vw, 60px);
-      font-weight: 800;
-      line-height: 1.05;
-      letter-spacing: -2px;
-      margin-bottom: 20px;
-    }
-
-    .hero h1 .gradient-text {
-      background: linear-gradient(135deg, var(--mauve) 0%, var(--blue) 40%, var(--teal) 70%, var(--mauve) 100%);
-      background-size: 200% 200%;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      animation: gradientShift 6s ease infinite;
-    }
-
-    .hero .tagline {
-      font-size: 18px;
-      color: var(--subtext0);
-      max-width: 540px;
-      margin: 0 auto 12px;
-      line-height: 1.6;
-    }
-
-    .hero .sub-tagline {
-      font-size: 14px;
-      color: var(--overlay1);
-      margin-bottom: 36px;
-      font-style: italic;
-    }
-
-    .install-box {
-      display: inline-flex;
-      align-items: center;
-      gap: 12px;
-      background: rgba(24, 24, 37, 0.7);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(49, 50, 68, 0.6);
-      border-radius: 10px;
-      padding: 14px 22px;
-      margin-bottom: 48px;
-      cursor: pointer;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .install-box:hover {
-      border-color: var(--mauve);
-      box-shadow: 0 8px 32px rgba(203, 166, 247, 0.12);
-      transform: translateY(-2px);
-    }
-
-    .install-box code {
-      font-size: 15px;
-      color: var(--green);
-      font-weight: 500;
-    }
-
-    .install-box .copy-hint {
-      font-size: 11px;
-      color: var(--overlay0);
-      padding: 2px 8px;
-      background: rgba(49, 50, 68, 0.6);
-      border-radius: 4px;
-      transition: color 0.2s;
-    }
-
-    .install-box.copied .copy-hint { color: var(--green); }
-
-    /* Hero screenshot */
-    .hero-screenshot {
-      max-width: 1000px;
-      margin: 0 auto;
-      border-radius: 14px;
-      overflow: hidden;
-      border: 1px solid rgba(49, 50, 68, 0.6);
-      box-shadow:
-        0 32px 80px rgba(0, 0, 0, 0.5),
-        0 0 0 1px rgba(203, 166, 247, 0.04),
-        inset 0 1px 0 rgba(255, 255, 255, 0.03);
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .hero-screenshot:hover {
-      box-shadow:
-        0 40px 100px rgba(0, 0, 0, 0.6),
-        0 0 0 1px rgba(203, 166, 247, 0.08),
-        0 0 60px rgba(203, 166, 247, 0.05);
-      transform: translateY(-4px);
-    }
-
-    .hero-screenshot img {
-      width: 100%;
-      display: block;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       PAIN POINTS
-       ═══════════════════════════════════════════════════════ */
-    .pain-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px;
-    }
-
-    .pain-card {
-      background: rgba(24, 24, 37, 0.6);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(49, 50, 68, 0.4);
-      border-radius: 12px;
-      padding: 24px;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .pain-card:hover {
-      border-color: var(--surface1);
-      transform: translateY(-4px);
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-    }
-
-    .pain-card:nth-child(1):hover { border-color: var(--blue); box-shadow: 0 12px 40px rgba(137, 180, 250, 0.08); }
-    .pain-card:nth-child(2):hover { border-color: var(--green); box-shadow: 0 12px 40px rgba(166, 227, 161, 0.08); }
-    .pain-card:nth-child(3):hover { border-color: var(--peach); box-shadow: 0 12px 40px rgba(250, 179, 135, 0.08); }
-    .pain-card:nth-child(4):hover { border-color: var(--red); box-shadow: 0 12px 40px rgba(243, 139, 168, 0.08); }
-
-    .pain-card h3 {
-      font-size: 16px;
-      font-weight: 700;
-      margin-bottom: 8px;
-      color: var(--text);
-    }
-
-    .pain-card p {
-      font-size: 14px;
-      color: var(--subtext0);
-      line-height: 1.5;
-    }
-
-    .pain-icon {
-      font-size: 28px;
-      margin-bottom: 14px;
-      display: block;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       FEATURES
-       ═══════════════════════════════════════════════════════ */
-    .section-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--mauve);
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      margin-bottom: 8px;
-    }
-
-    .section-title {
-      font-size: clamp(28px, 3.5vw, 40px);
-      font-weight: 800;
-      letter-spacing: -1px;
-      margin-bottom: 12px;
-    }
-
-    .section-subtitle {
-      font-size: 16px;
-      color: var(--subtext0);
-      max-width: 520px;
-      margin-bottom: 48px;
-      line-height: 1.6;
-    }
-
-    .feature-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
-    }
-
-    .feature-item {
-      padding: 22px;
-      border-radius: 12px;
-      background: rgba(24, 24, 37, 0.5);
-      border: 1px solid rgba(49, 50, 68, 0.3);
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .feature-item:hover {
-      border-color: var(--surface1);
-      transform: translateY(-3px);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-    }
-
-    /* Per-feature hover accent colors */
-    .feature-item:nth-child(1):hover  { border-color: var(--blue); }     /* Terminal Grid */
-    .feature-item:nth-child(2):hover  { border-color: var(--peach); }    /* Workspaces */
-    .feature-item:nth-child(3):hover  { border-color: var(--green); }    /* Cost Tracking */
-    .feature-item:nth-child(4):hover  { border-color: var(--yellow); }   /* Search */
-    .feature-item:nth-child(5):hover  { border-color: var(--teal); }     /* Subagent */
-    .feature-item:nth-child(6):hover  { border-color: var(--red); }      /* Conflict */
-    .feature-item:nth-child(7):hover  { border-color: var(--flamingo); } /* Templates */
-    .feature-item:nth-child(8):hover  { border-color: var(--sky); }      /* Context Export */
-    .feature-item:nth-child(9):hover  { border-color: var(--lavender); } /* Auto-Docs */
-    .feature-item:nth-child(10):hover { border-color: var(--pink); }     /* Feature Board */
-    .feature-item:nth-child(11):hover { border-color: var(--green); }    /* Git */
-    .feature-item:nth-child(12):hover { border-color: var(--mauve); }    /* Themes */
-
-    .feature-item h4 {
-      font-size: 14px;
-      font-weight: 700;
-      margin-bottom: 6px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .feature-item h4 .fi {
-      font-size: 18px;
-      transition: transform 0.25s ease;
-    }
-
-    .feature-item:hover h4 .fi {
-      transform: scale(1.15);
-    }
-
-    .feature-item p {
-      font-size: 13px;
-      color: var(--subtext0);
-      line-height: 1.5;
-    }
-
-    .free-badge {
-      display: inline-block;
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--green);
-      background: rgba(166, 227, 161, 0.1);
-      padding: 1px 6px;
-      border-radius: 3px;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-    }
-
-    /* Feature screenshot grid */
-    .feature-screenshots {
-      margin-top: 64px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-    }
-
-    .feature-screenshots-full {
-      margin-top: 20px;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       STATS BAR
-       ═══════════════════════════════════════════════════════ */
-    .stats-bar {
-      display: flex;
-      justify-content: center;
-      gap: 48px;
-      padding: 48px 0;
-      border-top: 1px solid rgba(49, 50, 68, 0.3);
-      border-bottom: 1px solid rgba(49, 50, 68, 0.3);
-    }
-
-    .stat {
-      text-align: center;
-    }
-
-    .stat-value {
-      font-size: 32px;
-      font-weight: 800;
-      letter-spacing: -1px;
-      background: linear-gradient(135deg, var(--text) 0%, var(--mauve) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
-    .stat-label {
-      font-size: 13px;
-      color: var(--overlay1);
-      margin-top: 4px;
-      font-weight: 500;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       TEAMS
-       ═══════════════════════════════════════════════════════ */
-    .teams-section {
-      background: rgba(24, 24, 37, 0.4);
-      border-top: 1px solid rgba(49, 50, 68, 0.3);
-      border-bottom: 1px solid rgba(49, 50, 68, 0.3);
-    }
-
-    .teams-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 48px;
-      align-items: center;
-    }
-
-    .teams-features {
-      list-style: none;
-    }
-
-    .teams-features li {
-      padding: 10px 0;
-      font-size: 15px;
-      color: var(--subtext1);
-      display: flex;
-      align-items: flex-start;
-      gap: 12px;
-    }
-
-    .teams-features li::before {
-      content: '';
-      display: block;
-      width: 6px;
-      height: 6px;
-      background: var(--mauve);
-      border-radius: 50%;
-      margin-top: 9px;
-      flex-shrink: 0;
-      box-shadow: 0 0 8px rgba(203, 166, 247, 0.3);
-    }
-
-    .teams-features li strong {
-      color: var(--text);
-      font-weight: 600;
-    }
-
-    .waitlist-card {
-      background: rgba(30, 30, 46, 0.6);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(49, 50, 68, 0.5);
-      border-radius: 14px;
-      padding: 32px;
-      transition: border-color 0.3s;
-    }
-
-    .waitlist-card:hover {
-      border-color: rgba(203, 166, 247, 0.2);
-    }
-
-    .waitlist-form {
-      display: flex;
-      gap: 8px;
-      margin-top: 24px;
-    }
-
-    .waitlist-form input {
-      flex: 1;
-      padding: 10px 14px;
-      background: rgba(30, 30, 46, 0.8);
-      border: 1px solid rgba(49, 50, 68, 0.6);
-      border-radius: 8px;
-      color: var(--text);
-      font-size: 14px;
-      font-family: inherit;
-      outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-
-    .waitlist-form input::placeholder { color: var(--overlay0); }
-    .waitlist-form input:focus {
-      border-color: var(--mauve);
-      box-shadow: 0 0 0 3px rgba(203, 166, 247, 0.1);
-    }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 10px 20px;
-      background: var(--mauve);
-      color: var(--crust);
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .btn:hover {
-      opacity: 0.9;
-      transform: translateY(-1px);
-      box-shadow: 0 4px 16px rgba(203, 166, 247, 0.2);
-    }
-
-    .coming-soon-tag {
-      display: inline-block;
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--yellow);
-      background: rgba(249, 226, 175, 0.08);
-      border: 1px solid rgba(249, 226, 175, 0.15);
-      padding: 3px 10px;
-      border-radius: 4px;
-      margin-bottom: 12px;
-      letter-spacing: 0.5px;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       FOOTER
-       ═══════════════════════════════════════════════════════ */
-    footer {
-      padding: 48px 0;
-      text-align: center;
-      border-top: 1px solid rgba(49, 50, 68, 0.3);
-    }
-
-    .footer-hat {
-      font-size: 36px;
-      display: block;
-      margin-bottom: 12px;
-      opacity: 0.6;
-      transition: opacity 0.2s;
-    }
-
-    .footer-hat:hover {
-      opacity: 1;
-    }
-
-    footer p {
-      font-size: 13px;
-      color: var(--overlay0);
-      line-height: 2;
-    }
-
-    footer a {
-      color: var(--subtext0);
-      transition: color 0.2s;
-    }
-
-    footer a:hover { color: var(--mauve); }
-
-    .footer-quip {
-      font-size: 12px;
-      color: var(--overlay0);
-      font-style: italic;
-      margin-top: 12px;
-      opacity: 0.7;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       FOCUS STYLES
-       ═══════════════════════════════════════════════════════ */
-    :focus-visible {
-      outline: 2px solid var(--mauve);
-      outline-offset: 3px;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       RESPONSIVE
-       ═══════════════════════════════════════════════════════ */
-    @media (max-width: 768px) {
-      section { padding: 48px 0; }
-      .hero { padding-top: 100px; }
-      .hero-hat { font-size: 72px; }
-      .feature-grid { grid-template-columns: 1fr 1fr; }
-      .feature-screenshots { grid-template-columns: 1fr; }
-      .teams-grid { grid-template-columns: 1fr; gap: 32px; }
-      .nav-links a:not(.nav-gh) { display: none; }
-      .waitlist-form { flex-direction: column; }
-      .stats-bar { gap: 24px; flex-wrap: wrap; }
-      .stat-value { font-size: 24px; }
-    }
-
-    @media (max-width: 480px) {
-      .feature-grid { grid-template-columns: 1fr; }
-      .pain-grid { grid-template-columns: 1fr; }
-      .hero-hat { font-size: 56px; }
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Myrlin Workbook | Claude Code and Codex sessions in one window</title>
+<meta name="description" content="An open source workbench for AI coding sessions. It finds the Claude Code and ChatGPT Codex sessions already on your disk and gives them live terminals, search, cost and project docs. Runs locally on Windows, macOS and Linux.">
+<link rel="canonical" href="https://therealarthur.github.io/myrlin-workbook/">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Myrlin Workbook">
+<meta property="og:url" content="https://therealarthur.github.io/myrlin-workbook/">
+<meta property="og:title" content="Myrlin Workbook | Claude Code and Codex sessions in one window">
+<meta property="og:description" content="An open source workbench for AI coding sessions. It finds the Claude Code and ChatGPT Codex sessions already on your disk and gives them live terminals, search, cost and project docs.">
+<meta property="og:image" content="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/social/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Myrlin Workbook, showing a project sidebar and two terminal panes.">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Myrlin Workbook | Claude Code and Codex sessions in one window">
+<meta name="twitter:description" content="An open source workbench for AI coding sessions. Live terminals, search, cost and project docs over the sessions already on your disk.">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/social/og.png">
+
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)">
+
+<link rel="icon" type="image/svg+xml" href="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/brand/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/brand/favicon-32.png">
+<link rel="apple-touch-icon" href="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/brand/icon-180.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="styles.css">
+
+<script>
+/* Pre-paint chrome selection. Reads the stored choice before the first paint
+   so a reader who picked dark never sees a white flash on the way in. No
+   stored choice means no attribute, which leaves the page on the system
+   preference, which is what the stylesheet defaults to. */
+try {
+  var c = localStorage.getItem('mw-chrome');
+  if (c === 'dark' || c === 'light') document.documentElement.dataset.chrome = c;
+} catch (e) { /* private mode: fall through to the system preference */ }
+</script>
 </head>
-<body>
 
-  <!-- NAV -->
-  <nav>
-    <div class="nav-inner">
-      <div class="nav-logo">
-        <span class="nav-hat">🎩</span> Myrlin
-      </div>
-      <div class="nav-links">
-        <a href="#features">Features</a>
-        <a href="https://github.com/therealarthur/myrlin-workbook#readme">Docs</a>
-        <a href="#teams">Teams</a>
-        <a href="https://github.com/therealarthur/myrlin-workbook" class="nav-gh">
-          <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          GitHub
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="lockup" href="#top">
+      <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/brand/logo-mark.svg"
+           data-asset="brand/logo-mark.svg" width="24" height="24" alt="">
+      <span>Myrlin Workbook</span>
+    </a>
+
+    <nav class="sections" aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#phone">Phone</a>
+      <a href="#codex">Codex</a>
+      <a href="#open-source">Open source</a>
+    </nav>
+
+    <div class="topbar-spacer"></div>
+
+    <nav class="topbar-links" aria-label="Project links">
+      <a href="https://github.com/therealarthur/myrlin-workbook#readme">Docs</a>
+      <a href="https://www.npmjs.com/package/myrlin-workbook">npm</a>
+      <a href="https://github.com/therealarthur/myrlin-workbook">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span class="label">GitHub</span>
+      </a>
+    </nav>
+
+    <button class="icon-btn" id="chrome-toggle" type="button" title="Switch between light and dark" aria-label="Switch between light and dark">
+      <svg class="glyph-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M4.2 12H2M22 12h-2.2M6.5 6.5 4.9 4.9M19.1 19.1l-1.6-1.6M17.5 6.5l1.6-1.6M4.9 19.1l1.6-1.6"/>
+      </svg>
+      <svg class="glyph-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 13.4A8.2 8.2 0 1 1 10.6 4a6.6 6.6 0 0 0 9.4 9.4z"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ─────────────────────────────────────────────────────────── HERO ─── -->
+<section id="top" class="hero">
+  <div class="wrap">
+    <div class="hero-copy">
+      <h1>Every Claude Code and Codex session on your machine, <span class="accent">in one sidebar.</span></h1>
+      <p class="hero-sub">Myrlin Workbook reads the session files Claude Code and the ChatGPT app already write to your disk, then puts live terminals, search, cost and project docs on top of them.</p>
+
+      <div class="hero-actions">
+        <div class="install">
+          <code><span class="prompt">$</span> npx myrlin-workbook@alpha</code>
+          <button class="copy" type="button" data-copy="npx myrlin-workbook@alpha" aria-label="Copy the install command">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+              <rect x="5.4" y="5.4" width="8.2" height="8.2" rx="1.6"/><path d="M10.6 5.4V3.8a1.6 1.6 0 0 0-1.6-1.6H3.8a1.6 1.6 0 0 0-1.6 1.6v5.2a1.6 1.6 0 0 0 1.6 1.6h1.6"/>
+            </svg>
+            <span class="copy-idle">Copy</span><span class="copy-done">Copied</span>
+          </button>
+        </div>
+        <a class="btn btn-secondary" href="https://github.com/therealarthur/myrlin-workbook">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Read the source
         </a>
       </div>
+
+      <p class="hero-note">Node 20 or newer, on Windows, macOS or Linux. The stable line is <code>npx myrlin-workbook</code>.</p>
     </div>
-  </nav>
 
-  <!-- HERO -->
-  <section class="hero">
-    <div class="container">
-      <div class="hero-hat anim-1" title="*tips hat*">🎩</div>
-      <div class="hero-tag anim-2">Open Source &middot; AGPL-3.0</div>
-      <h1 class="anim-3">Your Claude sessions are a mess.<br><span class="gradient-text">We fixed that.</span></h1>
-      <p class="tagline anim-4">Terminal grid, cost tracking, worktree management, and workspace docs. For developers who run more Claude Code sessions than they can keep track of.</p>
-      <p class="sub-tagline anim-4">Yes, all of it is free. No, we're not going to rug-pull you.</p>
-
-      <div class="install-box anim-5" onclick="copyInstall(this)" tabindex="0" role="button" aria-label="Copy install command">
-        <code>git clone https://github.com/therealarthur/myrlin-workbook.git</code>
-        <span class="copy-hint">Click to copy</span>
+    <figure class="shot">
+      <div class="shot-bar">
+        <span>Myrlin Workbook</span>
+        <span class="crumb-sep">/</span>
+        <span>Workbench</span>
+        <span class="shot-state"><span class="mark mark-running" aria-hidden="true"></span> recorded from the running app</span>
       </div>
+      <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/hero.webp"
+           data-asset="hero.webp"
+           data-poster="hero-poster.webp"
+           width="900" height="563"
+           fetchpriority="high" decoding="async"
+           alt="A tour of the app: the project sidebar, a session opening into a terminal pane, scrollback being selected, a Codex session, the phone layout and the cost panel.">
+      <figcaption class="shot-cap">
+        <span>Thirty seconds, no narration.</span>
+        <a class="tour" href="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/hero.mp4" data-asset="hero.mp4">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.8v10.4l8.4-5.2z"/></svg>
+          Watch the tour
+        </a>
+      </figcaption>
+    </figure>
+  </div>
+</section>
 
-      <div class="hero-screenshot anim-6">
-        <img src="images/terminal-grid.png" alt="Terminal grid with 4 Claude Code sessions running simultaneously" loading="eager">
+<!-- ──────────────────────────────────────────────────────────── WHY ─── -->
+<section id="why" class="band band-tint">
+  <div class="wrap">
+    <dl class="why">
+      <div class="why-item">
+        <dt><span class="mark mark-running" aria-hidden="true"></span> Two tools, one list</dt>
+        <dd>Claude Code sessions come from <code>~/.claude/projects</code>, Codex sessions from <code>~/.codex</code> and the SQLite file the ChatGPT app itself reads. The folders and titles match the ones you see there.</dd>
       </div>
-    </div>
-  </section>
-
-  <!-- PAIN POINTS -->
-  <section id="why" class="anim-7">
-    <div class="container">
-      <div class="pain-grid">
-        <div class="pain-card">
-          <span class="pain-icon">🗂</span>
-          <h3>Lost in tabs?</h3>
-          <p>Drag sessions into a terminal grid. Four panes, resizable, with live status. See everything at once. Your future self sends thanks.</p>
-        </div>
-        <div class="pain-card">
-          <span class="pain-icon">💸</span>
-          <h3>"What did that cost?"</h3>
-          <p>Per-session cost tracking with model-aware pricing. Cache-aware token breakdown. Know exactly what each feature costs before your manager asks.</p>
-        </div>
-        <div class="pain-card">
-          <span class="pain-icon">🔍</span>
-          <h3>"Where was that conversation?"</h3>
-          <p>Full-text search across every session you've ever run. That solution from two weeks ago? Found in seconds, not "let me just scroll through 40 tabs."</p>
-        </div>
-        <div class="pain-card">
-          <span class="pain-icon">💥</span>
-          <h3>Agents stepping on each other?</h3>
-          <p>Conflict detection warns when two sessions touch the same files. Avoid the merge nightmare before it happens. You're welcome.</p>
-        </div>
+      <div class="why-item">
+        <dt><span class="mark mark-waiting" aria-hidden="true"></span> See which one is waiting</dt>
+        <dd>A running session is a filled mark. A session waiting on your input is a ring. The shape carries the state, so nothing has to blink to get your attention.</dd>
       </div>
-    </div>
-  </section>
+      <div class="why-item">
+        <dt><span class="mark mark-idle" aria-hidden="true"></span> Terminals in the page</dt>
+        <dd>xterm.js over node-pty, so a session runs in front of you instead of in a window you lost. Windows drives ConPTY directly. There is no WSL step.</dd>
+      </div>
+      <div class="why-item">
+        <dt><span class="mark mark-stopped" aria-hidden="true"></span> Nothing leaves the machine</dt>
+        <dd>No account, no server of ours, no telemetry. The app binds to <code>127.0.0.1</code>; reaching it from your phone is something you turn on, behind a password.</dd>
+      </div>
+    </dl>
+  </div>
+</section>
 
-  <!-- STATS BAR -->
-  <div class="stats-bar anim-8">
-    <div class="stat">
-      <div class="stat-value">12+</div>
-      <div class="stat-label">Core features</div>
+<!-- ─────────────────────────────────────────────────────── FEATURES ─── -->
+<section id="features" class="band">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">What it does</span>
+      <h2>Built around the files your tools already write.</h2>
+      <p>Nothing here asks you to change how you work. The app reads what Claude Code and Codex leave on disk, and adds the parts they do not have.</p>
     </div>
-    <div class="stat">
-      <div class="stat-value">4</div>
-      <div class="stat-label">Catppuccin themes</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value">0</div>
-      <div class="stat-label">Features behind paywall</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value">$0</div>
-      <div class="stat-label">Forever</div>
+
+    <article class="feature">
+      <div class="feature-body">
+        <span class="eyebrow">01 / Sidebar</span>
+        <h3>One sidebar for two tools</h3>
+        <p>Projects down the left, a Recent list above them, and a provider switcher in the Discovered header that filters that list to Claude or to Codex. Sessions group under the working directory they ran in, so a project row is a folder you recognise.</p>
+        <ul class="feature-list">
+          <li>Recent merges both providers, newest first</li>
+          <li>Double click a session to rename it; drag it onto another project to move it</li>
+          <li>Hidden sessions stay out of the way until you ask for them</li>
+        </ul>
+      </div>
+      <div class="feature-media">
+        <figure class="figure">
+          <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/feature-sidebar.webp"
+               data-asset="feature-sidebar.webp" width="900" height="563" loading="lazy" decoding="async"
+               alt="The sidebar: the provider switcher in the Discovered header, the Recent list, and project rows expanding into sessions.">
+          <figcaption>Discovery, the Recent list and the provider switcher.</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature feature-flip">
+      <div class="feature-body">
+        <span class="eyebrow">02 / Terminal</span>
+        <h3>A terminal you can actually scroll back through and copy from</h3>
+        <p>Agent CLIs paint into the alternate screen buffer and never scroll, so there is no terminal scrollback to reach, here or in any other terminal. The scrollback surface goes to where the history actually lives: the terminal's own ring and a server-side line log for a shell, the transcript on disk for an agent. The live screen is the last segment of that one document, so a drag from the bottom to any point above it selects a continuous range.</p>
+        <ul class="feature-list">
+          <li>Wheel up past the top of the screen and keep going</li>
+          <li>Drag-select across the whole document and copy it</li>
+          <li>Panes tile two or four up, and each keeps its own history</li>
+        </ul>
+      </div>
+      <div class="feature-media">
+        <figure class="figure">
+          <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/feature-terminal.webp"
+               data-asset="feature-terminal.webp" width="900" height="563" loading="lazy" decoding="async"
+               alt="A terminal pane with live output, scrolled back through earlier history, with a selection dragged across it and copied.">
+          <figcaption>Live output, then a wheel back through history and one selection across it.</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature">
+      <div class="feature-body">
+        <span class="eyebrow">03 / Themes</span>
+        <h3>Thirteen terminal palettes, and chrome that can follow the system</h3>
+        <p>The chrome has a light setting, a dark setting and a system default. The terminal carries thirteen palettes of its own, and every one is derived from the same tokens as the chrome, so changing one cannot leave the other behind.</p>
+        <ul class="feature-list">
+          <li>Mocha, Macchiato, Frappe, Nord, Dracula, Tokyo Night, Cherry, Ocean, Amber, Mint</li>
+          <li>Light palettes too: Latte, Rose Pine Dawn, Gruvbox Light</li>
+        </ul>
+      </div>
+      <div class="feature-media">
+        <figure class="figure">
+          <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/feature-themes.webp"
+               data-asset="feature-themes.webp" width="900" height="563" loading="lazy" decoding="async"
+               alt="The app in light chrome and then dark chrome, followed by four terminal palettes applied in turn.">
+          <figcaption>Light and dark chrome, then four of the terminal palettes.</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="feature feature-flip">
+      <div class="feature-body">
+        <span class="eyebrow">04 / Cost and plan</span>
+        <h3>What it cost, and what is next</h3>
+        <p>Cost comes out of the transcripts the providers already write: input, output, cache writes and cache reads, priced per model, per session and per project. Alongside it, each project carries a kanban board and its own Notes, Goals, Tasks and Rules, so the plan lives with the code rather than in another tool.</p>
+        <ul class="feature-list">
+          <li>Cards drag between columns and stay with the project</li>
+          <li>Docs are plain markdown on disk, editable in the page</li>
+        </ul>
+      </div>
+      <div class="feature-media">
+        <figure class="figure">
+          <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/feature-board.webp"
+               data-asset="feature-board.webp" width="900" height="563" loading="lazy" decoding="async"
+               alt="The cost panel with per-session totals, then the kanban board with a card being dragged between columns.">
+          <figcaption>The cost panel, then the board with a card in flight.</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <hr class="rule">
+
+    <div class="facts facts-tail">
+      <div class="fact">
+        <h3>Search</h3>
+        <p>One query across both providers, answered with snippets and timestamps rather than a list of file names.</p>
+      </div>
+      <div class="fact">
+        <h3>Templates</h3>
+        <p>Save a session's model, flags and working directory, then launch that setup again without retyping it.</p>
+      </div>
+      <div class="fact">
+        <h3>Conflicts</h3>
+        <p>A warning when two live sessions have touched the same file, before the two sets of edits meet.</p>
+      </div>
+      <div class="fact">
+        <h3>Recovery</h3>
+        <p>Sessions are checked against their process on startup, so a crash or a reboot does not lose the map of what was running.</p>
+      </div>
     </div>
   </div>
+</section>
 
-  <!-- FEATURES -->
-  <section id="features" class="anim-8">
-    <div class="container">
-      <div class="section-label">Everything included. No upsells.</div>
-      <div class="section-title">Built for how you actually work.</div>
-      <div class="section-subtitle">Every feature below ships with the open source version. No trials, no "upgrade to unlock," no dark patterns. Just tools that respect your time.</div>
+<!-- ────────────────────────────────────────────────────────── PHONE ─── -->
+<section id="phone" class="band band-tint">
+  <div class="wrap">
+    <div class="split">
+      <div class="section-head">
+        <span class="eyebrow">05 / Phone</span>
+        <h2>Your sessions, on your phone, over your own tunnel.</h2>
+        <p>The phone layout is the same application, not a read-only viewer. Five tabs across the bottom: Home, Sessions, Terminal, Attention and Search. Terminals are real terminals, with a layout that moves for the keyboard and long-press menus where a right click would be.</p>
+        <ul class="feature-list">
+          <li>Bind to your LAN address with <code>CWM_HOST</code>, or point a Cloudflare tunnel at it</li>
+          <li>Installable to the home screen, so it opens without browser chrome</li>
+          <li>Reachable only behind the password you set</li>
+        </ul>
+      </div>
+      <div class="device">
+        <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/feature-phone.webp"
+             data-asset="feature-phone.webp" width="390" height="844" loading="lazy" decoding="async"
+             alt="The phone layout: the five tab bar, a session opening, the keyboard rising under a terminal, and a long-press menu.">
+      </div>
+    </div>
+  </div>
+</section>
 
-      <div class="feature-grid">
-        <div class="feature-item">
-          <h4><span class="fi">⬛</span> Terminal Grid</h4>
-          <p>4-pane grid with drag-and-drop. Resize handles. Tab groups for different contexts. Drag sessions straight from the sidebar.</p>
+<!-- ────────────────────────────────────────────────────────── CODEX ─── -->
+<section id="codex" class="band">
+  <div class="wrap">
+    <div class="feature feature-bare">
+      <div class="feature-body">
+        <span class="eyebrow">06 / Codex</span>
+        <h3>Codex sessions, the way the ChatGPT app shows them</h3>
+        <p>Codex writes its rollouts to <code>~/.codex</code>, but the folder names and session titles the ChatGPT desktop app displays come from a SQLite database sitting beside them. This app opens that database read-only and watches it for changes, so a project here is the project you see there, under the same name.</p>
+        <p>A session's model, sandbox, approval mode and reasoning effort are read from the conversation itself. When a value was never set, it says so instead of filling in a default that nothing is running.</p>
+        <div class="feature-meta">
+          <span class="meta-label">Every session carries its provider:</span>
+          <span class="chip chip-purple">Claude</span>
+          <span class="chip chip-green">Codex</span>
         </div>
-        <div class="feature-item">
-          <h4><span class="fi">📁</span> Workspaces</h4>
-          <p>Group sessions by project. Nested hierarchy. Notes, goals, tasks, and rules per workspace. Switch context in one click.</p>
+      </div>
+      <div class="feature-media">
+        <figure class="figure">
+          <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/feature-codex.webp"
+               data-asset="feature-codex.webp" width="900" height="563" loading="lazy" decoding="async"
+               alt="Codex project folders and sessions listed as the ChatGPT app names them, with the session detail strip showing model, effort, approval and sandbox.">
+          <figcaption>Codex projects and sessions, and the detail strip for one of them.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ──────────────────────────────────────────────────── OPEN SOURCE ─── -->
+<section id="open-source" class="band band-tint">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Licence</span>
+      <h2>Open source. Runs locally. Windows, macOS, Linux.</h2>
+      <p>There is no hosted version to sign up for and no paid tier holding a feature back. What is in the repository is what you run.</p>
+    </div>
+
+    <div class="facts">
+      <div class="fact">
+        <h3>AGPL-3.0</h3>
+        <p>The whole application, this page included. Fork it, run it, change it, ship your changes under the same licence.</p>
+      </div>
+      <div class="fact">
+        <h3>No account</h3>
+        <p>Nothing to sign up for. The app talks to your disk and to the CLIs you have already installed.</p>
+      </div>
+      <div class="fact">
+        <h3>Local by default</h3>
+        <p>It binds to <code>127.0.0.1</code>. Opening it to your network is a deliberate step, and it takes a password with it.</p>
+      </div>
+      <div class="fact">
+        <h3>Every platform the CLIs run on</h3>
+        <p>Windows natively, without WSL, plus macOS and Linux. The only requirement is Node 20 or newer.</p>
+      </div>
+    </div>
+
+    <div class="badges">
+      <a href="https://github.com/therealarthur/myrlin-workbook/stargazers">
+        <img src="https://img.shields.io/github/stars/therealarthur/myrlin-workbook?style=flat-square&amp;label=stars&amp;color=2783de"
+             width="94" height="20" loading="lazy" alt="GitHub stars for therealarthur/myrlin-workbook">
+      </a>
+      <a href="https://www.npmjs.com/package/myrlin-workbook">
+        <img src="https://img.shields.io/npm/v/myrlin-workbook?style=flat-square&amp;label=npm&amp;color=2783de"
+             width="88" height="20" loading="lazy" alt="Current version of myrlin-workbook on npm">
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ──────────────────────────────────────────────────────── GET IT ─── -->
+<section id="install" class="band">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Get it</span>
+      <h2>Two lines, depending on which one you want.</h2>
+      <p>Both run straight from npm. Neither installs anything globally, and neither asks you to create anything.</p>
+    </div>
+
+    <div class="tracks">
+      <div class="track">
+        <div class="track-head">
+          <h3>Alpha, the 1.3 line</h3>
+          <span class="chip chip-blue">recommended</span>
         </div>
-        <div class="feature-item">
-          <h4><span class="fi">💵</span> Cost Tracking</h4>
-          <p>Per-session, per-workspace. Model-aware pricing (Opus/Sonnet/Haiku). Token breakdown with cache write/read split.</p>
-        </div>
-        <div class="feature-item">
-          <h4><span class="fi">🔎</span> Session Search</h4>
-          <p>Full-text search across all Claude Code history. Ctrl+Shift+F. Highlighted snippets with timestamps. Finds what you forgot you did.</p>
-        </div>
-        <div class="feature-item">
-          <h4><span class="fi">🤖</span> Subagent Tracking</h4>
-          <p>See spawned subagents per session. Running vs completed. Agent types and descriptions. Know what Claude is actually doing.</p>
-        </div>
-        <div class="feature-item">
-          <h4><span class="fi">⚡</span> Conflict Detection</h4>
-          <p>Cross-session file monitoring. Warns when multiple Claude sessions edit the same files. Prevents the 3am merge panic.</p>
-        </div>
-        <div class="feature-item">
-          <h4><span class="fi">📋</span> Templates</h4>
-          <p>Save session configs as templates. One-click launch with pre-set model, flags, and working directory. Stop re-typing the same setup.</p>
-        </div>
-        <div class="feature-item">
-          <h4><span class="fi">📤</span> Context Export</h4>
-          <p>Session ran out of context? Export a structured summary and continue in a new session. No copy-paste archaeology.</p>
-        </div>
-        <div class="feature-item">
-          <h4><span class="fi">📝</span> Auto-Docs</h4>
-          <p>Sessions auto-summarize to workspace notes when they stop. AI-generated insights. Build a changelog without even trying.</p>
-        </div>
-        <div class="feature-item">
-          <h4><span class="fi">📊</span> Feature Board</h4>
-          <p>Kanban board per workspace. Track features across sessions. Drag between Planned, Active, Review, and Done columns.</p>
-        </div>
-        <div class="feature-item">
-          <h4><span class="fi">🌿</span> Git & Worktrees</h4>
-          <p>Branch badges, worktree creation, "New Feature Session" flow. Branch + worktree + Claude session in one click. Automatic port detection.</p>
-        </div>
-        <div class="feature-item">
-          <h4><span class="fi">🎨</span> 4 Themes</h4>
-          <p>Catppuccin Mocha, Macchiato, Frapp&eacute;, and Latte. Dark and light. Terminal colors match your preference.</p>
+        <p>Both providers, the redesigned interface, the phone layout and the scrollback surface. This is where the work is happening.</p>
+        <div class="install">
+          <code><span class="prompt">$</span> npx myrlin-workbook@alpha</code>
+          <button class="copy" type="button" data-copy="npx myrlin-workbook@alpha" aria-label="Copy the alpha install command">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+              <rect x="5.4" y="5.4" width="8.2" height="8.2" rx="1.6"/><path d="M10.6 5.4V3.8a1.6 1.6 0 0 0-1.6-1.6H3.8a1.6 1.6 0 0 0-1.6 1.6v5.2a1.6 1.6 0 0 0 1.6 1.6h1.6"/>
+            </svg>
+            <span class="copy-idle">Copy</span><span class="copy-done">Copied</span>
+          </button>
         </div>
       </div>
 
-      <!-- Feature screenshots -->
-      <div class="feature-screenshots anim-9">
-        <div class="hero-screenshot" style="border-radius: 12px;">
-          <img src="images/docs-panel.png" alt="Per-workspace docs with Notes, Goals, Tasks, Rules, and Roadmap" loading="lazy">
+      <div class="track">
+        <div class="track-head">
+          <h3>Stable, the 0.9 line</h3>
+          <span class="chip chip-gray">Claude only</span>
         </div>
-        <div class="hero-screenshot" style="border-radius: 12px;">
-          <img src="images/kanban-board.png" alt="Feature tracking Kanban board per workspace" loading="lazy">
-        </div>
-      </div>
-
-      <div class="feature-screenshots-full anim-10">
-        <div class="hero-screenshot" style="border-radius: 12px;">
-          <img src="images/theme-showcase.png" alt="All 4 Catppuccin themes - Mocha, Macchiato, Frappe, and Latte" loading="lazy">
+        <p>The settled release. Claude Code sessions only, and the interface as it was before the redesign.</p>
+        <div class="install">
+          <code><span class="prompt">$</span> npx myrlin-workbook</code>
+          <button class="copy" type="button" data-copy="npx myrlin-workbook" aria-label="Copy the stable install command">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+              <rect x="5.4" y="5.4" width="8.2" height="8.2" rx="1.6"/><path d="M10.6 5.4V3.8a1.6 1.6 0 0 0-1.6-1.6H3.8a1.6 1.6 0 0 0-1.6 1.6v5.2a1.6 1.6 0 0 0 1.6 1.6h1.6"/>
+            </svg>
+            <span class="copy-idle">Copy</span><span class="copy-done">Copied</span>
+          </button>
         </div>
       </div>
     </div>
-  </section>
 
-  <!-- TEAMS -->
-  <section class="teams-section anim-10" id="teams">
-    <div class="container" style="text-align: center; padding: 48px 0;">
-      <div class="coming-soon-tag">On the Roadmap</div>
-      <p style="color: var(--subtext0); font-size: 16px; line-height: 1.6; max-width: 540px; margin: 12px auto 24px;">
-        Teams support (multi-user sync, managed hosting, shared workspaces) is on the roadmap. Star the repo or follow for updates.
-      </p>
-      <a href="https://github.com/therealarthur/myrlin-workbook" class="btn">Star on GitHub</a>
-    </div>
-  </section>
+    <p class="requires">It starts on <code>http://127.0.0.1:3456</code> and opens your browser. Node 20 or newer.</p>
+  </div>
+</section>
 
-  <!-- FOOTER -->
-  <footer>
-    <div class="container">
-      <span class="footer-hat" title="Good day to you too">🎩</span>
-      <p>
-        <a href="https://github.com/therealarthur/myrlin-workbook">GitHub</a>
-        &nbsp;&middot;&nbsp;
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-top">
+      <a class="lockup" href="#top">
+        <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/brand/logo-mark.svg"
+             data-asset="brand/logo-mark.svg" width="24" height="24" loading="lazy" alt="">
+        <span>Myrlin Workbook</span>
+      </a>
+      <nav class="foot-links" aria-label="More links">
+        <a href="https://github.com/therealarthur/myrlin-workbook">Source</a>
+        <a href="https://github.com/therealarthur/myrlin-workbook#readme">Docs</a>
+        <a href="https://github.com/therealarthur/myrlin-workbook/blob/main/CHANGELOG.md">Changelog</a>
         <a href="https://github.com/therealarthur/myrlin-workbook/issues">Issues</a>
-        &nbsp;&middot;&nbsp;
-        AGPL-3.0
-        &nbsp;&middot;&nbsp;
-        Built with Claude Code
-      </p>
-      <p class="footer-quip" id="footer-quip"></p>
+        <a href="https://www.npmjs.com/package/myrlin-workbook">npm</a>
+      </nav>
     </div>
-  </footer>
 
-  <script>
-    function copyInstall(el) {
-      navigator.clipboard.writeText('git clone https://github.com/therealarthur/myrlin-workbook.git && cd myrlin-workbook && npm install && npm run gui').then(() => {
-        el.classList.add('copied');
-        el.querySelector('.copy-hint').textContent = 'Copied!';
-        setTimeout(() => {
-          el.classList.remove('copied');
-          el.querySelector('.copy-hint').textContent = 'Click to copy';
-        }, 2000);
-      });
-    }
+    <div class="foot-legal">
+      <p>Myrlin Workbook is free software under the <a href="https://github.com/therealarthur/myrlin-workbook/blob/main/LICENSE">GNU Affero General Public License, version 3</a>.</p>
+      <p>Claude and Claude Code are trademarks of Anthropic. ChatGPT and Codex are trademarks of OpenAI. This project is not affiliated with, endorsed by or sponsored by either company.</p>
+    </div>
+  </div>
+</footer>
 
-    // Random footer quip
-    const quips = [
-      'No hats were harmed in the making of this software.',
-      'Built by a human, assisted by the AI it manages. Poetic, isn\'t it?',
-      'The hat is a metaphor. For what? We\'re still figuring that out.',
-      'Fun fact: this entire tool was built using the tool it manages.',
-      'Open source because your sessions are your business, not ours.',
-      'Sponsored by caffeine and "just one more feature."',
-      'If you\'re reading this, you probably have too many Claude sessions open.',
-    ];
-    document.getElementById('footer-quip').textContent = quips[Math.floor(Math.random() * quips.length)];
-
-    // Enter key on install box
-    document.querySelector('.install-box').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copyInstall(e.currentTarget); }
-    });
-  </script>
-
+<script src="main.js" defer></script>
 </body>
 </html>

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Landing site rebuilt in the app's own design language and published to GitHub Pages. `site/` is now three hand-written files with no framework and no CDN script: a hero with the recorded tour, six feature blocks, a phone section, a Codex section, the licence block and both install lines. It carries the application's colour tokens verbatim, in light and dark, with a toggle that persists, and it draws session state as the static disc and ring shapes the app uses rather than as anything that blinks. Every image is an absolute URL pinned to `main` so the same files serve the README on npmjs.com, and `test/site.test.js` holds the page, the asset list and the deploy workflow to that contract. The February screenshot set stays on disk, unreferenced.
 - Release workflow publishes to npm with provenance on tag push and creates the GitHub Release from the changelog. It can also be run on demand for an existing tag, and publishes through npm Trusted Publishing when no NPM_TOKEN secret is configured.
 - CodeQL and npm audit scanning.
 - Dependabot for npm and GitHub Actions dependencies.
