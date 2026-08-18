@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Release workflow publishes to npm with provenance on tag push and creates the GitHub Release from the changelog.
+- CodeQL and npm audit scanning.
+- Dependabot for npm and GitHub Actions dependencies.
+
+### Changed
+
+- CI now runs on current action majors, and tests against Node 20 and 22.
+
 ## [1.3.0-alpha.30] - 2026-08-18
 
 The first build of the 1.3 line published to npm under the `alpha` tag (`npx myrlin-workbook@alpha`); until now the tag pointed at 1.2.0-alpha.9 from May, so a fresh install got none of the restyle, the Codex parity work or the mobile layout.
