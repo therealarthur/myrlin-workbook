@@ -1,0 +1,86 @@
+# WHAT
+# Publishes the static landing page in site/ to GitHub Pages. Two jobs: build
+# packages site/ into a Pages artifact, deploy publishes that artifact to the
+# github-pages environment. Nothing is compiled; site/ is plain HTML, CSS and
+# one script, so the build job is a copy.
+#
+# WHY IT IS WIRED THIS WAY
+#
+# TRIGGERS. Pushes to main that touch site/** obviously need a deploy. Pushes
+# that touch docs/media/** do too, and that is the non-obvious half: every
+# image and video on the page is an absolute raw.githubusercontent.com URL
+# pinned to main rather than a file inside site/. The same URLs are used by the
+# README, which npmjs.com renders with no repository context, so they cannot be
+# relative. That means a media refresh changes what the page shows without
+# changing a single byte under site/, and a path filter on site/** alone would
+# leave the deployed page pointing at a stale cache. workflow_dispatch is kept
+# for a manual redeploy after the Pages settings change or after a media
+# pipeline run lands out of band.
+#
+# PERMISSIONS. pages: write and id-token: write are what deploy-pages needs to
+# mint its OIDC token; contents: read is all the build job needs. They are
+# declared at the top level and narrowed nowhere, because both jobs are ours.
+#
+# CONCURRENCY. The group is "pages" with cancel-in-progress false. Pages
+# deployments are not idempotent mid-flight: cancelling one halfway can leave
+# the environment holding a partially swapped artifact, so a queued run waits
+# for its predecessor instead of killing it. This differs deliberately from
+# ci.yml, which does cancel superseded runs.
+#
+# ACTION VERSIONS. Current majors, each verified against the action's own
+# latest release rather than copied from a tutorial:
+#   actions/checkout               v7   (v7.0.1)
+#   actions/configure-pages        v6   (v6.0.0)
+#   actions/upload-pages-artifact  v5   (v5.0.0)
+#   actions/deploy-pages           v5   (v5.0.0)
+#
+# ONE-TIME SETUP, NOT DONE HERE. Pages must be set to "GitHub Actions" as its
+# build source in the repository settings before the first run can deploy.
+# That is a repository setting, not a workflow step.
+#
+# Created: 2026-08-18.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/media/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/configure-pages@v6
+
+      # Uploads site/ verbatim. .nojekyll travels with it, so a future switch
+      # back to branch-based Pages still skips the Jekyll pass rather than
+      # silently dropping any path this page might later add.
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

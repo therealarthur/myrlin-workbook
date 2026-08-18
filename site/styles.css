@@ -1,0 +1,1374 @@
+/* ==========================================================================
+   Myrlin Workbook / landing site stylesheet
+   --------------------------------------------------------------------------
+   WHAT
+   The whole visual layer for site/index.html. One file, no build step, no
+   framework, no CDN. It defines the token layer, the light and dark chrome,
+   the type scale, and every component the page uses.
+
+   WHY IT LOOKS LIKE THIS
+   The product this page sells is painted in a Notion-language design system
+   (docs/design/notion-restyle/DESIGN-SPEC.md). A marketing page whose ink,
+   hairlines, radii and status marks disagree with the screenshots sitting
+   inside it reads as a page about some other product. So every colour below
+   is copied verbatim from the application's own :root block in
+   src/web/public/styles.css, which in turn is a verbatim copy of the captured
+   bundle in src/web/public/design/notion/tokens/. Same values, same names,
+   same light and dark pairs. When a token changes in the app, change it here.
+
+   THE THREE DELIBERATE DEPARTURES FROM THE APP, EACH WITH A REASON
+
+   1. Typography. The app ships NO webfont, because the captured system's own
+      rule is "do not load a webfont into the document body of an app-surface
+      page" and the OS UI stack is what makes Windows and macOS look native.
+      That rule is scoped to app surfaces. This is a marketing surface, and the
+      captured system's own marketing half loads a webfont too. The project
+      standard for marketing type is Plus Jakarta Sans with JetBrains Mono, so
+      that is what this page loads, with the app's OS stack as the fallback so
+      a blocked font request degrades into the product's real face.
+
+   2. Display sizes. The app uses a compressed application scale topping out at
+      30px, because it is chrome. A landing page needs display sizes, so the
+      headline ramp below borrows the captured marketing scale's sizes AND its
+      negative tracking (-2px at 42px, -1.875px at 54px). Tracking is what
+      stops a large semibold headline reading as a blown-up UI label.
+
+   3. Layout measure. 1080px rather than the app's 1100px, so the two-column
+      feature blocks land on a 40px gutter with whole-pixel halves.
+
+   WHAT IS NOT DEPARTED FROM
+   No gradient, no glass, no grain, no backdrop-filter, no coloured glow. All
+   four are on the captured system's rejection list (DESIGN-SPEC 1.5) and the
+   app honours it. Depth lives in overlays only; the canvas is flat.
+
+   STATUS MARKS
+   Reproduced from DECISIONS.md 13.1: a state the system can sit in is drawn
+   as a STATIC shape, never as motion. DISC is a filled circle (running, live);
+   RING is the same circle with a transparent centre and a 2px inset stroke
+   (needs input, waiting), so the one hue that fails the 3:1 graphic floor is
+   the one hue that also carries a unique shape. Nothing on this page animates
+   a mark, and no mark is ever placed inside a pill or a chip.
+
+   Created: 2026-08-18.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Tokens, light chrome
+   Values copied from src/web/public/styles.css :root (which copies
+   src/web/public/design/notion/tokens/*.css). Only the names this page
+   consumes are carried over.
+   -------------------------------------------------------------------------- */
+
+:root {
+  /* Neutral core */
+  --app-bg-primary: #ffffff;
+  --app-bg-secondary: #f9f8f7;
+  --app-bg-tertiary: #f0efed;
+  --app-bg-elevated: #ffffff;
+  --app-bg-interactive: #f4f3f3;
+  --app-text-primary: #2c2c2b;
+  --app-text-secondary: #7d7a75;
+  --app-text-tertiary: #a19e99;
+  --app-border-primary: #e6e5e3;
+  --app-border-secondary: #f0efed;
+  --app-border-strong: #d4d3cf;
+  --app-code-block-bg: #f5f2f0;
+  --app-sidebar-item-selected: rgba(0, 0, 0, 0.03);
+  --app-sidebar-section-label: #91918e;
+  --app-wash-hover: rgba(55, 53, 47, 0.04);
+  --app-wash-press: rgba(55, 53, 47, 0.1);
+  --app-selection-token: rgba(35, 131, 226, 0.14);
+
+  /* Brand blue. Two blues on purpose: the rest fill and the hover/focus blue
+     are different values in the capture, and matching them flattens the
+     button's hover step. */
+  --app-accent-blue: #2783de;
+  --app-ui-blue: #2383e2;
+  --app-on-accent: #ffffff;
+
+  /* Named block palette, text. Theme invariant: there is no dark override for
+     any of these and recolouring them in dark mode is on the rejection list. */
+  --app-text-blue: #387dc9;
+  --app-text-green: #50946e;
+  --app-text-purple: #9a6bb4;
+  --app-text-yellow: #cb9434;
+  --app-text-teal: #2c8b9e;
+  --app-text-orange: #d27b2d;
+  --app-text-red: #cf5148;
+  --app-text-gray: #7d7a75;
+
+  /* Named block palette, background. These do flip. */
+  --app-bg-blue: #e5f2fc;
+  --app-bg-green: #e8f1ec;
+  --app-bg-purple: #f3ebf9;
+  --app-bg-yellow: #f9f3dc;
+
+  /* Property chips. Translucent fill plus deep tinted ink, so a chip
+     composites correctly on any ground with no extra rule. */
+  --app-chip-purple-fill: rgba(92, 0, 163, 0.14);
+  --app-chip-purple-ink: #553b69;
+  --app-chip-green-fill: rgba(0, 96, 38, 0.157);
+  --app-chip-green-ink: #2a533c;
+  --app-chip-blue-fill: rgba(0, 118, 217, 0.204);
+  --app-chip-blue-ink: #264a72;
+  --app-chip-gray-fill: rgba(28, 19, 1, 0.11);
+  --app-chip-gray-ink: #494846;
+
+  /* Effects */
+  --app-shadow-button: inset 0 0 0 1px rgba(15, 15, 15, 0.1), 0 1px 2px rgba(15, 15, 15, 0.1);
+  --app-shadow-outlined-sm: 0 2px 4px 0 rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(42, 28, 0, 0.07);
+  --app-shadow-md: 0 8px 12px 0 rgba(25, 25, 25, 0.027), 0 2px 6px 0 rgba(25, 25, 25, 0.027);
+  --app-shadow-device: 0 8px 30px rgba(0, 0, 0, 0.08);
+  --app-focus-shadow: rgba(35, 131, 226, 0.57) 0 0 0 1px inset, rgba(35, 131, 226, 0.35) 0 0 0 2px;
+
+  /* Radii. Chips are 4px while cards are 10px, and matching them up is on the
+     rejection list because it reads as a generic design system. */
+  --radius-property-chip: 4px;
+  --radius-4: 4px;
+  --radius-app-button: 6px;
+  --radius-block-hover: 6px;
+  --radius-pane-frame: 8px;
+  --radius-callout: 10px;
+  --radius-collection-card: 10px;
+  --radius-device: 24px;
+  --radius-pill: 999px;
+
+  /* Motion. Everything user-triggered stays under 300ms; fade in is faster
+     than fade out. */
+  --duration-instant: 20ms;
+  --duration-150: 150ms;
+  --duration-200: 200ms;
+  --ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --ease-strong-out: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Type. Marketing sizes with the capture's negative tracking; body sizes
+     from the app's own application scale. */
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    "Segoe UI Variable Display", "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas,
+    "Liberation Mono", Menlo, monospace;
+
+  --t-display: clamp(2.25rem, 1.35rem + 3.6vw, 3.5rem);
+  --t-h2: clamp(1.625rem, 1.15rem + 1.9vw, 2.375rem);
+  --t-h3: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
+  --t-lead: clamp(1rem, 0.95rem + 0.25vw, 1.1875rem);
+  --t-body: 1rem;
+  --t-sm: 0.875rem;
+  --t-xs: 0.75rem;
+  --t-2xs: 0.6875rem;
+
+  /* Geometry */
+  --measure: 1080px;
+  --gutter: 20px;
+  --topbar-h: 56px;
+}
+
+/* --------------------------------------------------------------------------
+   2. Dark chrome
+   Three selectors, in the order the design spec prescribes: the system
+   preference is the default for a first paint, and an explicit choice on the
+   root element wins in both directions so the toggle can override the system
+   either way. Only names whose captured value actually differs are redeclared.
+   The attribute is data-chrome, which is the attribute the application itself
+   uses for chrome appearance (data-theme is taken by its 13 terminal palettes).
+   -------------------------------------------------------------------------- */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-chrome="light"]) {
+    --app-bg-primary: #191919;
+    --app-bg-secondary: #202020;
+    --app-bg-tertiary: #383836;
+    --app-bg-elevated: #202020;
+    --app-bg-interactive: #262626;
+    --app-text-primary: #f0efed;
+    --app-text-secondary: #ada9a3;
+    --app-text-tertiary: #7d7a75;
+    --app-border-primary: #383836;
+    --app-border-secondary: #2c2c2b;
+    --app-border-strong: #5f5e59;
+    --app-code-block-bg: #202020;
+    --app-sidebar-item-selected: rgba(255, 255, 255, 0.055);
+    --app-sidebar-section-label: #9b9b9b;
+    --app-wash-hover: rgba(255, 255, 255, 0.055);
+    --app-wash-press: rgba(255, 255, 255, 0.13);
+    --app-bg-blue: #233850;
+    --app-bg-green: #263d30;
+    --app-bg-purple: #3c2d47;
+    --app-bg-yellow: #504425;
+    --app-chip-purple-fill: rgba(208, 147, 255, 0.427);
+    --app-chip-purple-ink: #f3ebf9;
+    --app-chip-green-fill: rgba(113, 255, 175, 0.337);
+    --app-chip-green-ink: #e8f1ec;
+    --app-chip-blue-fill: rgba(81, 166, 255, 0.494);
+    --app-chip-blue-ink: #e5f2fc;
+    --app-chip-gray-fill: rgba(255, 252, 235, 0.306);
+    --app-chip-gray-ink: #f0efed;
+    --app-shadow-button: inset 0 0 0 1px rgba(15, 15, 15, 0.2), 0 1px 2px rgba(15, 15, 15, 0.1);
+    --app-shadow-outlined-sm: 0 0 0 1px #383836, 0 2px 4px 0 rgba(25, 25, 25, 0.08);
+    --app-shadow-md: 0 0 0 1px #383836, 0 4px 12px -2px rgba(25, 25, 25, 0.08);
+    --app-shadow-device: 0 8px 30px rgba(0, 0, 0, 0.35);
+  }
+}
+
+:root[data-chrome="dark"] {
+  --app-bg-primary: #191919;
+  --app-bg-secondary: #202020;
+  --app-bg-tertiary: #383836;
+  --app-bg-elevated: #202020;
+  --app-bg-interactive: #262626;
+  --app-text-primary: #f0efed;
+  --app-text-secondary: #ada9a3;
+  --app-text-tertiary: #7d7a75;
+  --app-border-primary: #383836;
+  --app-border-secondary: #2c2c2b;
+  --app-border-strong: #5f5e59;
+  --app-code-block-bg: #202020;
+  --app-sidebar-item-selected: rgba(255, 255, 255, 0.055);
+  --app-sidebar-section-label: #9b9b9b;
+  --app-wash-hover: rgba(255, 255, 255, 0.055);
+  --app-wash-press: rgba(255, 255, 255, 0.13);
+  --app-bg-blue: #233850;
+  --app-bg-green: #263d30;
+  --app-bg-purple: #3c2d47;
+  --app-bg-yellow: #504425;
+  --app-chip-purple-fill: rgba(208, 147, 255, 0.427);
+  --app-chip-purple-ink: #f3ebf9;
+  --app-chip-green-fill: rgba(113, 255, 175, 0.337);
+  --app-chip-green-ink: #e8f1ec;
+  --app-chip-blue-fill: rgba(81, 166, 255, 0.494);
+  --app-chip-blue-ink: #e5f2fc;
+  --app-chip-gray-fill: rgba(255, 252, 235, 0.306);
+  --app-chip-gray-ink: #f0efed;
+  --app-shadow-button: inset 0 0 0 1px rgba(15, 15, 15, 0.2), 0 1px 2px rgba(15, 15, 15, 0.1);
+  --app-shadow-outlined-sm: 0 0 0 1px #383836, 0 2px 4px 0 rgba(25, 25, 25, 0.08);
+  --app-shadow-md: 0 0 0 1px #383836, 0 4px 12px -2px rgba(25, 25, 25, 0.08);
+  --app-shadow-device: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+/* --------------------------------------------------------------------------
+   3. Base
+   -------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Smooth scrolling is decorative, so it is gated on the preference rather
+   than removed by a later override. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--app-selection-token);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* Every remote image reserves its box through width/height attributes, and
+   this neutral fill occupies that box while the file is in flight or if it is
+   missing, so the page never shows a torn-image glyph or a white hole. */
+img[data-asset] {
+  height: auto;
+  background-color: var(--app-bg-tertiary);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--app-focus-shadow);
+  border-radius: var(--radius-4);
+}
+
+code,
+kbd,
+samp {
+  font-family: var(--font-mono);
+  font-size: 0.9375em;
+}
+
+/* Negative tracking is what stops a large semibold headline reading as a
+   blown-up UI label, but letter-spacing also shortens the space character, and
+   at -0.03em on a 56px line that is enough to run two words together. Every
+   display size therefore pairs its negative tracking with a matching positive
+   word-spacing, which restores the word gap and leaves the letters tight. */
+h1,
+h2,
+h3 {
+  font-weight: 700;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+
+/* Skip link. Visible only when focused, painted as an elevated callout. */
+.skip {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 200;
+  padding: 8px 14px;
+  border-radius: var(--radius-app-button);
+  background: var(--app-bg-elevated);
+  box-shadow: var(--app-shadow-md);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  transition: top var(--duration-150) var(--ease-out);
+}
+
+.skip:focus {
+  top: 12px;
+}
+
+/* --------------------------------------------------------------------------
+   4. Shared layout primitives
+   -------------------------------------------------------------------------- */
+
+.wrap {
+  width: 100%;
+  max-width: var(--measure);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.band {
+  padding-block: clamp(56px, 8vw, 104px);
+}
+
+/* The top bar is sticky, so an anchor jump would otherwise land the section's
+   first line underneath it. Every jump target reserves the bar's height plus a
+   little air. */
+[id] {
+  scroll-margin-top: calc(var(--topbar-h) + 16px);
+}
+
+.band-tint {
+  background: var(--app-bg-secondary);
+  border-block: 1px solid var(--app-border-secondary);
+}
+
+.eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--app-text-tertiary);
+  margin-bottom: 14px;
+}
+
+.section-head {
+  max-width: 640px;
+  margin-bottom: clamp(32px, 4vw, 52px);
+}
+
+.section-head h2 {
+  font-size: var(--t-h2);
+  letter-spacing: -0.026em;
+  word-spacing: 0.035em;
+}
+
+.section-head p {
+  margin-top: 14px;
+  font-size: var(--t-lead);
+  line-height: 1.55;
+  color: var(--app-text-secondary);
+  text-wrap: pretty;
+}
+
+.rule {
+  height: 1px;
+  border: 0;
+  background: var(--app-border-secondary);
+}
+
+/* --------------------------------------------------------------------------
+   5. Status marks (DECISIONS.md 13.1)
+   A mark is a static shape. DISC for a state that is on, RING for a state that
+   is waiting on you. Marks stand alone; a mark is never placed inside a chip
+   or a capsule, which is the pattern this project bans outright.
+   -------------------------------------------------------------------------- */
+
+.mark {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.mark-running {
+  background: var(--app-text-green);
+}
+
+.mark-waiting {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--app-text-yellow);
+}
+
+.mark-idle {
+  background: var(--app-text-blue);
+}
+
+.mark-stopped {
+  background: var(--app-text-gray);
+}
+
+/* --------------------------------------------------------------------------
+   6. Chips. Text only, 4px radius, translucent hue fill, deep tinted ink.
+   -------------------------------------------------------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-property-chip);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.chip-purple {
+  background: var(--app-chip-purple-fill);
+  color: var(--app-chip-purple-ink);
+}
+
+.chip-green {
+  background: var(--app-chip-green-fill);
+  color: var(--app-chip-green-ink);
+}
+
+.chip-blue {
+  background: var(--app-chip-blue-fill);
+  color: var(--app-chip-blue-ink);
+}
+
+.chip-gray {
+  background: var(--app-chip-gray-fill);
+  color: var(--app-chip-gray-ink);
+}
+
+/* --------------------------------------------------------------------------
+   7. Buttons
+   The app's two button weights, scaled up for a page rather than for chrome.
+   Primary rests on --app-accent-blue and hovers to --app-ui-blue, which is a
+   different value; secondary is an elevated surface carrying the capture's
+   inset hairline shadow instead of a border.
+   -------------------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--radius-app-button);
+  font-family: inherit;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--duration-150) var(--ease-out),
+    color var(--duration-150) var(--ease-out);
+}
+
+.btn-primary {
+  background: var(--app-accent-blue);
+  color: var(--app-on-accent);
+}
+
+.btn-primary:hover {
+  background: var(--app-ui-blue);
+}
+
+.btn-secondary {
+  background: var(--app-bg-elevated);
+  color: var(--app-text-primary);
+  box-shadow: var(--app-shadow-button);
+}
+
+.btn-secondary:hover {
+  background: var(--app-bg-interactive);
+}
+
+.btn-quiet {
+  background: transparent;
+  color: var(--app-text-secondary);
+}
+
+.btn-quiet:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
+}
+
+.btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* --------------------------------------------------------------------------
+   8. Topbar
+   44px is the app's own topbar height; this page uses 56px because a page
+   needs a larger touch target than chrome does. No background of its own
+   beyond the ground and no shadow at rest, which is the app's rule. It is
+   opaque rather than translucent on purpose: a glass nav is on the captured
+   system's rejection list.
+   -------------------------------------------------------------------------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--app-bg-primary);
+  border-bottom: 1px solid var(--app-border-secondary);
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--topbar-h);
+  max-width: var(--measure);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 6px 4px 4px;
+  margin-left: -4px;
+  border-radius: var(--radius-block-hover);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  flex: none;
+  transition: background-color var(--duration-instant) ease-in;
+}
+
+.lockup:hover {
+  background: var(--app-wash-hover);
+}
+
+.lockup img {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-page-icon, 4px);
+}
+
+/* Section links. Active is a wash and a weight change, never a bar, never an
+   underline. That absence is the single most important idiom in the app's
+   restyle and it is what makes this bar read as the same product. */
+.sections {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: 12px;
+}
+
+.sections a {
+  padding: 5px 10px;
+  border-radius: var(--radius-block-hover);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--app-text-secondary);
+  transition: background-color var(--duration-instant) ease-in,
+    color var(--duration-150) var(--ease-out);
+}
+
+.sections a:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
+}
+
+.sections a[aria-current="true"] {
+  background: var(--app-sidebar-item-selected);
+  color: var(--app-text-primary);
+  font-weight: 600;
+}
+
+.topbar-spacer {
+  flex: 1;
+  min-width: 4px;
+}
+
+.topbar-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.topbar-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: var(--radius-block-hover);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--app-text-secondary);
+  transition: background-color var(--duration-instant) ease-in,
+    color var(--duration-150) var(--ease-out);
+}
+
+.topbar-links a:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
+}
+
+.topbar-links svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  flex: none;
+}
+
+/* 28px is --app-icon-button-size, the app's icon button. */
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-4);
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  flex: none;
+  transition: background-color var(--duration-instant) ease-in,
+    color var(--duration-150) var(--ease-out);
+}
+
+.icon-btn:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* The toggle shows the state you would move to, so only one glyph paints. */
+.icon-btn .glyph-dark {
+  display: none;
+}
+
+:root[data-chrome="dark"] .icon-btn .glyph-dark {
+  display: block;
+}
+
+:root[data-chrome="dark"] .icon-btn .glyph-light {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-chrome="light"]) .icon-btn .glyph-dark {
+    display: block;
+  }
+
+  :root:not([data-chrome="light"]) .icon-btn .glyph-light {
+    display: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   9. Hero
+   -------------------------------------------------------------------------- */
+
+.hero {
+  padding-top: clamp(48px, 7vw, 88px);
+  padding-bottom: clamp(40px, 5vw, 64px);
+}
+
+.hero-copy {
+  max-width: 780px;
+}
+
+.hero h1 {
+  font-size: var(--t-display);
+  letter-spacing: -0.032em;
+  word-spacing: 0.045em;
+  line-height: 1.04;
+}
+
+.hero h1 .accent {
+  color: var(--app-text-secondary);
+}
+
+.hero-sub {
+  margin-top: 20px;
+  max-width: 660px;
+  font-size: var(--t-lead);
+  line-height: 1.55;
+  color: var(--app-text-secondary);
+  text-wrap: pretty;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+/* The install command. --app-code-block-bg is the app's own code ground, so a
+   command on this page and a command inside the product are the same surface. */
+.install {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 4px 4px 4px 14px;
+  border-radius: var(--radius-app-button);
+  background: var(--app-code-block-bg);
+  border: 1px solid var(--app-border-primary);
+  max-width: 100%;
+}
+
+.install code {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--app-text-primary);
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.install code::-webkit-scrollbar {
+  display: none;
+}
+
+.install .prompt {
+  color: var(--app-text-tertiary);
+  user-select: none;
+}
+
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-app-button);
+  background: var(--app-bg-elevated);
+  box-shadow: var(--app-shadow-button);
+  color: var(--app-text-primary);
+  font-family: inherit;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  cursor: pointer;
+  flex: none;
+  transition: background-color var(--duration-150) var(--ease-out);
+}
+
+.copy:hover {
+  background: var(--app-bg-interactive);
+}
+
+.copy svg {
+  width: 13px;
+  height: 13px;
+}
+
+.copy .copy-done {
+  display: none;
+}
+
+.copy[data-copied="true"] .copy-done {
+  display: inline;
+}
+
+.copy[data-copied="true"] .copy-idle {
+  display: none;
+}
+
+.hero-note {
+  margin-top: 14px;
+  font-size: var(--t-sm);
+  color: var(--app-text-tertiary);
+}
+
+.hero-note code {
+  color: var(--app-text-secondary);
+}
+
+/* The hero figure carries a 36px strip above the image drawn in the app's own
+   topbar idiom: a breadcrumb at 12px secondary ink and a static mark. It is a
+   frame, not a fake browser: no traffic lights, no chrome the product does not
+   have. */
+.shot {
+  margin-top: clamp(36px, 5vw, 60px);
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-callout);
+  background: var(--app-bg-elevated);
+  box-shadow: var(--app-shadow-md);
+  overflow: hidden;
+}
+
+.shot-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--app-border-secondary);
+  font-size: var(--t-xs);
+  color: var(--app-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.shot-bar .crumb-sep {
+  color: var(--app-text-tertiary);
+}
+
+.shot-bar .shot-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--app-text-tertiary);
+}
+
+.shot img {
+  width: 100%;
+}
+
+.shot-cap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--app-border-secondary);
+  font-size: var(--t-xs);
+  color: var(--app-text-tertiary);
+}
+
+.tour {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--app-text-blue);
+  font-weight: 600;
+}
+
+.tour:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.tour svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+
+/* --------------------------------------------------------------------------
+   10. Why strip
+   Four claims, each with a static mark. Rendered as a definition list because
+   that is what it is: a term and the sentence that qualifies it.
+   -------------------------------------------------------------------------- */
+
+.why {
+  display: grid;
+  gap: 1px;
+  background: var(--app-border-secondary);
+  border: 1px solid var(--app-border-secondary);
+  border-radius: var(--radius-callout);
+  overflow: hidden;
+}
+
+.why-item {
+  background: var(--app-bg-primary);
+  padding: 20px 22px 22px;
+}
+
+/* flex-start plus an offset rather than centre alignment: a title that wraps
+   to two lines would otherwise float its mark into the gutter between them. */
+.why-item dt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.why-item dt .mark {
+  margin-top: 7px;
+}
+
+.why-item dd {
+  margin-top: 8px;
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--app-text-secondary);
+  text-wrap: pretty;
+}
+
+/* --------------------------------------------------------------------------
+   11. Feature blocks
+   Two columns that swap sides on alternate blocks. The media column is a card
+   at the collection-card radius with the capture's outlined-sm shadow, which
+   is the same treatment the app gives a board card.
+   -------------------------------------------------------------------------- */
+
+.feature {
+  display: grid;
+  gap: clamp(28px, 4vw, 56px);
+  align-items: center;
+  padding-block: clamp(40px, 5vw, 68px);
+}
+
+.feature + .feature {
+  border-top: 1px solid var(--app-border-secondary);
+}
+
+.feature h3 {
+  font-size: var(--t-h3);
+  letter-spacing: -0.019em;
+  word-spacing: 0.025em;
+}
+
+/* A block whose section already supplies the outer padding, so the two do not
+   stack into a 180px gap. */
+.feature-bare {
+  padding-block: 0;
+}
+
+#features .feature:first-of-type {
+  padding-top: 0;
+}
+
+.feature p {
+  margin-top: 14px;
+  font-size: var(--t-body);
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+  text-wrap: pretty;
+}
+
+.feature-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.feature-list {
+  margin-top: 16px;
+  list-style: none;
+  display: grid;
+  gap: 7px;
+}
+
+.feature-list li {
+  position: relative;
+  padding-left: 18px;
+  font-size: var(--t-sm);
+  line-height: 1.5;
+  color: var(--app-text-secondary);
+}
+
+/* A 5px square at the text's optical centre, not a bullet glyph, so the list
+   marker matches the flat geometry the rest of the page uses. */
+.feature-list li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: var(--app-border-strong);
+}
+
+.figure {
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-collection-card);
+  background: var(--app-bg-elevated);
+  box-shadow: var(--app-shadow-outlined-sm);
+  overflow: hidden;
+}
+
+.figure img {
+  width: 100%;
+}
+
+.figure figcaption {
+  padding: 9px 13px;
+  border-top: 1px solid var(--app-border-secondary);
+  font-size: var(--t-xs);
+  line-height: 1.45;
+  color: var(--app-text-tertiary);
+}
+
+/* --------------------------------------------------------------------------
+   12. Phone
+   The device frame is drawn here rather than shipped as an image so it takes
+   the theme with it. Radius, padding and shadow are the mock's own values for
+   the mobile device frame.
+   -------------------------------------------------------------------------- */
+
+.device {
+  width: 100%;
+  max-width: 316px;
+  margin-inline: auto;
+  padding: 12px;
+  border-radius: var(--radius-device);
+  background: var(--app-bg-tertiary);
+  box-shadow: 0 0 0 1px var(--app-border-primary), var(--app-shadow-device);
+}
+
+/* The screen keeps its own hairline so the bezel reads as a bezel even when
+   the capture inside it is the same near-white as the page. */
+.device img {
+  width: 100%;
+  border-radius: 15px;
+  box-shadow: 0 0 0 1px var(--app-border-primary);
+}
+
+/* --------------------------------------------------------------------------
+   13. Open source block
+   -------------------------------------------------------------------------- */
+
+.facts {
+  display: grid;
+  gap: 20px;
+  margin-top: 8px;
+}
+
+.facts-tail {
+  margin-top: 34px;
+}
+
+.meta-label {
+  font-size: var(--t-xs);
+  color: var(--app-text-tertiary);
+}
+
+.fact {
+  padding-left: 16px;
+  border-left: 2px solid var(--app-border-primary);
+}
+
+.fact h3 {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.fact p {
+  margin-top: 6px;
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--app-text-secondary);
+  text-wrap: pretty;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.badges img {
+  height: 20px;
+  width: auto;
+}
+
+/* --------------------------------------------------------------------------
+   14. Get it
+   -------------------------------------------------------------------------- */
+
+.tracks {
+  display: grid;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.track {
+  padding: 22px;
+  border: 1px solid var(--app-border-primary);
+  border-radius: var(--radius-callout);
+  background: var(--app-bg-primary);
+}
+
+.track-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.track-head h3 {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.track p {
+  margin-top: 8px;
+  margin-bottom: 16px;
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--app-text-secondary);
+  text-wrap: pretty;
+}
+
+.track .install {
+  background: var(--app-code-block-bg);
+}
+
+.requires {
+  margin-top: 20px;
+  font-size: var(--t-xs);
+  color: var(--app-text-tertiary);
+}
+
+/* --------------------------------------------------------------------------
+   15. Footer
+   -------------------------------------------------------------------------- */
+
+.foot {
+  border-top: 1px solid var(--app-border-secondary);
+  padding-block: 40px 52px;
+  background: var(--app-bg-secondary);
+}
+
+.foot-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--app-border-secondary);
+}
+
+.foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.foot-links a {
+  padding: 4px 8px;
+  margin-inline: -2px;
+  border-radius: var(--radius-block-hover);
+  font-size: var(--t-sm);
+  color: var(--app-text-secondary);
+  transition: background-color var(--duration-instant) ease-in,
+    color var(--duration-150) var(--ease-out);
+}
+
+.foot-links a:hover {
+  background: var(--app-wash-hover);
+  color: var(--app-text-primary);
+}
+
+.foot-legal {
+  margin-top: 22px;
+  display: grid;
+  gap: 10px;
+  font-size: var(--t-xs);
+  line-height: 1.6;
+  color: var(--app-text-tertiary);
+  max-width: 760px;
+}
+
+.foot-legal a {
+  color: var(--app-text-secondary);
+  text-decoration: underline;
+  text-decoration-color: var(--app-border-strong);
+  text-underline-offset: 2px;
+}
+
+.foot-legal a:hover {
+  color: var(--app-text-primary);
+}
+
+/* --------------------------------------------------------------------------
+   16. Responsive
+   The page is authored single column and gains columns as width allows, so
+   360px is the natural state rather than a repair.
+   -------------------------------------------------------------------------- */
+
+@media (min-width: 560px) {
+  :root {
+    --gutter: 28px;
+  }
+
+  .why {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .facts {
+    grid-template-columns: 1fr 1fr;
+    gap: 22px 32px;
+  }
+}
+
+@media (min-width: 760px) {
+  .feature {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .feature-media {
+    order: 2;
+  }
+
+  .feature-flip .feature-body {
+    order: 2;
+  }
+
+  .feature-flip .feature-media {
+    order: 1;
+  }
+
+  .tracks {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .why {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 900px) {
+  :root {
+    --gutter: 32px;
+  }
+
+  .sections {
+    display: flex;
+  }
+
+  .facts {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: clamp(32px, 5vw, 64px);
+    align-items: center;
+  }
+
+  .split .section-head {
+    margin-bottom: 0;
+  }
+}
+
+/* The media column keeps the same width in both directions. The flipped block
+   has to restate the ratio rather than inherit it, because order: 1 moves the
+   media element into the FIRST grid column and would otherwise hand it the
+   narrower track. */
+@media (min-width: 1120px) {
+  .feature {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  }
+
+  .feature-flip {
+    grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+  }
+}
+
+/* Narrow phones. The wordmark stays, because a page that cannot say its own
+   name is worse than one with a bare icon; what gives way is the GitHub label,
+   whose mark already carries the meaning, and the figure's status line. */
+@media (max-width: 640px) {
+  .shot-bar .shot-state {
+    display: none;
+  }
+}
+
+@media (max-width: 479px) {
+  .topbar-links .label {
+    display: none;
+  }
+
+  .topbar-links a {
+    padding-inline: 7px;
+  }
+
+  .lockup {
+    font-size: 14px;
+    gap: 8px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   17. Reduced motion
+   Functional motion is zeroed; there is no decorative motion on this page to
+   remove. The animated hero is swapped for its poster frame in main.js,
+   because an animated WebP cannot be paused by CSS.
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   18. Print
+   -------------------------------------------------------------------------- */
+
+@media print {
+  .topbar,
+  .copy,
+  .badges {
+    display: none;
+  }
+}
