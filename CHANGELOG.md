@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - CodeQL and npm audit scanning.
 - Dependabot for npm and GitHub Actions dependencies.
 
+### Fixed
+
+- **Session status is a mark and a word again, not a coloured pill.** The Status column in the sessions table, the status line in the side panel and the running counter in the header all drew a filled capsule with a small dot inside it. That shape is banned in this product, in every form, and it had survived because the rule that removed the blinking version of it only checked for movement. The capsule is gone from all three. What is left is the same coloured dot in the same place, followed by the state as a word in the same colour, sitting on the page rather than in a box. Nothing moved and no row changed height. The word is now easier to read than it was: the old ink was mixed to sit on the coloured fill behind it, so with the fill removed it would have been faint on a white page and almost colourless on a dark one, and every state's colour has been remixed against the page it is actually drawn on. Sessions that are waiting for you draw a ring instead of a filled dot, so the state is still clear without colour, on a printout, or to a colour blind reader. Four states the app can report but had never styled (waiting for input, complete, failed and stale) drew an invisible mark; they now draw a real one.
+
 ### Changed
 
 - CI now runs on current action majors, and tests against Node 20 and 22.

@@ -2050,6 +2050,95 @@ whether it keeps the capture's neutral ramp or ships an accessible delta.
 7. **Sanctioned edit SE-12**, taken but revertable alone, and the precedent that
    an implementation agent records a new SE number rather than editing a pin
    quietly.
+
+### 13.6 The shape half of the same ban, five days later
+
+13.1 read the standing rule as a rule about MOTION and swept seventeen animated
+marks. That reading was half of it. The user's wording is that the status pill
+CONTAINING A DOT INDICATOR is banned "in ANY form: blinking, pulsing, OR
+static", because the pill-plus-dot pattern is itself the tell; status is to be
+carried by typography, by colour fields, and by rings or marks OUTSIDE pill
+capsules. A static dot inside a static pill animates nothing, so G14 passed it
+cleanly, and the app shipped it in two places until 2026-08-18.
+
+**The two sites.** `.status-badge`, which is the Status column of the sessions
+table and the status row of the side peek, drew a 10px capsule with a per-state
+background wash and an 8px dot inside it. `.stat-chip`, the header's running
+counter, drew a gray capsule with a green `.stat-dot` and a number. Both are
+the banned pattern exactly, and 13.1's own commit is where the first one got
+its dot: 11.2.4 had recorded `.nt-chip-dot` as a shape with no consumer, and
+the P4 commit that wired `statusChipHtml` put it inside the capsule.
+
+**What replaced them.** The capsule, and only the capsule. Both rules lose the
+radius, the fill and the inset padding; every other declaration stands, so no
+row changed height and no column re-flowed. The mark stays exactly where it
+was, now standing on the page ground, which is the placement the rule asks for.
+
+**The mark keeps 13.1's mapping and now spends it twice.** With the wash gone,
+colour is the only channel left between a green word beside a green disc and a
+yellow word beside a yellow disc, and DV-14 measured that yellow at 2.68:1. So
+the same RING that 13.1 gave the needs-input DOT is given the needs-input CHIP
+DOT, through `.status-badge-idle .nt-chip-dot` and its needs-input sibling. The
+shape channel is therefore continuous from the sidebar to the table.
+
+**The label's ink is a mix, and this is the only genuinely new decision.**
+`--app-chip-*-ink` is authored to sit on a wash and resolves to near-white on
+dark chrome, so it loses the hue the moment the wash goes. The bare status hues
+are authored as 7px dots against a 3:1 graphic floor and measure 3.62:1 (green),
+2.68:1 (yellow) and 3.97:1 (teal) as text on the white canvas. Neither family
+works. `--app-status-ink-*` mixes the hue with `--app-text-primary` at a shared
+`--app-status-mix` of 65 percent, which every chrome and every theme already
+redefines, so one declaration is legible on both grounds with no per-theme
+block: green 5.68 light / 7.57 dark, yellow 4.56 / 8.96, red 6.58 / 6.58, teal
+6.12 / 7.09, brown 6.15 / 7.14. Yellow sets the constant, because it is the one
+that falls under 4.5:1 first. Stopped takes `--app-text-secondary` instead of a
+sixth mix: it is the resting majority of any list and should read as quiet text
+rather than as marked-up state. Six rows in `INVENTIONS.md`, one per token.
+
+**One declaration paints both.** `.nt-chip-dot` fills with `currentColor`, so
+setting `color` on a `.status-badge-<state>` rule colours the disc, the ring and
+the word together. They cannot drift.
+
+**A hole found on the way.** `.status-dot` sets a size and a radius and no
+background, and the name cell emits `status-dot-${s.status}` from whatever
+string the store holds. Four of the eight states DESIGN-SPEC 6 names had no
+rule, so a session that was needs-input, complete, failed or stale drew a 7px
+box of nothing. The four rules are added with 13.1's shapes, and the peek's
+`statusIcons` map gains the same four entries for the same reason.
+
+**Enforcement is two gates, one per medium.** G16 in
+`scripts/do-not-break-gates.js` is G14's structural sibling: it resolves the
+`--radius-*` chain to find which classes are drawn as a capsule, which carry a
+real fill, and which are inline-level, then walks the authored markup and the
+generated templates for a dot inside one. It evaluates the three conditions
+across the element's WHOLE class list rather than per rule, which is the detail
+that makes it work here: the radius lived on `.status-badge` and the fill lived
+on `.status-badge-running`, so a per-rule gate sees two innocent halves. It also
+treats a class token ending in a hyphen as a stem, because `statusChipHtml`
+composes `status-badge-${key}` at runtime and the literal half is all a source
+scan can see. The inline-level condition is what keeps `.mobile-session-card`
+out of the count: a 10px bordered card with a leading mark is the idiom the rule
+asks FOR, and `display` is where a card and a capsule separate. The second gate
+is a runtime one in `scripts/media/capture.js`, which asks the same question of
+the real computed styles before every media take, so no frame of the marketing
+set can show a pattern the source gate somehow let through.
+
+**Non-vacuity, both prongs.** Re-injecting the old `.status-badge` capsule (the
+radius on the base rule, the wash on `.status-badge-running`) turns G16 red at
+`app.js:18531 .nt-chip-dot inside .status-badge.status-badge-`; re-injecting the
+old `.stat-chip` capsule turns it red at
+`index.html:491 .stat-dot.stat-dot-running inside .stat-chip`. Removing each
+turns it green. The gate opens at a baseline of 0 for the same reason G14 did:
+the ban is a standing rule rather than a phase target, and the sweep that
+empties it ships in the same commit.
+
+**What this costs.** The Status column is no longer a boxed object, so at a
+glance the table reads as six text columns rather than five plus a chip. That is
+the intended outcome and it is also the one thing a reviewer might read as a
+regression, so it is written down here rather than left to be rediscovered. The
+class names still say "badge" and "chip" while the pixels say neither, which is
+the deliberate price of DO-NOT-BREAK section B: a restyle may change every
+declaration in a rule and may never change the rule's name.
 ---
 
 ## 14. Phase P5, terminal input correctness and the surface projection

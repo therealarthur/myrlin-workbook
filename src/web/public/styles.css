@@ -343,6 +343,39 @@
   --provider-codex-tint:    color-mix(in srgb, var(--app-text-green) 10%, transparent);
   --provider-gemini-tint:   color-mix(in srgb, var(--app-text-blue) 10%, transparent);
 
+  /* STATUS INK: the colour a status LABEL is written in once the capsule
+     behind it is gone (DECISIONS 13.6, the standing ban on a status pill
+     carrying a dot).
+
+     WHY A MIX RATHER THAN A TOKEN LOOKUP. The eight status hues above
+     (--app-text-green and friends) are defined ONCE, in this block, and are
+     deliberately not re-declared per chrome: they are the fills of the 7px
+     status dots, where the floor is the 3:1 graphic ratio. Text has a 4.5:1
+     floor, and MEASURED on the two chrome grounds the bare hues do not reach
+     it on the light canvas: green 3.62:1, yellow 2.68:1, teal 3.97:1. The
+     chip inks (--app-chip-*-ink) are the other obvious candidate and they
+     fail the opposite way: they are authored to sit on a coloured WASH, so on
+     dark chrome every one of them resolves to a near-white that carries no
+     hue at all once the wash is removed.
+
+     Mixing the hue with the CHROME'S OWN primary ink solves both at once and
+     needs no per-theme block, because --app-text-primary is what every chrome
+     and every theme already redefines. At 65 percent the measured ratios are
+     green 5.68 light / 7.57 dark, yellow 4.56 / 8.96, red 6.58 / 6.58, teal
+     6.12 / 7.09, brown 6.15 / 7.14, and yellow, the weakest, is the one that
+     sets the constant: below 65 percent it drops under 4.5:1 on white.
+
+     The mark and the label share one declaration. .nt-chip-dot paints itself
+     with currentColor, so setting `color` on a .status-badge-<state> rule
+     colours the disc, the ring and the word together and they can never
+     drift apart. */
+  --app-status-mix: 65%;
+  --app-status-ink-green:  color-mix(in srgb, var(--app-text-green)  var(--app-status-mix), var(--app-text-primary));
+  --app-status-ink-yellow: color-mix(in srgb, var(--app-text-yellow) var(--app-status-mix), var(--app-text-primary));
+  --app-status-ink-red:    color-mix(in srgb, var(--app-text-red)    var(--app-status-mix), var(--app-text-primary));
+  --app-status-ink-teal:   color-mix(in srgb, var(--app-text-teal)   var(--app-status-mix), var(--app-text-primary));
+  --app-status-ink-brown:  color-mix(in srgb, var(--app-text-brown)  var(--app-status-mix), var(--app-text-primary));
+
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
@@ -1574,10 +1607,48 @@ textarea.input {
   box-shadow: inset 0 0 0 2px var(--app-text-yellow);
 }
 
-/* The chip dot. 8px, currentColor, so it takes the CHIP ink of whatever chip
-   encloses it and never the block palette. New class, per BUILD-CONTRACT 2.3;
-   nothing in the markup carries it yet, and the status chips below draw their
-   own dot through ::before so the two idioms stay identical either way. */
+/*
+ * The four states that had no mark rule at all, added with the status-mark
+ * sweep of 2026-08-18 (DECISIONS 13.6).
+ *
+ * WHY THIS WAS A REAL HOLE AND NOT TIDINESS. `.status-dot` on its own sets a
+ * size and a radius and NO background, and the name cell of every session row
+ * emits `status-dot-${s.status}` from whatever string the store holds. Four of
+ * the eight states DESIGN-SPEC 6 names, needs-input, complete, failed and
+ * stale, had no rule, so a session in one of them drew a 7px box of nothing:
+ * invisible, and indistinguishable from a session with no mark. The shapes and
+ * hues below are DECISIONS 13.1's mapping table, unchanged: RING for the
+ * waiting state, DISC for the settled ones.
+ */
+.status-dot-needs-input {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--app-text-yellow);
+}
+
+.status-dot-complete {
+  background: var(--app-text-teal);
+  box-shadow: none;
+}
+
+.status-dot-failed {
+  background: var(--app-text-red);
+  box-shadow: none;
+}
+
+.status-dot-stale {
+  background: var(--app-text-brown);
+  box-shadow: none;
+}
+
+/* The status mark. 8px, currentColor, so it takes the ink of whatever labels
+   it and never the block palette. Class name from BUILD-CONTRACT 2.3, kept
+   verbatim; what changed on 2026-08-18 is what encloses it. It was authored as
+   a CHIP dot, and it is now the leading mark of a chipless status label, which
+   is the whole point of DECISIONS 13.6: the dot was never the banned half, the
+   capsule around it was. The declarations are untouched, because a mark that
+   inherits its colour works the same whether or not there is a wash behind it,
+   and the ring variant for the waiting states is added below rather than here
+   so this rule stays the one shape every consumer starts from. */
 .nt-chip-dot {
   display: inline-block;
   width: 8px;
@@ -1587,52 +1658,110 @@ textarea.input {
   flex-shrink: 0;
 }
 
-/* Status chip: a property chip at the 10px status radius with a leading dot.
-   The asymmetric 0 9px 0 7px padding is the captured value and it exists
-   because the dot needs less lead-in than the label needs trail-off. */
+/*
+ * THE STATUS MARK AND ITS LABEL. Not a chip, and deliberately not one.
+ *
+ * WHAT CHANGED, 2026-08-18, and why it is not a taste call. This rule used to
+ * draw a capsule: a 10px radius, a per-state background wash, and an
+ * asymmetric 0 9px 0 7px padding to sit the dot inside it. The standing user
+ * rule of 2026-08-13, recorded in DECISIONS 13.1 and now extended in 13.6,
+ * bans the status pill that CONTAINS a dot indicator in every form, static
+ * included. The pill was the banned half; the dot was never the problem.
+ *
+ * So the capsule is gone and nothing else is. `border-radius` is removed
+ * outright rather than set to zero, because gate G6 counts a numeric radius
+ * literal in this sheet and `border-radius: 0` would read as a regression of
+ * exactly the thing G6 protects. `padding` stays as a declaration at 0, so the
+ * mark aligns with the Status column's own left edge instead of being inset by
+ * a lead-in that no longer has a capsule to lead into. The height, the gap and
+ * the type scale are untouched: they are what keeps a status cell the same
+ * height as the provider chip beside it, so no row moved.
+ *
+ * The class names are unchanged on purpose. `.status-badge` and
+ * `.status-badge-<state>` are the tokens `statusChipHtml()` emits and that
+ * DO-NOT-BREAK section B protects; a restyle may change every declaration
+ * inside a rule and may not change the rule's name.
+ *
+ * Structural enforcement is gate G16, which fails the build if any element
+ * styled as a capsule (a pill radius plus a fill) ever encloses a dot child
+ * again, and the runtime guard in scripts/media/capture.js, which fails a
+ * media take on the same condition in the rendered page.
+ */
 .status-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 20px;
-  padding: 0 9px 0 7px;
-  border-radius: var(--radius-status-chip);
+  padding: 0;
   font-size: var(--app-chip-size);
   line-height: var(--app-chip-line);
   font-weight: 500;
   text-transform: capitalize;
 }
 
-/* The leading dot is NOT drawn here as a ::before. Both consumers of
-   .status-badge already put something in that position: renderSessionDetail
-   emits `statusIcons[status]` ahead of the label, and the two flag badges in
-   the pane detail carry their own inline styles. A pseudo-element dot would
-   sit next to a glyph on one and next to nothing on the others. The dot ships
-   as .nt-chip-dot above, so adding it is a one-span markup change in the file
-   that owns those templates, which is not this phase's file. */
+/*
+ * The waiting states take the RING, every settled state takes the DISC.
+ *
+ * This is DECISIONS 13.1's mapping applied to the chip dot, and it is the
+ * reason the shape channel survives the loss of the wash. Colour alone used to
+ * be doubled by the capsule's fill; with the fill gone, needs-input and idle
+ * would be a yellow word next to a yellow disc and running would be a green
+ * word next to a green disc, identical in shape and separated only by a hue
+ * that DV-14 measured at 2.68:1. The ring restores a second channel that
+ * survives greyscale, colour blindness and Windows High Contrast, where
+ * semantic-theme.css's forced-colours block flattens every dot to CanvasText
+ * and the outline is all that is left.
+ *
+ * `currentColor` rather than a named hue, so the ring and the label are the
+ * same declaration and cannot drift.
+ */
+.status-badge-idle .nt-chip-dot,
+.status-badge-needs-input .nt-chip-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+/* The leading mark is NOT drawn here as a ::before, and the reason survived
+   the de-capsuling unchanged. Both consumers of .status-badge already put
+   something in that position: the sessions table emits a .nt-chip-dot span
+   from statusChipHtml(), and renderSessionDetail emits a .status-dot span from
+   its own statusIcons map. A pseudo-element mark would land next to one of
+   those on every row and produce two marks where the design asks for one. */
 
 /* RUNNING IS GREEN. DECISIONS.md 9.2.4 handed this decision forward from P1
    with the ink on --color-info (blue) and the wash already on --app-bg-green;
    the orchestrator ruled green, so --status-running now resolves to the green
-   family in semantic-theme.css and ink and wash finally agree. */
+   family in semantic-theme.css and ink and wash finally agree.
+
+   Each of the eight rules below keeps `background` as an EXPLICIT transparent
+   rather than dropping the declaration. The value is the statement: a reader
+   of this block, and gate G16 reading it mechanically, both need to see that
+   the absence of a fill is the decision and not an omission somebody should
+   helpfully restore. The ink moves off --app-chip-*-ink, which is authored to
+   sit on the wash that is now gone, and onto the --app-status-ink-* mixes
+   defined in :root, which are legible on the page ground in both chromes.
+   `color` also paints the mark, through .nt-chip-dot's currentColor. */
 .status-badge-running {
-  background: var(--app-chip-green-fill);
-  color: var(--app-chip-green-ink);
+  background: transparent;
+  color: var(--app-status-ink-green);
 }
 
+/* Stopped is the resting majority of any list, so it takes the app's own
+   secondary register rather than a saturated gray: a wall of stopped rows
+   should read as quiet text, not as a wall of marked-up state. */
 .status-badge-stopped {
-  background: var(--app-chip-gray-fill);
-  color: var(--app-chip-gray-ink);
+  background: transparent;
+  color: var(--app-text-secondary);
 }
 
 .status-badge-error {
-  background: var(--app-chip-red-fill);
-  color: var(--app-chip-red-ink);
+  background: transparent;
+  color: var(--app-status-ink-red);
 }
 
 .status-badge-idle {
-  background: var(--app-chip-yellow-fill);
-  color: var(--app-chip-yellow-ink);
+  background: transparent;
+  color: var(--app-status-ink-yellow);
 }
 
 /*
@@ -1642,23 +1771,23 @@ textarea.input {
  * eight means a new status can never render as an unstyled bare word.
  */
 .status-badge-needs-input {
-  background: var(--app-chip-yellow-fill);
-  color: var(--app-chip-yellow-ink);
+  background: transparent;
+  color: var(--app-status-ink-yellow);
 }
 
 .status-badge-failed {
-  background: var(--app-chip-red-fill);
-  color: var(--app-chip-red-ink);
+  background: transparent;
+  color: var(--app-status-ink-red);
 }
 
 .status-badge-complete {
-  background: var(--app-chip-teal-fill);
-  color: var(--app-chip-teal-ink);
+  background: transparent;
+  color: var(--app-status-ink-teal);
 }
 
 .status-badge-stale {
-  background: var(--app-chip-brown-fill);
-  color: var(--app-chip-brown-ink);
+  background: transparent;
+  color: var(--app-status-ink-brown);
 }
 
 /*
@@ -2396,24 +2525,39 @@ textarea.input {
  * `informative`, so what P2 owes it is a chip that does not look like the old
  * design when that density is on: a status chip's fill and ink, at the status
  * chip's own radius, with no glow under the dot. See DEVIATIONS.md DV-9. */
+/* 14px rather than 6px since the two counters stopped being boxed. A 6px gap
+   was the space BETWEEN two capsules, and with the capsules gone it reads as
+   one run of four glyphs; the separation now has to be carried by the gutter
+   itself. */
 .header-stats {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 14px;
   margin-right: 4px;
 }
 
+/*
+ * The header's two counters. The first one is the SECOND capsule-with-a-dot
+ * this app shipped: a gray 10px pill holding a green .stat-dot and a running
+ * count, which is the banned pattern exactly (DECISIONS 13.6). The capsule is
+ * removed here for the same reason and by the same means as .status-badge: no
+ * fill, no radius, no inset padding, and the mark left standing on the header
+ * ground where the ban says a status mark belongs.
+ *
+ * The second .stat-chip carries an icon and a total rather than a dot, so it
+ * was never in breach; it loses the capsule anyway, because two counters side
+ * by side where only one is boxed reads as a defect rather than a distinction.
+ */
 .stat-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 7px;
+  padding: 0;
   height: var(--app-chip-height);
-  background: var(--app-chip-gray-fill);
-  border-radius: var(--radius-status-chip);
+  background: transparent;
   font-size: 12px;
   font-weight: 500;
-  color: var(--app-chip-gray-ink);
+  color: var(--app-text-secondary);
 }
 
 /* 7px is the standalone status-dot size (DESIGN-SPEC.md 6.1). Chip dots are
@@ -15678,10 +15822,16 @@ html {
   background: var(--app-chip-green-fill);
   color: var(--app-chip-green-ink);
 }
+/* Off for the same reason as the mirror pill above, and by the same means.
+   See DECISIONS 13.6: the chip's background already carries the provider hue,
+   so the dot inside it was a duplicate signal drawn as the one shape the
+   standing rule singles out. The `background` rules below are left in place;
+   they paint a box that is no longer drawn, and they are what a future
+   decision to bring the mark back OUTSIDE the chip would start from. */
 .pane-provider-pill[data-provider="claude"]::before,
 .pane-provider-pill[data-provider="codex"]::before {
   content: '';
-  display: inline-block;
+  display: none;
   width: 8px;
   height: 8px;
   border-radius: var(--radius-avatar);
@@ -16126,9 +16276,21 @@ html {
   background: var(--app-chip-green-fill);
   color: var(--app-chip-green-ink);
 }
+/* THE DOT IS OFF, AND THE RULE IS KEPT (DECISIONS 13.6).
+   A filled chip with a coloured dot inside it is the pattern the standing rule
+   rejects, and this one restates something the chip is already saying: the
+   chip's own background IS the provider hue, purple for Claude and green for
+   Codex, so the dot was a second copy of a signal already carried by a colour
+   field, which is the channel the rule asks for. The sessions table's own
+   `.session-provider-chip` never had this dot, so switching it off here is also
+   what makes one provider chip look like every other provider chip.
+   `display: none` rather than a deleted block, following the precedent 13.1 set
+   for `mwPulse`: code preservation keeps the declarations, the ban is on
+   consumption, and a `display: none` pseudo-element draws no box, so the 5px
+   gap beside it collapses with it. */
 .mirror-provider-pill::before {
   content: '';
-  display: inline-block;
+  display: none;
   width: 8px;
   height: 8px;
   border-radius: var(--radius-avatar);

@@ -141,6 +141,13 @@
       "target": 0,
       "phase": "always",
       "note": "Opened by the P4 remainder at ZERO rather than at its pre-sweep count of 17, because the ban that created it is a standing rule and not a phase target. The sweep that empties it ships in the same commit, so the gate has never had a non-zero baseline to ratchet down from."
+    },
+    "G16": {
+      "name": "status dots enclosed by a capsule (pill radius plus a fill)",
+      "baseline": 0,
+      "target": 0,
+      "phase": "always",
+      "note": "Opened at ZERO by the 2026-08-18 status-mark sweep, on the same reasoning G14 records: the ban is a standing rule rather than a phase target, and the two sites that broke it (.status-badge in the sessions table and .stat-chip in the header) are de-capsuled in the same commit that adds the gate. Pre-sweep the measurement was 2. Verified non-vacuous before the commit by re-injecting the old capsule declarations and watching it go red."
     }
   },
   "_ratchetNote": "The P4 remainder ratcheted G4 (902 to 751, the largest single-phase fall the counter has recorded), G5b (46 to 41) and opened G14 at 0. G3, G6, G7, G8, G9a, G9b, G11, G12a and G12b are unchanged. Four are still short of their P4 target and each is short for a stated reason, recorded in DECISIONS 12.4 and 13.5: G4 and G5b by the terminal surface that belongs to P5 and the mobile sheet that belongs to P10, plus the app.js inline census 12.3.3 leaves with its regions; G7 by the two mobile action-sheet rules in styles-mobile.css, another track file; G9a by the loading shimmer, which is the one documented exception the gate allows because a shimmer IS a moving gradient."

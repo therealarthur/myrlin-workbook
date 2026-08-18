@@ -193,7 +193,7 @@ check('index.html cache-busts the app pane-focus/host fix', () => {
   // holding a cached copy would show the old four-tab bar against the new
   // stylesheet. terminal.js keeps -p5, which is the independent versioning
   // working as intended.
-  assert.ok(/app\.js\?v=20260814-notion-r2/.test(indexSrc),
+  assert.ok(/app\.js\?v=20260818-status-marks/.test(indexSrc),
     'expected the current app.js cache token');
 });
 

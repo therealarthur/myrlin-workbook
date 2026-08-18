@@ -18481,15 +18481,38 @@ class CWMApp {
   }
 
   /**
-   * Session status as a STATUS chip: a property chip at the 10px radius with
-   * a leading 8px currentColor dot.
+   * Session status as a static MARK plus a label, and deliberately NOT as a
+   * chip.
    *
-   * This is the first consumer of `.nt-chip-dot`. P3 shipped the class and
-   * recorded in DECISIONS 11.2.4 that nothing carried it yet because the
-   * markup lives in the files P3 did not own. This is that markup.
+   * WHY THE ELEMENT IS NO LONGER A CAPSULE. This used to emit a property chip:
+   * a 10px radius, a per-state background wash, and an 8px dot sitting inside
+   * it. The standing user rule of 2026-08-13 bans the status pill that
+   * contains a dot indicator in every form, blinking, pulsing and static
+   * alike, and asks for status to be carried by typography, colour, and marks
+   * OUTSIDE pill capsules. The markup here is unchanged in structure; what
+   * changed is the CSS behind it, which no longer draws a fill, a border or a
+   * pill radius on `.status-badge`. DECISIONS 13.6 carries the full entry.
+   *
+   * WHY THE CLASS NAMES SURVIVE ANYWAY. `.status-badge` and
+   * `.status-badge-<state>` are DO-NOT-BREAK section B tokens, and
+   * `.nt-chip-dot` is the shape rule the sweep re-encodes rather than
+   * replaces. A restyle may change every declaration inside a rule and may
+   * never change the rule's name, so the names read "badge" and "chip" while
+   * the pixels read as neither. That mismatch is the deliberate cost of the
+   * contract, and it is cheaper than a rename that would silently detach the
+   * JS, the tests and the two class snapshots from the thing they describe.
+   *
+   * The mark is `aria-hidden` because it is a second rendering of the word
+   * beside it. A screen reader that announced both would say the state twice
+   * and name a shape that means nothing without the picture.
+   *
+   * The eight labels are the eight states DESIGN-SPEC 6 maps. An unmapped
+   * status falls through to its raw key rather than to an empty cell, so a new
+   * provider state shows up as a word somebody can search for instead of
+   * vanishing.
    *
    * @param {string} status - Session status.
-   * @returns {string} Chip markup.
+   * @returns {string} Mark and label markup, with no capsule around it.
    */
   statusChipHtml(status) {
     const key = status || 'stopped';
@@ -18505,7 +18528,7 @@ class CWMApp {
     };
     const label = labels[key] || key;
     return `<span class="status-badge status-badge-${this.escapeHtml(key)}">` +
-      '<span class="nt-chip-dot"></span>' + this.escapeHtml(label) + '</span>';
+      '<span class="nt-chip-dot" aria-hidden="true"></span>' + this.escapeHtml(label) + '</span>';
   }
 
   /**
@@ -18562,11 +18585,25 @@ class CWMApp {
 
     // Status badge
     const status = session.status || 'stopped';
+    // The peek's own mark, and the second consumer of `.status-badge`. It
+    // stays a hand-rolled map rather than a call to statusChipHtml() because
+    // this surface draws the 7px standalone `.status-dot` that the sidebar and
+    // the row name cell use, not the 8px `.nt-chip-dot`, and DECISIONS 13.1
+    // keeps those two mark systems separate on purpose.
+    //
+    // The four states below `idle` were missing and are added with the
+    // 2026-08-18 sweep: a session in one of them rendered the label with no
+    // mark at all, because the map returned undefined and the `|| ''` branch
+    // swallowed it silently. The shapes are DECISIONS 13.1's mapping.
     const statusIcons = {
       running: '<span class="status-dot status-dot-running"></span>',
       stopped: '<span class="status-dot status-dot-stopped"></span>',
       error: '<span class="status-dot status-dot-error"></span>',
       idle: '<span class="status-dot status-dot-idle"></span>',
+      'needs-input': '<span class="status-dot status-dot-needs-input"></span>',
+      complete: '<span class="status-dot status-dot-complete"></span>',
+      failed: '<span class="status-dot status-dot-failed"></span>',
+      stale: '<span class="status-dot status-dot-stale"></span>',
     };
     this.els.detailStatusBadge.innerHTML = `<span class="status-badge status-badge-${status}">${statusIcons[status] || ''} ${status}</span>`;
 
