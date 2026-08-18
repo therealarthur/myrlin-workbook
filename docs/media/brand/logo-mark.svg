@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="currentColor" role="img" aria-label="Myrlin Workbook">
+  <!--
+    Myrlin Workbook mark, single colour.
+    Inherits colour from the surrounding text through currentColor, so it works in a CLI
+    splash, a stamped footer, a one-colour print job or a stencil.
+
+    Silhouette geometry is byte identical to logo.svg (brim, crown, tip), drawn without
+    strokes because in one colour a keyline only fattens the shape. The band and the two
+    patches are knocked out through a mask rather than an even-odd hole, which keeps the
+    three silhouette paths independent and means no subpath winding has to be reversed.
+    The band slot stops short of the silhouette on both sides so the crown never floats
+    free of the brim.
+  -->
+  <mask id="myrlin-mark-cut">
+    <rect width="512" height="512" fill="#fff"/>
+    <path fill="#000" d="M168 333c60-7 130-7 178-2 2 11 3 21 2 30-60 9-134 8-182-2 0-8 1-18 2-26Z"/>
+    <rect fill="#000" x="240" y="144" width="44" height="44" rx="8" transform="rotate(-7 262 166)"/>
+    <rect fill="#000" x="197" y="257" width="50" height="50" rx="9" transform="rotate(6 222 282)"/>
+  </mask>
+  <g mask="url(#myrlin-mark-cut)">
+    <path d="M152 355c-26 11-64 31-94 50L40 418c6 10 24 18 48 23 14 3 22 3 28 1 16 4 42 10 72 14 14 2 26 2 40 0 42-5 86-12 126-18 20-3 32-1 40 4 16 2 36-2 56-10L470 418c-14-16-48-36-80-48-12-5-20-11-26-15Z"/>
+    <path d="M300 44c-14 12-44 26-60 36-12 7-19 19-20 41Q178 238 152 355h212c-14-55-32-123-48-183-5-18-4-33 0-48Z"/>
+    <path d="M300 44c14 14 38 40 56 74 12 22 20 42 20 60v12c0 12-1 19-3 23-11-14-24-35-34-55-8-16-16-27-23-34Z"/>
+  </g>
+</svg>

@@ -36,7 +36,9 @@
     "gui:cdp": "node src/supervisor.js --cdp",
     "postinstall": "node scripts/postinstall.js",
     "restart": "bash scripts/restart-gui.sh",
-    "build:icons": "node scripts/build-lucide-bundle.mjs && node scripts/build-material-bundle.mjs"
+    "build:icons": "node scripts/build-lucide-bundle.mjs && node scripts/build-material-bundle.mjs",
+    "brand:build": "node scripts/brand/build-icons.js && node scripts/brand/build-logo-anim.js",
+    "brand:review": "node scripts/brand/build-review-sheet.js"
   },
   "repository": {
     "type": "git",

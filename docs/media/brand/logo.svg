@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="myrlin-logo-title myrlin-logo-desc">
+  <title id="myrlin-logo-title">Myrlin Workbook</title>
+  <desc id="myrlin-logo-desc">A patched wizard hat with a wide brim, a mint band and a tip that folds over to the right.</desc>
+  <!--
+    Myrlin Workbook logo, vector master.
+    Hand-authored from docs/images/logo.png (238x192 raster; no vector master existed).
+    Geometry sits in a 512x512 square box with roughly a 34 unit optical safe margin.
+    #hat-core holds every shape that has to survive 16px. #hat-detail holds the
+    stitching, the buckle and the creases, which favicon.svg drops on purpose.
+    The three silhouette paths are defined once and reused as clip paths through
+    <use>, so a facet can never drift away from the shape it shades.
+    Palette, clear space and regeneration: docs/media/brand/README.md
+  -->
+  <defs>
+    <clipPath id="myrlin-clip-brim"><use href="#brim"/></clipPath>
+    <clipPath id="myrlin-clip-crown"><use href="#crown"/></clipPath>
+    <clipPath id="myrlin-clip-tip"><use href="#tip"/></clipPath>
+  </defs>
+
+  <g id="hat-core">
+    <!-- Brim. The widest read at every size. Corners are deliberate: the left and right
+         points and the two shallow waves along the bottom are what keep it off the shelf. -->
+    <path id="brim" fill="#5A437A" stroke="#221033" stroke-width="9" stroke-linejoin="round"
+          d="M152 355c-26 11-64 31-94 50L40 418c6 10 24 18 48 23 14 3 22 3 28 1 16 4 42 10 72 14 14 2 26 2 40 0 42-5 86-12 126-18 20-3 32-1 40 4 16 2 36-2 56-10L470 418c-14-16-48-36-80-48-12-5-20-11-26-15Z"/>
+    <g clip-path="url(#myrlin-clip-brim)">
+      <path fill="#8E76A9" d="M16 384c58 36 134 56 250 62v40H16Z"/>
+      <path fill="#35164B" d="M338 336c20 38 26 72 14 108h150V336Z"/>
+      <path fill="#8E76A9" d="M300 438c16-22 44-31 72-25-6 17-28 29-72 25Z"/>
+    </g>
+
+    <!-- Crown. The left edge bows out a touch so the cone never reads as a plain triangle,
+         and the elbow near the top is the bend the raster draws. -->
+    <path id="crown" fill="#5A437A" stroke="#221033" stroke-width="9" stroke-linejoin="round"
+          d="M300 44c-14 12-44 26-60 36-12 7-19 19-20 41Q178 238 152 355h212c-14-55-32-123-48-183-5-18-4-33 0-48Z"/>
+    <g clip-path="url(#myrlin-clip-crown)">
+      <path fill="#8E76A9" d="M300 44 246 118 180 372h-70V44Z"/>
+      <path fill="#35164B" d="M266 84c10 56 32 146 58 288h80V84Z"/>
+    </g>
+
+    <!-- Folded tip. It leaves the crest at roughly the angle the raster does, so the top stays a
+         single peak instead of splitting into two prongs, then hangs and tapers to a point at the
+         lower right. This is the one feature that makes the silhouette a wizard hat, not a cone. -->
+    <path id="tip" fill="#5A437A" stroke="#221033" stroke-width="9" stroke-linejoin="round"
+          d="M300 44c14 14 38 40 56 74 12 22 20 42 20 60v12c0 12-1 19-3 23-11-14-24-35-34-55-8-16-16-27-23-34Z"/>
+    <g clip-path="url(#myrlin-clip-tip)">
+      <path fill="#35164B" d="M288 102 400 148v134H288Z"/>
+      <path fill="#8E76A9" d="M302 46c26 14 48 36 62 62l-14 8c-14-26-34-48-58-62Z"/>
+    </g>
+
+    <!-- Band. Mint is the only non-purple in the mark, so it carries the colour signature at 16px. -->
+    <path id="band" fill="#4BEDB3" stroke="#221033" stroke-width="7" stroke-linejoin="round"
+          d="M156 334c64-8 140-8 202-3 2 12 3 23 2 32-64 10-142 9-208-2 0-9 2-19 4-27Z"/>
+    <path fill="#2CBA8B" d="M153 351c66 11 143 12 206 2l1 10c-64 10-142 9-208-2Z"/>
+
+    <!-- Two patches. The raster carries four; two is what survives small sizes without speckling. -->
+    <rect id="patch-a" x="237" y="141" width="50" height="50" rx="9" transform="rotate(-7 262 166)"
+          fill="#4BEDB3" stroke="#221033" stroke-width="6"/>
+    <rect id="patch-b" x="194" y="254" width="56" height="56" rx="10" transform="rotate(6 222 282)"
+          fill="#4BEDB3" stroke="#221033" stroke-width="6"/>
+  </g>
+
+  <g id="hat-detail">
+    <!-- Stitching, drawn as a dashed inset rather than radiating ticks: ticks collapse into an
+         asterisk below about 64px, a dashed inset just fades. Dropped by favicon.svg entirely. -->
+    <rect x="247" y="151" width="30" height="30" rx="5" transform="rotate(-7 262 166)"
+          fill="none" stroke="#221033" stroke-width="5" stroke-dasharray="8 7" stroke-linecap="round"/>
+    <rect x="205" y="265" width="34" height="34" rx="6" transform="rotate(6 222 282)"
+          fill="none" stroke="#221033" stroke-width="5" stroke-dasharray="9 8" stroke-linecap="round"/>
+    <!-- Buckle on the band, and two creases down the front of the cone. -->
+    <path fill="#221033" d="M302 331h13l1 34h-13Z"/>
+    <path fill="none" stroke="#221033" stroke-width="6" stroke-linecap="round" stroke-opacity="0.45"
+          d="M250 80c-6 26-10 52-11 74"/>
+    <path fill="none" stroke="#221033" stroke-width="5" stroke-linecap="round" stroke-opacity="0.35"
+          d="M198 240c-8 28-14 56-18 82"/>
+  </g>
+</svg>
