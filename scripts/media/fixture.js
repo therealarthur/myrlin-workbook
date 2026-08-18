@@ -267,6 +267,42 @@ const WORKSPACE_IDS = Object.freeze({
   platform: 'f1000000-0000-4000-8000-00000000f003',
 });
 
+/**
+ * The status each tracked session carries, by its provider session id.
+ *
+ * WHY THIS EXISTS AT ALL, AND WHY IT IS NOT PRODUCED BY THE LIVE PANES.
+ *
+ * The first cut of this fixture gave every tracked session `stopped`, and the
+ * whole marketing set came back showing a wall of the same grey word: fifteen
+ * rows, one state, in a product whose entire subject is watching many agents
+ * work at once. The obvious fix, run a pane and let the app report it, does not
+ * work here and the reason is worth writing down rather than rediscovering.
+ * `pty-manager.js` calls `store.updateSessionStatus(sessionId, 'running', pid)`
+ * with the id the PANE was opened on, which is the PROVIDER session id
+ * (`spec.id`, the uuid in the transcript filename). `buildStoreState` below
+ * keys its tracked sessions on synthetic ids of its own and carries `spec.id`
+ * as `resumeSessionId`. Two namespaces, so the update finds nothing and the
+ * table does not move. The live panes the capture opens are still real and
+ * still matter, for the terminal surface and the sidebar's liveness; they are
+ * simply not what colours a tracked row.
+ *
+ * WHAT IS SHOWN. The five most recently active sessions carry a state each, so
+ * the top of a sorted table is the mix rather than the tail of it, and the two
+ * marked `running` are exactly the two the capture opens live panes on (the
+ * first Claude session and the first Codex session), so no frame claims a
+ * session is running while its pane sits idle. Everything older stays
+ * `stopped`, which is what a real machine looks like. No session is marked
+ * failed: an invented failure in a marketing frame is a claim about a product
+ * defect that did not happen.
+ */
+const SESSION_STATUS = Object.freeze({
+  'c1a70000-0000-4000-8000-000000000101': 'running',      // Fix checkout race, 6 min
+  '019f1100-0000-7000-8000-000000000401': 'running',      // Add push notifications, 11 min
+  'c1a70000-0000-4000-8000-000000000102': 'needs-input',  // Migrate to Express 5, 52 min
+  '019f1100-0000-7000-8000-000000000402': 'complete',     // Offline cart persistence, 88 min
+  'c1a70000-0000-4000-8000-000000000103': 'complete',     // Rate limit the cart endpoint, 4 h
+});
+
 /* ── Pure builders ────────────────────────────────────────────────────────── */
 
 /**
@@ -541,7 +577,7 @@ function buildStoreState(now) {
       command: provider,
       provider: provider,
       resumeSessionId: spec.id,
-      status: 'stopped',
+      status: SESSION_STATUS[spec.id] || 'stopped',
       pid: null,
       tags: [project.id],
       initialPrompt: null,
@@ -929,6 +965,7 @@ module.exports = {
   CODEX_STRIP,
   FORBIDDEN_DEFAULT_SET,
   WORKSPACE_IDS,
+  SESSION_STATUS,
   MINUTE_MS,
   HOUR_MS,
   DAY_MS,

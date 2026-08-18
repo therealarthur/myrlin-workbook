@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - CI now runs on current action majors, and tests against Node 20 and 22.
+- The marketing clips and stills were re-shot. Every frame in the previous set was recorded before the status fix above, so all of them showed the pill, and two ad crops had been framed to steer around it. The re-shoot also fixes what a review of the old footage found. The phone clip's terminal beat was an empty pane, so the one clip that claims the product is a complete phone client showed an empty box; it now opens a session with a live transcript and the keyboard rises over real output. Every session in every frame read as stopped; the fixture now gives the five most recent sessions a state each, and the capture opens live sessions on exactly the two it shows as running. The terminal clip used to end holding a text selection that its first frame did not have, and the board clip ended under a stack of notifications, so both flashed once per loop; both now return to the frame they started on. The lockup in the ad and social images uses the new vector mark instead of the old small drawing. The capture now refuses to record any frame containing a rounded, filled element with a dot inside it, so this class of problem cannot reach a published image again.
 
 ## [1.3.0-alpha.30] - 2026-08-18
 

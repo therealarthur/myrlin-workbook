@@ -376,6 +376,146 @@ function inApp(page, fn, arg) {
 }
 
 /**
+ * The smallest corner radius that reads as a capsule rather than a corner.
+ *
+ * The same threshold gate G16 uses, and for the same reason: this app's radius
+ * scale puts every property chip at 4px and every capsule at 10px or 999px, so
+ * the gap between them is wide and nothing legitimate sits in it.
+ */
+const CAPSULE_GUARD_MIN_RADIUS_PX = 9;
+
+/**
+ * A capsule taller than this is a card, and a mark on a card is allowed.
+ *
+ * `.mobile-session-card` is a 10px bordered box at least 56px tall with a
+ * leading `.status-dot`, which is the idiom the design rule asks FOR. The
+ * banned pattern is a small inline capsule with a dot inside it, so the guard
+ * needs a way to tell a chip from a card. Inline-level display is the primary
+ * test and this height is the fallback for a flex chip that never declares one.
+ */
+const CAPSULE_GUARD_MAX_HEIGHT_PX = 32;
+
+/**
+ * Fail the take if the settled page draws a capsule with a dot inside it.
+ *
+ * WHY THIS LIVES IN THE CAPTURE AND NOT ONLY IN THE GATE.
+ *
+ * The user's standing rule of 2026-08-13 bans the status pill containing a dot
+ * indicator in every form. Gate G16 enforces it over the SOURCE: it resolves
+ * the `--radius-*` chain, works out which classes compose into a capsule, and
+ * walks the markup for a dot inside one. That is a strong gate and it is still
+ * a static one. It cannot see a capsule composed at runtime by two class lists
+ * that never appear together in the source, by an inline style a renderer
+ * computes, or by a third-party surface. The footage is the artifact that
+ * actually ships to a README and a landing page, so the footage gets a guard of
+ * its own, and this one asks the browser rather than the text: real computed
+ * styles, real geometry, on the frame about to be recorded.
+ *
+ * This is what makes the ban structural at the SOURCE OF THE FOOTAGE. The
+ * previous media set was shot before the fix and every frame of it carried the
+ * pill; the ad crops were even authored to work around it (`x=838` stopped at
+ * the boundary before the Status column). A guard that fails the take is the
+ * only thing that turns "remember to check the frames" into a property.
+ *
+ * @param {object} page - Playwright page.
+ * @param {string} label - Where in the take this ran, for the error message.
+ * @returns {Promise<void>} Resolves when the page is clean, rejects when it is not.
+ */
+async function assertNoCapsuleDots(page, label) {
+  const offenders = await page.evaluate(({ minRadius, maxHeight }) => {
+    /**
+     * A readable identity for an element, for the failure message.
+     *
+     * @param {Element} el - The element.
+     * @returns {string} Tag name plus class list.
+     */
+    const describe = (el) => {
+      const cls = (el.getAttribute('class') || '').trim().split(/\s+/).filter(Boolean).join('.');
+      return el.tagName.toLowerCase() + (cls ? '.' + cls : '');
+    };
+
+    /**
+     * Whether an element's class list names it a dot.
+     *
+     * @param {Element} el - The element.
+     * @returns {boolean} True when a class segment is dot or dots.
+     */
+    const isDot = (el) => /(^|[\s-])dots?([\s-]|$)/.test((el.getAttribute('class') || '').toLowerCase());
+
+    /**
+     * The largest corner radius in pixels, resolving percentages against the box.
+     *
+     * @param {string} value - One computed corner value, px or percent.
+     * @param {DOMRect} box - The element's box.
+     * @returns {number} Radius in pixels.
+     */
+    const radiusPx = (value, box) => {
+      let max = 0;
+      for (const part of String(value).split(/[\s/]+/)) {
+        if (part.endsWith('%')) {
+          const pct = parseFloat(part);
+          if (!Number.isNaN(pct)) max = Math.max(max, (pct / 100) * Math.min(box.width, box.height));
+        } else if (part.endsWith('px')) {
+          const px = parseFloat(part);
+          if (!Number.isNaN(px)) max = Math.max(max, px);
+        }
+      }
+      return max;
+    };
+
+    /**
+     * The alpha channel of a computed colour.
+     *
+     * @param {string} colour - A computed rgb() or rgba() string.
+     * @returns {number} Alpha, 0 when the colour is absent or transparent.
+     */
+    const alphaOf = (colour) => {
+      const m = /rgba?\(([^)]+)\)/.exec(colour || '');
+      if (!m) return 0;
+      const parts = m[1].split(',').map((n) => parseFloat(n));
+      return parts.length > 3 ? parts[3] : 1;
+    };
+
+    const found = [];
+    for (const el of document.querySelectorAll('*')) {
+      if (found.length >= 6) break;
+      const box = el.getBoundingClientRect();
+      if (box.width < 1 || box.height < 1) continue;
+      const style = getComputedStyle(el);
+      if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') continue;
+      const radius = Math.max(
+        radiusPx(style.borderTopLeftRadius, box),
+        radiusPx(style.borderTopRightRadius, box),
+        radiusPx(style.borderBottomLeftRadius, box),
+        radiusPx(style.borderBottomRightRadius, box)
+      );
+      if (radius < minRadius) continue;
+      const filled = alphaOf(style.backgroundColor) > 0.02 ||
+        (parseFloat(style.borderTopWidth) > 0 && style.borderTopStyle !== 'none' &&
+          alphaOf(style.borderTopColor) > 0.02);
+      if (!filled) continue;
+      // A card is allowed to carry a leading mark; a chip is not. Inline-level
+      // display is what separates the two, with a height fallback for a flex
+      // chip that never declares one.
+      const inlineLevel = style.display.indexOf('inline') === 0;
+      if (!inlineLevel && box.height > maxHeight) continue;
+      const dot = Array.prototype.find.call(el.querySelectorAll('*'), isDot);
+      if (!dot) continue;
+      found.push(describe(el) + ' encloses ' + describe(dot));
+    }
+    return found;
+  }, { minRadius: CAPSULE_GUARD_MIN_RADIUS_PX, maxHeight: CAPSULE_GUARD_MAX_HEIGHT_PX });
+
+  if (offenders.length) {
+    throw new Error(
+      'capsule-with-a-dot on screen at ' + label + ', which the standing UI rule bans ' +
+      'in every form and gate G16 enforces in the source:\n  ' + offenders.join('\n  ') +
+      '\nFix the styling before re-shooting; a frame carrying this pattern must not ship.'
+    );
+  }
+}
+
+/**
  * Park the pointer where nothing is hovered.
  *
  * A hover state left on a control is the most common reason two "identical"
@@ -630,6 +770,57 @@ async function sceneHero(ctx) {
 }
 
 /**
+ * Open two live panes off camera, then hand the view back to the caller.
+ *
+ * WHY A CLIP THAT NEVER SHOWS A TERMINAL STILL OPENS TWO OF THEM.
+ *
+ * The review of the first media set found every session in every frame reading
+ * as stopped. Half of that was the fixture, which gave all fifteen tracked
+ * sessions one status and is fixed in `fixture.js` by SESSION_STATUS. The other
+ * half is this: the sidebar draws LIVENESS, not tracked status, so the pips,
+ * the live dots and the pane indicators next to a project are all answering
+ * "is anything attached to this right now", and in a shoot where nothing was
+ * ever attached the honest answer was no. A clip whose subject is the sidebar
+ * should be shot with the application in the state the sidebar exists to
+ * describe.
+ *
+ * The panes are opened at the player's off-camera speed and waited on only
+ * until they have painted, not until the turn finishes. Nothing here is the
+ * subject, so nothing here needs to be complete; it needs to be ALIVE.
+ *
+ * The two sessions are deliberately the two that `fixture.js` marks running, so
+ * no frame claims a session is running while its pane sits empty.
+ *
+ * @param {object} ctx - Scene context.
+ * @returns {Promise<void>} Resolves once both panes are live.
+ */
+async function openTwoLivePanes(ctx) {
+  const { page, session } = ctx;
+  const claudeSession = session.fixture.claude[0].spec;
+  const codexSession = session.fixture.codex[0].spec;
+  await page.evaluate(() => window.cwm.setViewMode('terminal'));
+  await settle(page, VIEW_MS);
+  await openAgentPane(session, page, 0, claudeSession.id, claudeSession.title,
+    'claude', 'checkout', PLAYER_SPEED.offCamera);
+  await openAgentPane(session, page, 1, codexSession.id, codexSession.title,
+    'codex', 'push', PLAYER_SPEED.offCamera);
+  await waitForPaneBusy(page, 0, AGENT_TIMEOUT_MS);
+  await waitForPaneBusy(page, 1, AGENT_TIMEOUT_MS);
+}
+
+/**
+ * Stand two live panes up before the sidebar clip rolls.
+ *
+ * @param {object} ctx - Scene context.
+ * @returns {Promise<void>} Resolves when prepared.
+ */
+async function prepareFeatureSidebar(ctx) {
+  const { page } = ctx;
+  await openTwoLivePanes(ctx);
+  await restingState(page, { hold: 300 });
+}
+
+/**
  * Sidebar and discovery.
  *
  * @param {object} ctx - Scene context.
@@ -699,6 +890,28 @@ async function sceneFeatureTerminal(ctx) {
   await settle(page, 1000);
   await wheelOver(page, '#term-pane-0 .xterm-screen', 620, 2);
   await settle(page, 320);
+
+  // DROP THE SELECTION BEFORE THE RESTING FRAME.
+  //
+  // MEASURED: with the selection left standing, this clip's first and last
+  // frames differed on 28.02 percent of their pixels, against 0.00 to 0.41 for
+  // every other clip in the set. The whole highlighted block is drawn on the
+  // last frame and absent from the first, so the loop flashed a lavender wash
+  // across a third of the terminal once per cycle. The copy has already
+  // happened by this point, so nothing about the beat is lost; only the
+  // artefact of it is. Both selection systems are cleared because the drag may
+  // have run over either surface: the history document is an ordinary DOM
+  // selection, the live screen is xterm's own.
+  await inApp(page, () => {
+    const selection = window.getSelection();
+    if (selection && typeof selection.removeAllRanges === 'function') selection.removeAllRanges();
+    const panes = window.cwm.terminalPanes || [];
+    for (const pane of panes) {
+      if (pane && pane.term && typeof pane.term.clearSelection === 'function') pane.term.clearSelection();
+    }
+  });
+  await settle(page, 200);
+
   await parkPointer(page, DESKTOP);
   await settle(page, REST_MS);
 }
@@ -766,17 +979,79 @@ async function sceneFeatureCodex(ctx) {
 }
 
 /**
- * The phone: the five-tab bar, a session, the keyboard, a long press.
+ * Put the phone in the state its clip opens and closes on.
+ *
+ * The same argument as `restingState` for the desktop, and it was missing: the
+ * phone clip used to open on `setViewMode('workspace')` and close on a tap of
+ * the Sessions tab followed by the same call, which is two sequences that
+ * HAPPEN to agree rather than one code path called twice. A loop whose ends
+ * agree by coincidence stops agreeing the first time somebody edits one of
+ * them, and an animated WebP shows that as a jump once per cycle.
+ *
+ * @param {object} page - Playwright page.
+ * @param {number} [hold] - How long to hold the resting frame.
+ * @returns {Promise<void>} Resolves once the phone has settled.
+ */
+async function phoneRestingState(page, hold) {
+  await page.evaluate(() => {
+    window.cwm.setChrome('dark');
+    window.cwm.setViewMode('workspace');
+  });
+  await parkPointer(page, PHONE);
+  await settle(page, hold === undefined ? REST_MS : hold);
+}
+
+/**
+ * Give the phone clip a live session before it opens the Terminal tab.
+ *
+ * WHAT THE REVIEW FOUND. The Terminal beat of the first phone clip was an EMPTY
+ * PANE. Nothing had ever been spawned in the phone context, so the tab opened
+ * on the grid's placeholder, the keyboard then rose over nothing, and the long
+ * press that followed was held over a blank surface. The clip's whole claim is
+ * that the product is a complete client on a phone, and the beat that carries
+ * that claim was a picture of an empty box.
+ *
+ * The pane is opened off camera at the player's off-camera speed and waited on
+ * until the turn has FINISHED, not merely started, so the Terminal tab opens on
+ * a full transcript rather than on three lines still arriving. That wait is
+ * free: it happens before the screencast starts.
+ *
+ * @param {object} ctx - Scene context.
+ * @returns {Promise<void>} Resolves when prepared.
+ */
+async function prepareFeaturePhone(ctx) {
+  const { page, session } = ctx;
+  const claudeSession = session.fixture.claude[0].spec;
+  await page.evaluate(() => {
+    window.cwm.setChrome('dark');
+    window.cwm.setViewMode('terminal');
+  });
+  await settle(page, VIEW_MS);
+  await openAgentPane(session, page, 0, claudeSession.id, claudeSession.title,
+    'claude', 'checkout', PLAYER_SPEED.offCamera);
+  await waitForPaneDone(page, 0);
+  await phoneRestingState(page, 400);
+}
+
+/**
+ * The phone: the five-tab bar, a live session, the keyboard, a long press.
  *
  * The keyboard rise cannot be produced by pressing a key. `mobile-viewport.js`
  * derives it from window.visualViewport, and a headless browser has no soft
  * keyboard, so the geometry is supplied directly and the module's own apply()
  * is asked to read it. Everything downstream, the custom properties and the
- * body classes, is then computed by the shipped code rather than faked.
+ * body classes, is then computed by the shipped code rather than faked. The
+ * pane's own input is focused first, so the rise has a cause on screen: a
+ * keyboard that appears with nothing focused reads as a glitch.
  *
  * The long press is the same story in reverse: `_mwBindLongPress` only listens
  * for real TouchEvents, so the sheet is opened through the application's own
- * public entry point instead of by simulating a finger for 450 ms.
+ * public entry point instead of by simulating a finger for 450 ms. It is held
+ * over CONTENT rather than over a tab: `_openMobileSessionSheetFor` is the
+ * handler a hold on a Home session card actually runs, and with a live pane and
+ * two running sessions in the fixture there is now a card to hold. The two
+ * fallbacks below it exist so the beat degrades to a different sheet rather
+ * than to a dead pause if the recency list has not populated.
  *
  * @param {object} ctx - Scene context.
  * @returns {Promise<void>} Resolves when driven.
@@ -784,37 +1059,60 @@ async function sceneFeatureCodex(ctx) {
 async function sceneFeaturePhone(ctx) {
   const { page } = ctx;
 
-  await page.evaluate(() => {
-    window.cwm.setChrome('dark');
-    window.cwm.setViewMode('workspace');
+  await phoneRestingState(page);
+
+  await clickOn(page, '.mobile-tab[data-view="home"]', 700);
+  await clickOn(page, '.mobile-tab[data-view="sessions"]', 620);
+
+  // The Terminal tab, now with a transcript behind it.
+  await clickOn(page, '.mobile-tab[data-view="terminal"]', 900);
+  await inApp(page, () => {
+    const input = document.querySelector('#term-pane-0 .terminal-mobile-input-row .mobile-type-input') ||
+      document.querySelector('.terminal-mobile-input-row .mobile-type-input');
+    if (input && typeof input.focus === 'function') input.focus();
   });
-  await parkPointer(page, PHONE);
-  await settle(page, REST_MS);
-
-  await clickOn(page, '.mobile-tab[data-view="home"]', 720);
-  await clickOn(page, '.mobile-tab[data-view="sessions"]', 640);
-  await clickOn(page, '.mobile-tab[data-view="terminal"]', 800);
-
+  await settle(page, 260);
   await setKeyboardInset(page, 336);
-  await settle(page, 1250);
+  await settle(page, 1350);
   await setKeyboardInset(page, 0);
-  await settle(page, 640);
+  await inApp(page, () => {
+    const active = document.activeElement;
+    if (active && typeof active.blur === 'function') active.blur();
+  });
+  await settle(page, 620);
 
-  await page.evaluate(() => {
+  // The hold, over a session card on Home.
+  await clickOn(page, '.mobile-tab[data-view="home"]', 620);
+  const held = await inApp(page, () => {
+    const card = document.querySelector('.mobile-session-card[data-recent-key]') ||
+      document.querySelector('.mobile-recent-row[data-recent-key]');
+    if (card && typeof window.cwm._openMobileSessionSheetFor === 'function') {
+      const box = card.getBoundingClientRect();
+      const point = { clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 };
+      if (window.cwm._openMobileSessionSheetFor(card, point)) return 'card';
+    }
+    if (typeof window.cwm.showMobilePaneOverflow === 'function') {
+      window.cwm.showMobilePaneOverflow(0);
+      return 'pane';
+    }
     if (typeof window.cwm.showMobileTabQuickActions === 'function') {
       window.cwm.showMobileTabQuickActions('sessions');
+      return 'tab';
     }
+    return 'none';
   });
+  if (held === 'none') missedSelectors.push('phone long-press target');
   await settle(page, 1500);
   await page.evaluate(() => {
     if (typeof window.cwm.hideActionSheet === 'function') window.cwm.hideActionSheet();
+    if (typeof window.cwm.hideContextMenu === 'function') window.cwm.hideContextMenu();
+    const menu = document.getElementById('context-menu');
+    if (menu) menu.hidden = true;
   });
   await settle(page, 520);
 
   await clickOn(page, '.mobile-tab[data-view="sessions"]', 420);
-  await page.evaluate(() => window.cwm.setViewMode('workspace'));
-  await parkPointer(page, PHONE);
-  await settle(page, REST_MS);
+  await phoneRestingState(page);
 }
 
 /**
@@ -892,6 +1190,10 @@ const THEME_SEQUENCE = Object.freeze([
  */
 async function prepareFeatureBoard(ctx) {
   const { page } = ctx;
+  // Two live panes first, for the same reason the sidebar clip opens them: the
+  // board and the cost panel are both drawn beside the sidebar, and a sidebar
+  // with nothing attached to it is a picture of an idle machine.
+  await openTwoLivePanes(ctx);
   await page.evaluate(() => {
     window.cwm.setChrome('dark');
     window.cwm.setTheme('mocha');
@@ -930,6 +1232,22 @@ async function sceneFeatureBoard(ctx) {
 
   await page.evaluate(() => window.cwm.setViewMode('costs'));
   await settle(page, 1100);
+
+  // CLEAR THE TOASTS THE DRAG RAISED.
+  //
+  // MEASURED: 3.56 percent of this clip's pixels differed between its first and
+  // last frames, and all of it was a stack of confirmation toasts in the bottom
+  // left that the card drag had put there. They are correct behaviour and they
+  // are not the subject; a toast that appears out of nowhere on the loop's first
+  // frame reads as a notification the viewer missed. The container is emptied
+  // rather than each toast dismissed, because their own timers are longer than
+  // the rest of the clip.
+  await inApp(page, () => {
+    const container = document.getElementById('toast-container');
+    if (container) container.replaceChildren();
+  });
+  await settle(page, 200);
+
   await parkPointer(page, DESKTOP);
   await settle(page, REST_MS);
 }
@@ -1090,6 +1408,9 @@ async function stillDesktop(ctx) {
   await parkPointer(page, DESKTOP);
   await settle(page, 1400);
 
+  // The still is ONE frame and it is the frame that ships, so the guard runs
+  // immediately before the shutter rather than only at the ends of the take.
+  await assertNoCapsuleDots(page, 'still-desktop (' + chrome + ' chrome)');
   await page.screenshot({ path: output });
   await closeAllPanes(page);
 }
@@ -1109,6 +1430,7 @@ async function stillPhone(ctx) {
   await settle(page, VIEW_MS);
   await parkPointer(page, PHONE);
   await settle(page, 1100);
+  await assertNoCapsuleDots(page, 'still-phone');
   await page.screenshot({ path: output });
 }
 
@@ -1144,6 +1466,7 @@ const SCENES = Object.freeze([
     about: 'sidebar and discovery',
     budgetS: 13,
     viewport: DESKTOP,
+    prepare: prepareFeatureSidebar,
     run: sceneFeatureSidebar,
   },
   {
@@ -1172,6 +1495,7 @@ const SCENES = Object.freeze([
     actions: false,
     viewport: PHONE,
     context: { isMobile: true, hasTouch: true, deviceScaleFactor: 1 },
+    prepare: prepareFeaturePhone,
     run: sceneFeaturePhone,
   },
   {
@@ -1262,6 +1586,13 @@ async function recordScene(session, scene) {
 
     if (typeof scene.prepare === 'function') await scene.prepare(ctx);
 
+    // THE BAN, ASKED OF THE PIXELS. Once before the camera rolls, on the
+    // resting frame every clip opens and closes on, and once after it stops,
+    // on whatever the scene ended holding. Both are off camera, so neither
+    // costs the clip a frame or a byte of its budget, and a take that would
+    // have published the banned pattern fails here instead of at review.
+    await assertNoCapsuleDots(page, scene.name + ' (resting frame, pre-roll)');
+
     const rollingAt = Date.now();
     resetTiming();
     if (isClip) {
@@ -1277,6 +1608,7 @@ async function recordScene(session, scene) {
     await scene.run(ctx);
     if (isClip) await page.screencast.stop();
     recordedMs = Date.now() - rollingAt;
+    await assertNoCapsuleDots(page, scene.name + ' (final frame, post-roll)');
   } finally {
     // Panes are killed inside the scene, but a scene that threw halfway leaves
     // a player running. This is the backstop, and it runs before the context
