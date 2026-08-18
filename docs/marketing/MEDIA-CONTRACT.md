@@ -80,6 +80,7 @@ player script, not a real account.
 | `social/social-preview.png` | GitHub repo social preview | 1280x640 | PNG | under 1 MB |
 | `social/avatar.png` | square profile, safe for circle crops | 1024x1024 | PNG | under 300 KB |
 | `social/banner.png` | X header | 1500x500 | PNG | under 500 KB |
+| (SHELVED 2026-08-18: Arthur rejected the vector redraw; the logo is the floating hat, `docs/images/logo-animated.svg` and `docs/images/logo.png`; the brand rows below stay on disk but nothing references them) | | | | |
 | `brand/logo.svg` | square vector master of the wizard hat mark (brand track) | vector | SVG, paths only, no raster | under 20 KB |
 | `brand/logo-mark.svg` | the mark alone, monochrome-capable | vector | SVG | under 10 KB |
 | `brand/favicon.svg` | dark and light aware favicon | vector | SVG with prefers-color-scheme | under 10 KB |

@@ -1,3 +1,5 @@
+> **Shelved (2026-08-18).** Arthur rejected this vector redraw for the product mark. The logo is the floating hat: `docs/images/logo-animated.svg` (README, site) and `docs/images/logo.png` (stills, favicons). Nothing in the README, the site or the media set references the files in this folder; they are kept on disk unreferenced.
+
 # Myrlin Workbook brand assets
 
 The wizard hat, redrawn as a vector.

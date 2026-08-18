@@ -42,7 +42,7 @@
      ?dev                  assets resolve to   ./dev-assets/<data-asset>
      ?dev=/some/path       assets resolve to   /some/path/<data-asset>
    The data-asset value is the file's path underneath docs/media/, so
-   data-asset="brand/logo-mark.svg" reads ./dev-assets/brand/logo-mark.svg.
+   data-asset="media/hero.webp" reads ./dev-assets/media/hero.webp, and data-asset="images/logo.png" reads ./dev-assets/images/logo.png (values are paths under docs/).
    Anchors carrying data-asset (the tour link) are repointed the same way.
    Without the query string nothing is rewritten at all.
 
@@ -53,7 +53,9 @@
   'use strict';
 
   /** Canonical remote root for every asset this page references. */
-  var ASSET_BASE = 'https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media';
+  // docs/, not docs/media/: data-asset values carry their folder (media/... or
+  // images/...) since the logo is the floating hat under docs/images/.
+  var ASSET_BASE = 'https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs';
 
   /** Directory used by ?dev when no explicit path is supplied. */
   var DEV_BASE_DEFAULT = 'dev-assets';
@@ -76,7 +78,7 @@
   }
 
   /**
-   * Join an asset base and a path underneath docs/media/.
+   * Join an asset base and a path underneath docs/ (media/... or images/...).
    *
    * @param {string} base Base URL with no trailing slash.
    * @param {string} name Path relative to docs/media/, for example "hero.webp".

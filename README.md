@@ -1,9 +1,6 @@
 <div align="center">
 
-<picture>
-  <source srcset="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/brand/logo.svg" type="image/svg+xml">
-  <img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/images/logo.png" alt="Myrlin Workbook" width="140">
-</picture>
+<img src="https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/images/logo-animated.svg" alt="Myrlin Workbook" width="200">
 
 # Myrlin Workbook
 

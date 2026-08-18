@@ -182,25 +182,26 @@ check('the two stylesheets and the one script are wired', () => {
 
 /* ── 2. Asset contract ─────────────────────────────────────────────────── */
 
-const ASSET_BASE = 'https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media/';
+// Widened from docs/media/ to docs/ on 2026-08-18: the logo is the floating hat
+// under docs/images/ (Arthur rejected the vector redraw), and everything else
+// still lives under docs/media/, so contract entries carry their folder.
+const ASSET_BASE = 'https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/';
 
 // Every path underneath docs/media/ that this page is allowed to reference.
 // Mirrors the asset table in docs/marketing/MEDIA-CONTRACT.md.
 const CONTRACT = new Set([
-  'hero.webp',
-  'hero-poster.webp',
-  'hero.mp4',
-  'feature-sidebar.webp',
-  'feature-terminal.webp',
-  'feature-themes.webp',
-  'feature-board.webp',
-  'feature-phone.webp',
-  'feature-codex.webp',
-  'social/og.png',
-  'brand/logo-mark.svg',
-  'brand/favicon.svg',
-  'brand/favicon-32.png',
-  'brand/icon-180.png',
+  'media/hero.webp',
+  'media/hero-poster.webp',
+  'media/hero.mp4',
+  'media/feature-sidebar.webp',
+  'media/feature-terminal.webp',
+  'media/feature-themes.webp',
+  'media/feature-board.webp',
+  'media/feature-phone.webp',
+  'media/feature-codex.webp',
+  'media/social/og.png',
+  'images/logo.png',
+  'images/logo-animated.svg',
 ]);
 
 check('every raw.githubusercontent URL is pinned to the media base on main', () => {
@@ -224,9 +225,10 @@ check('every referenced asset path is in the media contract', () => {
   // deliberately absent from this list: it is never a src, it is named by
   // data-poster and resolved at runtime, and the check below pins it.
   for (const required of [
-    'hero.webp', 'hero.mp4', 'feature-sidebar.webp',
-    'feature-terminal.webp', 'feature-themes.webp', 'feature-board.webp',
-    'feature-phone.webp', 'feature-codex.webp', 'social/og.png',
+    'media/hero.webp', 'media/hero.mp4', 'media/feature-sidebar.webp',
+    'media/feature-terminal.webp', 'media/feature-themes.webp', 'media/feature-board.webp',
+    'media/feature-phone.webp', 'media/feature-codex.webp', 'media/social/og.png',
+    'images/logo.png', 'images/logo-animated.svg',
   ]) {
     ok(seen.has(required), 'contract asset never referenced: ' + required);
   }
@@ -276,7 +278,7 @@ check('only the allowed remote hosts appear anywhere in the page', () => {
 
 check('main.js and styles.css agree with the same asset base', () => {
   ok(
-    js.includes("'https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs/media'"),
+    js.includes("'https://raw.githubusercontent.com/therealarthur/myrlin-workbook/main/docs'"),
     'main.js does not carry the pinned asset base'
   );
   ok(/\?dev/.test(js), 'main.js lost the dev asset mode');
@@ -458,8 +460,8 @@ const REQUIRED_META = [
   ['twitter:card', /<meta name="twitter:card" content="summary_large_image">/],
   ['twitter:title', /<meta name="twitter:title" content="[^"]+">/],
   ['twitter:image', /<meta name="twitter:image" content="[^"]*docs\/media\/social\/og\.png">/],
-  ['icon svg', /<link rel="icon" type="image\/svg\+xml" href="[^"]*brand\/favicon\.svg">/],
-  ['icon png', /<link rel="icon" type="image\/png" sizes="32x32" href="[^"]*brand\/favicon-32\.png">/],
+  ['icon png', /<link rel="icon" type="image\/png" href="[^"]*images\/logo\.png">/],
+  ['apple touch icon', /<link rel="apple-touch-icon" href="[^"]*images\/logo\.png">/],
   ['theme-color light', /<meta name="theme-color" content="#ffffff" media="\(prefers-color-scheme: light\)">/],
   ['theme-color dark', /<meta name="theme-color" content="#191919" media="\(prefers-color-scheme: dark\)">/],
 ];
@@ -489,7 +491,7 @@ check('every image below the hero is lazily loaded', () => {
   ok(eager.length <= 2, 'too many eagerly loaded images: ' + eager.length);
   for (const img of eager) {
     ok(
-      /fetchpriority="high"/.test(img) || /brand\/logo-mark\.svg/.test(img),
+      /fetchpriority="high"/.test(img) || /images\/logo(-animated\.svg|\.png)/.test(img),
       'eager image that is neither the hero nor the top bar mark: ' + img.slice(0, 90)
     );
   }
@@ -547,7 +549,9 @@ check('site/.nojekyll exists so no path is dropped by a Jekyll pass', () => {
 check('the February image set is still on disk and no longer referenced', () => {
   // Code preservation: the old screenshots stay, but nothing points at them.
   ok(fs.existsSync(path.join(SITE, 'images')), 'site/images was deleted');
-  ok(!/images\//.test(html), 'the superseded site/images set is still referenced');
+  // Relative `images/...` only: the floating hat is referenced by an absolute
+  // docs/images/ URL on purpose, and that is not the superseded local set.
+  ok(!/(?:src|href)="images\//.test(html), 'the superseded site/images set is still referenced');
 });
 
 console.log('  ' + '-'.repeat(48));

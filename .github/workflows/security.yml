@@ -49,10 +49,13 @@ jobs:
   npm-audit:
     runs-on: ubuntu-latest
     # Informational only: a known-vulnerability finding should not block a
-    # merge on its own, since many are in transitive dev dependencies with
-    # no available fix yet. This job still runs and reports on every push
-    # and PR so findings are visible without gating anything.
-    continue-on-error: true
+    # merge on its own, since many are in transitive dependencies with no
+    # available fix yet. continue-on-error sits on the STEP, not the job: a
+    # job-level continue-on-error still paints the job's check red on the
+    # commit (only the workflow conclusion is spared), which reads as a
+    # failing build to anyone looking at the repo. The step-level form marks
+    # the step as failed-but-continued, the job stays green, and the findings
+    # land in the run's annotations and step summary where they are read.
     steps:
       - uses: actions/checkout@v7
 
@@ -60,4 +63,21 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm audit --omit=dev --audit-level=high
+      - name: npm audit (production dependencies, high and above)
+        id: audit
+        continue-on-error: true
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high | tee audit.txt
+          STATUS=${PIPESTATUS[0]}
+          {
+            echo "## npm audit (production, high and above)"
+            echo
+            echo '```'
+            cat audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::warning title=npm audit::npm audit found high or critical findings in production dependencies; see the step summary."
+          fi
+          exit "$STATUS"

@@ -56,7 +56,7 @@
  * Usage:
  *   node scripts/media/stills.js                             # every artboard
  *   node scripts/media/stills.js ad-01 og                     # named artboards only
- *   node scripts/media/stills.js --logo docs/media/brand/logo.svg
+ *   node scripts/media/stills.js --logo docs/images/logo.png
  *   node scripts/media/stills.js --list                       # names and budgets
  *   node scripts/media/stills.js --headed                     # watch it render
  *
@@ -129,7 +129,9 @@ const DEVICE_SCALE_FACTOR = 2;
  * flag stays, because pointing the set at a different mark for one run is still
  * worth one argument.
  */
-const DEFAULT_LOGO = path.join('docs', 'media', 'brand', 'logo.svg');
+// 2026-08-18: Arthur rejected the vector redraw for the mark; the floating hat
+// raster (docs/images/logo.png) is the logo again. --logo still accepts an SVG.
+const DEFAULT_LOGO = path.join('docs', 'images', 'logo.png');
 
 /** File extensions the logo may be, and the MIME type each is embedded under. */
 const LOGO_MIME = Object.freeze({

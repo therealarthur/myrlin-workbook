@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The logo is the floating wizard hat again.** The vector redraw made for the icon set was rejected; the README, the landing site, the ad stills and the social images all use the original hat (`docs/images/logo-animated.svg` and `docs/images/logo.png`). The vector files stay on disk unreferenced.
+
+### Fixed
+
+- **The security check no longer paints a red X on every commit.** The dependency audit job is informational, but a job-level continue-on-error still shows the job as failed on the commit; the step now carries it, writes the findings to the run summary and a warning annotation, and the job stays green. The two findings it was reporting, `lodash` and `xml2js` under the TUI's `blessed-contrib`, are pinned to patched versions through npm overrides, so the production audit is clean.
+
 ### Added
 
 - **The wizard hat is a real vector now.** The only mark this project had was a 238 by 192 pixel drawing, and the file that looked like a vector version of it was that same drawing wrapped in an SVG, so any app icon larger than about 240 pixels was a blurry enlargement and there was no way to animate or recolour the logo. It has been redrawn from scratch as a proper vector at `docs/media/brand/logo.svg`, along with a single-colour version, a favicon that brightens itself on dark backgrounds so the hat does not disappear into a dark browser tab, horizontal lockups with the name set beside the mark for light and dark pages, the icon sizes browsers and phones ask for, and a two and a half second logo reveal as both an animated image and a video. The drawing was simplified where the old one could not hold up small: four patches became two, the folded tip was thickened so it survives at 16 pixels, and the stitching moved into a layer the favicon leaves out. `npm run brand:build` rebuilds every derived file, `npm run brand:review` rebuilds the review sheet that compares the new mark against the old one at every size, and the test suite fails if the drawing in one file drifts from the drawing in another. Nothing the running app loads has changed yet.
