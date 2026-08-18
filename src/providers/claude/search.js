@@ -70,7 +70,7 @@ async function readFileTail(filePath, fileSize, tailBytes) {
   }
 }
 
-const { resolveProjectPath, getProjectDisplayName } = require('./path-decode');
+const { resolveProjectPath, getProjectDisplayName, resolveClaudeProjectsDir } = require('./path-decode');
 const { extractSessionName } = require('./parse');
 
 // ─── Module-scoped file-list cache (moved from src/web/server.js:7203-7205) ──
@@ -97,7 +97,7 @@ function getSearchableFiles() {
     return _searchFileCache;
   }
 
-  const claudeDir = path.join(os.homedir(), '.claude', 'projects');
+  const claudeDir = resolveClaudeProjectsDir();
   if (!fs.existsSync(claudeDir)) {
     _searchFileCache = [];
     _searchFileCacheTime = now;

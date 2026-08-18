@@ -1,0 +1,391 @@
+/* ==========================================================================
+   artboard.css / the paint layer for every marketing still.
+   Created: 2026-08-18, media pipeline (docs/marketing/MEDIA-CONTRACT.md).
+
+   WHY THE TOKEN VALUES ARE LITERALS HERE
+
+   This page cannot import src/web/public/styles.css. That sheet is 5000 lines
+   of application chrome keyed off an application DOM, and pulling it in would
+   drag the whole shell's layout rules onto an artboard that has none of the
+   markup they expect. So the handful of values an artboard actually needs are
+   copied in below, each annotated with the token it came from, and every one
+   is a VERBATIM value from that sheet rather than a new colour invented here.
+
+   Provenance, all from src/web/public/styles.css:
+     light palette      the :root block, roughly lines 391 to 550
+     dark palette       the [data-theme="dark"] block, roughly lines 771 to 864
+     radii              the --radius-* block, roughly line 638
+     shadows            --app-shadow-scrim, line 670 (light) and line 844 (dark)
+     the OS UI stack    --font-app-ui, line 542
+     the mono stack     --font-mono, line 256
+
+   WHAT IS DELIBERATELY NOT HERE
+
+   No status pill carrying a dot indicator, in any form. That pattern is banned
+   outright by the global design rules and by the contract's ground rules, so
+   the platform names on ad 04 are set as mono text separated by hairlines
+   rather than as chips, and no artboard draws a badge with a dot in it.
+
+   The three dots in the browser frame's title bar are window controls, not
+   status marks. They are what makes a rectangle read as a browser window, and
+   the research names them explicitly as the CSS-only alternative to shipping
+   third party device art.
+
+   No film grain or noise overlay. It would look good and it would cost the
+   budget: random high frequency detail is the one thing PNG cannot compress,
+   and every one of these files has a byte ceiling it has to clear.
+
+   SPDX-License-Identifier: AGPL-3.0-only
+   ========================================================================== */
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: #191919;
+}
+
+:root {
+  /* The application's own body stack, verbatim from --font-app-ui.
+     NOT a webfont, on purpose: the Notion restyle removed the webfont from the
+     app surface (see src/web/public/design/notion/fonts.css), so a still set in
+     Plus Jakarta Sans would no longer look like the product it advertises. */
+  --ab-font-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", Helvetica, "Apple Color Emoji", "Noto Sans Arabic", "Noto Sans Hebrew", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+
+  /* --font-mono. iA Writer Mono S is the one text face the app genuinely ships,
+     and it is installed here through the FontFace API from a base64 payload, so
+     a failure to load throws rather than silently substituting. */
+  --ab-font-mono: "iA Writer Mono", Nitti, Menlo, Courier, monospace;
+
+  /* Hue tokens. These are NOT overridden by the dark block in styles.css, so
+     one value each is correct for both themes. --app-text-purple is what the
+     app paints a Claude session with and --app-text-green its Codex sessions,
+     through --provider-claude-accent and --provider-codex-accent. */
+  --ab-claude: #9a6bb4;
+  --ab-codex: #50946e;
+  --ab-blue: #387dc9;
+  --ab-orange: #d27b2d;
+  --ab-teal: #2c8b9e;
+  --ab-pink: #c14c8a;
+
+  /* --app-ui-blue, the brand blue the restyle uses for its primary action. */
+  --ab-brand: #2383e2;
+
+  /* --radius-callout (10px) is the app's card radius. A browser frame is a
+     larger surface than a callout, so it carries the next step up, which the
+     app spells --radius-lg. */
+  --ab-radius-card: 10px;
+  --ab-radius-frame: 12px;
+
+  /* The window control dots. Muted app hues rather than the saturated macOS
+     traffic lights, so the frame stays inside the palette. */
+  --ab-dot-1: #cf5148;
+  --ab-dot-2: #cb9434;
+  --ab-dot-3: #50946e;
+}
+
+/* Light chrome, from the :root palette in styles.css.
+   color-scheme is declared on both blocks because the mark may arrive as an
+   SVG through --logo, and the contract's brand track ships a theme aware
+   favicon. An SVG inside an img element resolves prefers-color-scheme against
+   the used colour scheme of the embedding document, so declaring it here is
+   what stops a light artboard from embedding the dark cut of a mark. */
+[data-theme="light"] {
+  color-scheme: light;
+  --ab-ground: #ffffff;          /* --app-bg-primary */
+  --ab-plate: #f9f8f7;           /* --app-bg-secondary */
+  --ab-raised: #ffffff;          /* --app-bg-elevated */
+  --ab-well: #f0efed;            /* --app-bg-tertiary */
+  --ab-edge: #e6e5e3;            /* --app-border-primary */
+  --ab-edge-soft: #f0efed;       /* --app-border-secondary */
+  --ab-edge-strong: #d4d3cf;     /* --app-border-strong */
+  --ab-ink: #2c2c2b;             /* --app-text-primary */
+  --ab-ink-2: #7d7a75;           /* --app-text-secondary */
+  --ab-ink-3: #a19e99;           /* --app-text-tertiary */
+  --ab-scrim: 0px 24px 48px 0px rgba(25, 25, 25, 0.24), 0px 4px 12px 0px rgba(25, 25, 25, 0.14);
+  --ab-grid-ink: rgba(44, 44, 43, 0.16);
+}
+
+/* Dark chrome, from the [data-theme="dark"] block in styles.css. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --ab-ground: #191919;          /* --app-bg-primary */
+  --ab-plate: #202020;           /* --app-bg-secondary */
+  --ab-raised: #202020;          /* --app-bg-elevated */
+  --ab-well: #383836;            /* --app-bg-tertiary */
+  --ab-edge: #383836;            /* --app-border-primary */
+  --ab-edge-soft: #2c2c2b;       /* --app-border-secondary */
+  --ab-edge-strong: #5f5e59;     /* --app-border-strong */
+  --ab-ink: #f0efed;             /* --app-text-primary */
+  --ab-ink-2: #ada9a3;           /* --app-text-secondary */
+  --ab-ink-3: #7d7a75;           /* --app-text-tertiary */
+  --ab-scrim: 0px 24px 48px 0px rgba(25, 25, 25, 0.64), 0px 4px 12px 0px rgba(25, 25, 25, 0.56);
+  --ab-grid-ink: rgba(240, 239, 237, 0.13);
+}
+
+/* The artboard shell
+   ------------------------------------------------------------------------ */
+
+.ab {
+  position: relative;
+  overflow: hidden;
+  background: var(--ab-ground);
+  color: var(--ab-ink);
+  font-family: var(--ab-font-ui);
+  font-feature-settings: "lnum" 1, "locl" 0;   /* --font-feature-sans */
+  text-rendering: geometricPrecision;
+}
+
+/* The seeded texture stack. Separate siblings rather than several backgrounds
+   on one element, because each layer needs its own opacity and its own mask. */
+.ab__tex { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.ab__glow { position: absolute; border-radius: 50%; pointer-events: none; }
+.ab__grid { position: absolute; inset: 0; pointer-events: none; }
+
+.ab__body { position: relative; z-index: 1; height: 100%; }
+
+.ab__notice {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; font-family: var(--ab-font-ui); color: #ada9a3; background: #191919;
+}
+.ab__notice code { font-family: var(--ab-font-mono); color: #f0efed; }
+
+/* Brand lockup
+   ------------------------------------------------------------------------ */
+
+.lockup { display: flex; align-items: center; gap: 14px; }
+
+/* A FIXED BOX with object-fit: contain, not a height with an auto width.
+   The default mark is docs/images/logo.png at 238x192, and the brand track is
+   producing a SQUARE docs/media/brand/logo.svg to replace it. A fixed box
+   centres either aspect ratio without the lockup's width jumping when the file
+   is swapped, which is exactly what the --logo flag has to survive. */
+.lockup__mark {
+  display: block;
+  width: 54px; height: 46px;
+  object-fit: contain;
+  object-position: left center;
+  flex: none;
+}
+.lockup__mark--lg { width: 78px; height: 66px; }
+
+/* The fallback when no logo file resolves. Deliberately a real drawn wordmark
+   rather than a broken image icon: a missing asset has to degrade to something
+   presentable, and stills.js says on stdout that it happened. */
+.lockup__glyph {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px; flex: none;
+  border: 1px solid var(--ab-edge-strong);
+  border-radius: var(--ab-radius-card);
+  font-family: var(--ab-font-mono);
+  font-size: 22px; font-weight: 700; line-height: 1;
+  color: var(--ab-ink);
+}
+.lockup__glyph--lg { width: 66px; height: 66px; font-size: 32px; }
+
+.lockup__word {
+  font-size: 21px; font-weight: 600; letter-spacing: -0.012em;
+  color: var(--ab-ink); white-space: nowrap;
+}
+.lockup__word--lg { font-size: 40px; letter-spacing: -0.02em; }
+
+/* Type
+   ------------------------------------------------------------------------ */
+
+.eyebrow {
+  font-family: var(--ab-font-mono);
+  font-size: 13px; font-weight: 400;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ab-ink-3);
+}
+
+.headline {
+  font-size: 52px; line-height: 1.14; font-weight: 600;
+  letter-spacing: -0.022em;
+  color: var(--ab-ink);
+  text-wrap: balance;
+}
+.headline--sm { font-size: 40px; line-height: 1.18; }
+.headline--lg { font-size: 56px; }
+
+.subline {
+  font-size: 19px; line-height: 1.5; font-weight: 400;
+  color: var(--ab-ink-2);
+}
+.subline--sm { font-size: 17px; }
+
+/* The install line. A bordered mono field, not a capsule with a dot in it. */
+.command {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 9px 14px;
+  border: 1px solid var(--ab-edge);
+  border-radius: var(--ab-radius-card);
+  background: var(--ab-plate);
+  font-family: var(--ab-font-mono);
+  font-size: 15px; color: var(--ab-ink);
+  white-space: nowrap;
+}
+.command__caret { color: var(--ab-ink-3); }
+
+/* Platform names, set as mono text divided by hairlines. Small capsules were
+   the obvious move and were rejected: a row of them reads as status, which is
+   the pattern the design rules ban outright. */
+.platforms { display: flex; align-items: center; gap: 16px; }
+.platforms__name {
+  font-family: var(--ab-font-mono);
+  font-size: 14px; letter-spacing: 0.06em;
+  color: var(--ab-ink-2);
+}
+.platforms__rule { width: 1px; height: 14px; background: var(--ab-edge-strong); }
+
+/* An accent hairline under a headline block, tinted by the artboard's own
+   seeded hue so it belongs to that artboard rather than to the set. */
+.accent-rule {
+  width: 84px; height: 3px; border-radius: 2px;
+  background: var(--ab-accent, var(--ab-brand));
+}
+
+/* The CSS browser frame
+   ------------------------------------------------------------------------ */
+
+.device {
+  border-radius: var(--ab-radius-frame);
+  border: 1px solid var(--ab-edge);
+  background: var(--ab-raised);
+  box-shadow: var(--ab-scrim);
+  overflow: hidden;
+}
+
+.device__bar {
+  display: flex; align-items: center; gap: 8px;
+  height: 40px; padding: 0 14px;
+  background: var(--ab-plate);
+  border-bottom: 1px solid var(--ab-edge-soft);
+}
+.device__dot { width: 10px; height: 10px; border-radius: 50%; opacity: 0.72; flex: none; }
+.device__dot:nth-child(1) { background: var(--ab-dot-1); }
+.device__dot:nth-child(2) { background: var(--ab-dot-2); }
+.device__dot:nth-child(3) { background: var(--ab-dot-3); }
+
+/* The address field. A matching spacer sits on the right so the field is
+   centred on the frame's true centre line rather than pushed off it by the
+   width of the three dots. */
+.device__addr {
+  flex: 1 1 auto;
+  margin: 0 10px;
+  height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;                        /* --radius-app-button */
+  background: var(--ab-well);
+  font-family: var(--ab-font-mono);
+  font-size: 12px; letter-spacing: 0.01em;
+  color: var(--ab-ink-3);
+}
+.device__spacer { width: 46px; flex: none; }
+
+.device__screen { position: relative; overflow: hidden; background: var(--ab-ground); }
+.device__screen img { display: block; width: 100%; height: auto; }
+.device__screen--crop img { position: absolute; max-width: none; height: auto; }
+
+/* The CSS phone frame
+   ------------------------------------------------------------------------ */
+
+.phone {
+  position: relative;
+  padding: 11px;
+  border-radius: 54px;
+  background: linear-gradient(160deg, var(--ab-edge-strong), var(--ab-edge));
+  box-shadow: var(--ab-scrim);
+}
+.phone__screen {
+  position: relative;
+  border-radius: 44px;
+  overflow: hidden;
+  background: #191919;
+}
+.phone__screen img { display: block; width: 100%; height: auto; }
+
+/* The speaker slot, drawn over the screenshot's own top bar the way a real
+   device sits over its display. It is device art, not a status indicator. */
+.phone__slot {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  width: 104px; height: 24px; border-radius: 12px;
+  background: #0d0d0d;
+}
+
+/* Layouts
+   ------------------------------------------------------------------------ */
+
+/* Text left, app right, the app bleeding off the right edge so it reads as a
+   window onto something larger than the frame. */
+.layout-split .ab__body { display: grid; grid-template-columns: 700px 1fr; align-items: center; }
+.layout-split .copy { padding: 0 60px 0 100px; display: flex; flex-direction: column; gap: 26px; }
+.layout-split .stage { position: relative; height: 100%; }
+.layout-split .stage > * { position: absolute; top: 50%; transform: translateY(-50%); left: 0; }
+
+/* The same composition mirrored, so ads 01 and 02 do not read as one artwork
+   with the words swapped. */
+.layout-split-reverse .ab__body { display: grid; grid-template-columns: 1fr 700px; align-items: center; }
+.layout-split-reverse .copy { padding: 0 100px 0 60px; display: flex; flex-direction: column; gap: 26px; order: 2; }
+.layout-split-reverse .stage { position: relative; height: 100%; order: 1; }
+.layout-split-reverse .stage > * { position: absolute; top: 50%; transform: translateY(-50%); right: 0; }
+
+/* Phone. The device sits fully inside the frame rather than bled, because a
+   phone cropped at the edge stops reading as a phone. */
+.layout-phone .ab__body { display: grid; grid-template-columns: 800px 1fr; align-items: center; }
+.layout-phone .copy { padding: 0 60px 0 100px; display: flex; flex-direction: column; gap: 26px; }
+.layout-phone .stage { position: relative; height: 100%; display: flex; align-items: center; justify-content: center; }
+
+/* Centred, with the app bleeding off the bottom edge. */
+.layout-center .ab__body {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 84px 80px 0; text-align: center; gap: 24px;
+}
+.layout-center .headline { max-width: 1120px; }
+
+/* The copy column needs its own flex context here.
+   text-align on the body centres the HEADLINE, because that is text, and it
+   does nothing at all for the lockup or the accent rule, because both are
+   block level boxes: they sat hard against the left edge of a full width copy
+   column while the words above them looked correctly centred. Cross axis
+   centring is the only thing that moves a box, and a gap is the only thing
+   that spaces one, so both are declared here rather than inherited. */
+.layout-center .copy {
+  display: flex; flex-direction: column; align-items: center; gap: 26px;
+}
+
+/* Link preview and repo social preview: a lockup column with the app bled off
+   the right, tuned for a small render size. */
+.layout-card .ab__body { display: grid; align-items: center; }
+.layout-card .copy { display: flex; flex-direction: column; gap: 20px; }
+.layout-card .stage { position: relative; height: 100%; }
+.layout-card .stage > * { position: absolute; top: 50%; transform: translateY(-50%); left: 0; }
+
+/* Square profile mark. Everything is centred and inside the safe circle; see
+   AVATAR_SAFE_DIAMETER in stills.js for why the padding is as large as it is. */
+.layout-avatar .ab__body { display: flex; align-items: center; justify-content: center; }
+.layout-avatar .avatar__ring {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1px solid var(--ab-edge);
+  opacity: 0.85;
+}
+.layout-avatar .avatar__mark { display: block; object-fit: contain; position: relative; }
+.layout-avatar .avatar__glyph {
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--ab-font-mono); font-weight: 700; color: var(--ab-ink);
+  letter-spacing: -0.02em; position: relative;
+}
+
+/* Wide header. Centred so neither the platform's avatar overlay at the bottom
+   left nor its side cropping on a narrow viewport can eat anything that
+   matters. See BANNER_AVATAR_KEEPOUT in stills.js. */
+.layout-banner .ab__body {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; text-align: center;
+}
+.layout-banner .banner__rule {
+  width: 120px; height: 1px; background: var(--ab-edge-strong); opacity: 0.8;
+}

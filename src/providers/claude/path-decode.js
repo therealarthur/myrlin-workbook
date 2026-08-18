@@ -262,6 +262,41 @@ function isLikelyFailedCJKDecode(encodedName) {
 }
 
 /**
+ * Resolve the directory Claude Code keeps its per-project transcripts in.
+ *
+ * Added 2026-08-18 for the marketing media pipeline. Codex discovery has always
+ * honoured a CODEX_HOME override (src/providers/codex/discover.js), but the
+ * Claude side hard-coded `os.homedir()` in five places, so the only way to point
+ * discovery at fixture transcripts was to rewrite the whole home directory. That
+ * works on Windows, where os.homedir() reads USERPROFILE, and is fragile
+ * everywhere else. A capture harness that must never touch the operator's real
+ * sessions should be able to say so directly rather than rely on a platform
+ * detail.
+ *
+ * WHY an env var and not an argument: the five call sites are reached through
+ * four different public entry points (walkOnce, parseTranscript, findJsonlFile,
+ * getSearchableFiles), several of which are called from route handlers that have
+ * no plumbing for options. An env var read at CALL time, not module load, keeps
+ * the change additive and lets a test set and unset it between cases.
+ *
+ * Default behaviour is unchanged: with CWM_CLAUDE_PROJECTS_DIR unset this
+ * returns exactly the `<home>/.claude/projects` path every call site used
+ * before. An empty or whitespace-only value is treated as unset, so an exported
+ * but blank variable cannot silently redirect discovery at the filesystem root.
+ *
+ * Honoured strictly, the same way CODEX_HOME is: a value pointing at a path that
+ * does not exist yields no sessions rather than falling back to the real home.
+ * "If you set it, you mean it" is the safer failure for a sandbox.
+ *
+ * @returns {string} Absolute path to the Claude projects directory.
+ */
+function resolveClaudeProjectsDir() {
+  const override = process.env.CWM_CLAUDE_PROJECTS_DIR;
+  if (typeof override === 'string' && override.trim() !== '') return override;
+  return path.join(os.homedir(), '.claude', 'projects');
+}
+
+/**
  * Find a JSONL file for a given Claude session UUID by scanning all
  * project directories under ~/.claude/projects/.
  *
@@ -274,7 +309,7 @@ function isLikelyFailedCJKDecode(encodedName) {
  * @returns {string|null} Full path to the .jsonl file, or null if not found
  */
 function findJsonlFile(claudeSessionId) {
-  const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
+  const claudeProjectsDir = resolveClaudeProjectsDir();
   if (!fs.existsSync(claudeProjectsDir)) return null;
 
   try {
@@ -305,7 +340,7 @@ function findJsonlFile(claudeSessionId) {
  */
 function findJsonlByWorkingDir(workingDir) {
   if (!workingDir) return null;
-  const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
+  const claudeProjectsDir = resolveClaudeProjectsDir();
   if (!fs.existsSync(claudeProjectsDir)) return null;
 
   try {
@@ -349,6 +384,7 @@ function findJsonlByWorkingDir(workingDir) {
 }
 
 module.exports = {
+  resolveClaudeProjectsDir,
   decodeClaudePath,
   greedyFsWalk,
   resolveProjectPath,

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Myrlin Workbook media artboards</title>
+<!--
+  artboard.html, the single template every marketing still is rendered from.
+  Created: 2026-08-18, media pipeline (docs/marketing/MEDIA-CONTRACT.md).
+
+  WHY ONE TEMPLATE AND NOT ONE FILE PER ASSET
+
+  The contract asks for eight stills in five different sizes. Rendered from
+  eight files they drift: a token corrected in one is missed in the other seven,
+  and nothing catches it. Rendered from one file driven by a manifest they are
+  consistent by construction, which is the pattern section 8 of
+  docs/marketing/RESEARCH-2026-08-18.md settled on.
+
+  WHY THE PAGE IS EMPTY
+
+  Every asset this page needs (both self hosted font faces, the app screenshots,
+  the logo) arrives as a base64 data URI in window.__MEDIA__, injected by
+  scripts/media/stills.js before the first script runs. Nothing is fetched.
+
+  That is not tidiness, it is the fix for a real trap. This page is opened over
+  file://, and Chromium treats a file:// document as an opaque origin, so a
+  @font-face pointing at a sibling .woff2 is a cross origin font request and is
+  refused without a command line flag. A font that fails to load does not throw:
+  the text simply renders in a fallback face and the still ships wrong, which is
+  the exact silent failure the research picked Playwright to avoid. Data URIs
+  have no origin to check, so the question never arises.
+
+  Open this file directly in a browser and you get the notice below, because
+  there is no payload. Render it through `node scripts/media/stills.js`.
+
+  SPDX-License-Identifier: AGPL-3.0-only
+-->
+<link rel="stylesheet" href="artboard.css">
+</head>
+<body>
+  <!-- The one element every screenshot is taken of. Its width and height are
+       set from the manifest at render time so the captured element is exactly
+       the artboard size, with no scrollbar and no rounding slack. -->
+  <div id="artboard" class="ab" data-artboard="none">
+    <div class="ab__notice">
+      <p>No payload.</p>
+      <p>Render with <code>node scripts/media/stills.js</code>.</p>
+    </div>
+  </div>
+  <script src="artboard.js"></script>
+</body>
+</html>

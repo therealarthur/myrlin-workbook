@@ -22,6 +22,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const { resolveClaudeProjectsDir } = require('./path-decode');
+
 /**
  * The literal a transcript line must contain before it can carry a rename.
  * Named because two readers (the synchronous one and the asynchronous one
@@ -257,7 +259,7 @@ async function extractSessionNameAsync(filePath, sessionId) {
 async function parseTranscript(providerSessionId) {
   try {
     if (!providerSessionId || typeof providerSessionId !== 'string') return [];
-    const claudeDir = path.join(os.homedir(), '.claude', 'projects');
+    const claudeDir = resolveClaudeProjectsDir();
     if (!fs.existsSync(claudeDir)) return [];
 
     let entries;
