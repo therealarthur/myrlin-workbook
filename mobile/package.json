@@ -26,6 +26,7 @@
     "@react-navigation/native": "^7.1.33",
     "@shopify/flash-list": "^2.3.1",
     "@tanstack/react-query": "^5.95.2",
+    "@xmldom/xmldom": "^0.9.10",
     "expo": "55.0.10-canary-20260328-bdc6273",
     "expo-camera": "^55.0.12-canary-20260328-bdc6273",
     "expo-clipboard": "^55.0.10-canary-20260328-bdc6273",
@@ -72,5 +73,8 @@
     "ts-jest": "^29.4.6",
     "typescript": "~5.9.2"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "@xmldom/xmldom": "0.9.10"
+  }
 }
