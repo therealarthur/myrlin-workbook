@@ -66,3 +66,6 @@ src/web/public/.backup/
 # Cron run state (per-machine)
 cron-full.json
 cron-runs.json
+
+# Marketing media raw footage (regenerable; only the encoded delivery is committed)
+docs/media/raw/

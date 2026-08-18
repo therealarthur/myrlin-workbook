@@ -86,7 +86,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { resolveProjectPath } = require('./path-decode');
+const { resolveProjectPath, resolveClaudeProjectsDir } = require('./path-decode');
 const {
   extractCustomTitleAsync,
   extractSessionNameAsync,
@@ -399,7 +399,7 @@ async function walkOnce(forceRefresh) {
   _stats.walks++;
   if (forceRefresh) _projectPathCache.clear();
 
-  const claudeDir = path.join(os.homedir(), '.claude', 'projects');
+  const claudeDir = resolveClaudeProjectsDir();
   if (!fs.existsSync(claudeDir)) return [];
 
   let topEntries;

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Marketing media, and a pipeline that regenerates all of it from one command.** The README and the site now have a set of clips and stills to show: a thirty second tour, six feature clips, three application screenshots, four ad stills and the social and link-preview images. They live under `docs/media/` and are built by `npm run media:all`, which drives the real application in a throwaway sandbox and encodes what it records. Nothing in the footage is real: the projects, sessions, transcripts, costs and terminal output are all invented and stated as such in `scripts/media/fixture.js`, and the sandbox points every provider path at fixture files, so no session, path, account name or cost from the machine that builds the set can appear in a frame. The whole set regenerates after a design change instead of going stale, and each command checks its own output, failing when a file misses its size budget, when an animated image would play once instead of looping, or when a video is written in a pixel format Safari cannot play.
+- `CWM_CLAUDE_PROJECTS_DIR` points Claude session discovery at a different directory. Codex discovery has always honoured `CODEX_HOME`; the Claude side had no equivalent, so the only way to aim it at test data was to rewrite the whole home directory. Unset, discovery reads `~/.claude/projects` exactly as before.
 - Release workflow publishes to npm with provenance on tag push and creates the GitHub Release from the changelog. It can also be run on demand for an existing tag, and publishes through npm Trusted Publishing when no NPM_TOKEN secret is configured.
 - CodeQL and npm audit scanning.
 - Dependabot for npm and GitHub Actions dependencies.
