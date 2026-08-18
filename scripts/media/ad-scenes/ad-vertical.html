@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Myrlin Workbook vertical ad scene</title>
+<!--
+  ad-vertical.html - the 1080x1920 stage that ads.js photographs frame by frame.
+  Created: 2026-08-18, media pipeline (docs/marketing/MEDIA-CONTRACT.md).
+
+  WHY THIS EXISTS
+
+  The contract asks for two vertical snippets of kinetic type over a cropped
+  capture. Nothing in the encode ladder can composite type, and nothing in the
+  capture harness can crop to a vertical frame, so the composition has to happen
+  somewhere. It happens here, in a browser, because the browser is the only
+  renderer on this machine that resolves the project's own typefaces. Rendering
+  the same headline through sharp or an SVG text renderer substitutes a generic
+  face, emits no warning and exits 0 (research section 3.5), which is the one
+  failure a marketing asset must never have.
+
+  WHAT DRIVES IT
+
+  Nothing in this file animates on its own. ads.js injects a scene config at
+  window.__MYRLIN_AD__ before any script runs, calls window.adBuild() once the
+  fonts have settled, then steps the clock by hand one frame at a time through
+  window.adSeek(). Opening this file directly in a browser therefore shows the
+  standby notice below and nothing else; that is correct, not a bug.
+
+  NO NETWORK. Every URL in this document and its stylesheet is same origin and
+  is served from disk by the route handler in ads.js. There is no CDN font, no
+  analytics and no remote image. The origin ads.myrlin.invalid uses the reserved
+  .invalid TLD from RFC 2606 so it can never resolve even if interception broke.
+
+  SPDX-License-Identifier: AGPL-3.0-only
+-->
+<link rel="stylesheet" href="/scene/ad-vertical.css">
+</head>
+<body>
+
+<!--
+  The stage is exactly the delivery size, 1080x1920. The viewport is set to the
+  same size at deviceScaleFactor 1, so one CSS pixel is one delivered pixel and
+  the capture image inside the panel maps one to one onto the output. Any scale
+  factor other than 1 anywhere in this tree resamples the screenshot of the app
+  a second time, on top of the lanczos pass ffmpeg already did, and the UI text
+  goes soft. That is why nothing here animates transform: scale on the panel.
+-->
+<main class="stage" id="stage" data-standby="true">
+
+  <!-- Ground. Three separate layers so each can carry its own per ad seed. -->
+  <div class="plate" id="plate" aria-hidden="true"></div>
+  <div class="grid" id="grid" aria-hidden="true"></div>
+  <div class="glow" id="glow" aria-hidden="true"></div>
+
+  <!-- The capture. Sits under the type, bleeds off the right edge of frame. -->
+  <div class="panel-rise" id="panel-rise">
+    <figure class="panel" id="panel">
+      <img class="panel-shot" id="capture-frame" alt="" decoding="sync">
+    </figure>
+  </div>
+
+  <!-- Scrim, so the closing type stays legible over whatever the capture shows. -->
+  <div class="scrim" id="scrim" aria-hidden="true"></div>
+
+  <header class="eyebrow" id="eyebrow">
+    <img class="eyebrow-mark" id="eyebrow-mark" src="/app/logo-cropped.png" alt="">
+    <span class="eyebrow-word" id="eyebrow-word">Myrlin Workbook</span>
+    <span class="eyebrow-rule" aria-hidden="true"></span>
+  </header>
+
+  <!-- Lines are injected by ad-vertical.js from the config, never authored here. -->
+  <h1 class="headline" id="headline"></h1>
+
+  <section class="cta" id="cta">
+    <p class="cta-claim" id="cta-claim"></p>
+    <p class="cta-cmd" id="cta-cmd"></p>
+  </section>
+
+  <p class="standby" id="standby">
+    Standby. This stage is driven by scripts/media/ads.js.
+  </p>
+
+</main>
+
+<script src="/scene/ad-vertical.js"></script>
+</body>
+</html>

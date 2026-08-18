@@ -1,0 +1,408 @@
+/* ==========================================================================
+   ad-vertical.css - the look of the two vertical ad snippets.
+   Created: 2026-08-18, media pipeline (docs/marketing/MEDIA-CONTRACT.md).
+
+   WHY THIS FILE EXISTS
+
+   The stage has to look like the product without being the product. It reads
+   its ground, ink and accent values from the application's own dark palette so
+   an ad can never drift off brand, but it lays them out for a phone screen held
+   at arm's length rather than for a desktop window.
+
+   WHERE THE VALUES COME FROM
+
+   Every colour below is copied from src/web/public/styles.css and named with
+   its source token, because this file is loaded outside the application and
+   cannot inherit :root. The dark ground and ink come from the
+   :root[data-chrome="dark"] block (styles.css, the block that opens at
+   "--app-bg-accent-primary: #f0efed"); the accent inks are palette wide and
+   live in the light block near "--app-accent-blue: #2783de". Copies, not
+   imports, so a restyle of the application cannot silently restyle a published
+   ad, and so this file has no dependency on 4000 lines of application CSS.
+
+   TYPE
+
+   Two families, both the application's own:
+
+     display   the OS UI stack from --font-app-ui (styles.css line 542), with
+               the Segoe UI Variable Display cut hoisted to the front because
+               that is the optical size Windows ships for headline sizes. The
+               application deliberately ships NO webfont on its own surface
+               (design/notion/fonts.css explains why), so the honest brand face
+               for a headline is the same stack the application renders in.
+     mono      iA Writer Mono, the one text face this project actually
+               redistributes, self hosted from the vendored bundle. Used for
+               the eyebrow and the closing command, which is where the product
+               reads as a developer tool.
+
+   ads.js asserts the mono face genuinely resolved before it shoots a single
+   frame, because a missing face falls back to Courier without an error.
+
+   BANNED PATTERNS OBSERVED
+
+   No status pill carrying a dot indicator appears anywhere in this file, in any
+   form, and the capture crops in ads.js are chosen to keep the application's
+   own status column out of frame. The closing command is a square cornered
+   field with a 10px radius, not a capsule, so it cannot read as a pill.
+
+   SPDX-License-Identifier: AGPL-3.0-only
+   ========================================================================== */
+
+/* ── Self hosted faces ────────────────────────────────────────────────────── */
+
+/*
+ * Redeclared here rather than importing src/web/public/design/notion/fonts.css,
+ * because that sheet points at /design/notion/fonts/ and this stage is served
+ * from a different route prefix. The binaries are the same files, byte for
+ * byte, and test/notion-token-parity.test.js already asserts their SHA-256 on
+ * every test run, so there is one source of truth for the face itself.
+ *
+ * font-display is BLOCK here, not swap. The application wants swap so text
+ * paints instantly on a cold load; a camera wants the opposite, because a frame
+ * shot during the swap window would ship Courier. ads.js also asserts the face
+ * resolved before the first frame, so this is belt and braces on a failure that
+ * is otherwise completely silent.
+ *
+ * Licence: iA Writer Mono S is SIL OFL 1.1, which permits redistribution.
+ */
+@font-face {
+  font-family: "iA Writer Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("/app/design/notion/fonts/iAWriterMonoS-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "iA Writer Mono";
+  font-style: normal;
+  font-weight: 600 700;
+  font-display: block;
+  src: url("/app/design/notion/fonts/iAWriterMonoS-Bold.woff2") format("woff2");
+}
+
+/* ── Tokens ───────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Ground and ink, from the application's dark chrome block. */
+  --ad-bg-primary: #191919;      /* --app-bg-primary */
+  --ad-bg-secondary: #202020;    /* --app-bg-secondary */
+  --ad-border-primary: #383836;  /* --app-border-primary */
+  --ad-text-primary: #f0efed;    /* --app-text-primary */
+  --ad-text-secondary: #ada9a3;  /* --app-text-secondary */
+  --ad-text-tertiary: #7d7a75;   /* --app-text-tertiary */
+
+  /* Type stacks. See the header for why each is what it is. */
+  --ad-font-display: "Segoe UI Variable Display", "Segoe UI", ui-sans-serif,
+    -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
+  --ad-font-mono: "iA Writer Mono", Nitti, Menlo, Courier, monospace;
+
+  /* Per ad seeds. ad-vertical.js overwrites all of these on .stage. Defaults
+     are the ad 1 values so the file still renders if a config were missing. */
+  --ad-plate-base: #0d0d0d;
+  --ad-plate-wash: #1b1226;
+  --ad-glow-color: #b577d6;
+  --ad-glow-x: 22%;
+  --ad-glow-y: 26%;
+  --ad-glow-size: 62%;
+  --ad-grid-pitch: 62px;
+  --ad-grid-angle: 0deg;
+  --ad-grid-ink: rgba(240, 239, 237, 0.038);
+  --ad-accent-a: #b577d6;        /* --app-accent-purple */
+  --ad-accent-b: #46a171;        /* --app-accent-green */
+
+  /* Geometry. ads.js owns the panel numbers; these are the frame wide ones. */
+  --ad-margin: 72px;             /* side safe margin, 6.7 percent of frame */
+  --ad-eyebrow-top: 132px;       /* clear of a phone status bar overlay */
+  --ad-headline-size: 92px;
+  --ad-headline-top: 240px;      /* recomputed after measurement by adBuild */
+  --ad-panel-left: 56px;
+  --ad-panel-top: 700px;
+  --ad-panel-width: 1196px;
+  --ad-panel-height: 1284px;
+  --ad-panel-radius: 24px;
+}
+
+/* ── Frame ────────────────────────────────────────────────────────────────── */
+
+/* No margin, no scrollbar, no overscroll. The screenshot is the viewport, so
+   any stray scrollbar would be baked into every delivered frame. */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 1080px;
+  height: 1920px;
+  overflow: hidden;
+  background: #000;
+}
+
+.stage {
+  position: relative;
+  width: 1080px;
+  height: 1920px;
+  overflow: hidden;
+  background: var(--ad-plate-base);
+  color: var(--ad-text-primary);
+  font-family: var(--ad-font-display);
+  /* Kerning and ligatures on: this is display type, not a data table. */
+  font-kerning: normal;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Ground layers ────────────────────────────────────────────────────────── */
+
+/* A single large wash rather than a busy multi stop gradient. Banding is the
+   risk at 1080 wide on a flat dark ramp, so the wash is wide and shallow and
+   the grid plus the glow break up any contour that survives the yuv420p
+   chroma subsample. */
+.plate {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(168deg, var(--ad-plate-wash) 0%, var(--ad-plate-base) 58%),
+    var(--ad-plate-base);
+}
+
+/* Oversized and offset so a rotated grid still covers the corners. The mask
+   fades it out towards the bottom, where the capture panel needs a clean
+   ground behind its shadow. */
+.grid {
+  position: absolute;
+  top: -30%;
+  left: -30%;
+  width: 160%;
+  height: 160%;
+  z-index: 1;
+  transform: rotate(var(--ad-grid-angle));
+  background-image:
+    linear-gradient(to right, var(--ad-grid-ink) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ad-grid-ink) 1px, transparent 1px);
+  background-size: var(--ad-grid-pitch) var(--ad-grid-pitch);
+  -webkit-mask-image: radial-gradient(120% 62% at 50% 12%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(120% 62% at 50% 12%, #000 0%, transparent 78%);
+}
+
+/* The only thing that moves in the background for the whole run. It replaces a
+   Ken Burns push on the panel, which was rejected on purpose: scaling the panel
+   would resample the application screenshot a second time and soften the UI
+   text that the ad exists to show. */
+.glow {
+  position: absolute;
+  inset: -20%;
+  z-index: 2;
+  background: radial-gradient(
+    circle at var(--ad-glow-x) var(--ad-glow-y),
+    color-mix(in srgb, var(--ad-glow-color) 26%, transparent) 0%,
+    transparent var(--ad-glow-size)
+  );
+  filter: blur(2px);
+}
+
+/* ── Capture panel ────────────────────────────────────────────────────────── */
+
+/* Two nested elements on purpose. The entrance animates .panel-rise, so
+   .panel keeps an untouched identity transform and its image stays pixel
+   exact once the entrance has finished. Animating both on one element would
+   have the later animation win the transform property outright. */
+.panel-rise {
+  position: absolute;
+  left: var(--ad-panel-left);
+  top: var(--ad-panel-top);
+  z-index: 3;
+  will-change: transform, opacity;
+}
+
+.panel {
+  margin: 0;
+  width: var(--ad-panel-width);
+  height: var(--ad-panel-height);
+  border-radius: var(--ad-panel-radius);
+  overflow: hidden;
+  background: var(--ad-bg-primary);
+  box-shadow:
+    0 0 0 1px var(--ad-border-primary),
+    0 -2px 0 0 color-mix(in srgb, var(--ad-text-primary) 6%, transparent),
+    0 46px 96px -24px rgba(0, 0, 0, 0.86),
+    0 8px 24px -8px rgba(0, 0, 0, 0.6);
+}
+
+/* Width and height are pinned to the intrinsic size of the extracted frame, so
+   the browser never resamples it. ads.js emits the frames at exactly these
+   numbers with a lanczos pass, which is a better upscale than the bilinear one
+   a CSS resize would apply. */
+.panel-shot {
+  display: block;
+  width: var(--ad-panel-width);
+  height: var(--ad-panel-height);
+  object-fit: cover;
+  object-position: top left;
+}
+
+/* ── Scrim ────────────────────────────────────────────────────────────────── */
+
+/* Sits above the panel and below the type. Its only job is to hold the closing
+   block legible over whatever the capture happens to be showing at that second,
+   which is not something the ad controls.
+
+   IT REACHES FULLY OPAQUE, and does so well above the closing text. The first
+   cut of this stopped at 94 percent behind the claim line, on the theory that
+   letting the product show through was the more interesting picture. Six
+   percent of a light grey UI label reads clearly as ghosting behind 46px white
+   type, and it made the closing card look like a rendering fault. Legibility of
+   the one line carrying the call to action beats a glimpse of a sidebar. */
+.scrim {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 760px;
+  z-index: 4;
+  opacity: 0;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--ad-plate-base) 55%, transparent) 26%,
+    color-mix(in srgb, var(--ad-plate-base) 92%, transparent) 46%,
+    var(--ad-plate-base) 62%,
+    var(--ad-plate-base) 100%
+  );
+}
+
+/* ── Eyebrow ──────────────────────────────────────────────────────────────── */
+
+.eyebrow {
+  position: absolute;
+  left: var(--ad-margin);
+  right: var(--ad-margin);
+  top: var(--ad-eyebrow-top);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  opacity: 0;
+}
+
+.eyebrow-mark {
+  width: 66px;
+  height: 54px;
+  object-fit: contain;
+  /* The mark is a full colour raster on transparency. A small lift keeps it
+     from muddying against the near black plate without recolouring the brand. */
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.55));
+}
+
+.eyebrow-word {
+  font-family: var(--ad-font-mono);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ad-text-secondary);
+  white-space: nowrap;
+}
+
+.eyebrow-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(to right, var(--ad-border-primary), transparent);
+}
+
+/* ── Headline ─────────────────────────────────────────────────────────────── */
+
+.headline {
+  position: absolute;
+  left: var(--ad-margin);
+  right: var(--ad-margin);
+  top: var(--ad-headline-top);
+  z-index: 6;
+  margin: 0;
+  font-size: var(--ad-headline-size);
+  font-weight: 700;
+  line-height: 1.07;
+  letter-spacing: -0.025em;
+  /* transform-origin matters only if a future edit animates scale here. Left
+     explicit so that edit does not silently pivot on the centre. */
+  transform-origin: 0% 0%;
+}
+
+/* One mask per line. The reveal slides the ink up from under its own baseline,
+   which is why the mask has to be a separate element from the ink: an overflow
+   clip and a transform on the same box move together and clip nothing. */
+.line-shift {
+  display: block;
+  will-change: transform, opacity;
+}
+
+.line-mask {
+  display: block;
+  overflow: hidden;
+  /* Room for descenders inside the clip. Without it a comma or a p is shaved
+     off the settled frame, which is invisible on a still and obvious on a
+     thirteen second hold. */
+  padding-bottom: 0.14em;
+  margin-bottom: -0.14em;
+}
+
+.line-ink {
+  display: block;
+  white-space: nowrap;
+  will-change: transform, opacity;
+}
+
+.ink-accent-a { color: var(--ad-accent-a); }
+.ink-accent-b { color: var(--ad-accent-b); }
+
+/* ── Closing block ────────────────────────────────────────────────────────── */
+
+.cta {
+  position: absolute;
+  left: var(--ad-margin);
+  right: var(--ad-margin);
+  bottom: 118px;
+  z-index: 6;
+  margin: 0;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.cta-claim {
+  margin: 0 0 26px 0;
+  font-family: var(--ad-font-display);
+  font-size: 46px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--ad-text-primary);
+}
+
+/* A field, not a capsule. 10px of radius reads as a code input; a pill radius
+   would read as the status pill pattern this project bans outright. */
+.cta-cmd {
+  display: inline-block;
+  margin: 0;
+  padding: 20px 30px;
+  border: 1px solid var(--ad-border-primary);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ad-bg-secondary) 88%, transparent);
+  font-family: var(--ad-font-mono);
+  font-size: 38px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--ad-text-primary);
+}
+
+/* ── Standby ──────────────────────────────────────────────────────────────── */
+
+/* Shown only when the stage was opened without a config, which happens when a
+   human opens the file to look at it. adBuild clears the flag. */
+.standby {
+  position: absolute;
+  left: var(--ad-margin);
+  top: 50%;
+  z-index: 9;
+  margin: 0;
+  font-family: var(--ad-font-mono);
+  font-size: 30px;
+  color: var(--ad-text-tertiary);
+}
+
+.stage:not([data-standby="true"]) .standby { display: none; }
