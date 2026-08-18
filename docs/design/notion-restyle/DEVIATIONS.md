@@ -100,7 +100,7 @@ pulses (`mwPulse`, a motion channel that survives greyscale)". Nothing pulses an
 | DV-14 clause | State | What replaced it |
 | --- | --- | --- |
 | "the needs-input dot also pulses" | **Superseded.** | The needs-input family is now the one status mark drawn as a RING rather than a filled disc. A shape is a non-colour channel exactly the way motion was, at the same per-pixel contrast, and it additionally survives `prefers-reduced-motion`, greyscale printing and a screenshot, none of which a pulse does. The ring is re-asserted through the attention layer in `focused-shell.css` and through the forced-colours block in `semantic-theme.css`, so it holds on a hovered row, on a selected row and under Windows High Contrast. |
-| "the status chip beside it carries the state as a word" | **Unchanged and now load-bearing.** | The pane's `Needs input` badge also moved onto the yellow chip pair in the same pass, so the word is drawn at a measured contrast rather than in hand-mixed peach. |
+| "the status chip beside it carries the state as a word" | **Unchanged and now load-bearing.** | The pane's `Needs input` badge also moved onto the yellow chip pair in the same pass, so the word is drawn at a measured contrast rather than in hand-mixed peach. **Amended 2026-08-18 (DV-R2-1):** the word survives and the chip around it does not. The label is no longer drawn on a wash, so its contrast is now measured against the page ground instead: `--app-status-ink-yellow` reaches 4.56:1 on the light canvas and 8.96:1 on the dark one, against the 2.68:1 the bare dot hue measures. The mitigation is therefore stronger than when it was written, not weaker. |
 | "every meter prints its percentage next to the bar" | **Unchanged.** | No meter was touched by the static-status sweep. |
 
 ## Expected rows, not yet incurred
@@ -595,3 +595,16 @@ phase on this branch has hit.
 | **What it costs** | The terminal face is no longer guaranteed identical on every machine: it now depends on which of JetBrains Mono, Cascadia Mono, Cascadia Code or Consolas the user has, and the cell metrics (and therefore the PTY column count) differ slightly between them. That is the price of correctness, and it is the situation this app shipped in for its whole life before P5. Art direction loses the terminal; it keeps every other mono surface in the app. |
 | **Approved by** | Round 1 orchestrator, pre-authorised in the round 1 brief: "the orchestrator pre-authorizes either, correctness first". |
 | **Date** | 2026-08-13 |
+
+---
+
+## DV-R2-1: the status treatment stops being a chip, and two contract rules describe a pill that no longer exists
+
+| Field | Value |
+| --- | --- |
+| **What the contract says** | `BUILD-CONTRACT.md` 2.3 and `DESIGN-SPEC.md` 6 draw session status as a PROPERTY CHIP: a capsule at the 10px status radius, filled with the state's `--app-chip-<hue>-fill` wash, inked with the matching `--app-chip-<hue>-ink`, and carrying a leading 8px dot. `DECISIONS.md` 11.2.4 shipped `.nt-chip-dot` for exactly that dot, and P4 wired it. |
+| **What shipped** | No capsule. `.status-badge` keeps its class names, its 20px height, its 6px gap and its type scale, and loses its `border-radius`, its per-state background wash and its inset padding. The label is inked with a new `--app-status-ink-*` mix and the mark, which fills with `currentColor`, takes the same ink. `.stat-chip` in the header loses its capsule on the same grounds. `DECISIONS.md` 13.6 carries the full entry. |
+| **Why** | The same standing user rule DV-21 records, read in full. DV-21 implemented its motion clause; its shape clause went unimplemented for five days. The rule bans the status pill containing a dot indicator "in ANY form: blinking, pulsing, OR static", and asks for marks OUTSIDE pill capsules. A static dot in a static pill satisfies DV-21 and gate G14 completely and is still the banned pattern. This is not a judgement this program made; it is an instruction that outranks the capture, and the capture is silent anyway: the bundle is a document editor and has no status vocabulary at all. |
+| **What it costs** | Three things, all real. (1) The Status column reads as text rather than as a boxed object, so the sessions table is six text columns rather than five plus a chip. (2) The chip ink tokens lose their only status consumer, and a new token family (`--app-status-mix` plus five `--app-status-ink-*`) exists that the bundle does not contain, recorded as six invention rows. (3) `.status-badge` and `.nt-chip-dot` are now names that describe a badge and a chip that are neither, because DO-NOT-BREAK section B forbids the rename that would fix the names. What is NOT a cost: contrast improves in both chromes, because the mixes are measured against the text floor (4.56:1 at worst) where the chip inks were only ever measured against their own wash. |
+| **Approved by** | The user, as a global standing rule of 2026-08-13; implemented by the status-mark sweep agent, 2026-08-18 |
+| **Date** | 2026-08-18 |

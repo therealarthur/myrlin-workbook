@@ -116,8 +116,20 @@ const REVIEW_THUMB_MAX_PX = 1300;
  */
 const DEVICE_SCALE_FACTOR = 2;
 
-/** Default mark. Overridable with --logo, which the brand track will exercise. */
-const DEFAULT_LOGO = path.join('docs', 'images', 'logo.png');
+/**
+ * Default mark: the brand track's vector master.
+ *
+ * It was `docs/images/logo.png` while the vector did not exist, and the comment
+ * on `resolveLogo` below said so: "a PNG today and an SVG the moment the brand
+ * track lands docs/media/brand/logo.svg, which is exactly the swap --logo
+ * exists for". That file has landed, so the default moves onto it. This is not
+ * cosmetic. Every still on this page is rendered at deviceScaleFactor 2 and the
+ * ad artboards are 1600 wide, so a 238 by 192 pixel raster was being enlarged
+ * past three times its natural size in the lockup of every one of them. The
+ * flag stays, because pointing the set at a different mark for one run is still
+ * worth one argument.
+ */
+const DEFAULT_LOGO = path.join('docs', 'media', 'brand', 'logo.svg');
 
 /** File extensions the logo may be, and the MIME type each is embedded under. */
 const LOGO_MIME = Object.freeze({

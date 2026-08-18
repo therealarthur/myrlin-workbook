@@ -955,6 +955,296 @@ setGate('G15', 'index.html references each app asset once, and versions all of t
   assetProblems, localRefs.length,
   'a duplicate or unbusted reference is how a deploy fails to reach a phone');
 
+// ── G16: a status mark never sits inside a capsule ─────────────────────────
+//
+// The other half of the standing rule G14 enforces. G14 says a status mark may
+// not MOVE. G16 says it may not be INSIDE A PILL. The user's wording of
+// 2026-08-13 is that the status pill containing a dot indicator is banned in
+// any form, blinking, pulsing OR static, because the pill-plus-dot pattern is
+// itself the generic tell; status is to be carried by typography, by colour,
+// and by marks OUTSIDE pill capsules. G14 could not see this: a static dot in
+// a static pill animates nothing and passes it cleanly, which is exactly what
+// `.status-badge` and `.stat-chip` did until DECISIONS 13.6.
+//
+// It is modelled on G14 and structural for the same reason. A grep for
+// `nt-chip-dot` protects against the one mistake nobody will make. The mistake
+// that will actually happen is a new pill, with a new class name, six months
+// from now, by somebody who never read section 13. So the gate reconstructs
+// what the browser would compute and asks a shape question about it:
+//
+//   1. Which classes are drawn as a CAPSULE. A rule whose border-radius
+//      resolves, through the --radius-* token chain, to 9px or more or to a
+//      literal 50 or 100 percent. Nine is the threshold because this app's own
+//      scale puts every property chip at 4px and every capsule at 10px or
+//      999px, so the gap is wide and nothing legitimate sits in it.
+//   2. Which classes carry a FILL. A background or a border with a real value.
+//      `transparent`, `none` and `0` do not count, which is what lets the
+//      de-capsuled rules keep an explicit `background: transparent` as a
+//      statement of intent instead of having to delete the declaration.
+//   3. Whether the element is INLINE-LEVEL. Without this the gate would fail
+//      every card in the app: `.mobile-session-card` is a 10px bordered box
+//      with a leading `.status-dot`, and a mark on a card is precisely the
+//      idiom the rule asks FOR. A capsule is a small inline thing; a card is
+//      not, and `display` is where the two separate.
+//
+// The three conditions are evaluated across the element's WHOLE class list
+// rather than per rule, because that is how the cascade works and because this
+// app splits them on purpose: `.status-badge` carried the radius and
+// `.status-badge-running` carried the fill, so a per-rule gate would have seen
+// two innocent halves and missed the capsule they compose into.
+//
+// A DOT CHILD is a class with an identifier segment of `dot` or `dots`, or an
+// EMPTY element whose class is drawn as a circle. The emptiness test is what
+// keeps `.account-chip-avatar` out of the count: it is a circle inside a pill,
+// and it holds an initial, so it is an avatar and not an indicator.
+//
+// The runtime half of this ban lives in scripts/media/capture.js, which asks
+// the same question of the real computed styles in a real page before every
+// media take. This gate reads source; that one reads pixels; a pattern has to
+// clear both.
+
+/** Radii at or above this many pixels read as a capsule rather than a corner. */
+const CAPSULE_RADIUS_PX = 9;
+
+/** Tags that are inline-level by default, so a capsule can be built from them. */
+const INLINE_TAGS = new Set(['span', 'a', 'small', 'em', 'strong', 'b', 'i', 'label', 'button']);
+
+/** Tags that never have a closing tag, so they never open a stack frame. */
+const VOID_TAGS = new Set([
+  'br', 'img', 'input', 'hr', 'meta', 'link', 'source', 'track', 'wbr', 'col', 'area', 'base', 'embed',
+]);
+
+/** Class-name segments that declare an element a capsule by name alone. */
+const CAPSULE_NAME = /(?:^|-)(?:chip|pill|badge|tag|capsule)$/;
+
+/** Class-name segments that declare an element a status dot. */
+const DOT_NAME = /(?:^|-)(?:dot|dots)$/;
+
+/**
+ * Every --radius-* custom property declared anywhere in the four stylesheets.
+ *
+ * First declaration wins, which matches the cascade for the :root block that
+ * defines the scale; the per-theme blocks below it never redefine a radius.
+ *
+ * @returns {Map<string, string>} Token name to its raw declared value.
+ */
+function collectRadiusTokens() {
+  const tokens = new Map();
+  for (const file of STYLESHEETS) {
+    const css = stripCssComments(readPublic(file));
+    for (const m of css.matchAll(/(--radius-[a-z0-9-]+)\s*:\s*([^;}]+)/g)) {
+      if (!tokens.has(m[1])) tokens.set(m[1], m[2].trim());
+    }
+  }
+  return tokens;
+}
+
+const RADIUS_TOKENS = collectRadiusTokens();
+
+/**
+ * Substitute --radius-* references until the value is literal.
+ *
+ * @param {string} value - A border-radius value, possibly a var() chain.
+ * @param {number} [depth] - Recursion guard.
+ * @returns {string} The value with every known radius token expanded.
+ */
+function resolveRadius(value, depth) {
+  const level = depth || 0;
+  if (level > 6) return value;
+  return value.replace(/var\(\s*(--radius-[a-z0-9-]+)\s*(?:,[^()]*)?\)/g, (all, name) =>
+    (RADIUS_TOKENS.has(name) ? resolveRadius(RADIUS_TOKENS.get(name), level + 1) : all));
+}
+
+/**
+ * Whether a border-radius value draws a capsule or a circle.
+ *
+ * @param {string} raw - The declared value.
+ * @returns {boolean} True when it rounds to a pill or a circle.
+ */
+function isCapsuleRadius(raw) {
+  const resolved = resolveRadius(raw);
+  if (/\b(?:50|100)%/.test(resolved)) return true;
+  for (const m of resolved.matchAll(/(\d+(?:\.\d+)?)px/g)) {
+    if (parseFloat(m[1]) >= CAPSULE_RADIUS_PX) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a border-radius value draws a full circle specifically.
+ *
+ * @param {string} raw - The declared value.
+ * @returns {boolean} True for 50 or 100 percent.
+ */
+function isCircleRadius(raw) {
+  return /\b(?:50|100)%/.test(resolveRadius(raw));
+}
+
+/**
+ * The classes a selector actually applies to: the last compound in each
+ * comma-separated branch, because that is the subject of the rule.
+ *
+ * @param {string} selector - Full selector text.
+ * @returns {Set<string>} Class names the rule styles.
+ */
+function subjectClasses(selector) {
+  const out = new Set();
+  for (const branch of selector.split(',')) {
+    const compounds = branch.trim().split(/\s*[>+~]\s*|\s+/).filter(Boolean);
+    const subject = compounds[compounds.length - 1];
+    if (!subject) continue;
+    for (const m of subject.matchAll(/\.([A-Za-z0-9_-]+)/g)) out.add(m[1]);
+  }
+  return out;
+}
+
+const capsuleRadiusClasses = new Set();
+const circleClasses = new Set();
+const filledClasses = new Set();
+const inlineClasses = new Set();
+const blockClasses = new Set();
+for (const file of STYLESHEETS) {
+  const css = stripCssComments(readPublic(file));
+  for (const rule of leafRules(css)) {
+    const classes = subjectClasses(rule.selector);
+    if (!classes.size) continue;
+    const radius = /border-radius\s*:\s*([^;}]+)/.exec(rule.block);
+    if (radius && isCapsuleRadius(radius[1])) for (const c of classes) capsuleRadiusClasses.add(c);
+    if (radius && isCircleRadius(radius[1])) for (const c of classes) circleClasses.add(c);
+    const background = /(?:^|[;\s])background(?:-color|-image)?\s*:\s*([^;}]+)/.exec(rule.block);
+    const border = /(?:^|[;\s])border(?:-color|-width|-style)?\s*:\s*([^;}]+)/.exec(rule.block);
+    const realBackground = background &&
+      !/^\s*(?:none|transparent|inherit|initial|unset|revert)\s*$/.test(background[1]);
+    const realBorder = border && !/^\s*(?:none|0|inherit|initial|unset|revert)\b/.test(border[1]);
+    if (realBackground || realBorder) for (const c of classes) filledClasses.add(c);
+    const display = /(?:^|[;\s])display\s*:\s*([^;}]+)/.exec(rule.block);
+    if (display && /^\s*inline/.test(display[1])) for (const c of classes) inlineClasses.add(c);
+    if (display && /^\s*(?:block|flex|grid|table|list-item)/.test(display[1])) {
+      for (const c of classes) blockClasses.add(c);
+    }
+  }
+}
+
+/**
+ * Read an element's class list out of a raw attribute string, dropping any
+ * template interpolation so a generated `status-badge-${key}` still yields the
+ * literal half of the name.
+ *
+ * @param {string} attrs - Everything between the tag name and the closing angle.
+ * @returns {string[]} Class tokens.
+ */
+function classListOf(attrs) {
+  const m = /\bclass\s*=\s*"([^"]*)"/.exec(attrs) || /\bclass\s*=\s*'([^']*)'/.exec(attrs);
+  if (!m) return [];
+  return m[1].replace(/\$\{[^}]*\}/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Whether any of an element's class tokens is in a set, treating a token that
+ * ends in a hyphen as a PREFIX.
+ *
+ * This is what makes the gate see a capsule that is composed at runtime.
+ * `statusChipHtml` emits `class="status-badge status-badge-${key}"`, so after
+ * the interpolation is stripped the second token is the bare stem
+ * `status-badge-`. The radius lived on `.status-badge` and the fill lived on
+ * `.status-badge-running`, and a gate that compared whole tokens saw a rounded
+ * element with no fill and a filled element that never appears in the markup:
+ * two innocent halves, and the capsule they compose into invisible between
+ * them. Measured, not theorised: the first cut of this gate returned 0 on the
+ * pre-sweep tree.
+ *
+ * @param {string[]} classes - The element's class tokens.
+ * @param {Set<string>} set - A class set collected from the stylesheets.
+ * @returns {boolean} True when any token matches, exactly or by stem.
+ */
+function hasClassIn(classes, set) {
+  for (const token of classes) {
+    if (set.has(token)) return true;
+    if (token.length > 1 && token.endsWith('-')) {
+      for (const known of set) if (known.startsWith(token)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether an element is drawn as a capsule: a pill radius, a real fill, and an
+ * inline-level box.
+ *
+ * @param {string} tag - Lower-cased tag name.
+ * @param {string[]} classes - The element's class tokens.
+ * @param {string} attrs - The raw attribute string, for inline styles.
+ * @returns {boolean} True when the element is a capsule.
+ */
+function isCapsuleElement(tag, classes, attrs) {
+  const inline = /\bstyle\s*=\s*"([^"]*)"/.exec(attrs);
+  const inlineRadius = inline && /border-radius\s*:\s*([^;"]+)/.exec(inline[1]);
+  const inlineFilled = inline && /background(?:-color)?\s*:\s*(?!\s*(?:none|transparent)\s*[;"])/.test(inline[1]);
+  if (inlineRadius && isCapsuleRadius(inlineRadius[1]) && inlineFilled) return true;
+  if (!classes.length) return false;
+  if (!hasClassIn(classes, capsuleRadiusClasses)) return false;
+  if (!hasClassIn(classes, filledClasses)) return false;
+  if (hasClassIn(classes, inlineClasses)) return true;
+  if (classes.some((c) => CAPSULE_NAME.test(c))) return true;
+  return INLINE_TAGS.has(tag) && !hasClassIn(classes, blockClasses);
+}
+
+/**
+ * Whether an element is a status dot: named as one, or an empty circle.
+ *
+ * @param {string[]} classes - The element's class tokens.
+ * @param {boolean} isEmpty - Whether the element closes immediately.
+ * @returns {boolean} True when the element reads as a dot indicator.
+ */
+function isDotElement(classes, isEmpty) {
+  if (classes.some((c) => DOT_NAME.test(c))) return true;
+  return isEmpty && hasClassIn(classes, circleClasses);
+}
+
+let capsuleDots = 0;
+const capsuleDotDetail = [];
+const TAG_RE = /<(\/?)([a-zA-Z][\w-]*)\b([^>]*?)(\/?)>/g;
+for (const file of FRONTEND_SOURCES) {
+  const source = readPublic(file);
+  if (!source) continue;
+  const stack = [];
+  TAG_RE.lastIndex = 0;
+  let m;
+  while ((m = TAG_RE.exec(source)) !== null) {
+    const tag = m[2].toLowerCase();
+    if (m[1] === '/') {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].tag === tag) { stack.length = i; break; }
+      }
+      continue;
+    }
+    const attrs = m[3];
+    const classes = classListOf(attrs);
+    const selfClosing = m[4] === '/' || VOID_TAGS.has(tag);
+    const closesImmediately = /^\s*<\//.test(source.slice(m.index + m[0].length));
+    if (isDotElement(classes, selfClosing || closesImmediately)) {
+      const owner = stack.slice().reverse().find((frame) => frame.capsule);
+      if (owner) {
+        capsuleDots++;
+        if (capsuleDotDetail.length < 6) {
+          capsuleDotDetail.push(
+            file + ':' + source.slice(0, m.index).split('\n').length + ' .' +
+            classes.join('.') + ' inside .' + owner.classes.join('.')
+          );
+        }
+      }
+    }
+    if (!selfClosing) stack.push({ tag, classes, capsule: isCapsuleElement(tag, classes, attrs) });
+  }
+}
+
+countGate('G16', 'status dots enclosed by a capsule (pill radius plus a fill)', capsuleDots, {
+  direction: 'down', target: 0, phase: 'always',
+  note: capsuleDots
+    ? capsuleDotDetail.join(' | ')
+    : 'DECISIONS 13.6: status is carried by a mark OUTSIDE a capsule, never by a pill with a dot in it',
+});
+
 // ── Report ─────────────────────────────────────────────────────────────────
 
 const RED = '\x1b[31m';

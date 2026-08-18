@@ -392,7 +392,7 @@ async function main() {
     // describes, now demonstrated in the other direction.
     assert.ok(
       /terminal\.js\?v=20260814-notion-r2/.test(indexSrc) &&
-        /app\.js\?v=20260814-notion-r2/.test(indexSrc),
+        /app\.js\?v=20260818-status-marks/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
   });

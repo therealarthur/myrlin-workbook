@@ -17,9 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - CodeQL and npm audit scanning.
 - Dependabot for npm and GitHub Actions dependencies.
 
+### Fixed
+
+- **Session status is a mark and a word again, not a coloured pill.** The Status column in the sessions table, the status line in the side panel and the running counter in the header all drew a filled capsule with a small dot inside it. That shape is banned in this product, in every form, and it had survived because the rule that removed the blinking version of it only checked for movement. The capsule is gone from all three. What is left is the same coloured dot in the same place, followed by the state as a word in the same colour, sitting on the page rather than in a box. Nothing moved and no row changed height. The word is now easier to read than it was: the old ink was mixed to sit on the coloured fill behind it, so with the fill removed it would have been faint on a white page and almost colourless on a dark one, and every state's colour has been remixed against the page it is actually drawn on. Sessions that are waiting for you draw a ring instead of a filled dot, so the state is still clear without colour, on a printout, or to a colour blind reader. Four states the app can report but had never styled (waiting for input, complete, failed and stale) drew an invisible mark; they now draw a real one.
+
 ### Changed
 
 - CI now runs on current action majors, and tests against Node 20 and 22.
+- The marketing clips and stills were re-shot. Every frame in the previous set was recorded before the status fix above, so all of them showed the pill, and two ad crops had been framed to steer around it. The re-shoot also fixes what a review of the old footage found. The phone clip's terminal beat was an empty pane, so the one clip that claims the product is a complete phone client showed an empty box; it now opens a session with a live transcript and the keyboard rises over real output. Every session in every frame read as stopped; the fixture now gives the five most recent sessions a state each, and the capture opens live sessions on exactly the two it shows as running. The terminal clip used to end holding a text selection that its first frame did not have, and the board clip ended under a stack of notifications, so both flashed once per loop; both now return to the frame they started on. The lockup in the ad and social images uses the new vector mark instead of the old small drawing. The capture now refuses to record any frame containing a rounded, filled element with a dot inside it, so this class of problem cannot reach a published image again.
 
 ## [1.3.0-alpha.30] - 2026-08-18
 

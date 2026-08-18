@@ -249,12 +249,32 @@ const PROGRESS_EVERY = 30;
  * The only editorial act here is where the line breaks fall, which is a
  * typographic decision rather than a copy change; the sentences are unaltered.
  *
- * CROP is chosen against two constraints at once. It has to frame the thing
- * the headline claims, and it has to keep the application's status column out
- * of shot: those cells carry a pill with a dot indicator, which this project
- * bans outright in any frame. Ad one therefore cuts at the column boundary
- * before Status, and ad two starts below the session header strip, which
- * carries the same pattern on its provider chip.
+ * CROP has to frame the thing the headline claims. It used to have a second
+ * constraint, and that one is now gone: the Status column and the pane header
+ * both carried a pill with a dot inside it, which this project bans outright in
+ * any frame, so ad one cut at the column boundary before Status and ad two
+ * started below the header strip. The 2026-08-18 status-mark sweep removed the
+ * capsule from both (DECISIONS 13.6) and `capture.js` now refuses to record a
+ * frame containing one, so neither crop is working around anything any more.
+ *
+ * WHAT THE GEOMETRY ACTUALLY ALLOWS, since the freed constraint tempts a
+ * rewrite that cannot work. The panel is anchored at `panel.left`/`panel.top`
+ * with `object-fit: cover` from its top left, so on a 1080x1920 canvas the
+ * visible window into the panel is 1024 wide and 1220 tall, whatever the render
+ * size is. Scaling the render scales that window in source pixels but never
+ * changes its 0.839 ASPECT. A window that shows the full 900px height of a
+ * capture is therefore at most 900 * 0.839 = 755 source pixels wide, out of
+ * 1440. Ad one already sees 717 of them. Reaching the Status column, which
+ * starts around x=950, would mean sliding the window right past x=305 and
+ * losing the entire sidebar, in the ad whose headline ends "in one sidebar".
+ * So ad one's framing is not a leftover of the ban; it is the only framing that
+ * fits, and it is kept deliberately.
+ *
+ * Ad two is the one that moves. Its `y` drops from 132 to 88 so the pane header
+ * is in frame: with the provider pill's dot gone there is nothing to avoid, and
+ * a clip claiming "a terminal you can scroll back through" reads better as a
+ * terminal PANE, with its title and its Select control, than as a floating
+ * block of monospace.
  *
  * RENDER is the size the crop is upscaled to with lanczos, and the size the
  * page pins the img to, so the browser resamples nothing. It is always even on
@@ -272,8 +292,11 @@ const ADS = Object.freeze([
     source: 'feature-sidebar.webm',
     durationSeconds: 13.0,
     maxBytes: AD_BUDGET_BYTES,
-    // 838 wide stops at the boundary before the Status column. 900 is the
-    // whole height of the capture, so the Discovered section stays in frame.
+    // Unchanged, and now by choice rather than by constraint: see the geometry
+    // note above. 900 is the whole height of the capture, so the Discovered
+    // section stays in frame, and at full height the panel can show 755 source
+    // pixels of width at most. The sidebar and the session names are what the
+    // headline is about, and they are what fits.
     crop: { x: 0, y: 0, width: 838, height: 900 },
     render: { width: 1196, height: 1284 },
     panel: { left: 56, top: 700 },
@@ -307,10 +330,13 @@ const ADS = Object.freeze([
     source: 'feature-terminal.webm',
     durationSeconds: 12.0,
     maxBytes: AD_BUDGET_BYTES,
-    // y starts at 132 so the session header strip, whose provider chip carries
-    // a dot inside a pill, never enters frame. x starts past the sidebar so
-    // the shot is the terminal and nothing else.
-    crop: { x: 250, y: 132, width: 754, height: 768 },
+    // y starts at 88 rather than 132 so the pane header is the top of the shot:
+    // the provider chip it carries no longer has a dot inside it, so the reason
+    // for cutting below it is gone, and the pane's own title and Select control
+    // are what make the frame read as a terminal rather than as a block of
+    // monospace. x still starts past the sidebar, so the shot is the pane and
+    // nothing else.
+    crop: { x: 250, y: 88, width: 754, height: 768 },
     render: { width: 1218, height: 1240 },
     panel: { left: 56, top: 700 },
     eyebrow: 'Myrlin Workbook',

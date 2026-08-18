@@ -31,6 +31,15 @@ so a UI change never strands the marketing set on an old build.
   bundled and system faces; JetBrains Mono for code), rendered by the browser,
   never substituted by sharp, and each still asserts the face that resolved.
 - No status pill with a dot indicator anywhere in any frame (global UI rule).
+  Enforced rather than remembered, in two places: gate G16 fails the build if the
+  source composes one, and `capture.js` evaluates the real computed styles on
+  every settled frame and fails the take if one is on screen. The first media set
+  predates both and every frame of it carried the pill, which is why the ad crops
+  were once authored to steer around the Status column.
+- Sessions in frame carry a MIX of states, not one. `fixture.js` gives the five
+  most recently active sessions a state each (two running, one waiting for input,
+  two complete) and the capture opens live panes on exactly the two it marks
+  running, so no frame claims a session is running while its pane sits empty.
 - No em dashes or double hyphens in any on-screen copy.
 - No real project paths, session ids, account names or costs from Arthur's
   machine in any frame; the fixture is invented and stated as such in the
@@ -59,7 +68,7 @@ player script, not a real account.
 | `feature-sidebar.webp` | sidebar and discovery: provider switcher under Discovered, recents, project rows | 1440x900 | 900 px, 12 fps | 300 to 500 KB |
 | `feature-terminal.webp` | terminal: live output, wheel back through history, drag-select across the seam, copy | 1440x900 | 900 px, 12 fps | 300 to 500 KB |
 | `feature-codex.webp` | Codex parity: Codex project folders and sessions as the ChatGPT app shows them, session detail strip, edit a value | 1440x900 | 900 px, 12 fps | 300 to 500 KB |
-| `feature-phone.webp` | phone: five-tab bar, open a session, keyboard rise, long-press | 390x844, isMobile, hasTouch | 390 px wide, 12 fps | 200 to 350 KB |
+| `feature-phone.webp` | phone: five-tab bar, a session with a LIVE transcript, keyboard rise over it, long-press over a session card | 390x844, isMobile, hasTouch | 390 px wide, 12 fps | 200 to 350 KB |
 | `feature-themes.webp` | chrome light and dark, then four terminal themes | 1440x900 | 900 px, 8 fps | 500 to 600 KB |
 | `feature-board.webp` | cost panel, then the kanban board with a card drag | 1440x900 | 900 px, 12 fps | 300 to 500 KB |
 | `still-desktop-dark.png` | full app, dark chrome, terminal grid open | 1440x900 @2x | PNG 1440 wide (downscaled from 2880) | under 600 KB |

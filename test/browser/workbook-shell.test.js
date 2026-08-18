@@ -384,7 +384,7 @@ async function run() {
     // lane costs the next reader more to diagnose than the token costs to
     // track. Neither value is this phase's to choose; both simply follow
     // index.html.
-    assert.strictEqual(shell.appScript, 'app.js?v=20260814-notion-r2');
+    assert.strictEqual(shell.appScript, 'app.js?v=20260818-status-marks');
     assert.strictEqual(shell.terminalClass, 'function', 'production TerminalPane must load');
     assert.strictEqual(shell.selectInterceptor, 'function', 'Select-mode interceptor must be present');
     assert.strictEqual(shell.themeRegistry, 'object', 'canonical theme registry must load before the app');
