@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Release workflow publishes to npm with provenance on tag push and creates the GitHub Release from the changelog.
+- Release workflow publishes to npm with provenance on tag push and creates the GitHub Release from the changelog. It can also be run on demand for an existing tag, and publishes through npm Trusted Publishing when no NPM_TOKEN secret is configured.
 - CodeQL and npm audit scanning.
 - Dependabot for npm and GitHub Actions dependencies.
 

@@ -1,27 +1,56 @@
 name: Release
 
-# Publishes to npm and cuts a GitHub Release whenever a `v*` tag is pushed.
+# Publishes to npm and cuts a GitHub Release when a `v*` tag is pushed, or
+# on demand for an existing tag via workflow_dispatch.
 #
 # WHY: up to this point every release has been pushed to npm by hand from a
 # developer machine. That means no provenance attestation, no repeatable
 # publish step and no guarantee the tag actually matches the version being
 # published. This workflow makes tagging the single source of truth: push
 # `vX.Y.Z[-alpha.N|-beta.N|-rc.N]`, and it publishes exactly that version
-# with npm provenance, then builds a GitHub Release from the CHANGELOG.
+# with npm provenance, then builds a GitHub Release from the CHANGELOG. It
+# can also be re-run on demand for a tag that already exists, for example
+# to retry a publish after fixing npm trust configuration, without having
+# to delete and re-push the tag.
 #
-# SETUP REQUIRED: this workflow needs an NPM_TOKEN secret. It must be a
-# granular automation token (https://docs.npmjs.com/creating-and-viewing-access-tokens)
-# scoped to the myrlin-workbook package with publish rights, created with
-# 2FA bypass so the workflow can publish without an interactive OTP prompt.
-# Add it at: GitHub repo -> Settings -> Secrets and variables -> Actions ->
-# "New repository secret", named NPM_TOKEN.
+# SETUP: this workflow supports two ways to authenticate to npm. Configure
+# one of them; trusted publishing is preferred because it needs no
+# long-lived secret at all.
+#
+# 1. Trusted publishing (preferred, no secret required):
+#    a. On npmjs.com, open the myrlin-workbook package.
+#    b. Go to Settings > Trusted Publisher and select "GitHub Actions".
+#    c. Set Organization/user: therealarthur, Repository: myrlin-workbook,
+#       Workflow filename: release.yml, and allow the "npm publish" action.
+#    d. Leave the NPM_TOKEN secret unset (or delete it if it exists). This
+#       workflow detects that and publishes with OIDC only, no token.
+#
+# 2. Granular token (fallback):
+#    a. Create a granular automation token
+#       (https://docs.npmjs.com/creating-and-viewing-access-tokens) scoped
+#       to the myrlin-workbook package with publish rights, created with
+#       2FA bypass so the workflow can publish without an interactive OTP
+#       prompt.
+#    b. Add it at: GitHub repo -> Settings -> Secrets and variables ->
+#       Actions -> "New repository secret", named NPM_TOKEN.
+#
+# RUNNING ON DEMAND: to publish an existing tag without pushing a new one
+# (for example, retrying a publish that failed before npm trust was set
+# up), run: gh workflow run release.yml -f tag=v1.3.0-alpha.30
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing git tag to publish, e.g. v1.3.0-alpha.30'
+        required: true
+        type: string
 
-# id-token: write is required for `npm publish --provenance` (OIDC signing).
-# contents: write is required to create the GitHub Release.
+# id-token: write is required both for `npm publish --provenance` (OIDC
+# signing) and for npm trusted publishing itself. contents: write is
+# required to create the GitHub Release.
 permissions:
   id-token: write
   contents: write
@@ -29,13 +58,34 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      # Evaluated once at job level so every step (and the "which auth mode"
+      # print in the publish step) sees the same answer. A dispatch run and
+      # a tag push both read secrets.NPM_TOKEN the same way here.
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
     steps:
+      # workflow_dispatch always loads and runs this workflow FILE from the
+      # default branch, but the code actually checked out is whatever `ref`
+      # resolves to. On a manual run that is the tag input, so this step
+      # checks out the tagged commit even though that commit predates this
+      # workflow file landing on main; that is the whole point of running a
+      # current workflow against a past tag. On a tag push,
+      # github.event.inputs.tag is unset and this falls back to github.ref,
+      # which is already the pushed tag.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm CLI 11.5.1 or later. The npm version
+      # bundled with a given setup-node Node 22 image can lag behind that,
+      # so upgrade explicitly before relying on OIDC, and print the
+      # resulting version for the run log.
+      - run: npm install -g npm@latest
+      - run: npm --version
 
       - run: sudo apt-get update && sudo apt-get install -y build-essential python3
 
@@ -43,15 +93,19 @@ jobs:
 
       - run: npm test
 
-      # Fail loudly if the pushed tag does not match package.json's version.
-      # WHY: a mismatch here means the wrong code would be published under
-      # the wrong version number, silently. Better to stop the workflow with
-      # an unambiguous message than to publish something nobody asked for.
+      # Fail loudly if the effective tag does not match package.json's
+      # version. WHY: a mismatch here means the wrong code would be
+      # published under the wrong version number, silently. Better to stop
+      # the workflow with an unambiguous message than to publish something
+      # nobody asked for. The effective tag is the workflow_dispatch input
+      # when this run was triggered manually, and the pushed tag name
+      # otherwise (github.ref_name is already just the tag on a tag push,
+      # with no refs/tags/ prefix to strip).
       - name: Verify tag matches package.json version
         id: version
         run: |
           PKG_VERSION="$(node -p "require('./package.json').version")"
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          TAG_NAME="${{ github.event.inputs.tag || github.ref_name }}"
           EXPECTED_TAG="v${PKG_VERSION}"
           if [ "$TAG_NAME" != "$EXPECTED_TAG" ]; then
             echo "::error::Tag '$TAG_NAME' does not match package.json version '$PKG_VERSION' (expected tag '$EXPECTED_TAG'). Fix package.json or delete and re-push the correct tag."
@@ -79,26 +133,69 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Publishing $VERSION under npm dist-tag '$TAG'"
 
+      # No registry-url on setup-node above, on purpose: setup-node writes an
+      # .npmrc auth line unconditionally, and an unset NODE_AUTH_TOKEN there
+      # renders as a literal empty string that can shadow OIDC. Instead this
+      # step writes .npmrc itself, adding the auth token line ONLY when
+      # NPM_TOKEN is actually configured, so an OIDC-only setup never ships
+      # a stray, empty _authToken line to fight the trusted publisher flow.
       - name: Publish to npm
-        run: npm publish --provenance --access public --tag "${{ steps.dist-tag.outputs.tag }}"
+        run: |
+          echo "registry=https://registry.npmjs.org/" > .npmrc
+          if [ "$HAS_NPM_TOKEN" = "true" ]; then
+            echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+            echo "auth: token"
+          else
+            echo "auth: trusted publishing (OIDC)"
+          fi
+          npm publish --provenance --access public --tag "${{ steps.dist-tag.outputs.tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # A workflow_dispatch run on an existing tag checks out that tag's
+      # commit, which can predate this script (a dispatch republish of a
+      # release cut before this notes generator existed). Prefer the copy at
+      # the checked-out ref; if it is missing, fall back to the copy on the
+      # default branch, since the workflow file itself was already loaded
+      # from there; if that is also unavailable for any reason, fall back
+      # again to a minimal one-line note rather than failing the publish.
       - name: Build release notes
         id: notes
         run: |
-          node scripts/changelog-section.js "${{ steps.version.outputs.version }}" > release-notes.md
+          VERSION="${{ steps.version.outputs.version }}"
+          DIST_TAG="${{ steps.dist-tag.outputs.tag }}"
+          if [ -f scripts/changelog-section.js ]; then
+            node scripts/changelog-section.js "$VERSION" > release-notes.md
+          else
+            echo "::notice::scripts/changelog-section.js is not present at this ref; trying the copy on main"
+            git fetch origin main --depth=1
+            if git show origin/main:scripts/changelog-section.js > /tmp/changelog-section.js 2>/dev/null; then
+              node /tmp/changelog-section.js "$VERSION" > release-notes.md
+            else
+              echo "::notice::falling back to a one-line release note, no changelog-section.js found on this ref or on main"
+              echo "Published $VERSION to npm under the $DIST_TAG tag." > release-notes.md
+            fi
+          fi
 
+      # Idempotent on purpose: a workflow_dispatch republish of a tag whose
+      # GitHub Release already exists (for example, retrying only the npm
+      # publish after fixing trust configuration) must not fail just because
+      # the release is already there, and must never overwrite its body.
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "release already exists, leaving it as is"
+            exit 0
+          fi
           PRERELEASE_FLAG=""
           if [ "${{ steps.dist-tag.outputs.tag }}" != "latest" ]; then
             PRERELEASE_FLAG="--prerelease"
           fi
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.tag }}" \
+          gh release create "$TAG" \
+            --title "$TAG" \
             --notes-file release-notes.md \
             --generate-notes \
             $PRERELEASE_FLAG
