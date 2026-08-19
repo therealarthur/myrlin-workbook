@@ -57,6 +57,46 @@ The scenario is driven exactly as it happens to a person:
 
 Step 4 is the reported screen. `screenshots/mobile-terminal/before/1-desktop-owns.png` is it.
 
+### 1.1 One pass against the real CLI, so the fixture is not proving itself to itself
+
+The fixture gained two behaviours for this work, and a fixture that is trusted on its own word is a
+fixture that measures its author's assumptions. So `claude 2.1.235` was spawned once on a real PTY
+in a throwaway directory, at 155x40, left alone for fourteen seconds, resized to 63x39, watched for
+eight more, and ended with two interrupts. No prompt was sent and no key that could answer a dialog
+was sent; the run only read what the CLI painted.
+
+| Property | Startup at 155x40 | After the resize to 63x39 |
+|---|---|---|
+| Enters the alternate buffer (`?1049h`) | yes | already there |
+| Bracketed paste (`?2004h`) | on | already on |
+| **Focus reporting (`?1004h`)** | **on** | already on |
+| Mouse tracking (`?1000h` to `?1003h`) | on | re-asserted |
+| Absolute cursor moves | 11 | 2 |
+| Full-screen clears (`2J`) | 2 | **1** |
+| Erase-to-end-of-line | 42 | 55 |
+| **Scroll sequences and scroll regions** | **0 and 0** | **0 and 0** |
+
+Three things this settles.
+
+1. **D2 is a production defect, not a fixture artefact.** The real CLI turns DEC 1004 focus
+   reporting on. Every attached client therefore emits `\x1b[I` and `\x1b[O` on every focus change,
+   in both directions, against every real session. The measured width theft was not something the
+   fixture invented.
+2. **The alternate-buffer, absolute-addressing, never-scrolls model holds**, three years of
+   releases after TERMINAL-ARCHITECTURE.md measured it. Zero scroll sequences and zero scroll
+   regions in both phases.
+3. **The CLI repaints its whole frame when it is told the size changed**, which is the property the
+   fixture now reproduces and the property the fix depends on. A client that is never told is never
+   repainted for, which is exactly why rendering at the published geometry, rather than hoping for
+   a repaint that is not coming, is the shape of the answer.
+
+One measurement was attempted and is reported as inconclusive rather than quietly dropped: whether
+every painted row fits the width it was told about. The probe split the byte stream on absolute
+cursor moves, carriage returns and line feeds, and the longest resulting run was 954 characters at
+155 columns, which means the CLI moves between rows with sequences the split does not recognise
+(cursor up and down rather than absolute positioning, most likely). The number therefore measures
+the probe, not the CLI, and no conclusion is drawn from it.
+
 ---
 
 ## 2. The ranked defects, with the measurement that proves each
