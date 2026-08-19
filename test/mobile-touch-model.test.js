@@ -778,9 +778,15 @@ check('the width notice fires at the contract ratio and explains itself', () => 
   assert.strictEqual(CWMApp.MW_WIDTH_NOTICE_RATIO, 1.2);
   // Written across two source lines, so both halves are asserted rather than
   // the concatenation a reader sees.
-  assert.ok(/Another device is setting the width\./.test(appJs) &&
+  //
+  // The wording gained the applied column count in MOBILE-TERMINAL.md 3.4.
+  // B.9 rule 5's requirement is that the notice EXPLAINS rather than fights,
+  // and naming the width is the half of the explanation that tells a reader
+  // why their screen looks the way it does rather than only that something
+  // is wrong.
+  assert.ok(/Another device is driving this session at /.test(appJs) &&
     /Tap to take over\./.test(appJs),
-    'the notice copy is the contract\'s, verbatim');
+    'the notice copy names what is happening and offers the way out');
   assert.ok(/applied <= mine \* CWMApp\.MW_WIDTH_NOTICE_RATIO/.test(appCode));
 });
 

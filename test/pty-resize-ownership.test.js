@@ -127,6 +127,33 @@ function asControl(frame) {
 /** Shorthand for a client-to-server JSON message string. */
 function msg(obj) { return JSON.stringify(obj); }
 
+/**
+ * The raw PTY data frames a client received, with every control frame
+ * removed.
+ *
+ * MOBILE-TERMINAL.md 3.1 added a `size` control frame to the attach prelude,
+ * so a test that indexes `ws.sent` by a hand-counted position now counts the
+ * wrong thing every time the protocol gains a frame. Filtering by KIND says
+ * what these assertions actually mean: "the data this client received", not
+ * "whatever landed in slot 1".
+ *
+ * @param {object} ws - Fake WebSocket.
+ * @returns {string[]} Raw data frames in order.
+ */
+function dataFrames(ws) {
+  return ws.sent.filter((frame) => asControl(frame) === null);
+}
+
+/**
+ * The control frame types a client received, in order.
+ *
+ * @param {object} ws - Fake WebSocket.
+ * @returns {string[]} Control types in order.
+ */
+function controlTypes(ws) {
+  return ws.sent.map(asControl).filter(Boolean).map((c) => c.type);
+}
+
 console.log('\n  fix/terminal-sync resize ownership + resync tests');
 console.log('  ' + '-'.repeat(48));
 
@@ -141,15 +168,24 @@ check('Test 1: reset marker is sent before scrollback replay on attach', () => {
     const ctl = asControl(ws.sent[0]);
     assert.ok(ctl && ctl.type === 'reset', 'first frame must be the reset control message, got: ' + ws.sent[0]);
 
+    // MOBILE-TERMINAL.md 3.1: the attach prelude also carries the PTY's
+    // geometry and this client's ownership answer. Without it a client that
+    // does not own the geometry cannot know what it is, so it fits itself and
+    // re-wraps the owner's frame.
+    assert.ok(controlTypes(ws).includes('size'),
+      'attach must publish the PTY geometry, got: ' + JSON.stringify(controlTypes(ws)));
+
     // Produce output, then attach a second client while the first stays connected
     ptyHandle.emitData('hello');
-    assert.strictEqual(ws.sent[1], 'hello', 'live data must stream to the first client');
+    assert.deepStrictEqual(dataFrames(ws), ['hello'],
+      'live data must stream to the first client');
 
     const ws2 = makeFakeWs();
     mgr.attachClient(sessionId, ws2, { cols: 60, rows: 20 });
     const ctl2 = asControl(ws2.sent[0]);
     assert.ok(ctl2 && ctl2.type === 'reset', 'second client frame 0 must be reset, got: ' + ws2.sent[0]);
-    assert.strictEqual(ws2.sent[1], 'hello', 'second client frame 1 must be the scrollback replay');
+    assert.deepStrictEqual(dataFrames(ws2), ['hello'],
+      'second client must receive the scrollback replay');
     // A second client attaching alongside an existing viewer must NOT
     // reshape the PTY (only a sole attaching client may).
     assert.strictEqual(ptyHandle.calls.resize.length, 0,
@@ -185,9 +221,14 @@ check('Test 2: sole client attach applies URL dims before scrollback replay', ()
 
     mgr.attachClient(sessionId, ws3, { cols: 60, rows: 20 });
 
-    assert.deepStrictEqual(timeline, ['resize:60x20', 'ctl:reset', 'data'],
-      'expected resize, then reset, then replay; got: ' + JSON.stringify(timeline));
-    assert.strictEqual(ws3.sent[1], 'hi', 'replay content must be the full scrollback');
+    // The geometry frame lands AFTER the replay on purpose: the replay is
+    // rendered at the geometry the resize above just applied, and a client
+    // that learned the size first would have nothing to apply it to yet.
+    assert.deepStrictEqual(timeline, ['resize:60x20', 'ctl:reset', 'data', 'ctl:size'],
+      'expected resize, then reset, then replay, then the geometry frame; got: ' +
+      JSON.stringify(timeline));
+    assert.deepStrictEqual(dataFrames(ws3), ['hi'],
+      'replay content must be the full scrollback');
     const session = mgr.getSession(sessionId);
     assert.strictEqual(session.cols, 60, 'session.cols must track the applied viewport');
     assert.strictEqual(session.rows, 20, 'session.rows must track the applied viewport');
@@ -332,30 +373,37 @@ check('Test 6: owner disconnect restores the remaining client viewport', () => {
 check('Test 7: backpressured client is resynced with reset + scrollback, no duplicates', () => {
   const { mgr, ptyHandle, ws, sessionId } = attachFixture();
   try {
+    // Measured rather than hand-counted, so a protocol frame added to the
+    // attach prelude cannot silently move every index below it.
+    const prelude = ws.sent.length;
     ptyHandle.emitData('one');
-    assert.strictEqual(ws.sent[1], 'one'); // sent[0] is the attach reset marker
+    assert.strictEqual(ws.sent[prelude], 'one');
 
     // Simulate a saturated send buffer: chunks are withheld, not dropped-and-forgotten
     ws.bufferedAmount = 999999;
     ptyHandle.emitData('two');
     ptyHandle.emitData('twoB');
-    assert.strictEqual(ws.sent.length, 2, 'no frames may be sent while the buffer is saturated');
+    assert.strictEqual(ws.sent.length, prelude + 1,
+      'no frames may be sent while the buffer is saturated');
     assert.strictEqual(ws._lagged, true, 'client must be flagged as lagged');
 
     // Buffer drains: next broadcast delivers reset + FULL scrollback (which
     // already includes the current chunk), then normal streaming resumes
     ws.bufferedAmount = 0;
     ptyHandle.emitData('three');
-    assert.strictEqual(ws.sent.length, 4,
-      'resync must send exactly reset + scrollback, got: ' + JSON.stringify(ws.sent.slice(2)));
-    const ctl = asControl(ws.sent[2]);
-    assert.ok(ctl && ctl.type === 'reset', 'resync frame 0 must be reset, got: ' + ws.sent[2]);
-    assert.strictEqual(ws.sent[3], 'onetwotwoBthree',
+    assert.strictEqual(ws.sent.length, prelude + 3,
+      'resync must send exactly reset + scrollback, got: ' +
+      JSON.stringify(ws.sent.slice(prelude + 1)));
+    const ctl = asControl(ws.sent[prelude + 1]);
+    assert.ok(ctl && ctl.type === 'reset',
+      'resync frame 0 must be reset, got: ' + ws.sent[prelude + 1]);
+    assert.strictEqual(ws.sent[prelude + 2], 'onetwotwoBthree',
       'resync frame 1 must be the full scrollback including the current chunk');
     assert.strictEqual(ws._lagged, false, 'lag flag must clear after resync');
 
     ptyHandle.emitData('four');
-    assert.strictEqual(ws.sent[4], 'four', 'normal streaming must resume after resync');
+    assert.strictEqual(ws.sent[prelude + 3], 'four',
+      'normal streaming must resume after resync');
   } finally {
     mgr.killSession(sessionId);
   }

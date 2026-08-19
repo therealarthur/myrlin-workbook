@@ -270,23 +270,43 @@ land on a proportional face again.
 
 ## 4. Before and after
 
-Numbers from the same harness, same fixture, same devices.
+Numbers from the same harness, the same fixture and the same two devices. The picture is
+`screenshots/mobile-terminal/sheet.png`.
 
 | Measure | Before | After |
 |---|---|---|
-| Phone grid vs PTY, non-owner | 49x28 vs 155x40 | 155x40 vs 155x40 |
-| Frame rows intact, non-owner | 0 of 30 | 30 of 30 |
-| Fragment rows, non-owner | 20 | 0 |
-| Rows on the wrong row, non-owner | 10 | 0 |
-| Screen shared with the owner | 2.9% | 100% |
-| PTY after a phone merely opens the session | 155x40 becomes 49x28 | unchanged at 155x40 |
-| Take-over affordance visible to a non-owner | never | yes |
-| Cold attach (sidecar replay) fidelity | 2.9% | 100% |
-| Phone-owned columns at the default size | 49 | 63 |
-| Geometry divergence, reported scenario | 1665ms | see the after manifest |
+| Phone grid against the PTY, non-owner | 49x28 against 155x40 | 155x40 against 155x40 |
+| Frame rows whole on one line, non-owner | 0 of 30 | **30 of 30** |
+| Fragment rows, non-owner | 20 | **0** |
+| Rows painted where nothing addressed them | 10 | **0** |
+| Share of the owner's screen reproduced | 2.9% | **100%** |
+| Cold attach through the sidecar snapshot | 2.9%, 20 fragments | **100%, 0 fragments** |
+| PTY after a phone merely opens the session | 155x40 becomes 49x28 | **unchanged at 155x40** |
+| Take-over affordance shown to a non-owner | never, in any situation | **yes** |
+| Phone-owned columns at the default size | 49 | **63** |
+| Rendered glyph advance at that size | 7.61 CSS px | **5.86 CSS px** |
+| Geometry divergence, reported scenario | 1665ms | 846ms, all of it the phone's own attach |
+| Geometry divergence, cold attach | 1470ms | 280ms |
+| Live screen after a phone tab switch | 27 fragments | **0** |
+| Live screen after a keyboard animation | 11 fragments | **0** |
+| History surface typography | proportional UI face at 14px | terminal's own mono at 13px |
 
-The full record of both runs, including every row sample and the geometry timeline, is in
-`screenshots/mobile-terminal/<label>/manifest.json`.
+Every expectation in the harness now holds; before the fix, fourteen did not. The remaining
+divergence is a client attaching and learning the geometry, which is bounded by one round trip
+rather than by somebody eventually claiming, and nothing renders during it.
+
+The full record of both runs, including row samples, fragment samples, the font ladder and the
+geometry timeline, is in `screenshots/mobile-terminal/<label>/manifest.json`.
+
+### 4.1 One test was passing because it was asking the wrong element
+
+`test/browser/terminal-history-e2e.test.js` asserts that the history surface is "metrically
+indistinguishable from the terminal", and it read `.xterm-screen` for both halves of the
+comparison. Since that element carries the shell's inherited face rather than the terminal's, the
+check compared the layer against the shell and passed while both were wrong. It now reads
+`.xterm-rows`, which is where xterm writes its type, and additionally asserts the resolved stack is
+monospaced. This is worth recording because it is the reason D3 survived a suite that had a test
+for it.
 
 ---
 
@@ -302,6 +322,12 @@ node scripts/build-mobile-terminal-sheet.js                      # the side by s
 `--no-assert` records every expectation that did not hold and still exits 0, which is what the
 before pass needs: the point of that pass is to photograph all seven situations, not to stop at the
 first one that is broken.
+
+The pure parts of the contract also run on every `npm test`, in
+`test/mobile-terminal-geometry.test.js`: the input classifier, the `size` frame's shape, the type
+ladder arithmetic, and the source-level rules that the fit path defers to the published grid, that
+a follower reports its own viewport, that ambient claims stand down against a live owner while an
+explicit take-over never does, and that the stylesheet and the markup carry their halves.
 
 Safety, unchanged from the other harnesses in `test/browser/`: an ephemeral port and never 3456, a
 disposable sandbox that owns `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `TEMP` and every `CWM_*` path
@@ -327,3 +353,21 @@ at 3x is 1170x2532, and 2532 is over the guard, so a 3x capture could never be l
 - **No attempt to recover the rows that scrolled out of the alternate buffer.** There is nothing to
   recover: the buffer never scrolled, so no terminal-layer history exists. That is what the unified
   scrollback surface and the transcript are for, and they are unchanged here apart from D3.
+
+## 7. Two tradeoffs the orchestrator should know about
+
+**A follower pane is a viewer, not a selectable terminal.** While a pane is rendering somebody
+else's grid, xterm's own viewport is neutralised so the pane body can be the single scroller on
+both axes, and the phone's long-press selection engine stands aside so the platform's panning is
+what a finger gets. Selecting text on a followed pane therefore goes through the unified scrollback
+surface or the Copy view, which are DOM text and readable at any width, or through one tap on the
+take-over affordance, after which the pane is an ordinary terminal this device drives. This is
+MOBILE-EXPERIENCE B.9 rule 6's escape hatch used as designed. It is called out because it is a
+capability that moves rather than one that grows.
+
+**Ambient claims now stand down against a live owner on every device, not only on phones.** Two
+desktops attached to one session behave the way a phone and a desktop do: the second one follows
+and offers to take over rather than silently resizing the first. That is a behaviour change beyond
+the reported bug, and it is the right one, but it is a change. Typing, tapping the affordance, and
+the per-session "Follow this device" switch all still claim exactly as before, so no route to the
+width was removed.

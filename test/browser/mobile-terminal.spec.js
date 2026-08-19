@@ -888,7 +888,14 @@ async function measureAgainstServer(page, sessionId, frameRowCount) {
  */
 function fidelityPct(desktopRows, phoneRows) {
   if (!Array.isArray(desktopRows) || !Array.isArray(phoneRows)) return null;
-  const wanted = desktopRows.map((r) => r.trim()).filter((r) => r.length > 0);
+  // The fixture's status row carries a counter that advances every 450ms, so
+  // two clients photographed a moment apart legitimately hold different ticks
+  // there. Counting it would put a permanent ceiling under a metric whose
+  // whole job is to reach 100, so the one genuinely time-varying row is
+  // excluded. Its PRESENCE is asserted separately by `statusRowVisible`.
+  const ticking = (r) => r.indexOf('status: working, tick') !== -1;
+  const wanted = desktopRows.map((r) => r.trim())
+    .filter((r) => r.length > 0 && !ticking(r));
   if (wanted.length === 0) return null;
   const have = new Set(phoneRows.map((r) => r.trim()));
   let hits = 0;

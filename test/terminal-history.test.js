@@ -815,17 +815,37 @@ check('the affordance is the specified quiet chrome, and no spinner', () => {
 check('metrics come from the LIVE instance, never from a stylesheet', () => {
   const metrics = extractBlock(historySrc, 'TerminalHistoryLayer.prototype.applyMetrics = function applyMetrics() {');
   assert.ok(metrics.includes('term.options'), 'family, size and line height come from the terminal');
-  assert.ok(metrics.includes('.xterm-screen'), 'the resolved values are read off the live surface');
+  assert.ok(metrics.includes('.xterm-rows'),
+    'MOBILE-TERMINAL.md D3: xterm 6 injects its font rule onto .xterm-rows, so that ' +
+    'is the element the resolved face has to be read from');
+  assert.ok(metrics.includes('.xterm-screen'),
+    'the screen element stays as the fallback, so a future xterm that moves the rule ' +
+    'again degrades to the old behaviour rather than to nothing');
   assert.ok(metrics.includes('.xterm-rows > div'), 'the row height is measured, not computed, where a row exists');
   assert.ok(/padLeft/.test(metrics), 'column 1 must land on the same x coordinate');
   assert.ok(metrics.includes('surface.bg') && metrics.includes('surface.ink'),
     'the ground and the ink come from the same projection the canvas uses');
-  // The stylesheet must NOT pin typography for the document, or a webfont swap
-  // would desynchronise the layer from the terminal.
+  // The stylesheet must NOT pin the METRICS for the document, or a webfont
+  // swap would desynchronise the layer from the terminal.
+  //
+  // The FACE is a different question, and MOBILE-TERMINAL.md D3 is why the
+  // distinction now has to be drawn. A size or a line height in the sheet
+  // competes with a measured value. A font-family in the sheet competes with
+  // nothing: applyMetrics writes the resolved face as an inline style, which
+  // wins over any rule. What it buys is the failure case. When the read fails,
+  // or on the frames before it has run, the value the document falls back to
+  // is whatever the application shell inherits, and the shell's face is
+  // proportional. That is exactly what shipped, and it set the whole
+  // scrollback surface, live snapshot and transcript alike, in a UI font.
   const docRule = stylesCss.slice(stylesCss.indexOf('.terminal-history-doc {'));
   const body = docRule.slice(0, docRule.indexOf('}'));
-  assert.ok(!/font-size|line-height|font-family/.test(body),
-    'typography is derived at open time (10.3), so the sheet must not pin it');
+  assert.ok(!/font-size|line-height/.test(body),
+    'the metrics are derived at open time (10.3), so the sheet must not pin them');
+  assert.ok(/font-family:[^;]*monospace/.test(body),
+    'the sheet must carry a monospace FALLBACK, so a failed metric read can never ' +
+    'land terminal output in a proportional face');
+  assert.ok(metrics.includes('doc.style.fontFamily'),
+    'and the live value must still win over that fallback');
 });
 
 check('executed: the layer paints the SAME ground the terminal surface publishes', () => {

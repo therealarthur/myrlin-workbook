@@ -8656,6 +8656,45 @@ body.cwm-dragging .sidebar-backdrop {
   padding: var(--terminal-surface-pad-y) var(--terminal-surface-pad-x);
 }
 
+/* ─── FOLLOWER GEOMETRY (MOBILE-TERMINAL.md 3.2) ────────────────
+ *
+ * `data-mw-follow="1"` marks a pane that is rendering the geometry ANOTHER
+ * device set, because a PTY holds one grid and exactly one attached client
+ * chooses it. The pane renders that grid at full size and the body pans over
+ * it, which is the only arrangement in which an application that paints by
+ * absolute cursor addressing is reproduced rather than reflowed. Wrapping it
+ * into a narrower grid is what produced rows cut in half, tails stranded on
+ * lines of their own, and the bottom of the frame clamped onto the last line.
+ *
+ * `.xterm` takes its natural size so the scroll extent follows the grid;
+ * without this the root is the container's width and there is nothing to pan.
+ *
+ * xterm's own viewport is neutralised for the duration. Two scrollers on one
+ * axis, one of them absolutely positioned over the other, is a gesture the
+ * user cannot aim. A follower is a viewer: its scrollback is reached through
+ * the unified scrollback surface, which is DOM text and readable at any
+ * width, and one tap on the take-over affordance turns the pane back into a
+ * terminal this device drives.
+ *
+ * Applies at every width, not just phones: a desktop watching a session a
+ * phone is driving is the same case with the sizes swapped. */
+.terminal-pane[data-mw-follow="1"] .terminal-container {
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+.terminal-pane[data-mw-follow="1"] .xterm {
+  width: max-content;
+}
+.terminal-pane[data-mw-follow="1"] .xterm-viewport {
+  overflow: hidden;
+  pointer-events: none;
+}
+.terminal-pane[data-mw-follow="1"] .xterm-screen {
+  touch-action: pan-x pan-y;
+}
+
 /* THE TERMINAL SCROLLBAR. xterm owns this element, so it never received the
    7px chrome scrollbar P2.6 authored and it has been showing the browser
    default inside a designed surface. It takes the same GEOMETRY as the chrome
@@ -8720,6 +8759,14 @@ body.cwm-dragging .sidebar-backdrop {
 }
 .terminal-history-doc {
   height: 100%;
+  /* MOBILE-TERMINAL.md D3, the belt to applyMetrics' braces. The layer takes
+     its face from the live terminal at runtime, which is right: one pixel of
+     difference and the seam becomes visible. But the element is a plain div,
+     so the value it falls back to when that read fails is whatever the
+     application shell inherits, and the shell's face is proportional. A
+     monospace fallback here means the worst case is "the right shape in the
+     wrong face" rather than terminal output set in a UI font. */
+  font-family: var(--font-terminal, 'JetBrains Mono', 'Cascadia Code', Consolas, monospace);
   overflow-y: auto;
   overflow-x: hidden;
   white-space: pre-wrap;

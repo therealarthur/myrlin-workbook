@@ -395,6 +395,13 @@ class CWMApp {
    *  that survive the narrowest phone. */
   static MW_TOOLBAR_PRIORITY = [
     'enter', 'ctrlc', 'escape', 'up', 'down', 'tab', 'copy',
+    // MOBILE-TERMINAL.md 3.5. The type size sits above the second-tier keys
+    // and below the movement keys: it is the control that decides whether the
+    // output is readable at all, but it is set once and then left alone,
+    // where Enter and Ctrl+C are pressed constantly. Both rungs stay adjacent
+    // in the priority list so they never overflow apart, which would leave a
+    // toolbar offering only one direction.
+    'fontdown', 'fontup',
     'ctrld', 'select', 'copyview', 'reader',
   ];
 
@@ -2054,6 +2061,20 @@ class CWMApp {
           return;
         }
 
+        // MOBILE-TERMINAL.md 3.5: the type size, on the phone, where the
+        // decision actually matters. 13px leaves 49 columns on a 390px
+        // screen; 10px leaves 63. The pane owns the ladder, the persistence
+        // and the rule that a size change only resizes the shared PTY when
+        // this device is the one driving it, so this is a two-line handler on
+        // purpose. Not a keystroke, so it never claims the geometry.
+        if (key === 'fontdown' || key === 'fontup') {
+          if (typeof activePane.stepFontSize !== 'function') return;
+          const size = activePane.stepFontSize(key === 'fontup' ? 1 : -1);
+          this.showToast('Terminal type size ' + size + 'px', 'info');
+          this.syncPaneWidthNotice();
+          return;
+        }
+
         // Keyboard toggle - show/hide dedicated mobile input field
         // (bypasses xterm.js textarea entirely to avoid autocorrect duplication)
         if (key === 'keyboard') {
@@ -2488,7 +2509,10 @@ class CWMApp {
     // be following this device. An explicit "take over" bypasses all four,
     // because the user has just said which device they mean.
     if (!this.canClaimGeometry(tp.sessionId)) return;
-    tp.activate();
+    // MOBILE-TERMINAL.md 3.2: ambient, so it never takes the geometry off a
+    // device that is currently driving the session. It fits, it follows, and
+    // the take-over affordance offers the swap.
+    tp.activate({ ambient: true });
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -2844,6 +2868,13 @@ class CWMApp {
       enter: 'Enter', ctrlc: 'Ctrl+C', escape: 'Esc', up: 'Up', down: 'Down',
       tab: 'Tab', copy: 'Copy', ctrld: 'Ctrl+D', select: 'Select mode',
       copyview: 'Copy view', reader: 'Reader', keyboard: 'Type', upload: 'Image',
+      // MOBILE-TERMINAL.md 3.5 and MOBILE-EXPERIENCE E.2, which names the
+      // pane overflow sheet as this control's home. At 390px the strip fits
+      // five keys and the overflow, so these two live here in portrait and
+      // appear in the strip itself in landscape and on wider phones. The
+      // labels say what the control does rather than repeating the glyph on
+      // the key, because a sheet row has room for words.
+      fontdown: 'Smaller type', fontup: 'Larger type',
     };
     // Four overflowed keys ALREADY have a row further down this same sheet,
     // because A.3.3 routes their capabilities into the pane overflow's Text
@@ -4001,9 +4032,21 @@ class CWMApp {
       proposed = null;
     }
     const mine = proposed && proposed.cols ? proposed.cols : 0;
-    const applied = pane.term && pane.term.cols ? pane.term.cols : 0;
+
+    // MOBILE-TERMINAL.md D1, second-order consequence. This comparison used to
+    // read `pane.term.cols`, which on a client that always fitted itself was
+    // the SAME NUMBER as `mine` by construction, so the branch below could
+    // never be reached and this affordance had never once run. The applied
+    // width is what the SERVER holds, and the server now publishes it.
+    const remote = pane._remoteSizeFrame || null;
+    const applied = remote && remote.cols ? remote.cols
+      : (pane.term && pane.term.cols ? pane.term.cols : 0);
+    // A client that owns the geometry is not being driven by anything, whatever
+    // the numbers say: a deliberately tiny pane on the owning device is its
+    // own business.
+    const owned = remote ? remote.owned !== false : true;
     if (!mine || !applied) return false;
-    if (applied <= mine * CWMApp.MW_WIDTH_NOTICE_RATIO) {
+    if (owned || applied <= mine * CWMApp.MW_WIDTH_NOTICE_RATIO) {
       this._clearPaneWidthNotice(paneEl);
       return false;
     }
@@ -4013,9 +4056,12 @@ class CWMApp {
     notice.className = 'mw-width-notice';
     notice.dataset.mwZone = 'affordance';
     notice.setAttribute('role', 'status');
+    // Says what is happening and what to do about it, in that order, and
+    // carries the numbers so the state is explainable rather than mysterious.
+    // A quiet bar, not a status pill, and no dot indicator anywhere.
     notice.innerHTML =
-      '<span class="mw-width-notice-text">Another device is setting the width. ' +
-      'Tap to take over.</span>' +
+      '<span class="mw-width-notice-text">Another device is driving this session at ' +
+      applied + ' columns. Tap to take over.</span>' +
       '<button type="button" class="mw-width-notice-close" aria-label="Dismiss">&times;</button>';
     notice.addEventListener('click', (e) => {
       if (e.target && e.target.closest && e.target.closest('.mw-width-notice-close')) {
@@ -23209,8 +23255,13 @@ class CWMApp {
       // Focusing a pane whose owner the user deliberately pinned elsewhere
       // must not silently unpin it; the pane overflow sheet is where that
       // choice is made and unmade.
+      //
+      // MOBILE-TERMINAL.md 3.2: ambient. On a phone this path is reached by a
+      // TAB SWITCH as well as by a click, so treating it as an explicit choice
+      // meant that merely opening the Terminal tab resized the terminal on
+      // whichever device the person was actually using.
       if (typeof tp.activate === 'function' && this.followsThisDevice(tp.sessionId)) {
-        tp.activate();
+        tp.activate({ ambient: true });
       }
 
       // Acknowledge completion on focus. An unresolved needs-input signal is
@@ -26198,7 +26249,11 @@ class CWMApp {
         const restoredTp = selectedSlotOccupied
           ? this.terminalPanes[this._activeTerminalSlot]
           : this.terminalPanes.find(p => p);
-        if (restoredTp && typeof restoredTp.activate === 'function') restoredTp.activate();
+        // Ambient: restoring a tab group is the shell catching up, not the
+        // user asking for the width (MOBILE-TERMINAL.md 3.2).
+        if (restoredTp && typeof restoredTp.activate === 'function') {
+          restoredTp.activate({ ambient: true });
+        }
       });
     } else {
       // No cache, create fresh connections (first time opening this group)

@@ -117,8 +117,8 @@
     almost entirely CSS-only changes, which makes that a real defect rather
     than a theoretical one. See BUILD-CONTRACT risk R7.
   -->
-  <link rel="stylesheet" href="styles.css?v=20260818-status-marks">
-  <link rel="stylesheet" href="styles-mobile.css?v=20260814-notion-r2">
+  <link rel="stylesheet" href="styles.css?v=20260819-mobile-term">
+  <link rel="stylesheet" href="styles-mobile.css?v=20260819-mobile-term">
   <link rel="stylesheet" href="semantic-theme.css?v=20260813-notion-p5">
   <link rel="stylesheet" href="focused-shell.css?v=20260813-notion-p5">
   <script src="theme-registry.js?v=20260813-notion-p5"></script>
@@ -825,6 +825,8 @@
               <button data-key="escape">Esc</button>
               <button data-key="up">&#8593;</button>
               <button data-key="down">&#8595;</button>
+              <button class="toolbar-font" data-key="fontdown" title="Smaller terminal type" aria-label="Smaller terminal type">A&minus;</button>
+              <button class="toolbar-font" data-key="fontup" title="Larger terminal type" aria-label="Larger terminal type">A+</button>
               <button class="toolbar-upload" data-key="upload" title="Upload image">&#128247;</button>
             </div>
           </div>
@@ -880,6 +882,8 @@
               <button data-key="escape">Esc</button>
               <button data-key="up">&#8593;</button>
               <button data-key="down">&#8595;</button>
+              <button class="toolbar-font" data-key="fontdown" title="Smaller terminal type" aria-label="Smaller terminal type">A&minus;</button>
+              <button class="toolbar-font" data-key="fontup" title="Larger terminal type" aria-label="Larger terminal type">A+</button>
               <button class="toolbar-upload" data-key="upload" title="Upload image">&#128247;</button>
             </div>
           </div>
@@ -935,6 +939,8 @@
               <button data-key="escape">Esc</button>
               <button data-key="up">&#8593;</button>
               <button data-key="down">&#8595;</button>
+              <button class="toolbar-font" data-key="fontdown" title="Smaller terminal type" aria-label="Smaller terminal type">A&minus;</button>
+              <button class="toolbar-font" data-key="fontup" title="Larger terminal type" aria-label="Larger terminal type">A+</button>
               <button class="toolbar-upload" data-key="upload" title="Upload image">&#128247;</button>
             </div>
           </div>
@@ -990,6 +996,8 @@
               <button data-key="escape">Esc</button>
               <button data-key="up">&#8593;</button>
               <button data-key="down">&#8595;</button>
+              <button class="toolbar-font" data-key="fontdown" title="Smaller terminal type" aria-label="Smaller terminal type">A&minus;</button>
+              <button class="toolbar-font" data-key="fontup" title="Larger terminal type" aria-label="Larger terminal type">A+</button>
               <button class="toolbar-upload" data-key="upload" title="Upload image">&#128247;</button>
             </div>
           </div>
@@ -1045,6 +1053,8 @@
               <button data-key="escape">Esc</button>
               <button data-key="up">&#8593;</button>
               <button data-key="down">&#8595;</button>
+              <button class="toolbar-font" data-key="fontdown" title="Smaller terminal type" aria-label="Smaller terminal type">A&minus;</button>
+              <button class="toolbar-font" data-key="fontup" title="Larger terminal type" aria-label="Larger terminal type">A+</button>
               <button class="toolbar-upload" data-key="upload" title="Upload image">&#128247;</button>
             </div>
           </div>
@@ -1100,6 +1110,8 @@
               <button data-key="escape">Esc</button>
               <button data-key="up">&#8593;</button>
               <button data-key="down">&#8595;</button>
+              <button class="toolbar-font" data-key="fontdown" title="Smaller terminal type" aria-label="Smaller terminal type">A&minus;</button>
+              <button class="toolbar-font" data-key="fontup" title="Larger terminal type" aria-label="Larger terminal type">A+</button>
               <button class="toolbar-upload" data-key="upload" title="Upload image">&#128247;</button>
             </div>
           </div>
@@ -2368,7 +2380,7 @@
        rather than the head so the four head assets keep their relative order,
        which test/experience-ux-contract.test.js pins. -->
   <script src="terminal-surface.js?v=20260814-notion-r2"></script>
-  <script src="terminal.js?v=20260814-notion-r2"></script>
+  <script src="terminal.js?v=20260819-mobile-term"></script>
   <!-- Notion restyle P7: the Unified Scrollback Surface. Loaded AFTER
        terminal.js because it is optional to it: every P7 entry point in
        TerminalPane is gated on window.TerminalHistory existing, so a
@@ -2378,7 +2390,7 @@
        ETag, so a changed file is revalidated on every load anyway, and the two
        suites that pin the terminal.js query string are the 3199 lines of
        Select-mode assertions P7 must leave byte-identical. -->
-  <script src="terminal-history.js?v=20260813-notion-p7"></script>
+  <script src="terminal-history.js?v=20260819-mobile-term"></script>
   <script src="instance-colors.js?v=20260813-notion-p4r"></script>
   <!-- Issue #10 Tier 1 Phase 4: MirrorPaneView (read-only session mirror).
        MUST load before app.js so window.MirrorPaneView exists when
@@ -2390,7 +2402,7 @@
        reason terminal-surface.js is: the four head assets keep their relative
        order, which test/experience-ux-contract.test.js pins. -->
   <script src="mobile-viewport.js?v=20260813-notion-p10"></script>
-  <script src="app.js?v=20260818-status-marks"></script>
+  <script src="app.js?v=20260819-mobile-term"></script>
   <script src="schedules.js?v=20260814-notion-r2"></script>
   <script>
     if ('serviceWorker' in navigator) {

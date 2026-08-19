@@ -1006,9 +1006,22 @@
     var letterSpacing = typeof options.letterSpacing === 'number' ? options.letterSpacing : 0;
 
     var screenEl = null;
+    var rowsEl = null;
     var rowEl = null;
     try {
       screenEl = container.querySelector('.xterm-screen');
+      // MOBILE-TERMINAL.md D3. xterm 6's DOM renderer injects its font rule
+      // onto `.xterm-rows`, not onto `.xterm-screen`. Reading the resolved
+      // face off the screen element therefore returned whatever the screen
+      // INHERITED from the application shell, which is the proportional UI
+      // face at 14px, and the whole history surface rendered monospaced
+      // terminal output in a proportional font with pre-wrap: columns out of
+      // line, box drawing collapsed, every long line breaking somewhere the
+      // terminal never broke it. The rows element is where the renderer
+      // actually writes; the screen stays as the fallback so a future xterm
+      // that moves the rule again degrades to today's behaviour rather than
+      // to nothing.
+      rowsEl = container.querySelector('.xterm-rows');
       rowEl = container.querySelector('.xterm-rows > div');
     } catch (_) { /* a container without a painted terminal measures nothing */ }
 
@@ -1025,9 +1038,10 @@
 
     var resolvedFamily = fontFamily;
     var resolvedSize = fontSize + 'px';
+    var faceEl = rowsEl || screenEl;
     try {
-      if (screenEl && typeof window.getComputedStyle === 'function') {
-        var cs = window.getComputedStyle(screenEl);
+      if (faceEl && typeof window.getComputedStyle === 'function') {
+        var cs = window.getComputedStyle(faceEl);
         if (cs) {
           if (cs.fontFamily) resolvedFamily = cs.fontFamily;
           if (cs.fontSize) resolvedSize = cs.fontSize;
