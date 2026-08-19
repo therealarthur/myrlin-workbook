@@ -219,6 +219,64 @@ const ACTIVATE_CONNECT_GUARD_MS = 1500;
 const ACTIVATE_VISIBILITY_RATIO = 0.5;
 
 /* ═══════════════════════════════════════════════════════════════════
+   FOLLOWER GEOMETRY, AND THE PHONE'S TYPE SIZE
+   MOBILE-TERMINAL.md sections 2 and 3.
+
+   One PTY holds one geometry. Until the server published it, a client
+   that did not own it had no way to know it, so it fitted itself and
+   then re-wrapped a frame the application had painted for somebody
+   else's grid by ABSOLUTE cursor addressing. Measured on the reported
+   scenario: a 155x40 frame arriving at a 49x28 terminal, 0 of 30 rows
+   whole, 20 rows left as fragments, 10 rows painted onto a row the
+   application never addressed, and 2.9 percent of the owner's screen
+   reproduced.
+
+   The rule below is the whole fix in one line: a client that does not
+   own the geometry renders AT the geometry, and pans.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/**
+ * Type sizes the terminal offers, smallest first.
+ *
+ * Discrete rather than continuous because xterm re-measures its cell on every
+ * change and a slider would do that on every frame of a drag. Measured column
+ * counts in a 390px phone pane: 8px gives 79, 10px gives 63, 13px gives 49,
+ * 14px gives 45.
+ */
+const TERM_FONT_LADDER = [8, 9, 10, 11, 12, 13, 14, 16];
+
+/** The size the terminal has always used, and the desktop default. */
+const TERM_FONT_DEFAULT_PX = 13;
+
+/**
+ * Columns a phone should have if the type size can buy them.
+ *
+ * An agent CLI's own frame is built for considerably more than the 49 columns
+ * a 13px face leaves on a 390px screen. 60 is the point where the frame stops
+ * being reflowed into something unrecognisable, and it is reachable at 10px,
+ * whose measured advance is 5.86 CSS pixels: 11.7 device pixels at a scale
+ * factor of 2 and 17.6 at 3.
+ */
+const PHONE_TARGET_COLS = 60;
+
+/**
+ * Floor for the size a phone picks FOR ITSELF on first run. An explicit A-
+ * press may go lower; the automatic choice may not, because a size nobody
+ * asked for should never be one nobody can read.
+ */
+const PHONE_AUTO_MIN_FONT_PX = 9;
+
+/**
+ * Floor for the size follower mode picks to fit somebody else's grid on
+ * screen. Lower than the first-run floor on purpose: the alternative here is
+ * not a larger face, it is panning across a frame three screens wide.
+ */
+const FOLLOW_AUTO_MIN_FONT_PX = 8;
+
+/** Where the chosen type size is remembered. */
+const TERM_FONT_STORAGE_KEY = 'mw_term_font_px';
+
+/* ═══════════════════════════════════════════════════════════════════
    PASTE INPUT PREPARATION
    Notion restyle phase P5, work packages P5.1 and P5.2.
    TERMINAL-ARCHITECTURE.md defects D1 and D2, sections 9.2 to 9.4.
@@ -1446,6 +1504,26 @@ class TerminalPane {
     this._historyLayer = null;
     this._historyBufferDisposable = null;
     this._selectStripAnnounced = false;
+    // ── Published PTY geometry (MOBILE-TERMINAL.md 3.1 and 3.2) ───
+    // _remoteSizeFrame: the last `size` frame, carrying the PTY's real
+    //   geometry and whether THIS client is the one setting it. Null until a
+    //   frame arrives; a server that does not send one leaves every path
+    //   below inert and the pane behaves exactly as it did before.
+    // _sizeSeq: highest size-frame sequence seen, so an out-of-order frame
+    //   cannot move the pane backwards. Same convention as _modeSeq.
+    // _following: true while this pane renders somebody else's grid.
+    // _fontPx: the size this pane is rendering at right now, which in
+    //   follower mode may be smaller than the user's preference so that the
+    //   owner's grid fits on screen.
+    // _fontUserPx: the user's preference. Follower mode never writes it.
+    // _fontAutoResolved: whether the first-run measurement has run, so a
+    //   phone picks its own size once rather than on every fit.
+    this._remoteSizeFrame = null;
+    this._sizeSeq = 0;
+    this._following = false;
+    this._fontPx = TerminalPane.initialFontPx();
+    this._fontUserPx = TerminalPane.initialFontPx();
+    this._fontAutoResolved = TerminalPane.storedFontPx() !== null;
     // Copy-mode root cause (user report, 2026-07-25): Claude Code's interactive
     // TUI turns on terminal mouse tracking (DECSET 1000/1002/1003 + SGR 1006).
     // While that is active, xterm forwards a plain drag/wheel to the PTY instead
@@ -1662,6 +1740,126 @@ class TerminalPane {
    */
   static resolveScrollbackLines() {
     return TerminalPane.isPhoneLayout() ? PHONE_SCROLLBACK_LINES : DESKTOP_SCROLLBACK_LINES;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     THE TYPE SIZE (MOBILE-TERMINAL.md D4 and 3.5)
+     One preference, one ladder, one reader. The desktop keeps the
+     13px it has always had; a phone that has never been told
+     otherwise picks the largest size that buys it PHONE_TARGET_COLS
+     columns, which is a measurement rather than a taste.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Snap a size onto the ladder, clamped to its ends.
+   *
+   * @param {number} px - Any size.
+   * @returns {number} The nearest ladder value at or below it, or the
+   *   smallest rung when it is below the whole ladder.
+   */
+  static snapFontToLadder(px) {
+    const n = Number(px);
+    if (!Number.isFinite(n)) return TERM_FONT_DEFAULT_PX;
+    let best = TERM_FONT_LADDER[0];
+    for (const rung of TERM_FONT_LADDER) {
+      if (rung <= n) best = rung;
+    }
+    return best;
+  }
+
+  /**
+   * Step the ladder from a size.
+   *
+   * @param {number} px - Current size.
+   * @param {number} direction - -1 for smaller, +1 for larger.
+   * @returns {number} The neighbouring rung, or the same size at either end.
+   */
+  static stepFontLadder(px, direction) {
+    const current = TerminalPane.snapFontToLadder(px);
+    const at = TERM_FONT_LADDER.indexOf(current);
+    const next = at + (direction < 0 ? -1 : 1);
+    if (next < 0 || next >= TERM_FONT_LADDER.length) return current;
+    return TERM_FONT_LADDER[next];
+  }
+
+  /**
+   * The user's stored type size, or null when they have never chosen one.
+   *
+   * Null and "the default" are deliberately different answers: a phone with no
+   * stored choice is allowed to pick a size for itself, and a phone whose user
+   * pressed A+ up to 13 is not.
+   *
+   * @returns {number|null} A ladder size, or null.
+   */
+  static storedFontPx() {
+    try {
+      if (typeof localStorage === 'undefined') return null;
+      const raw = localStorage.getItem(TERM_FONT_STORAGE_KEY);
+      if (raw === null || raw === '') return null;
+      const n = parseInt(raw, 10);
+      if (!Number.isFinite(n)) return null;
+      return TerminalPane.snapFontToLadder(n);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Remember an explicit choice.
+   *
+   * @param {number} px - A ladder size.
+   * @returns {number} What was stored.
+   */
+  static storeFontPx(px) {
+    const snapped = TerminalPane.snapFontToLadder(px);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(TERM_FONT_STORAGE_KEY, String(snapped));
+      }
+    } catch (_) { /* the choice still applies to this visit */ }
+    return snapped;
+  }
+
+  /**
+   * The size a pane should mount at before anything has been measured.
+   *
+   * @returns {number} A ladder size.
+   */
+  static initialFontPx() {
+    const stored = TerminalPane.storedFontPx();
+    if (stored !== null) return stored;
+    return TERM_FONT_DEFAULT_PX;
+  }
+
+  /**
+   * The largest ladder size whose cell advance still fits `wantCols` columns
+   * into `widthPx`, given one measured (size, advance) pair.
+   *
+   * A monospace advance is linear in the type size, so one real measurement
+   * plus arithmetic beats applying every rung and re-measuring: the latter
+   * costs a full xterm re-layout per candidate, on the main thread, on a
+   * phone. The result is verified by the caller against the real proposal, so
+   * a face with non-linear hinting cannot silently produce a wrong grid.
+   *
+   * @param {number} widthPx - Available width in CSS pixels.
+   * @param {number} wantCols - Columns to fit.
+   * @param {number} measuredPx - The size the advance was measured at.
+   * @param {number} measuredAdvance - Cell advance in CSS pixels at that size.
+   * @param {number} floorPx - Never return below this.
+   * @returns {number} A ladder size.
+   */
+  static fontForColumns(widthPx, wantCols, measuredPx, measuredAdvance, floorPx) {
+    const floor = TerminalPane.snapFontToLadder(floorPx);
+    if (!(widthPx > 0) || !(wantCols > 0) || !(measuredPx > 0) || !(measuredAdvance > 0)) {
+      return TerminalPane.snapFontToLadder(measuredPx || TERM_FONT_DEFAULT_PX);
+    }
+    const advancePerPx = measuredAdvance / measuredPx;
+    let chosen = floor;
+    for (const rung of TERM_FONT_LADDER) {
+      if (rung < floor) continue;
+      if (Math.floor(widthPx / (advancePerPx * rung)) >= wantCols) chosen = rung;
+    }
+    return chosen;
   }
 
   /**
@@ -1957,14 +2155,21 @@ class TerminalPane {
       this.term = new Terminal({
         cursorBlink: true,
         cursorStyle: 'bar',
-        fontSize: 13,
         // P5.5: the face arrives through the terminalSurface projection, which
-        // reads --font-terminal. The size deliberately does NOT: 13px is the
-        // metric the PTY column count has always been computed from, and
+        // reads --font-terminal. The size deliberately does NOT: 13px was the
+        // metric the PTY column count had always been computed from, and
         // TERMINAL-ARCHITECTURE.md 10.3 rules that the terminal's own metrics
         // win inside the terminal region ("a 1.7 line height inside a terminal
         // wastes roughly 40 percent of the vertical rows, which changes the
         // PTY row count and therefore changes what the CLI renders").
+        //
+        // MOBILE-TERMINAL.md 3.5 makes the SIZE a user choice without moving
+        // it into the stylesheet: the terminal still owns its metrics, the
+        // user just gets to say which ones. 13px remains the answer on a
+        // desktop and for anyone who has never expressed a preference; a
+        // phone's first run measures a size that buys it 60 columns instead of
+        // 49, and A- and A+ pin whatever the user prefers.
+        fontSize: TerminalPane.initialFontPx(),
         fontFamily: TerminalPane.getTerminalFontFamily(),
         lineHeight: 1.2,
         // P5.3, TERMINAL-ARCHITECTURE defect D7. The client ring was 5000 lines
@@ -2736,6 +2941,26 @@ class TerminalPane {
               if (this._historyLayer) this._historyLayer.onBufferChange();
             }
             return;
+          } else if (msg.type === 'size') {
+            // MOBILE-TERMINAL.md 3.1. The geometry the PTY actually holds,
+            // plus whether this client is the one setting it.
+            //
+            // This is the frame the fragmentation fix hangs on. Without it a
+            // client can only fit itself, and a client that fits itself
+            // re-wraps a frame the application painted for the OWNER's grid
+            // by absolute cursor addressing, so every row after the first
+            // wrap lands on a row nobody aimed at.
+            //
+            // Guarded on `seq` exactly like `mode`, and tolerant of a frame
+            // without one for the same reason: acting on a stale geometry is
+            // recoverable (the next frame corrects it), refusing an
+            // unversioned signal is not.
+            if (typeof msg.seq !== 'number' || msg.seq >= this._sizeSeq) {
+              if (typeof msg.seq === 'number') this._sizeSeq = msg.seq;
+              this._remoteSizeFrame = msg;
+              this._applyRemoteGeometry('frame');
+            }
+            return;
           } else if (msg.type === 'error') {
             this._flushWriteBuffer();
             this._status('[Error: ' + msg.message + ']', 'red');
@@ -3340,6 +3565,347 @@ class TerminalPane {
     }
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     FOLLOWER GEOMETRY   (MOBILE-TERMINAL.md 2 and 3.2)
+
+     A PTY holds one grid. Exactly one attached client sets it. Every
+     other client is a FOLLOWER, and a follower's job is to reproduce
+     the owner's screen, not to reflow it.
+
+     Before this, a follower fitted itself and then received a frame
+     the application had painted for the owner's grid by ABSOLUTE
+     cursor addressing. The first row too wide to fit wrapped, which
+     consumed a row, which meant the next `CSI row;1H` landed one row
+     off, and so on down the frame: rows cut in half, their tails
+     stranded on lines of their own, the bottom of the frame clamped
+     onto the last line on top of whatever was already there. The
+     measurements are in the document; the symptom is "broken up and
+     scattered and frayed".
+
+     A follower now renders AT the published grid and pans. Nothing
+     wraps, every absolute move lands where it was aimed, and the two
+     devices are looking at one screen again.
+     ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Whether this pane should render the geometry the server published
+   * rather than its own fit.
+   *
+   * Deliberately false when no `size` frame has ever arrived: an older
+   * server, or one where the frame was lost, must leave the pane behaving
+   * exactly as it did before rather than freezing at a guess.
+   *
+   * @returns {boolean} True while following somebody else's grid.
+   */
+  _isFollowingRemoteGeometry() {
+    const frame = this._remoteSizeFrame;
+    if (!frame || frame.owned !== false) return false;
+    return Number.isFinite(frame.cols) && frame.cols > 0 &&
+      Number.isFinite(frame.rows) && frame.rows > 0;
+  }
+
+  /**
+   * Measure one real (type size, cell advance) pair from the live terminal.
+   *
+   * Read from xterm's own render service where it is available, because that
+   * is the number the renderer actually laid out with, including whatever a
+   * webfont did to the advance after mount. Falls back to a DOM measurement
+   * of a hundred characters in the terminal's own face, and then to the
+   * ratio the face has always had, so a caller never has to handle null.
+   *
+   * @returns {{fontPx: number, cellWidth: number, cellHeight: number}} Metrics.
+   */
+  _measureCellMetrics() {
+    const fontPx = (this.term && this.term.options && this.term.options.fontSize) || this._fontPx;
+    try {
+      const dims = this.term && this.term._core && this.term._core._renderService &&
+        this.term._core._renderService.dimensions;
+      if (dims && dims.css && dims.css.cell && dims.css.cell.width > 0) {
+        return { fontPx, cellWidth: dims.css.cell.width, cellHeight: dims.css.cell.height };
+      }
+    } catch (_) { /* private field moved; measure the DOM instead */ }
+    try {
+      const probe = document.createElement('span');
+      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;' +
+        'font-size:' + fontPx + 'px;font-family:' + TerminalPane.getTerminalFontFamily() + ';';
+      probe.textContent = 'M'.repeat(100);
+      document.body.appendChild(probe);
+      const width = probe.getBoundingClientRect().width / 100;
+      probe.remove();
+      if (width > 0) return { fontPx, cellWidth: width, cellHeight: fontPx * 1.2 };
+    } catch (_) { /* fall through to the ratio */ }
+    // 0.585 is the measured advance-to-size ratio of the shipped face
+    // (7.61px at 13px). Only ever reached in a stubbed environment.
+    return { fontPx, cellWidth: fontPx * 0.585, cellHeight: fontPx * 1.2 };
+  }
+
+  /**
+   * Columns and rows this pane would choose for ITSELF at a given type size.
+   *
+   * Used for two different things and correct for both: the geometry a
+   * follower reports to the server so a later handover restores this device,
+   * and the target a phone's first-run size measurement aims at.
+   *
+   * @param {number} fontPx - Type size to evaluate.
+   * @returns {{cols: number, rows: number}|null} Proposal, or null when the
+   *   pane has no measurable rect.
+   */
+  _proposeOwnGeometry(fontPx) {
+    const container = this._getOwnedContainer();
+    if (!container) return null;
+    const rect = container.getBoundingClientRect();
+    if (!(rect.width > 0) || !(rect.height > 0)) return null;
+    const metrics = this._measureCellMetrics();
+    const scale = fontPx / (metrics.fontPx || fontPx);
+    const cellW = metrics.cellWidth * scale;
+    const cellH = metrics.cellHeight * scale;
+    if (!(cellW > 0) || !(cellH > 0)) return null;
+    return {
+      cols: Math.max(2, Math.floor(rect.width / cellW)),
+      rows: Math.max(2, Math.floor(rect.height / cellH)),
+    };
+  }
+
+  /**
+   * Pick a phone's type size from a measurement, once, on first run.
+   *
+   * MOBILE-TERMINAL.md 3.5. A 13px face leaves 49 columns on a 390px screen,
+   * which is below what an agent CLI's frame is built for. The size that buys
+   * PHONE_TARGET_COLS columns is chosen instead, floored so an automatic
+   * choice can never be one nobody can read. An explicit A- or A+ press marks
+   * the preference as resolved and this never runs again.
+   *
+   * @param {number} widthPx - Measured pane width in CSS pixels.
+   * @returns {boolean} Whether a size was applied.
+   */
+  _resolveAutoFontSize(widthPx) {
+    if (this._fontAutoResolved) return false;
+    if (!TerminalPane.isPhoneLayout()) { this._fontAutoResolved = true; return false; }
+    if (!(widthPx > 0)) return false;
+    const metrics = this._measureCellMetrics();
+    let chosen = TerminalPane.fontForColumns(
+      widthPx, PHONE_TARGET_COLS, metrics.fontPx, metrics.cellWidth, PHONE_AUTO_MIN_FONT_PX);
+
+    // VERIFY, then settle. The arithmetic above works from the container's
+    // rect, and the fit addon works from the terminal's own usable box, which
+    // is narrower by the padding and whatever the engine reserves. Measured
+    // once: the estimate said 11px would buy 60 columns and the real fit gave
+    // 58. Rather than guess at the difference, ask the addon and step down
+    // until the answer is the one that was asked for. Bounded by the ladder,
+    // so this is at most a handful of iterations on a pane's first fit.
+    try {
+      if (this.fitAddon && typeof this.fitAddon.proposeDimensions === 'function') {
+        for (let guard = 0; guard < TERM_FONT_LADDER.length; guard++) {
+          this._applyFontPx(chosen);
+          const proposal = this.fitAddon.proposeDimensions();
+          if (!proposal || !(proposal.cols > 0)) break;
+          if (proposal.cols >= PHONE_TARGET_COLS) break;
+          const smaller = TerminalPane.stepFontLadder(chosen, -1);
+          if (smaller === chosen || smaller < PHONE_AUTO_MIN_FONT_PX) break;
+          chosen = smaller;
+        }
+      }
+    } catch (_) { /* the estimate stands on its own if the addon cannot help */ }
+
+    this._fontAutoResolved = true;
+    const changed = chosen !== this._fontUserPx;
+    // Assigned unconditionally, not inside the `changed` branch: the verify
+    // loop above may already have written the terminal, so comparing against
+    // `_fontPx` here would report no change and leave the preference behind
+    // the size actually in force.
+    this._fontUserPx = chosen;
+    this._applyFontPx(chosen);
+    return changed;
+  }
+
+  /**
+   * Put a type size on the terminal without touching the stored preference.
+   *
+   * @param {number} px - A ladder size.
+   * @returns {boolean} Whether the terminal changed.
+   */
+  _applyFontPx(px) {
+    const snapped = TerminalPane.snapFontToLadder(px);
+    if (!this.term || !this.term.options) { this._fontPx = snapped; return false; }
+    if (this.term.options.fontSize === snapped) { this._fontPx = snapped; return false; }
+    try { this.term.options.fontSize = snapped; } catch (_) { return false; }
+    this._fontPx = snapped;
+    if (this._historyLayer && typeof this._historyLayer.applyMetrics === 'function') {
+      // The history surface takes its metrics from the terminal, so a size
+      // change has to reach it or the seam stops being invisible.
+      try { this._historyLayer.applyMetrics(); } catch (_) { /* never fatal */ }
+    }
+    return true;
+  }
+
+  /**
+   * Step the type size and remember the choice.
+   *
+   * Public, because the phone key toolbar and the pane sheet both drive it.
+   * Recomputes the grid and resizes the PTY ONLY when this client owns the
+   * geometry: on a follower a size change decides how much of somebody else's
+   * grid fits on screen and must not reach the shared terminal.
+   *
+   * @param {number} direction - -1 for smaller, +1 for larger.
+   * @returns {number} The size in force after the call.
+   */
+  stepFontSize(direction) {
+    const next = TerminalPane.stepFontLadder(this._fontUserPx, direction);
+    this._fontUserPx = next;
+    this._fontAutoResolved = true;
+    TerminalPane.storeFontPx(next);
+    if (this._isFollowingRemoteGeometry()) {
+      this._applyRemoteGeometry('font');
+      return next;
+    }
+    this._applyFontPx(next);
+    this.safeFit();
+    return next;
+  }
+
+  /**
+   * The size this pane is rendering at right now.
+   *
+   * @returns {number} A ladder size.
+   */
+  currentFontSize() {
+    return this._fontPx;
+  }
+
+  /**
+   * Render at the geometry the server published, or return to fitting when
+   * this client owns it.
+   *
+   * The single entry point for everything the `size` frame implies, so the
+   * frame handler, the fit path and the font control cannot drift apart.
+   *
+   * @param {string} reason - Trigger label, for the log.
+   * @returns {boolean} Whether follower rendering is in force after the call.
+   */
+  _applyRemoteGeometry(reason) {
+    if (!this.term) return false;
+    const paneEl = this._getOwnedContainer()
+      ? this._getOwnedContainer().closest('.terminal-pane')
+      : null;
+
+    if (!this._isFollowingRemoteGeometry()) {
+      // This client owns the geometry, or nothing has been published. Restore
+      // the user's own type size and go back to fitting.
+      if (this._following) {
+        this._following = false;
+        if (paneEl && paneEl.dataset) delete paneEl.dataset.mwFollow;
+        this._applyFontPx(this._fontUserPx);
+        this._log('Owning PTY geometry again (' + reason + ')');
+        this.safeFit();
+      }
+      this._syncWidthNotice();
+      return false;
+    }
+
+    const frame = this._remoteSizeFrame;
+    const cols = Math.max(2, Math.round(frame.cols));
+    const rows = Math.max(2, Math.round(frame.rows));
+
+    // Shrink the type down the ladder so the owner's grid fits on screen
+    // where it can. This is a render decision for this episode only and never
+    // touches the stored preference; a grid too wide even at the floor is
+    // read by panning, which is why the pane body scrolls in follower mode.
+    const container = this._getOwnedContainer();
+    const rect = container ? container.getBoundingClientRect() : null;
+    if (rect && rect.width > 0) {
+      const metrics = this._measureCellMetrics();
+      const fitted = TerminalPane.fontForColumns(
+        rect.width, cols, metrics.fontPx, metrics.cellWidth, FOLLOW_AUTO_MIN_FONT_PX);
+      this._applyFontPx(Math.min(fitted, this._fontUserPx));
+    }
+
+    if (this.term.cols !== cols || this.term.rows !== rows) {
+      try { this.term.resize(cols, rows); } catch (_) { /* a disposed term */ }
+    }
+
+    if (!this._following) {
+      this._following = true;
+      this._log('Following PTY geometry ' + cols + 'x' + rows + ' (' + reason + ')');
+    }
+    if (paneEl && paneEl.dataset) paneEl.dataset.mwFollow = '1';
+
+    // Report OUR geometry, not the one being rendered. The server stores it
+    // against this socket and restores it on a handover, so a phone that
+    // takes the width over gets its own grid rather than the desktop's.
+    const own = this._proposeOwnGeometry(this._fontUserPx);
+    if (own) this._sendViewport(own.cols, own.rows);
+
+    // Keep the bottom of the frame in view: an agent CLI puts its status line
+    // and its input row at the bottom, and a grid taller than the pane would
+    // otherwise open scrolled to the top, showing the least useful part.
+    this._scrollFollowerToBottom();
+    this._syncWidthNotice();
+    return true;
+  }
+
+  /**
+   * Park the follower viewport at the bottom-left of the owner's grid.
+   *
+   * Left rather than right because column 1 is where a TUI's structure
+   * starts. Wrapped so a container that is not scrollable simply does
+   * nothing.
+   *
+   * @returns {void}
+   */
+  _scrollFollowerToBottom() {
+    const container = this._getOwnedContainer();
+    if (!container) return;
+    try {
+      container.scrollTop = container.scrollHeight;
+      container.scrollLeft = 0;
+    } catch (_) { /* a container that does not scroll */ }
+  }
+
+  /**
+   * Ask the app layer to re-evaluate the take-over affordance.
+   *
+   * Routed through the app rather than owned here because the notice is pane
+   * chrome and the app layer owns pane chrome, and because it has to be
+   * cleared by app-level events (a tab switch, a pane close) that this class
+   * does not see.
+   *
+   * @returns {void}
+   */
+  _syncWidthNotice() {
+    try {
+      if (typeof window !== 'undefined' && window.cwm &&
+          typeof window.cwm.syncPaneWidthNotice === 'function') {
+        window.cwm.syncPaneWidthNotice();
+      }
+    } catch (_) { /* the affordance is never load bearing */ }
+  }
+
+  /**
+   * Send one viewport report, deduplicated against the last one sent.
+   *
+   * Extracted from _sendResizeIfChanged so the follower path can report a
+   * geometry that is NOT the terminal's current grid, which is the whole
+   * point of the decoupling: the pane renders the owner's grid and reports
+   * its own.
+   *
+   * @param {number} cols - Columns to report.
+   * @param {number} rows - Rows to report.
+   * @returns {boolean} Whether a frame went out.
+   */
+  _sendViewport(cols, rows) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    if (!(cols > 0) || !(rows > 0)) return false;
+    if (cols === this._lastSentCols && rows === this._lastSentRows) return false;
+    this._lastSentCols = cols;
+    this._lastSentRows = rows;
+    try {
+      this.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    } catch (_) {
+      return false;
+    }
+    return true;
+  }
+
   /**
    * Visibility-safe fit: only calls fitAddon.fit() when the container is visible.
    * Hidden panes (display:none from tab switching) report 0×0 dimensions, which
@@ -3377,6 +3943,16 @@ class TerminalPane {
     if (!container) return;
     const rect = container.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
+    // MOBILE-TERMINAL.md 3.2. A pane that does not own the PTY's geometry
+    // must not fit itself: fitting is what produced the fragmentation, and
+    // the correct grid for this pane is the one the server published. The
+    // follower path still reports this client's OWN proposal to the server,
+    // so `ws._viewport` stays truthful and a later handover restores this
+    // device's real geometry rather than the previous owner's.
+    if (this._isFollowingRemoteGeometry()) { this._applyRemoteGeometry('fit'); return; }
+    // A phone that has never been told a type size picks one by measurement
+    // the first time it has a real rect to measure against. Runs once.
+    this._resolveAutoFontSize(rect.width);
     try { this.fitAddon.fit(); } catch (_) { return; }
     // Notify the server only when dimensions actually changed. ConPTY
     // repaints the whole viewport on every applied resize, so redundant
@@ -3394,6 +3970,18 @@ class TerminalPane {
    */
   _sendResizeIfChanged(force) {
     if (!this.term || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    // MOBILE-TERMINAL.md 3.2: a follower's terminal grid belongs to the OWNER,
+    // so reporting it would tell the server this device wants the owner's
+    // geometry and a later handover would restore the wrong size. What this
+    // device wants is its own proposal.
+    if (this._isFollowingRemoteGeometry()) {
+      const own = this._proposeOwnGeometry(this._fontUserPx);
+      if (own) {
+        if (force) { this._lastSentCols = null; this._lastSentRows = null; }
+        this._sendViewport(own.cols, own.rows);
+      }
+      return;
+    }
     const cols = this.term.cols;
     const rows = this.term.rows;
     if (!force && cols === this._lastSentCols && rows === this._lastSentRows) return;
@@ -3411,13 +3999,36 @@ class TerminalPane {
    * and ignores it, so this degrades gracefully across a mixed-version
    * deploy window.
    */
-  activate() {
+  activate(options) {
     // Select mode v2 guard: never claim geometry while output is frozen. The
     // claim makes the CLI repaint its whole frame, which would pour straight
     // into the hold queue, and the safeFit below could change the row count
     // and clear the selection outright. The intent is remembered and replayed
     // when the freeze lifts.
     if (this._isWriteFrozen()) { this._activatePending = true; return; }
+    // MOBILE-TERMINAL.md 3.2, the AMBIENT half. Some callers mean "the user
+    // just chose this device" (a tap on the take-over affordance) and some
+    // mean "this pane became the visible one" (a tab switch, a group
+    // restore, the browser regaining focus). The second kind must not take
+    // the geometry off a device somebody is working on: measured, opening a
+    // session on a phone moved a live desktop from 155 columns to 63 with no
+    // key pressed. An ambient caller therefore fits and follows, and the
+    // take-over affordance is what turns looking into driving.
+    //
+    // Scoped to the PHONE layout, and that asymmetry is the point. The
+    // take-over affordance is phone chrome, so a desktop left following would
+    // have no explanation on screen and no obvious way out; and "the big
+    // screen drives, the small screen watches until it says otherwise" is the
+    // behaviour a person expects from two devices on one session. A desktop
+    // therefore reclaims on focus exactly as it always did.
+    const ambient = !!(options && options.ambient) && TerminalPane.isPhoneLayout();
+    const remote = this._remoteSizeFrame;
+    const drivenElsewhere = !!(remote && remote.owned === false && remote.ownerAssigned === true);
+    if (ambient && drivenElsewhere) {
+      this.safeFit();
+      this._syncWidthNotice();
+      return;
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try { this.ws.send(JSON.stringify({ type: 'activate' })); } catch (_) {}
     }
@@ -3497,6 +4108,27 @@ class TerminalPane {
     } catch (_) {
       // A broken gate must not disable the width claim. Failing open is the
       // pre-P11b behaviour, which is the conservative direction here.
+    }
+    // MOBILE-TERMINAL.md 3.2. This is the AUTOMATIC path: an
+    // IntersectionObserver crossing 50 percent, or focus reaching xterm's
+    // hidden textarea. Neither is a person asking for the width. Measured:
+    // opening a session on a phone took a live desktop's terminal from 155
+    // columns to 58 without a key being pressed, and the person at the
+    // desktop watched their frame collapse.
+    //
+    // So an automatic claim is allowed only when NOBODY is driving. When
+    // another client is, the pane follows the published geometry and shows
+    // the take-over affordance instead, and `activate()` (a tap, a typed key,
+    // a toolbar key) still claims immediately and unconditionally.
+    //
+    // Phone layout only, for the reason given on `activate`: the take-over
+    // affordance is phone chrome, and a desktop left following would have no
+    // explanation on screen. A desktop reclaims on focus exactly as before.
+    const remote = this._remoteSizeFrame;
+    if (TerminalPane.isPhoneLayout() && remote &&
+        remote.owned === false && remote.ownerAssigned === true) {
+      this._syncWidthNotice();
+      return false;
     }
     if (this._isWriteFrozen()) { this._activatePending = true; return false; }
     const now = Date.now();
@@ -3932,6 +4564,12 @@ class TerminalPane {
       // browser's own, so the engine must not convert a touch inside it into
       // term.scrollLines().
       if (this._isInsideHistoryLayer(e.target)) return;
+      // MOBILE-TERMINAL.md 3.2: a follower pane renders the OWNER's grid
+      // inside a pannable body, and panning is the platform's job. Converting
+      // the gesture into term.scrollLines() here would scroll the buffer
+      // vertically and refuse to move horizontally at all, which is the one
+      // thing a grid wider than the screen has to do.
+      if (this._isFollowingRemoteGeometry()) return;
       // In type mode, let xterm.js handle everything
       if (this._mobileTypeMode) return;
       // If currently selecting, let xterm handle
@@ -3971,6 +4609,12 @@ class TerminalPane {
       if (this._isInsideCopyView(e.target)) return;
       // P7: the history surface scrolls natively for the same reason.
       if (this._isInsideHistoryLayer(e.target)) return;
+      // MOBILE-TERMINAL.md 3.2: a follower pane renders the OWNER's grid
+      // inside a pannable body, and panning is the platform's job. Converting
+      // the gesture into term.scrollLines() here would scroll the buffer
+      // vertically and refuse to move horizontally at all, which is the one
+      // thing a grid wider than the screen has to do.
+      if (this._isFollowingRemoteGeometry()) return;
       if (this._mobileTypeMode) return;
       // If selecting, let xterm.js handle the selection drag
       if (this._mobileSelecting) return;
@@ -4021,6 +4665,12 @@ class TerminalPane {
       if (this._isInsideCopyView(e.target)) return;
       // P7: and the history surface, whose selection handles are the platform's.
       if (this._isInsideHistoryLayer(e.target)) return;
+      // MOBILE-TERMINAL.md 3.2: a follower pane renders the OWNER's grid
+      // inside a pannable body, and panning is the platform's job. Converting
+      // the gesture into term.scrollLines() here would scroll the buffer
+      // vertically and refuse to move horizontally at all, which is the one
+      // thing a grid wider than the screen has to do.
+      if (this._isFollowingRemoteGeometry()) return;
       if (!this._mobileTypeMode && !this._mobileSelecting) e.stopPropagation();
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 

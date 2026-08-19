@@ -486,12 +486,20 @@ async function run() {
     await check('the surface is metrically indistinguishable from the terminal', async () => {
       const metrics = await page.evaluate(() => {
         const doc = document.querySelector('#term-pane-0 .terminal-history-doc');
+        // MOBILE-TERMINAL.md D3. This used to read `.xterm-screen`, which is
+        // NOT where xterm 6 puts its type: the DOM renderer injects its font
+        // rule onto `.xterm-rows`. The screen element reports whatever it
+        // inherits from the application shell, which is the proportional UI
+        // face at 14px, so this check compared the layer against the SHELL
+        // and passed precisely while the whole surface rendered terminal
+        // output in a UI font. The rows element is the terminal's own type.
+        const rows = document.querySelector('#term-pane-0 .xterm-rows');
         const screen = document.querySelector('#term-pane-0 .xterm-screen');
         const row = document.querySelector('#term-pane-0 .xterm-rows > div');
         const layer = document.querySelector('#term-pane-0 .terminal-history');
         const container = document.querySelector('#term-pane-0 .terminal-container');
         const ds = getComputedStyle(doc);
-        const ss = getComputedStyle(screen);
+        const ss = getComputedStyle(rows || screen);
         const rowHeight = row ? row.getBoundingClientRect().height : null;
         // The effective ground: xterm paints its rows over the container, which
         // is the element carrying --term-bg, so that is what "the terminal's
@@ -513,6 +521,9 @@ async function run() {
         'font size: ' + metrics.docFontSize + ' vs ' + metrics.screenFontSize);
       assert.strictEqual(metrics.docFontFamily, metrics.screenFontFamily,
         'font family must be the terminal\'s resolved stack');
+      assert.ok(/mono|JetBrains|Cascadia|Consolas/i.test(metrics.docFontFamily),
+        'and that stack has to be monospaced, or the columns do not line up: ' +
+        metrics.docFontFamily);
       assert.strictEqual(metrics.layerBg, metrics.containerBg,
         'ground: ' + metrics.layerBg + ' vs ' + metrics.containerBg);
       const docLine = parseFloat(metrics.docLineHeight);
