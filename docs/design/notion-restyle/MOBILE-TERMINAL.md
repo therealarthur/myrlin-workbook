@@ -405,9 +405,12 @@ take-over affordance, after which the pane is an ordinary terminal this device d
 MOBILE-EXPERIENCE B.9 rule 6's escape hatch used as designed. It is called out because it is a
 capability that moves rather than one that grows.
 
-**Ambient claims now stand down against a live owner on every device, not only on phones.** Two
-desktops attached to one session behave the way a phone and a desktop do: the second one follows
-and offers to take over rather than silently resizing the first. That is a behaviour change beyond
-the reported bug, and it is the right one, but it is a change. Typing, tapping the affordance, and
-the per-session "Follow this device" switch all still claim exactly as before, so no route to the
-width was removed.
+**Ambient claims stand down only at phone layout, and that asymmetry is deliberate.** A phone whose
+pane merely becomes visible follows the published geometry and offers to take over; a desktop
+reclaims on focus exactly as it always did. The reason is not squeamishness about changing desktop
+behaviour: the take-over affordance is phone chrome, so a desktop left following would have the
+right pixels and no explanation on screen and no obvious way out. "The big screen drives, the small
+screen watches until it says otherwise" is also what a person expects from two devices on one
+session. Typing, a tap into the pane, the on-screen keys, the affordance and the per-session
+"Follow this device" switch all still claim from either device, so no route to the width was
+removed.

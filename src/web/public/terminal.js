@@ -4014,7 +4014,14 @@ class TerminalPane {
     // session on a phone moved a live desktop from 155 columns to 63 with no
     // key pressed. An ambient caller therefore fits and follows, and the
     // take-over affordance is what turns looking into driving.
-    const ambient = !!(options && options.ambient);
+    //
+    // Scoped to the PHONE layout, and that asymmetry is the point. The
+    // take-over affordance is phone chrome, so a desktop left following would
+    // have no explanation on screen and no obvious way out; and "the big
+    // screen drives, the small screen watches until it says otherwise" is the
+    // behaviour a person expects from two devices on one session. A desktop
+    // therefore reclaims on focus exactly as it always did.
+    const ambient = !!(options && options.ambient) && TerminalPane.isPhoneLayout();
     const remote = this._remoteSizeFrame;
     const drivenElsewhere = !!(remote && remote.owned === false && remote.ownerAssigned === true);
     if (ambient && drivenElsewhere) {
@@ -4113,8 +4120,13 @@ class TerminalPane {
     // another client is, the pane follows the published geometry and shows
     // the take-over affordance instead, and `activate()` (a tap, a typed key,
     // a toolbar key) still claims immediately and unconditionally.
+    //
+    // Phone layout only, for the reason given on `activate`: the take-over
+    // affordance is phone chrome, and a desktop left following would have no
+    // explanation on screen. A desktop reclaims on focus exactly as before.
     const remote = this._remoteSizeFrame;
-    if (remote && remote.owned === false && remote.ownerAssigned === true) {
+    if (TerminalPane.isPhoneLayout() && remote &&
+        remote.owned === false && remote.ownerAssigned === true) {
       this._syncWidthNotice();
       return false;
     }
