@@ -1775,7 +1775,18 @@ class PtySessionManager {
 
   /**
    * List all PTY sessions with summary info.
-   * @returns {Array<{sessionId, pid, alive, clientCount, createdAt}>}
+   *
+   * The geometry block (cols, rows, ownership and the resize counters) is
+   * reported here because the shared-PTY width contract is otherwise
+   * unobservable from outside this process. MOBILE-TERMINAL.md's harness
+   * needs the server's authoritative column count to prove that a phone
+   * renders at the width the PTY actually holds rather than at its own fit,
+   * and "each applied resize is counted and asserted" (the width-thrash gate)
+   * has no reader without it. Purely additive: existing fields are unchanged
+   * and every consumer that ignores the new ones keeps working.
+   *
+   * @returns {Array<{sessionId, pid, alive, clientCount, createdAt, cols,
+   *   rows, ownerAssigned, resizeStats}>} One entry per live session.
    */
   listSessions() {
     const result = [];
@@ -1786,6 +1797,13 @@ class PtySessionManager {
         alive: session.alive,
         clientCount: session.clients.size,
         createdAt: session.createdAt || null,
+        cols: session.cols,
+        rows: session.rows,
+        // Booleans rather than a socket identity: a WebSocket has no stable
+        // id that is safe to publish, and every question this answers is
+        // "does somebody hold the width right now".
+        ownerAssigned: !!(session.sizeOwner && session.clients.has(session.sizeOwner)),
+        resizeStats: Object.assign({}, session.resizeStats),
       });
     }
     return result;

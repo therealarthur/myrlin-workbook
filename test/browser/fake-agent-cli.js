@@ -56,7 +56,29 @@ function out(s) {
 }
 
 /**
- * Move the cursor to an absolute cell, 1-based, and write text there.
+ * The terminal's current width, defaulting to the classic 80 when the PTY
+ * does not report one.
+ *
+ * WHY THIS FIXTURE IS WIDTH AWARE. TERMINAL-ARCHITECTURE section 2 measured
+ * the real CLI doing a full width-locked repaint on resize: it clears and
+ * repaints every row by absolute addressing, and every row it paints fits the
+ * width it was told about. A fixture that painted a fixed 57-character row
+ * into a 49-column terminal would manufacture wrapping the real application
+ * never produces, and a harness measuring wrapping would then be measuring
+ * its own fixture. Added 2026-08-19 for the mobile terminal work; at any
+ * width of 57 columns or more the emitted bytes are byte for byte what they
+ * were before, which is every existing caller.
+ *
+ * @returns {number} Column count.
+ */
+function columns() {
+  const c = process.stdout && process.stdout.columns;
+  return Number.isFinite(c) && c > 0 ? c : 80;
+}
+
+/**
+ * Move the cursor to an absolute cell, 1-based, and write text there,
+ * clipped to the terminal's current width so the row can never wrap.
  *
  * @param {number} row - 1-based row.
  * @param {number} col - 1-based column.
@@ -64,7 +86,8 @@ function out(s) {
  * @returns {void}
  */
 function at(row, col, text) {
-  out(CSI + row + ';' + col + 'H' + CSI + 'K' + text);
+  const room = Math.max(0, columns() - (col - 1));
+  out(CSI + row + ';' + col + 'H' + CSI + 'K' + text.slice(0, room));
 }
 
 // ── Startup, in the measured order (section 2.4) ───────────────────────────
@@ -99,7 +122,7 @@ out(ESC + ']0;fake-agent\x07'); // window title
 function paint(tick) {
   out(CSI + '?25l');            // hide the cursor during the patch
   at(1, 1, 'FAKE AGENT CLI  (alternate buffer, mouse tracking on)');
-  at(2, 1, '-'.repeat(58));
+  at(2, 1, '-'.repeat(Math.min(58, columns())));
   for (let i = 0; i < VISIBLE_TURNS; i++) {
     // LIVE-SCREEN-ROW is the marker the browser proof looks for on the live
     // side of the seam. It appears ONLY here, never in the transcript fixture,
@@ -114,6 +137,23 @@ function paint(tick) {
 
 let tick = 0;
 paint(tick);
+
+// ── The resize repaint, exactly as measured on the real CLI ───────────────
+//
+// Section 2 of TERMINAL-ARCHITECTURE records a full 2J plus a width-locked
+// repaint by absolute addressing on every SIGWINCH. That is the behaviour the
+// mobile work has to be tested against: a client whose grid does not match
+// the PTY receives a frame built for a width it does not have, and no repaint
+// ever arrives to correct it, because the application was never told anything
+// changed. Reproducing the repaint is what makes the difference between the
+// two cases observable.
+try {
+  process.stdout.on('resize', () => {
+    out(CSI + '2J');
+    paint(tick);
+  });
+} catch (_) { /* a PTY that reports no size simply never repaints */ }
+
 const timer = setInterval(() => {
   tick++;
   // Only the status row is repainted, in place, which is precisely the pattern

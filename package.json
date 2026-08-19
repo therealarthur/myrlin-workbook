@@ -31,6 +31,7 @@
     "test:workbook-shell": "node test/browser/workbook-shell.test.js",
     "test:notion-shell": "node test/browser/notion-shell.spec.js",
     "test:history-e2e": "node test/browser/terminal-history-e2e.test.js",
+    "test:mobile-terminal": "node test/browser/mobile-terminal.spec.js",
     "gates": "node scripts/do-not-break-gates.js",
     "mcp:visual-qa": "node src/mcp/visual-qa.js",
     "gui:cdp": "node src/supervisor.js --cdp",
