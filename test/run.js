@@ -877,6 +877,7 @@ const standaloneTests = [
   'providers-registry.test.js', // Plan 14-01: Provider registry contract (ABST-01/02/05/06/07, COST-01)
   'migration.test.js', // Plan 14-02: State schema v1 -> v2 migration (MIG-01..MIG-06)
   'pty-passthrough.test.js', // Plan 14-04: PTY pass-through descriptor flow (PTY-01, PTY-03)
+  'claude-session-identity.test.js', // 2026-09-22: --session-id minting, expired-resume fresh start, project-dir encoder, cwd-guess backfill off
   'cost-worker-via-claude.test.js', // Plan 14-04: claudeProvider.costAdapter wiring (COST-04)
   'grep-gate.test.js', // Plan 14-05: Forbidden provider-name literals outside src/providers/ (ABST-04)
   'find-jsonl-refactor.test.js', // Plan 15-01: getProviderForSession + claudeProvider.findArtifactPath (DISC-03)

@@ -44,6 +44,10 @@
  * @param {Object} init
  * @param {string} init.sessionId             - Myrlin internal session id (currently unused, reserved for future flagging).
  * @param {string|null} [init.providerSessionId]  - Claude transcript UUID for `--resume`. Validated against /^[a-zA-Z0-9_-]+$/.
+ * @param {string|null} [init.newSessionId]   - UUID to assign to a FRESH conversation via `--session-id`. Ignored when
+ *                                              providerSessionId is set (a resume already has an id). Same validation.
+ *                                              Minted by pty-manager (2026-09-22) so the transcript id is known before
+ *                                              the CLI starts, instead of being watched for or guessed afterwards.
  * @param {string|null} [init.cwd]            - Working directory (passes through; pty-manager validates and falls back).
  * @param {boolean} [init.bypassPermissions]  - Adds `--dangerously-skip-permissions`.
  * @param {string[]} [init.flags]             - Extra `--<flag>` tokens. Each must match /^[a-zA-Z0-9-]+$/ or it is silently dropped.
@@ -57,6 +61,7 @@
 function spawnCommand({
   sessionId,
   providerSessionId = null,
+  newSessionId = null,
   cwd = null,
   bypassPermissions = false,
   flags = [],
@@ -80,11 +85,20 @@ function spawnCommand({
   if (providerSessionId && !/^[a-zA-Z0-9_-]+$/.test(providerSessionId)) {
     throw new Error('unsafe providerSessionId: ' + providerSessionId);
   }
+  if (newSessionId && !/^[a-zA-Z0-9_-]+$/.test(newSessionId)) {
+    throw new Error('unsafe newSessionId: ' + newSessionId);
+  }
 
   const args = [];
   if (providerSessionId) {
     args.push('--resume');
     args.push(providerSessionId);
+  } else if (newSessionId) {
+    // Fresh conversation with a caller-chosen id. `claude --session-id <uuid>`
+    // makes the CLI write its transcript as <uuid>.jsonl, so the Workbook
+    // knows the resume id at spawn time. Never combined with --resume.
+    args.push('--session-id');
+    args.push(newSessionId);
   }
   if (bypassPermissions) {
     args.push('--dangerously-skip-permissions');

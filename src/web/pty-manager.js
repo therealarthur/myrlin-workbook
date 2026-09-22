@@ -14,6 +14,10 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
+// Forward encoder for Claude's ~/.claude/projects/<dir> naming. Used by the
+// post-spawn JSONL watcher's candidate-dir matcher (see findCandidateDirs).
+const { encodeClaudeProjectDir } = require('../providers/claude/path-decode');
 
 // Ensure node-pty's prebuilt spawn-helper is executable BEFORE requiring node-pty.
 // node-pty's prebuild ships with mode 644 instead of 755, causing posix_spawnp
@@ -1006,7 +1010,42 @@ class PtySessionManager {
 
     // ── Block B (Plan 14-04): Build descriptor (provider OR inline) ──
     let descriptor;
+    // Session identity outcome of the pre-flight inside the provider branch
+    // below. Read again after the PTY exists (store backfill, pane notice).
+    let mintedSessionId = null;   // UUID handed to the CLI as --session-id
+    let expiredResumeId = null;   // resume id we were asked for but whose transcript is gone
     if (useProvider) {
+      // ── Session identity pre-flight (2026-09-22) ──
+      // Two failure modes produced "No conversation found with session ID"
+      // inside panes: (1) a stored resumeSessionId whose transcript has since
+      // been removed (Claude Code's cleanupPeriodDays retention, default 30
+      // days), and (2) fresh sessions whose real transcript UUID was never
+      // learned, because the post-spawn JSONL watcher further down could not
+      // match a project directory, so a later "newest transcript in cwd"
+      // guess was stored instead. Both are settled here, before the
+      // descriptor is built, for the Claude provider only:
+      //   - A resume id with no transcript on disk is dropped and remembered
+      //     as expiredResumeId. The session starts fresh in the same cwd and
+      //     the pane is told why (scrollback notice + store audit fields).
+      //   - A fresh session gets its UUID minted HERE and passed to the CLI
+      //     as --session-id, so the id is known before the process starts
+      //     and no filesystem watching or guessing is needed afterwards.
+      // CWM_CLAUDE_MINT_SESSION_ID=0 disables minting (the watcher below then
+      // runs as before) in case a CLI version rejects the flag.
+      if (providerId === 'claude') { // gsd:provider-literal-allowed (Claude-specific identity handling)
+        if (resumeSessionId && typeof provider.findArtifactPath === 'function') {
+          let artifact = null;
+          try { artifact = provider.findArtifactPath(resumeSessionId); } catch (_) { artifact = null; }
+          if (!artifact) {
+            expiredResumeId = resumeSessionId;
+            resumeSessionId = null;
+            console.warn(`[PTY] Transcript for resumeSessionId=${expiredResumeId} is not on disk; session ${sessionId} will start fresh`);
+          }
+        }
+        if (!resumeSessionId && process.env.CWM_CLAUDE_MINT_SESSION_ID !== '0') {
+          mintedSessionId = crypto.randomUUID();
+        }
+      }
       // Phase 21 Plan 21-01: per-session providerSettings drives provider CLI flags.
       // Two lookup paths:
       //   1. Store-managed: storeSession.providerSettings[providerId]
@@ -1034,12 +1073,15 @@ class PtySessionManager {
         console.log('[PTY] spawn provider=' + providerId
           + ' sessionId=' + sessionId
           + ' resumeSessionId=' + (resumeSessionId || '<fresh>')
+          + (mintedSessionId ? ' mintedSessionId=' + mintedSessionId : '')
+          + (expiredResumeId ? ' expiredResumeId=' + expiredResumeId : '')
           + ' providerSettings=' + (providerSettingsBundle ? JSON.stringify(providerSettingsBundle) : '<none>'));
       } catch (_) { /* console.log can EPIPE; never fatal */ }
       try {
         descriptor = provider.spawnCommand({
           sessionId,
           providerSessionId: resumeSessionId,
+          newSessionId: mintedSessionId,
           cwd,
           bypassPermissions,
           flags,
@@ -1232,6 +1274,47 @@ class PtySessionManager {
     const session = new PtySession(sessionId, ptyProcess, { cols, rows });
     this.sessions.set(sessionId, session);
 
+    // ── Session identity: apply the pre-flight outcome (2026-09-22) ──
+    // The pane learns its id and its history the moment the process exists,
+    // not seconds later from a filesystem watcher. attachClient re-sends both
+    // to every client that connects afterwards.
+    if (expiredResumeId) {
+      // Worded for both cases the check cannot tell apart: a conversation
+      // that Claude Code's retention removed, and a session id that was
+      // minted but never used (the CLI writes no transcript until the first
+      // prompt), so a pane that was opened and closed untouched also lands here.
+      const message = 'No transcript found for the previous session (' + expiredResumeId + '): '
+        + 'it was never used, or Claude Code removed it after its retention period '
+        + '(cleanupPeriodDays, default 30 days). Started a fresh session in ' + resolvedCwd + '.';
+      session.identityNotice = { code: 'RESUME_EXPIRED', message };
+      // Yellow line at the top of the scrollback so it is part of the replay
+      // a client receives on attach, even before the CLI has drawn anything.
+      session.appendScrollback('\x1b[1;33m[Myrlin] ' + message + '\x1b[0m\r\n');
+    }
+    if (mintedSessionId) {
+      session.detectedResumeId = mintedSessionId;
+      try {
+        const store = getStore();
+        if (store.getSession(sessionId)) {
+          const conflict = store.getAllSessionsList().find(s =>
+            s.id !== sessionId && s.resumeSessionId === mintedSessionId
+          );
+          if (conflict) {
+            console.warn(`[PTY] Minted id ${mintedSessionId} already owned by session ${conflict.id}; not stored`);
+          } else {
+            const updates = { resumeSessionId: mintedSessionId };
+            if (expiredResumeId) {
+              updates.previousResumeSessionId = expiredResumeId;
+              updates.resumeExpiredAt = new Date().toISOString();
+            }
+            store.updateSession(sessionId, updates);
+            console.log(`[PTY] Minted Claude session id ${mintedSessionId} for session ${sessionId}`
+              + (expiredResumeId ? ` (replaces expired ${expiredResumeId})` : ''));
+          }
+        }
+      } catch (_) { /* store may not have this session (ad-hoc pane) */ }
+    }
+
     // VT sidecar lifecycle, half one: create on spawn, sized to the PTY.
     // Half two (dispose) is in the onExit handler and in killSession, so a
     // sidecar can outlive neither its PTY nor its session record.
@@ -1372,16 +1455,27 @@ class PtySessionManager {
     // session is using the Claude provider via the default command. Future
     // providers (Codex etc.) and arbitrary-command spawns (scheduler, td,
     // templates) skip it entirely.
-    if (useProvider && providerId === 'claude' /* gsd:provider-literal-allowed (Claude-specific JSONL watcher) */ && resolvedCwd && !resumeSessionId) {
+    // 2026-09-22: skipped when the id was minted above (--session-id); the
+    // watcher is now only the fallback for CWM_CLAUDE_MINT_SESSION_ID=0.
+    if (useProvider && providerId === 'claude' /* gsd:provider-literal-allowed (Claude-specific JSONL watcher) */ && resolvedCwd && !resumeSessionId && !mintedSessionId) {
       const claudeDir = path.join(os.homedir(), '.claude', 'projects');
       const findCandidateDirs = () => {
         try {
           if (!fs.existsSync(claudeDir)) return [];
+          // Claude Code names a project directory by replacing every character
+          // outside [A-Za-z0-9] in the cwd with '-' (C:\Users\Arthur becomes
+          // C--Users-Arthur). The decodeURIComponent comparison below was the
+          // original matcher and never matched a real directory (verified
+          // 2026-09-22 against every cwd on the author's machine), which is
+          // why this watcher silently never backfilled. The encoded-name
+          // comparison is the one that works; the original arm is kept.
+          const encodedCwd = encodeClaudeProjectDir(resolvedCwd).toLowerCase();
+          const normalizedCwd = resolvedCwd.replace(/[/\\]/g, path.sep);
           return fs.readdirSync(claudeDir).filter(d => {
+            if (encodedCwd && d.toLowerCase() === encodedCwd) return true;
             try {
               const decoded = decodeURIComponent(d);
               const normalizedDecoded = decoded.replace(/[/\\]/g, path.sep);
-              const normalizedCwd = resolvedCwd.replace(/[/\\]/g, path.sep);
               return normalizedDecoded === normalizedCwd;
             } catch (_) {
               return false;
@@ -1642,6 +1736,23 @@ class PtySessionManager {
 
     // NOW add client to the broadcast set for live PTY data
     session.clients.add(ws);
+
+    // Session identity (2026-09-22): a client attaching to a session whose
+    // Claude UUID was minted at spawn (or detected by the watcher before this
+    // client arrived) gets the id right away, so its spawnOpts and the saved
+    // layout carry the correct resume id even though it missed the broadcast.
+    // The expired-resume notice travels the same way so the pane can show it
+    // as a status line, independent of what the CLI has since drawn.
+    if (session.detectedResumeId) {
+      sendControlFrame(ws, JSON.stringify({ type: 'resumeId', resumeSessionId: session.detectedResumeId }));
+    }
+    if (session.identityNotice) {
+      sendControlFrame(ws, JSON.stringify({
+        type: 'notice',
+        code: session.identityNotice.code,
+        message: session.identityNotice.message,
+      }));
+    }
 
     // If session already exited, notify this client
     if (!session.alive) {

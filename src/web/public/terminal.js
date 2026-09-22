@@ -2965,6 +2965,18 @@ class TerminalPane {
             this._flushWriteBuffer();
             this._status('[Error: ' + msg.message + ']', 'red');
             return;
+          } else if (msg.type === 'notice') {
+            // Server-side session identity notice (2026-09-22), currently
+            // RESUME_EXPIRED: the transcript this pane was asked to resume
+            // is gone and a fresh session was started in the same folder.
+            // The server already put a yellow line at the top of the
+            // scrollback, so this is NOT written into the terminal (a
+            // client-side write into a live TUI can land mid-frame and
+            // garble it); it is handed to the app shell as a toast through
+            // the same bubbling event pattern as cwm:paste-unavailable.
+            this._log('Notice ' + (msg.code || '') + ': ' + (msg.message || ''));
+            this._emitNotice(msg.code || 'NOTICE', msg.message || '');
+            return;
           } else if (msg.type === 'output') {
             this._enqueueWrite(msg.data);
             return;
@@ -3549,6 +3561,30 @@ class TerminalPane {
       }));
     } catch (_) {
       // Never let a notification failure break the paste path.
+    }
+  }
+
+  /**
+   * Surface a server-side session notice (2026-09-22, RESUME_EXPIRED) to
+   * the user via a bubbling CustomEvent, mirroring _emitPasteUnavailable:
+   * the pane owns no toast UI, app.js does, and the pane stays decoupled
+   * from the shell. Falls back to document when no container is mounted so
+   * the message is never dropped.
+   * @param {string} code - Notice code from the server ('RESUME_EXPIRED').
+   * @param {string} message - Human-readable text to show.
+   */
+  _emitNotice(code, message) {
+    try {
+      if (typeof document === 'undefined') return;
+      const container = this._getOwnedContainer();
+      const target = container || document;
+      if (!target || typeof target.dispatchEvent !== 'function') return;
+      target.dispatchEvent(new CustomEvent('cwm:session-notice', {
+        bubbles: true,
+        detail: { code, message, containerId: this.containerId, sessionId: this.sessionId },
+      }));
+    } catch (_) {
+      // Never let a notification failure break the message path.
     }
   }
 

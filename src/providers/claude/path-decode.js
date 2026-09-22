@@ -383,8 +383,34 @@ function findJsonlByWorkingDir(workingDir) {
   return null;
 }
 
+/**
+ * Encode a working directory the way Claude Code names its project
+ * directory under ~/.claude/projects/: every character outside [A-Za-z0-9]
+ * becomes a single '-'. This is the forward direction of decodeClaudePath
+ * and is exact (no filesystem consultation needed), which is why it is the
+ * right tool for "which project dir will the CLI write into for this cwd".
+ *
+ * Verified against the real corpus on 2026-09-22:
+ *   C:\Users\Arthur                      -> C--Users-Arthur
+ *   C:\Users\Arthur\.claude              -> C--Users-Arthur--claude
+ *   C:\Users\Arthur\Documents\test workday -> C--Users-Arthur-Documents-test-workday
+ *   C:\Users\Arthur\Desktop\fablin 2\output\FrostLynx_Engine
+ *     -> C--Users-Arthur-Desktop-fablin-2-output-FrostLynx-Engine
+ *
+ * Compare the result case-insensitively on Windows; the CLI preserves the
+ * cwd's casing, but the filesystem does not distinguish it.
+ *
+ * @param {string} cwd - Absolute working directory (either separator style).
+ * @returns {string} The encoded directory basename, or '' for empty input.
+ */
+function encodeClaudeProjectDir(cwd) {
+  if (!cwd || typeof cwd !== 'string') return '';
+  return cwd.replace(/[^A-Za-z0-9]/g, '-');
+}
+
 module.exports = {
   resolveClaudeProjectsDir,
+  encodeClaudeProjectDir,
   decodeClaudePath,
   greedyFsWalk,
   resolveProjectPath,

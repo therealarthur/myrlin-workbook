@@ -1751,6 +1751,19 @@ class CWMApp {
       this.showToast(msg, 'warning');
     });
 
+    // ─── Session identity notices (2026-09-22) ──────────────
+    // The server tells a pane when the conversation it was asked to resume
+    // is no longer on disk (Claude Code retention) and a fresh session was
+    // started in the same folder instead. The pane forwards it as
+    // cwm:session-notice; the toast is shown here for the same reason the
+    // paste message is: the pane owns no toast UI. Long-lived on purpose,
+    // this is the one message that explains a pane that "lost" its history.
+    document.addEventListener('cwm:session-notice', (e) => {
+      const detail = (e && e.detail) || {};
+      if (!detail.message) return;
+      this.showToast(detail.message, 'warning', { duration: 12000 });
+    });
+
     // ─── Terminal Needs-Input Badge ─────────────────────────
     // When auto-trust detects a question it won't auto-answer, show/hide
     // an amber "Needs input" badge on the terminal pane header.

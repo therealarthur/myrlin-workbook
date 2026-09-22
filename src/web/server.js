@@ -4269,8 +4269,11 @@ app.get('/api/sessions/:id/cost', requireAuth, (req, res) => {
     const fallback = provider ? provider.findArtifactByWorkingDir(session.workingDir) : null;
     if (fallback) {
       jsonlPath = fallback.jsonlPath;
-      // Backfill the resumeSessionId so future lookups are fast
-      if (!session.resumeSessionId) {
+      // The transcript is used for this cost READ only. Writing it back as
+      // the session's resume id is the guess that bound sessions to other
+      // sessions' conversations (see backfillResumeSessionIds, 2026-09-22),
+      // so the write is behind the same legacy switch.
+      if (!session.resumeSessionId && process.env.CWM_LEGACY_CWD_BACKFILL === '1') {
         store.updateSession(req.params.id, { resumeSessionId: fallback.claudeSessionId });
         resumeSessionId = fallback.claudeSessionId;
       }
@@ -9397,6 +9400,18 @@ let _scheduler = null;
  * where PTY backfill failed. Runs once at startup, non-blocking.
  */
 function backfillResumeSessionIds() {
+  // 2026-09-22: OFF by default. Binding a session to "the newest transcript
+  // in its working directory" attached sessions to OTHER sessions'
+  // conversations (14 transcript ids were shared by 2 to 9 store sessions on
+  // the author's machine, one of them by 9) and, once those transcripts aged
+  // out of Claude Code's retention, every one of them failed to resume with
+  // "No conversation found with session ID". Identity now comes from the id
+  // minted at spawn (pty-manager passes --session-id) or an id the user
+  // supplied explicitly. CWM_LEGACY_CWD_BACKFILL=1 restores the old guess.
+  if (process.env.CWM_LEGACY_CWD_BACKFILL !== '1') {
+    console.log('[Server] Skipping cwd-based resumeSessionId backfill (ids are minted at spawn; CWM_LEGACY_CWD_BACKFILL=1 re-enables the guess)');
+    return;
+  }
   try {
     const store = getStore();
     const sessions = store.getAllSessionsList();
