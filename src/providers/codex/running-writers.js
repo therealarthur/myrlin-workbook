@@ -137,7 +137,9 @@ function isCodexWriterProcess(proc) {
 }
 
 /**
- * Human-facing copy for the CODEX_RUNNING conflict.
+ * Human-facing copy for the CODEX_RUNNING conflict. Written as UI copy
+ * (Workbook's own switcher and older clients toast it verbatim), so it
+ * names the "Swap anyway" choice rather than the force:true API field.
  *
  * @param {Array<{pid: number, name: string}>} processes - Matched writers.
  * @returns {string} Message naming how many writers run and what to do.
@@ -145,7 +147,7 @@ function isCodexWriterProcess(proc) {
 function runningConflictMessage(processes) {
   const n = Array.isArray(processes) ? processes.length : 0;
   return 'Codex is running (' + n + ' process' + (n === 1 ? '' : 'es') + '). Running Codex keeps the old account '
-    + 'until restarted. Send force:true to swap anyway; nothing is stopped for you.';
+    + 'until restarted. Choose Swap anyway to switch now; nothing is stopped for you.';
 }
 
 module.exports = {

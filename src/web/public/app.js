@@ -15016,7 +15016,10 @@ class CWMApp {
    * accessExpired warning, clear staging, close when done, and refresh the
    * roster in the background. Unlike the Claude path this never offers
    * restartAllSessions: that helper restarts EVERY session and a
-   * per-provider restart is future work (design doc 3.4).
+   * per-provider restart is future work (design doc 3.4). A 409 carrying a
+   * processes list (W2, a provider process is still running) opens a
+   * second confirm that lists them and retries with force:true on
+   * "Swap anyway"; nothing is ever stopped.
    * @param {HTMLElement} tabEl - The active provider tab (carries the id).
    * @returns {Promise<void>} Never rejects; failures toast.
    */
@@ -15042,7 +15045,20 @@ class CWMApp {
     this.renderAccountSwitcher();
     try {
       const pid = encodeURIComponent(tabEl.dataset.providerTab || '');
-      const resp = await this._credApi('POST', `/api/provider-accounts/${pid}/apply`, { accountId: targetRow.accountId });
+      const applyUrl = `/api/provider-accounts/${pid}/apply`;
+      let resp = await this._credApi('POST', applyUrl, { accountId: targetRow.accountId });
+      // W2 (Quota widget support, warn and allow): while a process that can
+      // still write the live login is running (a Codex session this very
+      // Workbook hosts counts), the server answers 409 with the process
+      // list and changes nothing. Show the list and, on "Swap anyway",
+      // retry the SAME apply with force:true. Nothing is ever stopped;
+      // Cancel keeps the staged row and shows no error.
+      if (!resp.ok && resp.status === 409 && resp.data && Array.isArray(resp.data.processes)) {
+        const swapAnyway = await this._confirmProviderWritersRunning(tabLabel, name, resp.data.processes);
+        if (!swapAnyway) return; // staging preserved for a later switch
+        this._credSelfActionUntil = Date.now() + CWMApp.CRED_SELF_ACTION_MS;
+        resp = await this._credApi('POST', applyUrl, { accountId: targetRow.accountId, force: true });
+      }
       if (!resp.ok) {
         const msg = (resp.data && (resp.data.message || resp.data.error)) || `Switch failed (${resp.status})`;
         this.showToast(msg, 'error');
@@ -15071,6 +15087,37 @@ class CWMApp {
       pa.applying = false;
       this.renderAccountSwitcher();
     }
+  }
+
+  /**
+   * W2 confirm (Quota widget support, warn and allow): name the running
+   * provider processes that keep the old account, then ask whether to
+   * switch anyway. Process fields come from the server, so every one is
+   * escaped; the list is capped so a busy machine cannot grow the modal
+   * without bound.
+   * @param {string} tabLabel - Provider tab label, e.g. "Codex".
+   * @param {string} name - Display name of the account being switched to.
+   * @param {Array<{pid: number, name: string, path?: string|null}>} processes - From the 409 body.
+   * @returns {Promise<boolean>} true when the user chose "Swap anyway".
+   */
+  _confirmProviderWritersRunning(tabLabel, name, processes) {
+    const MAX_LISTED = 8;
+    const list = Array.isArray(processes) ? processes : [];
+    const rows = list.slice(0, MAX_LISTED).map((p) => {
+      const procName = (p && typeof p.name === 'string' && p.name) ? p.name : 'process';
+      const procId = (p && Number.isFinite(Number(p.pid))) ? String(Number(p.pid)) : 'unknown';
+      return `${this.escapeHtml(procName)} (pid ${this.escapeHtml(procId)})`;
+    });
+    const more = list.length > MAX_LISTED ? `<br>and ${list.length - MAX_LISTED} more` : '';
+    const label = this.escapeHtml(tabLabel);
+    return this.showConfirmModal({
+      // Title renders via textContent (no HTML), so no escaping here.
+      title: `${tabLabel} is running`,
+      message: `${rows.join('<br>')}${more}`
+        + `<br><br>Running ${label} keeps the old account until restarted. Nothing is stopped for you. `
+        + `Switch new ${label} sessions to <strong>${this.escapeHtml(name)}</strong> anyway?`,
+      confirmText: 'Swap anyway',
+    });
   }
 
 

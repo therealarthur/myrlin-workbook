@@ -896,7 +896,7 @@ function createProviderAccountManager(capability, opts = {}) {
       const conflict = credError(409, rw.conflictCode || 'ACCT_WRITER_RUNNING',
         typeof rw.conflictMessage === 'function'
           ? rw.conflictMessage(writerCheck.processes)
-          : (capability.displayName + ' is running; send force:true to switch anyway.'),
+          : (capability.displayName + ' is running; choose Swap anyway to switch now. Nothing is stopped for you.'),
         true);
       conflict.processes = writerCheck.processes;
       throw conflict;

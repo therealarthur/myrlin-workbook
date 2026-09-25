@@ -15,6 +15,13 @@
  *       profile fetcher, ALREADY_LIVE / IDENTITY_MISMATCH conflicts, upsert
  *       keyed like Workbook keys, broadcast, ownership guard.
  *
+ * Review fixes (2026-09-25) covered here too: the identity half of the
+ * apply (BOM tolerated, only a missing ~/.claude.json rebuilt, stuck vs
+ * busy), stuck token files answering a non-retryable CRED_LIVE_CORRUPT
+ * (blank or zero-filled files rebuilt), Claude Code's proper-lockfile locks
+ * held around the live writes (CRED_LIVE_BUSY on contention), and
+ * Workbook's own Codex switcher confirming and retrying with force:true.
+ *
  * HERMETIC: CWM_DATA_DIR is sandboxed FIRST (test/_test-data-dir.js) and
  * LOCALAPPDATA is repointed into that sandbox before any module loads, so
  * the default capture root is a throwaway dir. Every manager gets explicit
@@ -33,6 +40,7 @@
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const vm = require('vm');
 
 // Sandbox CWM_DATA_DIR into a tmpdir before any module loads the store.
 require('./_test-data-dir');
@@ -50,7 +58,18 @@ const {
   serializeCredentialsFile,
   credError,
   ANTHROPIC_PROFILE_URL,
+  parseJsonObjectText,
+  isBlankOrZeroFilled,
 } = require('../src/web/credential-manager');
+const {
+  acquireLock,
+  acquireApplyLocks,
+  storageWriteLockPath,
+  oauthRefreshLockPath,
+  legacyOauthRefreshLockPath,
+  globalConfigLockPath,
+} = require('../src/web/claude-file-locks');
+const { runningConflictMessage } = require('../src/providers/codex/running-writers');
 const { setupCredentialRoutes } = require('../src/web/credential-routes');
 const { createProviderAccountManager } = require('../src/web/provider-account-manager');
 const { setupProviderAccountRoutes, EVENT_CHANGED } = require('../src/web/provider-account-routes');
@@ -341,6 +360,112 @@ function listDir(dir) {
   try { return fs.readdirSync(dir); } catch (_) { return []; }
 }
 
+/**
+ * A realistic Claude Code global config (~/.claude.json) around an
+ * oauthAccount: the keys an apply must never lose.
+ * @param {object} identity - oauthAccount to embed.
+ * @returns {object}
+ */
+function fullClaudeConfig(identity) {
+  return {
+    numStartups: 41,
+    hasCompletedOnboarding: true,
+    theme: 'dark',
+    projects: { 'C:/work/app': { allowedTools: ['Bash'], history: [{ display: 'hello' }] } },
+    mcpServers: { figma: { type: 'http', url: 'https://mcp.figma.invalid/mcp' } },
+    oauthAccount: identity,
+  };
+}
+
+/**
+ * Every Claude Code lock dir the apply may take for a Claude fixture.
+ * @param {{claudeDir: string, claudeJsonPath: string}} fx
+ * @returns {{refresh: string, legacy: string, global: string, storage: string}}
+ */
+function lockDirsFor(fx) {
+  return {
+    refresh: oauthRefreshLockPath(fx.claudeDir),
+    legacy: legacyOauthRefreshLockPath(fx.claudeDir),
+    global: globalConfigLockPath(fx.claudeJsonPath),
+    storage: storageWriteLockPath(fx.claudeDir),
+  };
+}
+
+/**
+ * Brace-extract one CWMApp method from app.js source (same approach as
+ * test/provider-account-tabs.test.js: the parameter list is paren-matched
+ * first, then the body brace to its true close).
+ * @param {string} src - app.js source.
+ * @param {string} name - Method name.
+ * @returns {string} The method source text.
+ */
+function extractAppMethod(src, name) {
+  const startIdx = src.search(new RegExp('^  (?:async )?' + name + '\\(', 'm'));
+  assert(startIdx !== -1, 'method ' + name + ' not found in app.js');
+  const parenOpen = src.indexOf('(', startIdx);
+  let depth = 0;
+  let parenClose = -1;
+  for (let i = parenOpen; i < src.length; i++) {
+    if (src[i] === '(') depth++;
+    else if (src[i] === ')') { depth--; if (depth === 0) { parenClose = i; break; } }
+  }
+  assert(parenClose !== -1, 'unbalanced parens extracting ' + name);
+  const openIdx = src.indexOf('{', parenClose);
+  depth = 0;
+  for (let i = openIdx; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(startIdx, i + 1); }
+  }
+  throw new Error('unbalanced braces extracting ' + name);
+}
+
+/**
+ * Build a class holding the REAL applyStagedProviderAccount and
+ * _confirmProviderWritersRunning from app.js, evaluated in a vm context, so
+ * the W2 client flow runs as shipped against a fake `this`.
+ * @returns {Function} The harness class.
+ */
+function loadProviderApplyHarness() {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'web', 'public', 'app.js'), 'utf8');
+  const methods = ['applyStagedProviderAccount', '_confirmProviderWritersRunning']
+    .map((m) => extractAppMethod(src, m)).join('\n');
+  const ctx = vm.createContext({ CWMApp: { CRED_SELF_ACTION_MS: 8000 } });
+  return vm.runInContext('(class ProviderApplyHarness {\n' + methods + '\n})', ctx);
+}
+
+/**
+ * A fake CWMApp `this` for the provider apply flow: scripted _credApi
+ * responses and confirm answers, recorded calls, toasts and modals.
+ * @param {Function} Harness - From loadProviderApplyHarness.
+ * @param {object[]} responses - _credApi results, in call order.
+ * @param {boolean[]} answers - showConfirmModal results, in call order.
+ * @returns {object}
+ */
+function makeProviderUi(Harness, responses, answers) {
+  const ui = Object.create(Harness.prototype);
+  ui.state = {
+    codexAccounts: {
+      list: [{ accountId: CX_A, email: 'live-a@example.com' }, { accountId: CX_B, email: 'target-b@example.com' }],
+      activeId: CX_A, stagedId: CX_B, applying: false,
+    },
+  };
+  ui.calls = [];
+  ui.toasts = [];
+  ui.modals = [];
+  ui._credApi = async (method, url, body) => {
+    ui.calls.push({ method, url, body });
+    return responses.shift();
+  };
+  ui.showConfirmModal = async (modalOpts) => { ui.modals.push(modalOpts); return answers.shift(); };
+  ui.showToast = (msg, kind) => { ui.toasts.push({ msg, kind }); };
+  ui.escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  ui._accountDisplayName = (row) => row.email;
+  ui.renderAccountSwitcher = () => {};
+  ui._closeAccountPanel = () => { ui.closedPanel = true; };
+  ui.loadProviderAccounts = () => { ui.reloaded = true; };
+  return ui;
+}
+
 // ─── Route harness ──────────────────────────────────────────────────────────
 
 const TEST_TOKEN = 'test-token-quota-widget-support';
@@ -468,7 +593,11 @@ process.on('exit', () => {
     fx.manager.stopCredentialWatcher();
   });
 
-  await test('W1 apply: an unparseable live token file aborts with 409 CRED_LIVE_UNPARSEABLE and writes NOTHING', async () => {
+  // Review fix W1-corrupt-file-permanent-block: a live file that is broken
+  // AND unchanged across the settle re-read is stuck, not mid-write, so it
+  // answers CRED_LIVE_CORRUPT with retryable:false and a /login hint (it
+  // used to say "try again in a moment" forever). Still nothing written.
+  await test('W1 apply: a stuck unparseable live token file aborts with 409 CRED_LIVE_CORRUPT (not retryable) and writes NOTHING', async () => {
     const garbage = '{"mcpOAuth": {"figma": SECRETGARBAGE';
     const fx = makeClaudeFixture({ liveCred: garbage });
     const identityBefore = fs.readFileSync(fx.claudeJsonPath, 'utf-8');
@@ -480,8 +609,9 @@ process.on('exit', () => {
     try { await fx.manager.applyCredential(UUID_B); } catch (err) { threw = err; }
     assert(threw, 'apply must throw');
     assertEqual(threw.status, 409);
-    assertEqual(threw.code, 'CRED_LIVE_UNPARSEABLE');
-    assertEqual(threw.retryable, true, 'retryable: the writer may just be mid-write');
+    assertEqual(threw.code, 'CRED_LIVE_CORRUPT');
+    assertEqual(threw.retryable, false, 'not retryable: the file is not changing, a retry can never succeed');
+    assert(threw.message.indexOf('/login') !== -1, 'message points the user at /login');
     assert(threw.message.indexOf('SECRETGARBAGE') === -1, 'error message never echoes file content');
     assertEqual(fs.readFileSync(fx.credPath, 'utf-8'), garbage, 'live token file untouched');
     assertEqual(fs.readFileSync(fx.claudeJsonPath, 'utf-8'), identityBefore, 'identity file untouched (abort BEFORE identity-first)');
@@ -497,7 +627,8 @@ process.on('exit', () => {
     });
     let threw = null;
     try { await fx.manager.applyCredential(UUID_B); } catch (err) { threw = err; }
-    assert(threw && threw.code === 'CRED_LIVE_UNPARSEABLE', 'got ' + (threw && threw.code));
+    // Stable non-object JSON is stuck, like any other stable broken file.
+    assert(threw && threw.code === 'CRED_LIVE_CORRUPT', 'got ' + (threw && threw.code));
     assertEqual(fs.readFileSync(fx.credPath, 'utf-8'), '[1,2,3]');
     fx.manager.stopCredentialWatcher();
   });
@@ -544,6 +675,372 @@ process.on('exit', () => {
     assertEqual(after.organizationUuid, 'org-top-level-key', 'other keys kept through rollback');
     assertEqual(fs.readFileSync(fx.claudeJsonPath, 'utf-8'), identityBefore, 'identity file restored byte for byte');
     fx.manager.stopCredentialWatcher();
+  });
+
+  // ═══ W1 review fixes: stuck vs busy token file ═══════════════════════
+  /**
+   * Seed the standard apply target (UUID_B) into a Claude fixture.
+   * @param {object} fx @param {string} tag @returns {object} The target credentials.
+   */
+  function seedClaudeTarget(fx, tag) {
+    const creds = makeOauth(tag, Date.now() + 6 * HOUR_MS);
+    fx.manager.saveSnapshot({
+      accountUuid: UUID_B, email: 'b@example.com', credentials: creds,
+      identity: makeIdentity(UUID_B, 'b@example.com'), tokenState: 'ok',
+    });
+    return creds;
+  }
+
+  await test('W1 apply: a token file still changing between the two looks -> 409 CRED_LIVE_UNPARSEABLE (retryable), nothing written', async () => {
+    const credPathHolder = {};
+    const fx = makeClaudeFixture({
+      liveCred: '{"mcpOAuth": {"figma": PARTIAL-ONE',
+      managerOpts: {
+        // A writer lands inside the settle window, still mid-write.
+        liveRereadSettle: (p) => {
+          if (path.resolve(p) === path.resolve(credPathHolder.p)) fs.writeFileSync(p, '{"mcpOAuth": {"figma": PARTIAL-TWO-LONGER', 'utf-8');
+        },
+      },
+    });
+    credPathHolder.p = fx.credPath;
+    const identityBefore = fs.readFileSync(fx.claudeJsonPath, 'utf-8');
+    seedClaudeTarget(fx, 'B-BUSY');
+    let threw = null;
+    try { await fx.manager.applyCredential(UUID_B); } catch (err) { threw = err; }
+    assert(threw, 'apply must throw');
+    assertEqual(threw.status, 409);
+    assertEqual(threw.code, 'CRED_LIVE_UNPARSEABLE');
+    assertEqual(threw.retryable, true, 'retryable: the file is changing, a writer is busy');
+    assert(threw.message.indexOf('PARTIAL') === -1, 'no file content in the message');
+    assertEqual(fs.readFileSync(fx.credPath, 'utf-8'), '{"mcpOAuth": {"figma": PARTIAL-TWO-LONGER', 'we wrote nothing');
+    assertEqual(fs.readFileSync(fx.claudeJsonPath, 'utf-8'), identityBefore, 'identity untouched');
+    assertEqual(listDir(fx.manager.backupsDir).length, 0, 'no backup taken');
+    fx.manager.stopCredentialWatcher();
+  });
+
+  await test('W1 apply: a token file whose writer finishes during the settle is used; mcpOAuth kept', async () => {
+    const holder = {};
+    const finished = {
+      mcpOAuth: makeMcpOAuth(),
+      claudeAiOauth: makeOauth('LIVE-A-FINISHED', Date.now() + 12 * HOUR_MS),
+      organizationUuid: 'org-after-write',
+    };
+    const fx = makeClaudeFixture({
+      liveCred: JSON.stringify(finished).slice(0, 30),
+      managerOpts: {
+        liveRereadSettle: (p) => {
+          if (path.resolve(p) === path.resolve(holder.p)) fs.writeFileSync(p, JSON.stringify(finished), 'utf-8');
+        },
+      },
+    });
+    holder.p = fx.credPath;
+    const target = seedClaudeTarget(fx, 'B-SETTLED');
+    const r = await fx.manager.applyCredential(UUID_B);
+    assertEqual(r.applied, true);
+    const after = JSON.parse(fs.readFileSync(fx.credPath, 'utf-8'));
+    assertJsonEqual(after.mcpOAuth, finished.mcpOAuth, 'mcpOAuth from the finished write survived');
+    assertEqual(after.organizationUuid, 'org-after-write');
+    assertJsonEqual(after.claudeAiOauth, target);
+    fx.manager.stopCredentialWatcher();
+  });
+
+  await test('W1 apply: a zero-filled, empty, or blank live token file (crash) is rebuilt with just claudeAiOauth, as before W1', async () => {
+    const variants = [
+      ['zero-filled', '\u0000'.repeat(512)],
+      ['empty', ''],
+      ['whitespace and NULs', '  \r\n\u0000\u0000\t '],
+    ];
+    for (const [label, content] of variants) {
+      const fx = makeClaudeFixture({ liveCred: content, managerOpts: { liveRereadSettleMs: 5 } });
+      const target = seedClaudeTarget(fx, 'B-ZERO');
+      const r = await fx.manager.applyCredential(UUID_B);
+      assertEqual(r.applied, true, label + ': applied');
+      assertEqual(fs.readFileSync(fx.credPath, 'utf-8'), serializeCredentialsFile(target), label + ': rebuilt with just claudeAiOauth');
+      assertEqual(JSON.parse(fs.readFileSync(fx.claudeJsonPath, 'utf-8')).oauthAccount.accountUuid, UUID_B, label + ': identity switched');
+      fx.manager.stopCredentialWatcher();
+    }
+  });
+
+  await test('W1 apply: a UTF-8 BOM in the live token file is tolerated; mcpOAuth and other keys kept', async () => {
+    const liveObj = {
+      mcpOAuth: makeMcpOAuth(),
+      claudeAiOauth: makeOauth('LIVE-A-BOM', Date.now() + 12 * HOUR_MS),
+      organizationUuid: 'org-bom',
+    };
+    const fx = makeClaudeFixture({ liveCred: '﻿' + JSON.stringify(liveObj) });
+    const target = seedClaudeTarget(fx, 'B-BOMCRED');
+    const r = await fx.manager.applyCredential(UUID_B);
+    assertEqual(r.applied, true);
+    const text = fs.readFileSync(fx.credPath, 'utf-8');
+    assert(text.charCodeAt(0) !== 0xFEFF, 'rewritten without the BOM');
+    const after = JSON.parse(text);
+    assertJsonEqual(after.mcpOAuth, liveObj.mcpOAuth, 'mcpOAuth kept');
+    assertEqual(after.organizationUuid, 'org-bom');
+    assertJsonEqual(after.claudeAiOauth, target);
+    fx.manager.stopCredentialWatcher();
+  });
+
+  // ═══ W1 review fixes: the identity half (~/.claude.json) ═════════════
+  await test('W1 identity: a UTF-8 BOM in ~/.claude.json is tolerated; every other key survives the apply', async () => {
+    const fx = makeClaudeFixture();
+    const config = fullClaudeConfig(makeIdentity(UUID_A, 'live.a@example.com'));
+    fs.writeFileSync(fx.claudeJsonPath, '﻿' + JSON.stringify(config, null, 2), 'utf-8');
+    seedClaudeTarget(fx, 'B-BOMID');
+    const r = await fx.manager.applyCredential(UUID_B);
+    assertEqual(r.applied, true);
+    const after = JSON.parse(fs.readFileSync(fx.claudeJsonPath, 'utf-8'));
+    for (const key of ['numStartups', 'hasCompletedOnboarding', 'theme', 'projects', 'mcpServers']) {
+      assertJsonEqual(after[key], config[key], key + ' survived');
+    }
+    assertEqual(after.oauthAccount.accountUuid, UUID_B, 'oauthAccount replaced');
+    fx.manager.stopCredentialWatcher();
+  });
+
+  await test('W1 identity: the live account behind a BOM is recognized as already active (no rewrite)', async () => {
+    const fx = makeClaudeFixture();
+    const bomText = '﻿' + JSON.stringify(fullClaudeConfig(makeIdentity(UUID_B, 'b@example.com')), null, 2);
+    fs.writeFileSync(fx.claudeJsonPath, bomText, 'utf-8');
+    seedClaudeTarget(fx, 'B-ACTIVE');
+    const r = await fx.manager.applyCredential(UUID_B);
+    assertEqual(r.alreadyActive, true, 'BOM no longer hides the live account');
+    assertEqual(fs.readFileSync(fx.claudeJsonPath, 'utf-8'), bomText, 'identity file byte-identical');
+    fx.manager.stopCredentialWatcher();
+  });
+
+  await test('W1 identity: a stuck truncated ~/.claude.json -> 409 CRED_LIVE_CORRUPT; both live files untouched; no backup', async () => {
+    const fx = makeClaudeFixture({ managerOpts: { liveRereadSettleMs: 5 } });
+    const truncated = JSON.stringify(fullClaudeConfig(makeIdentity(UUID_A, 'live.a@example.com')), null, 2).slice(0, 40);
+    fs.writeFileSync(fx.claudeJsonPath, truncated, 'utf-8');
+    const credBefore = fs.readFileSync(fx.credPath, 'utf-8');
+    seedClaudeTarget(fx, 'B-TRUNC');
+    let threw = null;
+    try { await fx.manager.applyCredential(UUID_B); } catch (err) { threw = err; }
+    assert(threw, 'apply must refuse');
+    assertEqual(threw.status, 409);
+    assertEqual(threw.code, 'CRED_LIVE_CORRUPT');
+    assertEqual(threw.retryable, false);
+    assert(threw.message.indexOf('.json') !== -1 && threw.message.indexOf('numStartups') === -1, 'names the file, never its content');
+    assertEqual(fs.readFileSync(fx.claudeJsonPath, 'utf-8'), truncated, 'identity file NOT replaced by a bare {oauthAccount}');
+    assertEqual(fs.readFileSync(fx.credPath, 'utf-8'), credBefore, 'token file untouched');
+    assertEqual(listDir(fx.manager.backupsDir).length, 0, 'aborted before any backup');
+    fx.manager.stopCredentialWatcher();
+  });
+
+  await test('W1 identity: ~/.claude.json caught mid-write (still changing) -> 409 CRED_LIVE_UNPARSEABLE (retryable); untouched', async () => {
+    const holder = {};
+    const fx = makeClaudeFixture({
+      managerOpts: {
+        liveRereadSettle: (p) => {
+          if (path.resolve(p) === path.resolve(holder.p)) fs.writeFileSync(p, '{"numStartups": 42, "projects": {', 'utf-8');
+        },
+      },
+    });
+    holder.p = fx.claudeJsonPath;
+    fs.writeFileSync(fx.claudeJsonPath, '{"numStartups": 41, "pro', 'utf-8');
+    const credBefore = fs.readFileSync(fx.credPath, 'utf-8');
+    seedClaudeTarget(fx, 'B-IDBUSY');
+    let threw = null;
+    try { await fx.manager.applyCredential(UUID_B); } catch (err) { threw = err; }
+    assert(threw && threw.code === 'CRED_LIVE_UNPARSEABLE', 'got ' + (threw && threw.code));
+    assertEqual(threw.retryable, true);
+    assertEqual(fs.readFileSync(fx.claudeJsonPath, 'utf-8'), '{"numStartups": 42, "projects": {', 'we wrote nothing');
+    assertEqual(fs.readFileSync(fx.credPath, 'utf-8'), credBefore);
+    assertEqual(listDir(fx.manager.backupsDir).length, 0);
+    fx.manager.stopCredentialWatcher();
+  });
+
+  await test('W1 identity: a MISSING ~/.claude.json is still created with just oauthAccount; an empty one is rebuilt too', async () => {
+    const fxMissing = makeClaudeFixture({ liveIdentity: null });
+    seedClaudeTarget(fxMissing, 'B-NOID');
+    const r1 = await fxMissing.manager.applyCredential(UUID_B);
+    assertEqual(r1.applied, true);
+    assertJsonEqual(Object.keys(JSON.parse(fs.readFileSync(fxMissing.claudeJsonPath, 'utf-8'))), ['oauthAccount']);
+    fxMissing.manager.stopCredentialWatcher();
+
+    const fxEmpty = makeClaudeFixture({ managerOpts: { liveRereadSettleMs: 5 } });
+    fs.writeFileSync(fxEmpty.claudeJsonPath, '', 'utf-8');
+    seedClaudeTarget(fxEmpty, 'B-EMPTYID');
+    const r2 = await fxEmpty.manager.applyCredential(UUID_B);
+    assertEqual(r2.applied, true, 'an empty file holds nothing to keep');
+    assertEqual(JSON.parse(fs.readFileSync(fxEmpty.claudeJsonPath, 'utf-8')).oauthAccount.accountUuid, UUID_B);
+    fxEmpty.manager.stopCredentialWatcher();
+  });
+
+  await test('W1 helpers: parseJsonObjectText strips a BOM and rejects non-objects; isBlankOrZeroFilled', async () => {
+    assertJsonEqual(parseJsonObjectText('﻿{"a":1}'), { a: 1 });
+    assertEqual(parseJsonObjectText('[1]'), null);
+    assertEqual(parseJsonObjectText('null'), null);
+    assertEqual(parseJsonObjectText('{"a":'), null);
+    assertEqual(parseJsonObjectText(undefined), null);
+    assert(isBlankOrZeroFilled(''), 'empty');
+    assert(isBlankOrZeroFilled('\u0000\u0000'), 'NULs');
+    assert(isBlankOrZeroFilled('﻿ \n'), 'BOM plus whitespace');
+    assert(!isBlankOrZeroFilled('{'), 'a brace is content');
+    assert(!isBlankOrZeroFilled('\u0000x'), 'NUL plus content');
+  });
+
+  // ═══ W1 review fixes: Claude Code's own locks ════════════════════════
+  await test('W1 locks: the apply holds the refresh, global-config and storage-write locks across both live writes, then releases all', async () => {
+    const fx = makeClaudeFixture();
+    const locks = lockDirsFor(fx);
+    seedClaudeTarget(fx, 'B-LOCKED');
+    const seen = [];
+    const realRename = fs.renameSync;
+    fs.renameSync = function (src, dest) {
+      const target = path.resolve(dest);
+      if (target === path.resolve(fx.credPath) || target === path.resolve(fx.claudeJsonPath)) {
+        // A Claude Code writer arriving now must find the lock taken.
+        let claudeCodeMkdir = 'acquired';
+        try { fs.mkdirSync(locks.storage); fs.rmdirSync(locks.storage); } catch (e) { claudeCodeMkdir = e.code; }
+        seen.push({
+          file: target === path.resolve(fx.credPath) ? 'credentials' : 'identity',
+          refresh: fs.existsSync(locks.refresh),
+          legacy: fs.existsSync(locks.legacy),
+          global: fs.existsSync(locks.global),
+          storage: fs.existsSync(locks.storage),
+          claudeCodeMkdir,
+        });
+      }
+      return realRename.call(fs, src, dest);
+    };
+    let r;
+    try { r = await fx.manager.applyCredential(UUID_B); } finally { fs.renameSync = realRename; }
+    assertEqual(r.applied, true);
+    assertEqual(seen.length, 2, 'identity and token renames observed');
+    assertEqual(seen[0].file, 'identity', 'identity first');
+    assertEqual(seen[1].file, 'credentials', 'tokens last');
+    for (const s of seen) {
+      assert(s.refresh && s.legacy && s.global && s.storage, 'every lock held during the ' + s.file + ' write: ' + JSON.stringify(s));
+      assertEqual(s.claudeCodeMkdir, 'EEXIST', 'a concurrent Claude Code writer is excluded during the ' + s.file + ' write');
+    }
+    for (const [name, p] of Object.entries(locks)) assert(!fs.existsSync(p), name + ' lock released after the apply');
+    fx.manager.stopCredentialWatcher();
+  });
+
+  await test('W1 locks: a held .storage-write.lock -> 409 CRED_LIVE_BUSY (retryable); nothing written; foreign lock untouched; ours released', async () => {
+    const fx = makeClaudeFixture({ managerOpts: { lockRetryDelaysMs: [5, 5, 5] } });
+    const locks = lockDirsFor(fx);
+    seedClaudeTarget(fx, 'B-HELD');
+    const credBefore = fs.readFileSync(fx.credPath, 'utf-8');
+    const identityBefore = fs.readFileSync(fx.claudeJsonPath, 'utf-8');
+    fs.mkdirSync(locks.storage); // Claude Code is saving right now (fresh mtime).
+    let threw = null;
+    try { await fx.manager.applyCredential(UUID_B); } catch (err) { threw = err; }
+    assert(threw, 'apply must refuse while the lock is held');
+    assertEqual(threw.status, 409);
+    assertEqual(threw.code, 'CRED_LIVE_BUSY');
+    assertEqual(threw.retryable, true);
+    assert(threw.message.indexOf('storage-write') !== -1, 'names the contended lock');
+    assertEqual(fs.readFileSync(fx.credPath, 'utf-8'), credBefore, 'token file untouched');
+    assertEqual(fs.readFileSync(fx.claudeJsonPath, 'utf-8'), identityBefore, 'identity file untouched');
+    assertEqual(listDir(fx.manager.backupsDir).length, 0, 'no backup: aborted before step 1');
+    assert(fs.existsSync(locks.storage), 'the foreign (live) lock is never removed');
+    for (const name of ['refresh', 'legacy', 'global']) assert(!fs.existsSync(locks[name]), name + ' lock we took was released');
+    // Once Claude Code releases it, the same apply goes through.
+    fs.rmdirSync(locks.storage);
+    const r = await fx.manager.applyCredential(UUID_B);
+    assertEqual(r.applied, true, 'retry succeeds once the lock is free');
+    fx.manager.stopCredentialWatcher();
+  });
+
+  await test('W1 locks: a held refresh lock (a session mid-refresh) or global-config lock also answers CRED_LIVE_BUSY first', async () => {
+    for (const which of ['refresh', 'legacy', 'global']) {
+      const fx = makeClaudeFixture({ managerOpts: { lockRetryDelaysMs: [5] } });
+      const locks = lockDirsFor(fx);
+      seedClaudeTarget(fx, 'B-HELD-' + which);
+      const credBefore = fs.readFileSync(fx.credPath, 'utf-8');
+      fs.mkdirSync(locks[which]);
+      let threw = null;
+      try { await fx.manager.applyCredential(UUID_B); } catch (err) { threw = err; }
+      assert(threw && threw.code === 'CRED_LIVE_BUSY', which + ': got ' + (threw && threw.code));
+      assertEqual(fs.readFileSync(fx.credPath, 'utf-8'), credBefore, which + ': untouched');
+      assertEqual(fx.manager.readSnapshot(UUID_A), null, which + ': not even the step-1 sync-back ran');
+      for (const [name, p] of Object.entries(locks)) {
+        if (name !== which) assert(!fs.existsSync(p), which + ': ' + name + ' not left behind');
+      }
+      fs.rmdirSync(locks[which]);
+      fx.manager.stopCredentialWatcher();
+    }
+  });
+
+  await test('W1 locks: a stale lock (its holder died) is taken over; the apply succeeds and leaves no lock behind', async () => {
+    const fx = makeClaudeFixture({ managerOpts: { lockRetryDelaysMs: [5] } });
+    const locks = lockDirsFor(fx);
+    seedClaudeTarget(fx, 'B-STALE');
+    fs.mkdirSync(locks.storage);
+    const old = new Date(Date.now() - 20000); // older than the 15 s stale window
+    fs.utimesSync(locks.storage, old, old);
+    const r = await fx.manager.applyCredential(UUID_B);
+    assertEqual(r.applied, true);
+    assert(!fs.existsSync(locks.storage), 'taken over, then released');
+    fx.manager.stopCredentialWatcher();
+  });
+
+  await test('claude-file-locks: Claude Code lock paths; acquire, held, stale takeover, unavailable', async () => {
+    const dir = freshDir('locks-unit');
+    const claudeDir = path.join(dir, 'dot-claude');
+    fs.mkdirSync(claudeDir);
+    assertEqual(storageWriteLockPath(claudeDir), path.join(claudeDir, '.storage-write.lock'));
+    assertEqual(oauthRefreshLockPath(claudeDir), path.join(claudeDir, '.oauth_refresh.lock'));
+    assertEqual(legacyOauthRefreshLockPath(claudeDir), fs.realpathSync(claudeDir) + '.lock');
+    assertEqual(globalConfigLockPath(path.join(dir, '.claude.json')), path.join(dir, '.claude.json.lock'));
+
+    const lockPath = path.join(dir, 'unit.lock');
+    const a = await acquireLock(lockPath, { staleMs: 15000, retryDelaysMs: [1] });
+    assertEqual(a.outcome, 'acquired');
+    assert(fs.statSync(lockPath).isDirectory(), 'a lock is a directory (proper-lockfile)');
+    const b = await acquireLock(lockPath, { staleMs: 15000, retryDelaysMs: [1, 1] });
+    assertEqual(b.outcome, 'held', 'a live lock is not taken twice');
+    b.release();
+    assert(fs.existsSync(lockPath), 'releasing a lock we did not get is a no-op');
+    a.release();
+    a.release();
+    assert(!fs.existsSync(lockPath), 'released (idempotent)');
+
+    fs.mkdirSync(lockPath);
+    const old = new Date(Date.now() - 60000);
+    fs.utimesSync(lockPath, old, old);
+    const c = await acquireLock(lockPath, { staleMs: 15000, retryDelaysMs: [] });
+    assertEqual(c.outcome, 'acquired');
+    assertEqual(c.tookOverStale, true);
+    c.release();
+
+    const filePath = path.join(dir, 'squatter.lock');
+    fs.writeFileSync(filePath, 'not a lock dir', 'utf-8');
+    const d = await acquireLock(filePath, { staleMs: 1, retryDelaysMs: [] });
+    assertEqual(d.outcome, 'unavailable', 'a file on the lock path is never removed');
+    assert(fs.existsSync(filePath), 'squatter file kept');
+    const e = await acquireLock(path.join(dir, 'no-such-parent', 'x.lock'), { staleMs: 15000, retryDelaysMs: [] });
+    assertEqual(e.outcome, 'unavailable', 'missing parent dir');
+  });
+
+  await test('claude-file-locks: acquireApplyLocks is all or nothing and releases in reverse order', async () => {
+    const dir = freshDir('locks-apply');
+    const claudeDir = path.join(dir, 'dot-claude');
+    fs.mkdirSync(claudeDir);
+    const target = { claudeDir, claudeJsonPath: path.join(dir, 'dot-claude.json') };
+    const all = [oauthRefreshLockPath(claudeDir), legacyOauthRefreshLockPath(claudeDir),
+      globalConfigLockPath(target.claudeJsonPath), storageWriteLockPath(claudeDir)];
+    const got = await acquireApplyLocks(target, { retryDelaysMs: [1] });
+    assertEqual(got.ok, true);
+    assertJsonEqual(got.skipped, []);
+    for (const p of all) assert(fs.existsSync(p), 'held: ' + p);
+    got.release();
+    for (const p of all) assert(!fs.existsSync(p), 'released: ' + p);
+
+    fs.mkdirSync(storageWriteLockPath(claudeDir));
+    const busy = await acquireApplyLocks(target, { retryDelaysMs: [1] });
+    assertEqual(busy.ok, false);
+    assertEqual(busy.busy, 'storage-write');
+    for (const p of all.slice(0, 3)) assert(!fs.existsSync(p), 'rolled back: ' + p);
+    fs.rmdirSync(storageWriteLockPath(claudeDir));
+
+    const noDir = { claudeDir: path.join(dir, 'missing-claude'), claudeJsonPath: path.join(dir, 'x.json') };
+    const partial = await acquireApplyLocks(noDir, { retryDelaysMs: [1] });
+    assertEqual(partial.ok, true, 'a lock nobody can hold never blocks the apply');
+    assert(partial.skipped.some((s) => s.indexOf('oauth-refresh:') === 0) && partial.skipped.some((s) => s.indexOf('storage-write:') === 0),
+      'skipped locks are reported: ' + JSON.stringify(partial.skipped));
+    partial.release();
   });
 
   // ═══ W2: Codex running-writer detection ══════════════════════════════
@@ -1078,6 +1575,77 @@ process.on('exit', () => {
     assertEqual(r3.body.alreadyActive, true);
     assertEqual(r3.body.processCheck, 'skipped');
     assertJsonEqual(r3.body.runningProcesses, []);
+  });
+
+  // ═══ W2 review fix: Workbook's own Codex switcher ════════════════════
+  const providerTab = { dataset: { providerTab: 'codex' }, textContent: 'Codex' };
+  const RUNNING_409 = {
+    ok: false,
+    status: 409,
+    data: {
+      error: 'CODEX_RUNNING', code: 409, retryable: true,
+      message: runningConflictMessage([WRITER]),
+      processes: [WRITER, { pid: 77, name: '<img src=x onerror=alert(1)>', path: null }],
+    },
+  };
+
+  await test('W2 UI: Switch on 409 CODEX_RUNNING lists the processes, and "Swap anyway" re-POSTs with force:true', async () => {
+    const Harness = loadProviderApplyHarness();
+    const ok200 = { ok: true, status: 200, data: { applied: true, alreadyActive: false, runningProcesses: [WRITER], processCheck: 'ok' } };
+    const ui = makeProviderUi(Harness, [RUNNING_409, ok200], [true, true]);
+    await ui.applyStagedProviderAccount(providerTab);
+    assertEqual(ui.calls.length, 2, 'first apply, then the forced retry');
+    assertJsonEqual(ui.calls[0].body, { accountId: CX_B }, 'the first POST never forces');
+    assertEqual(ui.calls[1].url, ui.calls[0].url, 'same apply route');
+    assertJsonEqual(ui.calls[1].body, { accountId: CX_B, force: true }, 'the retry sends force:true (exactly true)');
+    assertEqual(ui.modals.length, 2, 'switch confirm, then the running-process confirm');
+    const warn = ui.modals[1];
+    assertEqual(warn.confirmText, 'Swap anyway');
+    assert(warn.message.indexOf('Codex.exe (pid 4101)') !== -1, 'names each process with its pid');
+    assert(warn.message.indexOf('keeps the old account until restarted') !== -1, 'explains the consequence');
+    assert(warn.message.indexOf('<img') === -1 && warn.message.indexOf('&lt;img') !== -1, 'server-supplied names are escaped');
+    const pa = ui.state.codexAccounts;
+    assertEqual(pa.activeId, CX_B, 'switched');
+    assertEqual(pa.stagedId, null);
+    assertEqual(pa.applying, false);
+    assert(ui.toasts.some((t) => t.kind === 'success'), 'success toast');
+    assert(!ui.toasts.some((t) => t.kind === 'error'), 'no error toast');
+  });
+
+  await test('W2 UI: Cancel on the running-process confirm sends nothing more and keeps the staged account', async () => {
+    const Harness = loadProviderApplyHarness();
+    const ui = makeProviderUi(Harness, [RUNNING_409], [true, false]);
+    await ui.applyStagedProviderAccount(providerTab);
+    assertEqual(ui.calls.length, 1, 'no forced retry after Cancel');
+    const pa = ui.state.codexAccounts;
+    assertEqual(pa.stagedId, CX_B, 'staging kept for a later switch');
+    assertEqual(pa.activeId, CX_A);
+    assertEqual(pa.applying, false);
+    assertEqual(ui.toasts.length, 0, 'Cancel is not an error');
+  });
+
+  await test('W2 UI: other failures (409 without processes, forced retry failing) still toast the server message', async () => {
+    const Harness = loadProviderApplyHarness();
+    const dead = { ok: false, status: 409, data: { error: 'ACCT_TOKEN_DEAD', message: 'needs a fresh login', retryable: false } };
+    const ui1 = makeProviderUi(Harness, [dead], [true]);
+    await ui1.applyStagedProviderAccount(providerTab);
+    assertEqual(ui1.modals.length, 1, 'no running-process confirm without a processes list');
+    assertEqual(ui1.calls.length, 1);
+    assert(ui1.toasts.some((t) => t.kind === 'error' && t.msg === 'needs a fresh login'), 'server message toasted');
+
+    const boom = { ok: false, status: 500, data: { error: 'ACCT_APPLY_FAILED', message: 'disk full' } };
+    const ui2 = makeProviderUi(Harness, [RUNNING_409, boom], [true, true]);
+    await ui2.applyStagedProviderAccount(providerTab);
+    assertEqual(ui2.calls.length, 2);
+    assert(ui2.toasts.some((t) => t.kind === 'error' && t.msg === 'disk full'), 'the forced retry failure is reported');
+    assertEqual(ui2.state.codexAccounts.stagedId, CX_B, 'staging kept for a retry');
+  });
+
+  await test('W2 message reads as UI copy (names Swap anyway, not the force:true API field)', async () => {
+    const msg = runningConflictMessage([WRITER]);
+    assert(msg.indexOf('force:true') === -1 && msg.indexOf('force') === -1, 'no API wording: ' + msg);
+    assert(msg.indexOf('Swap anyway') !== -1, 'names the choice the UI offers');
+    assert(msg.indexOf('keeps the old account until restarted') !== -1);
   });
 
   await test('hermetic: no test reached the network', async () => {

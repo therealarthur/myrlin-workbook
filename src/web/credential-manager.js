@@ -46,7 +46,12 @@
  * the apply unwritten). W3 adds importIsolated: a login captured in a
  * throwaway CLAUDE_CONFIG_DIR under %LOCALAPPDATA%\Quota\capture is
  * identity-checked via GET /api/oauth/profile and upserted as a snapshot,
- * never touching live files.
+ * never touching live files. W1 hardening (same day, review findings): the
+ * identity half (~/.claude.json) is read-modify-written with the same care
+ * (BOM tolerated, only a missing file rebuilt), a live file that is stuck
+ * broken answers a non-retryable 409 CRED_LIVE_CORRUPT (an empty or
+ * zero-filled token file is rebuilt), and the apply holds Claude Code's own
+ * proper-lockfile locks (claude-file-locks.js) around its live writes.
  *
  * Design: docs/plans/2026-07-02-credential-switcher-design.md sections 2, 3.
  *
@@ -68,6 +73,9 @@ const { DEFAULT_MAC_HOST, isLegacyMacHost, isValidMacTargetPart } = require('./m
 // Leaf module (no requires back into this file): the Quota capture-dir
 // allowlist shared with the generic provider manager (W3 isolated imports).
 const { resolveCaptureDir, readCaptureFile } = require('./isolated-capture-paths');
+// Leaf module (fs and path only): Claude Code's own proper-lockfile locks,
+// taken around the apply's read-modify-writes of the live files (W1).
+const { acquireApplyLocks } = require('./claude-file-locks');
 
 // ─── Endpoint and protocol constants (named, never inlined) ────────────────
 // Ported from claude-swap.ps1 L554 to 558. The client id is Claude Code's own
@@ -117,6 +125,12 @@ const SELF_WRITE_GUARD_MS = 3000;
 // and concurrent readers; same lesson as store.js save()).
 const RENAME_MAX_ATTEMPTS = 5;
 const RENAME_BACKOFF_MS = 50;
+// W1 hardening: when a live file (.credentials.json or .claude.json) cannot
+// be read or parsed, wait this long and look again. A writer caught
+// mid-write has finished by then (these files are KBs to a few MB), so a
+// file that is still broken AND unchanged is stuck, not busy, and retrying
+// would never help.
+const LIVE_REREAD_SETTLE_MS = 300;
 // ─── Serialized-operation deadlines (deadlock hardening, 2026-07-24) ────────
 // WHY these exist: the promise-chain mutex (`serialize`) advances only when
 // the running operation's promise settles. On 2026-07-24 one operation whose
@@ -272,6 +286,45 @@ function healthFor(tokenState, lastRefreshError) {
  */
 function serializeCredentialsFile(credentials) {
   return JSON.stringify({ claudeAiOauth: credentials });
+}
+
+/**
+ * Parse live JSON text to a plain object, tolerating a leading UTF-8 BOM.
+ * WHY the BOM: a PowerShell 5.1 Set-Content edit leaves one, Node's
+ * JSON.parse rejects it, and Claude Code and the Quota widget both accept
+ * it. Treating such a file as unreadable made the apply rebuild
+ * ~/.claude.json from scratch (W1 identity clobber).
+ *
+ * @param {string} text - Raw file text.
+ * @returns {object|null} The parsed plain object, or null when the text is
+ *   not valid JSON or not a JSON object (array, string, null, ...).
+ */
+function parseJsonObjectText(text) {
+  if (typeof text !== 'string') return null;
+  const body = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch (_) {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed;
+}
+
+/**
+ * True when file text holds nothing worth preserving: empty, only
+ * whitespace, only NUL bytes (the Windows write-cache zero-fill left by a
+ * crash or power loss, see writeFileAtomic), or a mix of those, with or
+ * without a BOM.
+ *
+ * @param {string} text - Raw file text.
+ * @returns {boolean}
+ */
+function isBlankOrZeroFilled(text) {
+  if (typeof text !== 'string') return false;
+  const body = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+  return /^[\u0000\t\n\r ]*$/.test(body);
 }
 
 /**
@@ -471,6 +524,15 @@ function _formatStamp(epochMs) {
  *   resolve to the fetchProfile classification shape. Default fetchProfile.
  * @param {string} [opts.captureRoot] - Isolated-import allowlist root.
  *   Default %LOCALAPPDATA%\Quota\capture (resolved per call).
+ * @param {number[]} [opts.lockRetryDelaysMs] - Waits between attempts to
+ *   take one of Claude Code's locks during an apply. Default
+ *   claude-file-locks DEFAULT_LOCK_RETRY_DELAYS_MS (about 2.3 s in total).
+ *   Injectable so contention tests stay fast.
+ * @param {number} [opts.liveRereadSettleMs] - Settle wait before a live file
+ *   that did not parse is read a second time. Default LIVE_REREAD_SETTLE_MS.
+ * @param {(filePath: string) => void} [opts.liveRereadSettle] - Replaces the
+ *   settle wait itself (synchronous). Test seam for simulating a writer
+ *   between the two reads. Default: block for liveRereadSettleMs.
  * @returns {object} The manager API (see the design section 3.1 table).
  */
 function createCredentialManager(opts = {}) {
@@ -502,6 +564,19 @@ function createCredentialManager(opts = {}) {
   const profileUrl = opts.profileUrl || process.env.CWM_CRED_PROFILE_URL || ANTHROPIC_PROFILE_URL;
   const profileFetcherOverride = typeof opts.profileFetcher === 'function' ? opts.profileFetcher : null;
   const captureRootOverride = opts.captureRoot || null;
+  // W1 hardening: Claude Code lock retry schedule (null = the module
+  // default) and the settle wait before re-reading a live file that did
+  // not parse.
+  const lockRetryDelaysMs = Array.isArray(opts.lockRetryDelaysMs) ? opts.lockRetryDelaysMs : null;
+  const liveRereadSettleMs = (Number.isFinite(opts.liveRereadSettleMs) && opts.liveRereadSettleMs >= 0)
+    ? opts.liveRereadSettleMs : LIVE_REREAD_SETTLE_MS;
+  // The settle itself, called with the live file's path between the two
+  // reads. Tests inject a hook here to land a simulated writer exactly in
+  // that window; production blocks for liveRereadSettleMs (only ever on the
+  // rare broken-file path).
+  const liveRereadSettle = typeof opts.liveRereadSettle === 'function'
+    ? opts.liveRereadSettle
+    : () => _sleepSync(liveRereadSettleMs);
 
   const credFilePath = path.join(claudeDir, CREDENTIALS_FILE_NAME);
 
@@ -791,7 +866,8 @@ function createCredentialManager(opts = {}) {
   function readActiveCredential() {
     try {
       const credText = fs.readFileSync(credFilePath, 'utf-8');
-      const parsed = JSON.parse(credText);
+      // BOM tolerant (W1 hardening), so this agrees with the apply's reader.
+      const parsed = parseJsonObjectText(credText);
       const oauth = parsed && parsed.claudeAiOauth;
       if (!oauth || typeof oauth !== 'object') return null;
       return { credText, oauth };
@@ -812,31 +888,115 @@ function createCredentialManager(opts = {}) {
   // mid-write; clobbering it would lose data we cannot see).
 
   /**
-   * Read the live token file as a plain object for a read-modify-write.
-   * A missing file (or a non-file at that path, which the atomic write will
-   * then fail on exactly as before) yields an empty object. An existing
-   * regular file that cannot be read or parsed to a plain JSON object throws
-   * a retryable 409 CRED_LIVE_UNPARSEABLE; nothing is written in that case.
-   * The error message never carries file content.
+   * Read one live file for a read-modify-write, without throwing.
+   *
+   * @param {string} filePath - Live file path.
+   * @returns {{kind: 'missing'}|{kind: 'not-file'}|{kind: 'read-error', code: string}|
+   *   {kind: 'ok', text: string, mtimeMs: number, size: number}}
+   */
+  function _readLiveFileState(filePath) {
+    let st;
+    try {
+      st = fs.statSync(filePath);
+    } catch (err) {
+      if (err && err.code === 'ENOENT') return { kind: 'missing' };
+      return { kind: 'read-error', code: (err && err.code) || 'ERROR' };
+    }
+    if (!st.isFile()) return { kind: 'not-file' };
+    try {
+      return { kind: 'ok', text: fs.readFileSync(filePath, 'utf-8'), mtimeMs: st.mtimeMs, size: st.size };
+    } catch (err) {
+      if (err && err.code === 'ENOENT') return { kind: 'missing' };
+      return { kind: 'read-error', code: (err && err.code) || 'ERROR' };
+    }
+  }
+
+  /**
+   * Read a live JSON file as a plain object for a read-modify-write, and
+   * refuse to hand back an empty object for a file whose content we could
+   * not see (writing that back would destroy it).
+   *
+   *   - missing (ENOENT), or a non-file at the path (the atomic write then
+   *     fails on it exactly as before): {} so the caller builds it fresh;
+   *   - parses (a leading BOM is tolerated): that object;
+   *   - otherwise wait liveRereadSettleMs and read again:
+   *       parses now                    -> that object (the writer finished)
+   *       unchanged and blank/NUL-only  -> {} (nothing to keep; the crash
+   *                                        zero-fill case rebuilds as before)
+   *       unchanged and still broken    -> 409 CRED_LIVE_CORRUPT,
+   *                                        retryable:false (stuck; retrying
+   *                                        can never help)
+   *       changed, vanished, unreadable -> 409 CRED_LIVE_UNPARSEABLE,
+   *                                        retryable:true (a writer is busy)
+   *
+   * Error messages come from `what` and never carry file content.
+   *
+   * @param {string} filePath - Live file path.
+   * @param {{name: string, busyMessage: string, corruptMessage: string}} what
+   * @returns {object} The parsed top-level object (mutable copy).
+   */
+  function _readLiveJsonObjectForWrite(filePath, what) {
+    const first = _readLiveFileState(filePath);
+    if (first.kind === 'missing' || first.kind === 'not-file') return {};
+    if (first.kind === 'ok') {
+      const obj = parseJsonObjectText(first.text);
+      if (obj) return obj;
+    }
+    liveRereadSettle(filePath);
+    const second = _readLiveFileState(filePath);
+    if (second.kind === 'ok') {
+      const obj = parseJsonObjectText(second.text);
+      if (obj) return obj;
+    }
+    const unchanged = first.kind === 'ok' && second.kind === 'ok'
+      && first.text === second.text && first.size === second.size && first.mtimeMs === second.mtimeMs;
+    if (unchanged && isBlankOrZeroFilled(second.text)) {
+      log.warn('[Credentials] the live ' + what.name + ' is empty or zero-filled (nothing to preserve); rebuilding it');
+      return {};
+    }
+    if (unchanged) throw credError(409, 'CRED_LIVE_CORRUPT', what.corruptMessage, false);
+    throw credError(409, 'CRED_LIVE_UNPARSEABLE', what.busyMessage, true);
+  }
+
+  /**
+   * Read the live token file as a plain object for a read-modify-write (see
+   * _readLiveJsonObjectForWrite for every outcome). Nothing is written when
+   * it throws.
    *
    * @returns {object} The parsed top-level object (mutable copy).
    */
   function _readLiveCredentialsObject() {
-    let st = null;
-    try { st = fs.statSync(credFilePath); } catch (_) { st = null; }
-    if (!st || !st.isFile()) return {};
-    let parsed;
-    try {
-      parsed = JSON.parse(fs.readFileSync(credFilePath, 'utf-8'));
-    } catch (_) {
-      parsed = undefined;
-    }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw credError(409, 'CRED_LIVE_UNPARSEABLE',
-        'The live ' + CREDENTIALS_FILE_NAME + ' exists but could not be parsed (it may be mid-write). '
-        + 'Nothing was changed so keys such as mcpOAuth are not lost; try again in a moment.', true);
-    }
-    return parsed;
+    return _readLiveJsonObjectForWrite(credFilePath, {
+      name: CREDENTIALS_FILE_NAME,
+      busyMessage: 'The live ' + CREDENTIALS_FILE_NAME + ' could not be read or parsed and is still changing '
+        + '(Claude Code may be mid-write). Nothing was changed so keys such as mcpOAuth are not lost; try again in a moment.',
+      corruptMessage: 'The live ' + CREDENTIALS_FILE_NAME + ' is damaged: it is not valid JSON and it is not changing, '
+        + 'so retrying will not help. Nothing was changed. Run /login in a Claude Code terminal to repair it, then switch again.',
+    });
+  }
+
+  /**
+   * Read the live identity file (~/.claude.json, Claude Code's whole global
+   * config) as a plain object for the apply's oauthAccount replacement.
+   * WHY (W1 identity clobber): the apply used to treat ANY read or parse
+   * failure as a missing file and write {oauthAccount} over it, silently
+   * replacing projects, MCP servers, settings and onboarding state. Now
+   * only a missing file is rebuilt; everything else follows
+   * _readLiveJsonObjectForWrite. Nothing is written when it throws.
+   *
+   * @returns {object} The parsed top-level object (mutable copy).
+   */
+  function _readLiveIdentityObject() {
+    const name = path.basename(claudeJsonPath);
+    return _readLiveJsonObjectForWrite(claudeJsonPath, {
+      name,
+      busyMessage: 'The live ' + name + ' (Claude Code global config) could not be read or parsed and is still changing '
+        + '(Claude Code may be mid-write). Nothing was changed so its settings, projects and MCP servers are not lost; '
+        + 'try again in a moment.',
+      corruptMessage: 'The live ' + name + ' (Claude Code global config) is damaged: it is not valid JSON and it is not '
+        + 'changing, so Workbook will not overwrite it. Nothing was changed. Start Claude Code once to repair it, or '
+        + 'restore it from a backup, then switch again.',
+    });
   }
 
   /**
@@ -845,7 +1005,8 @@ function createCredentialManager(opts = {}) {
    * object is written verbatim), or removed when `oauth` is null. Compact
    * JSON like serializeCredentialsFile, so a file that only ever held
    * claudeAiOauth keeps its exact historical bytes. Throws
-   * CRED_LIVE_UNPARSEABLE (see _readLiveCredentialsObject) without writing.
+   * CRED_LIVE_UNPARSEABLE or CRED_LIVE_CORRUPT (see
+   * _readLiveJsonObjectForWrite) without writing.
    *
    * @param {object|null} oauth - The claudeAiOauth object to install.
    * @returns {string} File text ready for writeFileAtomic.
@@ -867,13 +1028,16 @@ function createCredentialManager(opts = {}) {
    * the backup held no claudeAiOauth the key is removed again. Never throws:
    * an unparseable backup or live file skips the restore (logged without
    * any file content) and leaves the backup on disk for manual recovery.
+   * The only caller (the apply's verify rollback) already holds Claude
+   * Code's storage-write lock, so this takes no lock of its own.
    *
    * @param {string} backupPath - Backup created by backupLiveFile.
    * @returns {boolean} True when the live file was rewritten.
    */
   function _restoreLiveCredentialsFromBackup(backupPath) {
     try {
-      const backupObj = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
+      // BOM tolerant, like every other live-file reader (W1 hardening).
+      const backupObj = parseJsonObjectText(fs.readFileSync(backupPath, 'utf-8'));
       if (!backupObj || typeof backupObj !== 'object' || Array.isArray(backupObj)) {
         throw new Error('backup is not a JSON object');
       }
@@ -898,7 +1062,10 @@ function createCredentialManager(opts = {}) {
   function readActiveIdentity() {
     try {
       const text = fs.readFileSync(claudeJsonPath, 'utf-8');
-      const parsed = JSON.parse(text);
+      // BOM tolerant (W1 hardening): a BOM'd file must not read as "no
+      // live account", or the alreadyActive check and the post-apply verify
+      // would disagree with Claude Code and the Quota widget.
+      const parsed = parseJsonObjectText(text);
       const account = parsed && parsed.oauthAccount;
       if (!account || typeof account !== 'object') return null;
       return account;
@@ -2381,6 +2548,17 @@ function createCredentialManager(opts = {}) {
    * file that does not parse aborts the apply with 409 CRED_LIVE_UNPARSEABLE
    * before any live file is written.
    *
+   * W1 hardening (2026-09-25 review): the identity file gets the same
+   * treatment (only a missing ~/.claude.json is rebuilt; a BOM is tolerated;
+   * anything unreadable aborts unwritten), a live file that is stuck broken
+   * answers 409 CRED_LIVE_CORRUPT with retryable:false instead of an
+   * endless "try again" (an empty or zero-filled token file is rebuilt, as
+   * before W1), and steps 1 to 5 run while holding Claude Code's own
+   * refresh, global-config and storage-write locks (claude-file-locks.js),
+   * so a concurrent Claude Code save can no longer be lost between our read
+   * and our rename. A lock held past the retry schedule answers 409
+   * CRED_LIVE_BUSY (retryable) before anything is written.
+   *
    * @param {string} accountUuid - The target profileId.
    * @returns {Promise<{applied: boolean, alreadyActive: boolean, email: string, warning?: string}>}
    */
@@ -2450,79 +2628,110 @@ function createCredentialManager(opts = {}) {
       }
     }
 
-    // Step 0.9 (W1 preflight): the token write below is a read-modify-write
-    // that must keep mcpOAuth and every other top-level key. If the live
-    // token file exists but cannot be parsed, abort NOW, before any live
-    // file (identity included) is touched. Throws CRED_LIVE_UNPARSEABLE.
+    // Step 0.9 (W1 preflight): both live writes below are read-modify-writes
+    // that must keep every key they do not own (mcpOAuth and friends in the
+    // token file; projects, MCP servers and settings in .claude.json). If
+    // either live file exists but cannot be read or parsed, abort NOW,
+    // before any backup or live write. Throws CRED_LIVE_UNPARSEABLE
+    // (retryable, a writer is busy) or CRED_LIVE_CORRUPT (stuck).
     _readLiveCredentialsObject();
+    _readLiveIdentityObject();
 
-    // Step a: arm the self-write guard so the watcher ignores our writes.
-    _selfWriteUntil = clock() + SELF_WRITE_GUARD_MS;
-    // Step 1: capture the CURRENT account's freshest rotated tokens before
-    // anything is replaced (no-op on unreadable live state).
-    _syncActiveTokenToProfileUnlocked();
-    // Step 2: backups. The .claude.json backup doubles as the rollback source.
-    const credBackup = backupLiveFile(credFilePath);
-    const jsonBackup = backupLiveFile(claudeJsonPath);
-    // Step 3: IDENTITY FIRST. Surgical oauthAccount replacement.
-    let claudeJsonObj = {};
-    try {
-      const text = fs.readFileSync(claudeJsonPath, 'utf-8');
-      const parsed = JSON.parse(text);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) claudeJsonObj = parsed;
-    } catch (_) {
-      claudeJsonObj = {}; // missing identity file: create a minimal one
+    // Step 0.95 (W1 hardening): take Claude Code's own locks (OAuth refresh,
+    // global config, secure-storage write) and hold them through step 6, so
+    // no Claude Code save can land between our reads and our renames, and a
+    // refresh of the outgoing account in flight finishes (and is captured by
+    // step 1) before we swap. Contention answers a retryable 409 with
+    // nothing written. No network happens while the locks are held.
+    const claudeLocks = await acquireApplyLocks(
+      { claudeDir, claudeJsonPath },
+      lockRetryDelaysMs ? { retryDelaysMs: lockRetryDelaysMs } : {}
+    );
+    if (!claudeLocks.ok) {
+      throw credError(409, 'CRED_LIVE_BUSY',
+        'Claude Code is writing its login files right now (its ' + claudeLocks.busy + ' lock is held). '
+        + 'Nothing was changed; try again in a moment.', true);
     }
-    claudeJsonObj.oauthAccount = snap.identity;
-    try {
-      writeFileAtomic(claudeJsonPath, JSON.stringify(claudeJsonObj, null, 2));
-    } catch (err) {
-      // Atomic write means the identity file is untouched on failure.
-      throw credError(500, 'CRED_APPLY_FAILED', 'Identity write failed; live files are unchanged. ' + ((err && err.message) || err));
+    if (claudeLocks.skipped.length > 0) {
+      log.warn('[Credentials] apply proceeding without Claude Code lock(s) that cannot be created: '
+        + claudeLocks.skipped.join(', '));
     }
-    // Step 4: TOKENS LAST. On failure restore the identity file atomically
-    // (a live Claude process may be mid-read; same torn-write-proof path).
-    // W1: read-modify-write, replacing ONLY claudeAiOauth (all snapshot
-    // credential keys) and keeping mcpOAuth plus every other top-level key.
-    // The file is re-read here (not reused from the preflight) so a key a
-    // concurrent Claude process wrote a moment ago is kept too; if it became
-    // unparseable in between, the throw lands in the identity-restore path.
     try {
-      writeFileAtomic(credFilePath, _buildMergedCredentialsText(snap.credentials));
-    } catch (credWriteErr) {
-      const detail = (credWriteErr && credWriteErr.message) || String(credWriteErr);
-      if (jsonBackup) {
-        try {
-          writeFileAtomic(claudeJsonPath, fs.readFileSync(jsonBackup, 'utf-8'));
-        } catch (rollbackErr) {
-          throw credError(500, 'CRED_ROLLBACK_FAILED',
-            'Credentials write failed AND the identity rollback also failed (' + ((rollbackErr && rollbackErr.message) || rollbackErr) +
-            '). Recover manually from the backups in ' + backupsDir + '. Swap aborted: ' + detail);
-        }
-        throw credError(500, 'CRED_APPLY_FAILED', 'Credentials write failed; the identity file was restored from its backup. Swap aborted: ' + detail);
-      }
-      throw credError(500, 'CRED_APPLY_FAILED', 'Credentials write failed; no identity backup existed, so nothing was restored. Swap aborted: ' + detail);
-    }
-    // Step 5: VERIFY the live identity now reports the target account.
-    const verifyUuid = getActiveAccountUuid();
-    if (verifyUuid !== accountUuid) {
-      // Restore BOTH halves (deliberately stronger than the reference tool's
-      // identity-only rollback: restoring only the identity would recreate
-      // the exact identity/token mismatch this transaction exists to avoid).
+      // Step a: arm the self-write guard so the watcher ignores our writes.
+      _selfWriteUntil = clock() + SELF_WRITE_GUARD_MS;
+      // Step 1: capture the CURRENT account's freshest rotated tokens before
+      // anything is replaced (no-op on unreadable live state).
+      _syncActiveTokenToProfileUnlocked();
+      // Step 2: backups. The .claude.json backup doubles as the rollback source.
+      const credBackup = backupLiveFile(credFilePath);
+      const jsonBackup = backupLiveFile(claudeJsonPath);
+      // Step 3: IDENTITY FIRST. Surgical oauthAccount replacement.
+      // W1 hardening: re-read under the global-config lock through the same
+      // reader as the preflight. Only a MISSING file becomes a minimal
+      // {oauthAccount}; a BOM is tolerated; anything unreadable throws here,
+      // before any live file has been written.
+      const claudeJsonObj = _readLiveIdentityObject();
+      claudeJsonObj.oauthAccount = snap.identity;
       try {
-        if (jsonBackup) writeFileAtomic(claudeJsonPath, fs.readFileSync(jsonBackup, 'utf-8'));
-        // W1: the token half is restored by read-modify-write too (only
-        // claudeAiOauth goes back; mcpOAuth and other keys are kept).
-        if (credBackup) _restoreLiveCredentialsFromBackup(credBackup);
-      } catch (_) { /* verify rollback is best effort; backups remain on disk */ }
-      throw credError(500, 'CRED_VERIFY_FAILED',
-        'Post-apply verification failed: the live identity does not report the target account. Backups are in ' + backupsDir + '.');
+        writeFileAtomic(claudeJsonPath, JSON.stringify(claudeJsonObj, null, 2));
+      } catch (err) {
+        // Atomic write means the identity file is untouched on failure.
+        throw credError(500, 'CRED_APPLY_FAILED', 'Identity write failed; live files are unchanged. ' + ((err && err.message) || err));
+      }
+      // Step 4: TOKENS LAST. On failure restore the identity file atomically
+      // (a live Claude process may be mid-read; same torn-write-proof path).
+      // W1: read-modify-write, replacing ONLY claudeAiOauth (all snapshot
+      // credential keys) and keeping mcpOAuth plus every other top-level key.
+      // The file is re-read here (not reused from the preflight) so a key a
+      // concurrent Claude process wrote a moment ago is kept too; if it became
+      // unparseable in between, the throw lands in the identity-restore path.
+      try {
+        writeFileAtomic(credFilePath, _buildMergedCredentialsText(snap.credentials));
+      } catch (credWriteErr) {
+        const detail = (credWriteErr && credWriteErr.message) || String(credWriteErr);
+        if (jsonBackup) {
+          try {
+            writeFileAtomic(claudeJsonPath, fs.readFileSync(jsonBackup, 'utf-8'));
+          } catch (rollbackErr) {
+            throw credError(500, 'CRED_ROLLBACK_FAILED',
+              'Credentials write failed AND the identity rollback also failed (' + ((rollbackErr && rollbackErr.message) || rollbackErr) +
+              '). Recover manually from the backups in ' + backupsDir + '. Swap aborted: ' + detail);
+          }
+          // W1 hardening: a token file that turned unreadable after the
+          // preflight keeps its own 409 code and retry hint (the swap was
+          // fully undone, so the client's advice for that code still holds).
+          if (credWriteErr && credWriteErr.status === 409 && typeof credWriteErr.code === 'string') {
+            throw credError(409, credWriteErr.code,
+              detail + ' The identity file was restored from its backup.', credWriteErr.retryable === true);
+          }
+          throw credError(500, 'CRED_APPLY_FAILED', 'Credentials write failed; the identity file was restored from its backup. Swap aborted: ' + detail);
+        }
+        throw credError(500, 'CRED_APPLY_FAILED', 'Credentials write failed; no identity backup existed, so nothing was restored. Swap aborted: ' + detail);
+      }
+      // Step 5: VERIFY the live identity now reports the target account.
+      const verifyUuid = getActiveAccountUuid();
+      if (verifyUuid !== accountUuid) {
+        // Restore BOTH halves (deliberately stronger than the reference tool's
+        // identity-only rollback: restoring only the identity would recreate
+        // the exact identity/token mismatch this transaction exists to avoid).
+        try {
+          if (jsonBackup) writeFileAtomic(claudeJsonPath, fs.readFileSync(jsonBackup, 'utf-8'));
+          // W1: the token half is restored by read-modify-write too (only
+          // claudeAiOauth goes back; mcpOAuth and other keys are kept).
+          if (credBackup) _restoreLiveCredentialsFromBackup(credBackup);
+        } catch (_) { /* verify rollback is best effort; backups remain on disk */ }
+        throw credError(500, 'CRED_VERIFY_FAILED',
+          'Post-apply verification failed: the live identity does not report the target account. Backups are in ' + backupsDir + '.');
+      }
+      // Step 6: reconcile the snapshot with what is now live, then report.
+      _syncActiveTokenToProfileUnlocked();
+      const result = { applied: true, alreadyActive: false, email: snap.email || '' };
+      if (warning) result.warning = warning;
+      return result;
+    } finally {
+      // Release in reverse order on every path (success, abort, rollback).
+      claudeLocks.release();
     }
-    // Step 6: reconcile the snapshot with what is now live, then report.
-    _syncActiveTokenToProfileUnlocked();
-    const result = { applied: true, alreadyActive: false, email: snap.email || '' };
-    if (warning) result.warning = warning;
-    return result;
   }
 
   /**
@@ -2878,6 +3087,9 @@ function createCredentialManager(opts = {}) {
 module.exports = {
   createCredentialManager,
   serializeCredentialsFile,
+  parseJsonObjectText,
+  isBlankOrZeroFilled,
+  LIVE_REREAD_SETTLE_MS,
   validateAccountUuid,
   writeFileAtomic,
   displayNameFor,
