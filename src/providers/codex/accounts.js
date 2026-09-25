@@ -36,6 +36,11 @@
 const os = require('os');
 const path = require('path');
 
+// Quota widget support (W2): Codex writer detection lives with the rest of
+// the Codex-specific knowledge; the generic manager only sees it through
+// the capability's runningWriters block below.
+const runningWritersModule = require('./running-writers');
+
 // ─── Named constants (never inlined) ────────────────────────────────────────
 // Live usage endpoint; override with CWM_CODEX_USAGE_URL for hermetic tests.
 const CODEX_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
@@ -200,6 +205,44 @@ function mapUsageResponse(raw, nowIso) {
 }
 
 /**
+ * List which required token fields an isolated-capture auth.json lacks
+ * (W3). An import needs the full chatgpt-mode pair plus the account id the
+ * usage endpoint keys on; anything less cannot be switched to later.
+ *
+ * @param {object|null} authJson - Parsed captured auth.json.
+ * @returns {string[]} Missing field paths (empty when complete).
+ */
+function missingImportFields(authJson) {
+  const tokens = authJson && typeof authJson === 'object' ? authJson.tokens : null;
+  const missing = [];
+  for (const key of ['access_token', 'refresh_token', 'account_id']) {
+    if (!tokens || typeof tokens !== 'object' || typeof tokens[key] !== 'string' || !tokens[key]) {
+      missing.push('tokens.' + key);
+    }
+  }
+  return missing;
+}
+
+/**
+ * The account id claimed INSIDE the id_token (chatgpt_account_id under the
+ * OpenAI auth claim), used by the isolated import as an identity cross-check
+ * against tokens.account_id (the JWT-claims identity check the 2026-09-25
+ * critique asks for). Null when the id_token or the claim is absent.
+ *
+ * @param {object|null} authJson - Parsed captured auth.json.
+ * @returns {string|null}
+ */
+function claimedAccountId(authJson) {
+  const tokens = authJson && typeof authJson === 'object' ? authJson.tokens : null;
+  const payload = tokens && typeof tokens === 'object' ? decodeJwtPayload(tokens.id_token) : null;
+  const claim = payload ? payload[OPENAI_AUTH_CLAIM] : null;
+  if (claim && typeof claim === 'object' && typeof claim.chatgpt_account_id === 'string' && claim.chatgpt_account_id) {
+    return claim.chatgpt_account_id;
+  }
+  return null;
+}
+
+/**
  * The capability object consumed by createProviderAccountManager. Every
  * provider-specific constant, path, header, and parser is packed in here
  * so the generic manager and routes never mention a provider by name.
@@ -267,12 +310,32 @@ const accountsCapability = {
     map: mapUsageResponse,
   },
   loginHint: 'Run codex login in a terminal; the account is captured automatically.',
+  // Quota widget support (W2): which running processes can write this
+  // provider's live login. The generic manager only CONSULTS isWriter; the
+  // lister itself is injected by the server (opts.processLister) so tests
+  // never spawn PowerShell. Nothing here ever kills a process.
+  runningWriters: {
+    conflictCode: runningWritersModule.CODEX_RUNNING_CODE,
+    listProcesses: runningWritersModule.listWindowsProcesses,
+    isWriter: runningWritersModule.isCodexWriterProcess,
+    conflictMessage: runningWritersModule.runningConflictMessage,
+  },
+  // Quota widget support (W3): isolated import of a login captured with
+  // CODEX_HOME pointed at a throwaway dir under %LOCALAPPDATA%\Quota\capture.
+  // bodyKey names the request-body field that carries that dir.
+  isolatedImport: {
+    bodyKey: 'codexHome',
+    missingFields: missingImportFields,
+    claimedAccountId,
+  },
 };
 
 module.exports = {
   decodeJwtPayload,
   parseAccountFromAuth,
   mapUsageResponse,
+  missingImportFields,
+  claimedAccountId,
   accountsCapability,
   CODEX_USAGE_URL,
   CODEX_AUTH_FILE_NAME,

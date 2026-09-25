@@ -464,12 +464,21 @@ const codexAccountManager = createProviderAccountManager(codexAccountsCapability
   // (parallel to settings.credentialSwitcher for Claude).
   settingsProvider: () =>
     (((getStore().settings || {}).providerAccounts || {})[codexAccountsCapability.providerId]) || {},
+  // Quota widget support (W2): the read-only running-writer enumeration.
+  // Injected here (never defaulted inside the manager) so hermetic tests
+  // never spawn a process lister. It only reads; nothing is ever killed.
+  processLister: codexAccountsCapability.runningWriters
+    ? () => codexAccountsCapability.runningWriters.listProcesses()
+    : undefined,
 });
 setupProviderAccountRoutes(app, {
   requireAuth,
   broadcast: (type, data) => broadcastSSE(type, data),
   structuredError,
   managers: new Map([[codexAccountsCapability.providerId, codexAccountManager]]),
+  // Quota widget support (W3): the isolated import route honors the same
+  // credential-pool ownership guard as every mutating Claude route.
+  ownerGuard: (operation) => credentialManager.assertCredentialPoolWritable(operation),
 });
 
 // ─── Session Mirror service (issue #10 Tier 1, Phase 3) ─────

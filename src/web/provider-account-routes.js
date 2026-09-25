@@ -66,9 +66,14 @@ function restartNoteFor(displayName) {
  *   each capability's providerId, so the caller stays literal-free too.
  * @param {number} [deps.listBestEffortMs] - Override for the GET list
  *   best-effort window (LIST_BEST_EFFORT_MS). Injectable for fast tests.
+ * @param {(operation: string) => void} [deps.ownerGuard] - Quota widget
+ *   support (W3): the credential-pool ownership assertion (the server wires
+ *   the Claude manager's assertCredentialPoolWritable). Throws the typed 409
+ *   while an external bridge owns the pool. Absent in older embedders and
+ *   tests, where the new import route stays writable.
  * @returns {void}
  */
-function setupProviderAccountRoutes(app, { requireAuth, broadcast, structuredError, managers, listBestEffortMs }) {
+function setupProviderAccountRoutes(app, { requireAuth, broadcast, structuredError, managers, listBestEffortMs, ownerGuard }) {
   // Effective best-effort window for the list route (tests inject a small
   // one so a hung-mutex case does not cost 2.5s of wall clock per test).
   const bestEffortMs = (Number.isFinite(Number(listBestEffortMs)) && Number(listBestEffortMs) > 0)
@@ -97,6 +102,47 @@ function setupProviderAccountRoutes(app, { requireAuth, broadcast, structuredErr
     const code = (err && err.code && typeof err.code === 'string') ? err.code : 'ACCT_INTERNAL';
     const message = (err && err.message) ? err.message : 'Internal provider account manager error';
     return structuredError(res, status, code, message, !!(err && err.retryable));
+  }
+
+  /**
+   * Reject a mutation while credential-pool ownership belongs to the
+   * external Myrlin bridge (same contract as the Claude routes' guard of the
+   * same name). Delegates the verdict to the injected ownerGuard and maps
+   * whatever it throws; with no guard injected there is nothing to enforce.
+   *
+   * @param {import('express').Response} res
+   * @param {string} operation - Human-readable operation for the conflict.
+   * @returns {import('express').Response|null} Conflict response, or null.
+   */
+  function rejectExternalOwnerMutation(res, operation) {
+    if (typeof ownerGuard !== 'function') return null;
+    try {
+      ownerGuard(operation);
+      return null;
+    } catch (err) {
+      return mapError(res, err);
+    }
+  }
+
+  /**
+   * W2 conflict response: the structuredError shape plus the matched
+   * running-writer list, so the client can show what is running and offer
+   * "Swap anyway" (a retry with force:true). Only {pid, name, path} rows
+   * ever reach this payload.
+   *
+   * @param {import('express').Response} res
+   * @param {Error & {processes: object[]}} err - Conflict from applyAccount.
+   * @returns {import('express').Response}
+   */
+  function sendWriterConflict(res, err) {
+    const status = Number.isInteger(err.status) ? err.status : 409;
+    return res.status(status).json({
+      error: (typeof err.code === 'string' && err.code) ? err.code : 'ACCT_WRITER_RUNNING',
+      code: status,
+      message: err.message || 'A running process can still write this login.',
+      retryable: !!err.retryable,
+      processes: err.processes.map((p) => ({ pid: p.pid, name: p.name, path: p.path != null ? p.path : null })),
+    });
   }
 
   /**
@@ -189,6 +235,13 @@ function setupProviderAccountRoutes(app, { requireAuth, broadcast, structuredErr
   // ─── POST /api/provider-accounts/:providerId/apply ────────────────────
   // The switch. Broadcasts provider-accounts:changed AFTER a real apply;
   // an alreadyActive no-op broadcasts nothing (no state changed).
+  // W2 (Quota widget support, warn and allow): body { accountId, force? }.
+  // When a running process can still write the live login and force is not
+  // exactly true, the answer is 409 { error: <conflict code, CODEX_RUNNING
+  // for Codex>, code: 409, message, retryable: true, processes: [{pid, name,
+  // path}] } and nothing changed. Success always carries runningProcesses
+  // (the writers found, possibly empty) and processCheck ('ok' |
+  // 'unavailable' | 'skipped'). Nothing is ever killed.
   app.post('/api/provider-accounts/:providerId/apply', requireAuth, async (req, res) => {
     const manager = resolveManager(req, res);
     if (!manager) return;
@@ -197,7 +250,7 @@ function setupProviderAccountRoutes(app, { requireAuth, broadcast, structuredErr
       return structuredError(res, 400, 'VALIDATION', 'accountId must be a non-empty string', false);
     }
     try {
-      const result = await manager.applyAccount(body.accountId);
+      const result = await manager.applyAccount(body.accountId, { force: body.force === true });
       if (result.applied) {
         safeBroadcast(EVENT_CHANGED, {
           providerId: manager.providerId,
@@ -213,7 +266,54 @@ function setupProviderAccountRoutes(app, { requireAuth, broadcast, structuredErr
         email: result.email || '',
         restartNote: restartNoteFor(manager.displayName),
         ...(result.warning ? { warning: result.warning } : {}),
+        runningProcesses: Array.isArray(result.runningProcesses) ? result.runningProcesses : [],
+        processCheck: typeof result.processCheck === 'string' ? result.processCheck : 'unavailable',
       });
+    } catch (err) {
+      if (err && Array.isArray(err.processes)) return sendWriterConflict(res, err);
+      return mapError(res, err);
+    }
+  });
+
+  // ─── POST /api/provider-accounts/:providerId/import-isolated ──────────
+  // Quota widget support (W3). For Codex: POST
+  // /api/provider-accounts/codex/import-isolated with body
+  // { codexHome, label? } (the dir key comes from the capability's
+  // isolatedImport.bodyKey). The dir must resolve (real path) inside
+  // %LOCALAPPDATA%\Quota\capture\ (400 PATH_NOT_ALLOWED); the live account
+  // answers 409 ALREADY_LIVE; the live auth file is never touched. The
+  // manager runs the import inside its serialized chain. Responds
+  // { account: <safe account row>, created } and broadcasts
+  // provider-accounts:changed (accountId/providerId keys only).
+  app.post('/api/provider-accounts/:providerId/import-isolated', requireAuth, async (req, res) => {
+    const manager = resolveManager(req, res);
+    if (!manager) return;
+    const ownershipConflict = rejectExternalOwnerMutation(res, manager.displayName + ' account import');
+    if (ownershipConflict) return ownershipConflict;
+    const bodyKey = manager.isolatedImportBodyKey;
+    if (!bodyKey || typeof manager.importIsolated !== 'function') {
+      return structuredError(res, 404, 'ACCT_IMPORT_UNSUPPORTED',
+        'This provider does not support isolated imports.', false);
+    }
+    const body = req.body || {};
+    const homeDir = body[bodyKey];
+    if (typeof homeDir !== 'string' || !homeDir.trim()) {
+      return structuredError(res, 400, 'VALIDATION', bodyKey + ' must be a non-empty string', false);
+    }
+    if (body.label != null && typeof body.label !== 'string') {
+      return structuredError(res, 400, 'VALIDATION', 'label must be a string when given', false);
+    }
+    try {
+      const out = await manager.importIsolated({ homeDir, label: body.label });
+      safeBroadcast(EVENT_CHANGED, {
+        providerId: manager.providerId,
+        imported: true,
+        accountId: out.accountId,
+        created: !!out.created,
+      });
+      const list = manager.getSafeList();
+      const account = (list.accounts || []).find((a) => a.accountId === out.accountId) || null;
+      return res.json({ account, created: !!out.created });
     } catch (err) {
       return mapError(res, err);
     }

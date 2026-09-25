@@ -280,6 +280,7 @@ function openSSE(server) {
       ['POST', '/api/credentials/refresh-usage'],
       ['POST', '/api/credentials/apply'],
       ['POST', '/api/credentials/capture'],
+      ['POST', '/api/credentials/import-isolated'], // Quota widget support (W3), wired in the real server
       ['PUT', '/api/credentials/' + UUID_A + '/label'],
       ['DELETE', '/api/credentials/' + UUID_A],
       ['GET', '/api/credentials/mac-config'],
@@ -795,6 +796,8 @@ function openSSE(server) {
       ['POST', '/api/credentials/refresh-usage', { profileId: UUID_PC2 }],
       ['POST', '/api/credentials/apply', { pc: UUID_MAC, mac: UUID_PC2 }],
       ['POST', '/api/credentials/capture', { label: 'blocked' }],
+      // Quota widget support (W3): the isolated import is a mutation too.
+      ['POST', '/api/credentials/import-isolated', { configDir: path.join(macFixRoot, 'capture-blocked') }],
       ['PUT', '/api/credentials/' + UUID_PC2 + '/label', { label: 'blocked' }],
       ['DELETE', '/api/credentials/' + UUID_PC2, null],
       ['PUT', '/api/credentials/mac-config', { enabled: false }],

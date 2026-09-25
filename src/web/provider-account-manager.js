@@ -26,6 +26,14 @@
  *   usage: { url: string|() => string, headers(auth) -> object,
  *            map(raw, nowIso) -> mappedUsage|null }
  *   loginHint       string  actionable "how to log in" copy for errors
+ *   runningWriters  object  OPTIONAL (Quota widget support, W2):
+ *                           { conflictCode, isWriter(proc) -> boolean,
+ *                             conflictMessage(procs) -> string,
+ *                             listProcesses() } ; the manager only calls
+ *                           isWriter/conflictMessage, the lister comes in
+ *                           through opts.processLister
+ *   isolatedImport  object  OPTIONAL (W3): { bodyKey, missingFields(auth)
+ *                           -> string[], claimedAccountId(auth) -> id|null }
  *
  * Token-state model (three states, provider-adapted semantics):
  *   ok          believed good
@@ -68,6 +76,9 @@ const { getDataDir } = require('../utils/data-dir');
 // so this manager's mutex can never be wedged by a never-settling op
 // either.
 const { writeFileAtomic, credError, validateAccountUuid, withOpDeadline, OP_TIMEOUT_MS } = require('./credential-manager');
+// Quota widget support (W3): the shared %LOCALAPPDATA%\Quota\capture
+// allowlist (real-path containment for the dir and every file read).
+const { resolveCaptureDir, readCaptureFile } = require('./isolated-capture-paths');
 
 // ─── Token state constants (same vocabulary as the Claude switcher) ────────
 const TOKEN_STATE_OK = 'ok';
@@ -82,6 +93,18 @@ const EXPIRY_SKEW_MS = 5 * 60 * 1000;
 // Watcher events within this window after our own apply are ignored.
 const SELF_WRITE_GUARD_MS = 3000;
 const LABEL_MAX_LENGTH = 60;
+// Quota widget support (W2): hard deadline for the injected process lister
+// (its own budget is 5 s; the margin covers process spawn). A lister that
+// never settles must not hold the serialized chain; past this the check
+// reads as processCheck 'unavailable' and the apply proceeds.
+const PROCESS_CHECK_DEADLINE_MS = 6000;
+// processCheck values reported on a successful apply (W2 contract):
+//   ok          the enumeration ran (runningProcesses may be empty)
+//   unavailable no lister configured, or it failed or timed out
+//   skipped     alreadyActive no-op, nothing was checked
+const PROCESS_CHECK_OK = 'ok';
+const PROCESS_CHECK_UNAVAILABLE = 'unavailable';
+const PROCESS_CHECK_SKIPPED = 'skipped';
 
 // ─── Default settings (merged under settingsProvider output) ────────────────
 const DEFAULT_ACCOUNT_SETTINGS = Object.freeze({
@@ -152,6 +175,15 @@ function _formatStamp(epochMs) {
  * @param {number} [opts.opTimeoutMs] - Serialized-op deadline. Default
  *   OP_TIMEOUT_MS (60000). Injectable for hermetic deadlock tests.
  * @param {object} [opts.log] - Logger with warn/error/log. Default console.
+ * @param {() => Promise<Array<{pid: number, name: string, path: string|null}>>} [opts.processLister]
+ *   W2: enumerates running processes before an apply. Only consulted when
+ *   the capability declares runningWriters. NEVER defaulted from the
+ *   capability: the server injects the real lister, tests inject fakes, and
+ *   an absent lister reports processCheck 'unavailable'.
+ * @param {number} [opts.processCheckTimeoutMs] - Lister deadline. Default
+ *   PROCESS_CHECK_DEADLINE_MS (6000).
+ * @param {string} [opts.captureRoot] - W3 isolated-import allowlist root.
+ *   Default %LOCALAPPDATA%\Quota\capture (resolved per call).
  * @returns {object} The manager API.
  */
 function createProviderAccountManager(capability, opts = {}) {
@@ -168,6 +200,12 @@ function createProviderAccountManager(capability, opts = {}) {
   const opTimeoutMs = opts.opTimeoutMs || OP_TIMEOUT_MS;
   const log = opts.log || console;
   const logTag = '[Accounts:' + capability.providerId + ']';
+  // Quota widget support: injected process lister (W2) and the isolated
+  // import allowlist root override (W3; null = default per call).
+  const processLister = typeof opts.processLister === 'function' ? opts.processLister : null;
+  const processCheckTimeoutMs = Number(opts.processCheckTimeoutMs) > 0
+    ? Number(opts.processCheckTimeoutMs) : PROCESS_CHECK_DEADLINE_MS;
+  const captureRootOverride = opts.captureRoot || null;
 
   // Watcher and mutex state, per manager instance.
   let _watcher = null;
@@ -754,6 +792,46 @@ function createProviderAccountManager(capability, opts = {}) {
   }
 
   /**
+   * W2: enumerate running processes through the injected lister and keep
+   * the ones the capability says can write this provider's live login.
+   * Never rejects and never kills anything. The lister runs under its own
+   * deadline (processCheckTimeoutMs) so a hung enumeration cannot hold the
+   * serialized chain; a missing lister, a failure, a timeout, or a
+   * capability without runningWriters all read as 'unavailable' with an
+   * empty list (the apply then proceeds, per the design's warn-and-allow).
+   *
+   * @returns {Promise<{processCheck: string, processes: Array<{pid: number, name: string, path: string|null}>}>}
+   */
+  async function _checkRunningWriters() {
+    const rw = capability.runningWriters;
+    if (!rw || typeof rw.isWriter !== 'function' || !processLister) {
+      return { processCheck: PROCESS_CHECK_UNAVAILABLE, processes: [] };
+    }
+    let timer = null;
+    try {
+      const deadline = new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('process check timed out')), processCheckTimeoutMs);
+        if (timer.unref) timer.unref();
+      });
+      const rows = await Promise.race([Promise.resolve().then(() => processLister()), deadline]);
+      const processes = (Array.isArray(rows) ? rows : [])
+        .filter((p) => p && typeof p === 'object' && Number.isSafeInteger(Number(p.pid)) && Number(p.pid) > 0)
+        .map((p) => ({
+          pid: Number(p.pid),
+          name: typeof p.name === 'string' ? p.name : '',
+          path: (typeof p.path === 'string' && p.path) ? p.path : null,
+        }))
+        .filter((p) => { try { return !!rw.isWriter(p); } catch (_) { return false; } });
+      return { processCheck: PROCESS_CHECK_OK, processes };
+    } catch (err) {
+      log.warn(logTag + ' running-writer check unavailable: ' + ((err && err.message) || 'error') + '; proceeding');
+      return { processCheck: PROCESS_CHECK_UNAVAILABLE, processes: [] };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
    * Unlocked core of applyAccount: the switch transaction. Single-file
    * (simpler than Claude's two-file identity+token dance) but the same
    * load-bearing order:
@@ -766,10 +844,21 @@ function createProviderAccountManager(capability, opts = {}) {
    *   now reports the target (restore the backup on mismatch) ->
    *   reconcile -> report.
    *
+   * W2 (Quota widget support, warn and allow): after the no-op and
+   * needs_login gates and BEFORE any write, running writers of the live
+   * login are enumerated (see _checkRunningWriters). If any match and
+   * applyOpts.force is not exactly true, the apply throws a retryable 409
+   * with the capability's conflict code (CODEX_RUNNING for Codex) and
+   * err.processes, having changed nothing. With force:true it proceeds and
+   * reports runningProcesses; it never kills anything.
+   *
    * @param {string} accountId - The target account id.
-   * @returns {Promise<{applied: boolean, alreadyActive: boolean, email: string, warning?: string}>}
+   * @param {{force?: boolean}} [applyOpts] - force:true swaps even while a
+   *   writer runs.
+   * @returns {Promise<{applied: boolean, alreadyActive: boolean, email: string, warning?: string,
+   *   runningProcesses: Array<{pid: number, name: string, path: string|null}>, processCheck: string}>}
    */
-  async function _applyAccountUnlocked(accountId) {
+  async function _applyAccountUnlocked(accountId, applyOpts = {}) {
     // Step 0: validate and load.
     if (!validateAccountUuid(accountId)) {
       throw credError(400, 'VALIDATION', 'accountId must be a valid account id');
@@ -785,11 +874,32 @@ function createProviderAccountManager(capability, opts = {}) {
     }
     const activeId = getActiveAccountId();
     if (activeId && activeId === accountId) {
-      return { applied: false, alreadyActive: true, email: snap.email || '' };
+      return {
+        applied: false,
+        alreadyActive: true,
+        email: snap.email || '',
+        runningProcesses: [],
+        processCheck: PROCESS_CHECK_SKIPPED,
+      };
     }
     if (snap.tokenState === TOKEN_STATE_NEEDS_LOGIN) {
       throw credError(409, 'ACCT_TOKEN_DEAD',
         'The stored login for ' + (snap.email || accountId) + ' was rejected and needs a fresh login. ' + capability.loginHint);
+    }
+
+    // Step 0.5 (W2): running-writer check, before ANY write. Warn and allow:
+    // without force the caller gets the list and nothing changes; with
+    // force:true the swap proceeds and the list rides on the result.
+    const writerCheck = await _checkRunningWriters();
+    if (writerCheck.processes.length > 0 && !(applyOpts && applyOpts.force === true)) {
+      const rw = capability.runningWriters || {};
+      const conflict = credError(409, rw.conflictCode || 'ACCT_WRITER_RUNNING',
+        typeof rw.conflictMessage === 'function'
+          ? rw.conflictMessage(writerCheck.processes)
+          : (capability.displayName + ' is running; send force:true to switch anyway.'),
+        true);
+      conflict.processes = writerCheck.processes;
+      throw conflict;
     }
 
     // accessExpired is a WARNING, never a blocker: the provider CLI
@@ -828,9 +938,103 @@ function createProviderAccountManager(capability, opts = {}) {
     }
     // Step 5: reconcile the snapshot with what is now live, then report.
     _syncActiveAuthToSnapshotUnlocked();
-    const result = { applied: true, alreadyActive: false, email: snap.email || '' };
+    const result = {
+      applied: true,
+      alreadyActive: false,
+      email: snap.email || '',
+      runningProcesses: writerCheck.processes,
+      processCheck: writerCheck.processCheck,
+    };
     if (warning) result.warning = warning;
     return result;
+  }
+
+  /**
+   * Unlocked core of importIsolated (W3, Quota widget support): import a
+   * login the widget captured by running the provider CLI with its home dir
+   * (CODEX_HOME for Codex) pointed at a throwaway folder. Never touches the
+   * live auth file, never calls a token endpoint, never logs tokens.
+   *
+   *   1. label check; the capability must declare isolatedImport;
+   *   2. allowlist: the dir's REAL path must be inside
+   *      %LOCALAPPDATA%\Quota\capture\ (400 PATH_NOT_ALLOWED);
+   *   3. read <dir>/<auth file> from that dir only; the capability's
+   *      required token fields must be present (422 ACCT_IMPORT_INCOMPLETE);
+   *   4. identity from the capability parser, exactly as capture derives it
+   *      (apikey or no id: 422 ACCT_NO_IDENTITY); a claims-level account id
+   *      that disagrees with the token's account id: 409 IDENTITY_MISMATCH;
+   *   5. the account live in the provider's own auth file: 409 ALREADY_LIVE;
+   *   6. upsert the snapshot the same way capture stores it, tokenState ok,
+   *      lastError null, existing label kept unless one is given.
+   *
+   * @param {{homeDir: string, label?: string|null}} importOpts
+   * @returns {Promise<{accountId: string, created: boolean}>}
+   */
+  async function _importIsolatedUnlocked(importOpts = {}) {
+    const ii = capability.isolatedImport;
+    if (!ii || typeof ii !== 'object') {
+      throw credError(404, 'ACCT_IMPORT_UNSUPPORTED', capability.displayName + ' does not support isolated imports.');
+    }
+    let label = '';
+    if (importOpts.label != null) {
+      if (typeof importOpts.label !== 'string') throw credError(400, 'VALIDATION', 'label must be a string');
+      label = importOpts.label.trim();
+      if (label.length > LABEL_MAX_LENGTH) {
+        throw credError(400, 'VALIDATION', 'label must be ' + LABEL_MAX_LENGTH + ' characters or fewer');
+      }
+    }
+    const resolved = resolveCaptureDir(importOpts.homeDir, captureRootOverride || undefined);
+    const fileName = capability.watchFileName;
+    const text = readCaptureFile(resolved, fileName);
+    if (text === null) {
+      throw credError(422, 'ACCT_IMPORT_INCOMPLETE',
+        'The capture directory has no ' + fileName + ' yet. Finish the login first.');
+    }
+    let authObj = null;
+    try { authObj = JSON.parse(text); } catch (_) { authObj = null; }
+    if (!authObj || typeof authObj !== 'object' || Array.isArray(authObj)) {
+      throw credError(422, 'ACCT_IMPORT_INCOMPLETE', 'The captured ' + fileName + ' could not be parsed.');
+    }
+    const missing = typeof ii.missingFields === 'function' ? ii.missingFields(authObj) : [];
+    if (Array.isArray(missing) && missing.length > 0) {
+      throw credError(422, 'ACCT_IMPORT_INCOMPLETE',
+        'The captured ' + fileName + ' lacks ' + missing.join(', ') + '.');
+    }
+    const parsed = capability.parseAccount(authObj) || {};
+    if (parsed.authMode === 'apikey' || !validateAccountUuid(parsed.accountId)) {
+      throw credError(422, 'ACCT_NO_IDENTITY',
+        'The captured login has no switchable account identity (API-key auth has no account).');
+    }
+    const claimed = typeof ii.claimedAccountId === 'function' ? ii.claimedAccountId(authObj) : null;
+    if (claimed && claimed !== parsed.accountId) {
+      throw credError(409, 'IDENTITY_MISMATCH',
+        'The captured token names account ' + String(parsed.accountId).slice(0, 8) + ' but its identity claims name '
+        + String(claimed).slice(0, 8) + '. Nothing was imported.');
+    }
+    const activeId = getActiveAccountId();
+    if (activeId && activeId === parsed.accountId) {
+      throw credError(409, 'ALREADY_LIVE',
+        'That account is the one currently logged in to ' + capability.displayName + ' on this PC; it is already tracked. Nothing was imported.');
+    }
+    const existing = readSnapshot(parsed.accountId);
+    const nowIso = new Date(clock()).toISOString();
+    _writeSnapshot({
+      ...(existing || {}),
+      accountId: parsed.accountId,
+      email: parsed.email || (existing && existing.email) || '',
+      label: label || (existing && existing.label) || '',
+      plan: parsed.plan || (existing && existing.plan) || '',
+      authMode: parsed.authMode || 'unknown',
+      name: parsed.name || (existing && existing.name) || '',
+      savedAt: (existing && existing.savedAt) || nowIso,
+      updatedAt: nowIso,
+      auth: authObj,
+      lastRefresh: parsed.lastRefresh || null,
+      usage: (existing && existing.usage) || null,
+      tokenState: TOKEN_STATE_OK,
+      lastError: null,
+    });
+    return { accountId: parsed.accountId, created: !existing };
   }
 
   /**
@@ -998,9 +1202,14 @@ function createProviderAccountManager(capability, opts = {}) {
     setLabel: (id, label) => serialize(() => _setLabelUnlocked(id, label), 'set-label'),
     // Usage (read-only; NEVER calls a token endpoint in v1)
     updateSnapshotUsage: (id, o) => serialize(() => _updateSnapshotUsageUnlocked(id, o), 'usage-update'),
-    // Apply transaction
+    // Apply transaction (W2: second arg { force } swaps even while a
+    // running writer was found; without it such an apply 409s unchanged).
     backupLiveFile,
-    applyAccount: (id) => serialize(() => _applyAccountUnlocked(id), 'apply'),
+    applyAccount: (id, o) => serialize(() => _applyAccountUnlocked(id, o), 'apply'),
+    // W3 isolated import (Quota widget support), inside the serialized
+    // chain; the body key naming the capture dir comes from the capability.
+    importIsolated: (o) => serialize(() => _importIsolatedUnlocked(o), 'import-isolated'),
+    isolatedImportBodyKey: (capability.isolatedImport && capability.isolatedImport.bodyKey) || null,
     // Safe projection (the only route-serializable shape)
     getSafeList,
     // Internal, for tests only
@@ -1018,4 +1227,8 @@ module.exports = {
   TOKEN_STATE_OK,
   TOKEN_STATE_NEEDS_LOGIN,
   TOKEN_STATE_UNVERIFIED,
+  PROCESS_CHECK_DEADLINE_MS,
+  PROCESS_CHECK_OK,
+  PROCESS_CHECK_UNAVAILABLE,
+  PROCESS_CHECK_SKIPPED,
 };

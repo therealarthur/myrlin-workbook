@@ -533,6 +533,40 @@ function setupCredentialRoutes(app, { requireAuth, getStore, broadcast, structur
     }
   });
 
+  // ─── POST /api/credentials/import-isolated ────────────────────────────
+  // Quota widget support (W3). Body { configDir, label? }: import a login
+  // the widget captured by running the CLI with CLAUDE_CONFIG_DIR pointed at
+  // a throwaway dir. configDir must resolve (real path) inside
+  // %LOCALAPPDATA%\Quota\capture\ (400 PATH_NOT_ALLOWED otherwise); the
+  // identity is confirmed through the OAuth profile endpoint; the live PC
+  // account answers 409 ALREADY_LIVE; nothing live is ever touched. The
+  // manager runs the whole import inside its serialized chain. Responds
+  // { profile: <safe profile row>, created } and broadcasts
+  // credentials:changed (profileId key only, never token material).
+  app.post('/api/credentials/import-isolated', requireAuth, async (req, res) => {
+    const ownershipConflict = rejectExternalOwnerMutation(res, 'Credential import');
+    if (ownershipConflict) return ownershipConflict;
+    try {
+      const body = req.body || {};
+      if (typeof body.configDir !== 'string' || !body.configDir.trim()) {
+        return structuredError(res, 400, 'VALIDATION', 'configDir must be a non-empty string', false);
+      }
+      if (body.label != null && typeof body.label !== 'string') {
+        return structuredError(res, 400, 'VALIDATION', 'label must be a string when given', false);
+      }
+      if (typeof manager.importIsolated !== 'function') {
+        return structuredError(res, 501, 'NOT_IMPLEMENTED', 'This credential manager cannot import isolated captures.', false);
+      }
+      const out = await manager.importIsolated({ configDir: body.configDir, label: body.label });
+      safeBroadcast('credentials:changed', { imported: true, profileId: out.profileId, created: !!out.created });
+      const list = manager.getSafeList();
+      const profile = (list.profiles || []).find((p) => p.profileId === out.profileId) || null;
+      return res.json({ profile, created: !!out.created });
+    } catch (err) {
+      return mapError(res, err);
+    }
+  });
+
   // ─── PUT /api/credentials/:profileId/label ────────────────────────────
   // Rename. Trim, cap 60 (400 beyond), empty clears back to the fallback.
   app.put('/api/credentials/:profileId/label', requireAuth, async (req, res) => {

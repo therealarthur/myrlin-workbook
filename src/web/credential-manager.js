@@ -39,6 +39,15 @@
  * (CRED_OP_TIMEOUT) and a stalled-chain watchdog that force-resets a chain
  * held past CHAIN_STALL_FACTOR times its deadline.
  *
+ * Quota widget support (2026-09-25, claude-swap usage-widget design
+ * section 7): W1 makes every write of the live .credentials.json a
+ * read-modify-write that replaces only claudeAiOauth (mcpOAuth and every
+ * other key survive apply and rollback; an unparseable existing file aborts
+ * the apply unwritten). W3 adds importIsolated: a login captured in a
+ * throwaway CLAUDE_CONFIG_DIR under %LOCALAPPDATA%\Quota\capture is
+ * identity-checked via GET /api/oauth/profile and upserted as a snapshot,
+ * never touching live files.
+ *
  * Design: docs/plans/2026-07-02-credential-switcher-design.md sections 2, 3.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
@@ -56,12 +65,19 @@ const { getDataDir } = require('../utils/data-dir');
 // with mac-bridge.js (which requires THIS module for serializeCredentialsFile
 // and the same leaf for its probe). One definition of the Mac host, shared.
 const { DEFAULT_MAC_HOST, isLegacyMacHost, isValidMacTargetPart } = require('./mac-host');
+// Leaf module (no requires back into this file): the Quota capture-dir
+// allowlist shared with the generic provider manager (W3 isolated imports).
+const { resolveCaptureDir, readCaptureFile } = require('./isolated-capture-paths');
 
 // ─── Endpoint and protocol constants (named, never inlined) ────────────────
 // Ported from claude-swap.ps1 L554 to 558. The client id is Claude Code's own
 // public OAuth client id; refreshes must present the same client.
 const ANTHROPIC_TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token';
 const ANTHROPIC_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
+// Read-only identity endpoint (Quota widget support, W3): answers which
+// account an access token belongs to. Used ONLY to confirm the identity of
+// an isolated capture before it is imported; never a token endpoint.
+const ANTHROPIC_PROFILE_URL = 'https://api.anthropic.com/api/oauth/profile';
 const ANTHROPIC_OAUTH_BETA = 'oauth-2025-04-20';
 const ANTHROPIC_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 
@@ -125,6 +141,11 @@ const CHAIN_WATCHDOG_INTERVAL_MS = 30000;
 const CHAIN_STALL_FACTOR = 3;
 const LABEL_MAX_LENGTH = 60;
 const CREDENTIALS_FILE_NAME = '.credentials.json';
+// Identity file inside an isolated CLAUDE_CONFIG_DIR (W3). With that env var
+// set, Claude Code keeps its global config at $CLAUDE_CONFIG_DIR/.claude.json
+// (claude-swap research 2026-09-25), independent of where this machine's
+// live identity file lives.
+const CAPTURE_IDENTITY_FILE_NAME = '.claude.json';
 // Cross-process ownership contract shared with Myrlin's bridge credential
 // router. The bridge creates this exclusive marker in the snapshot-pool
 // root while it owns token refresh/write-back. CWM only honors the contract
@@ -443,6 +464,13 @@ function _formatStamp(epochMs) {
  * @param {(patch: object) => void} [opts.settingsPatcher] - Optional write-back
  *   for manager-owned settings (the Mac-active lineage hint). Wired to the
  *   store by the server; absent in most tests (hint stays in memory).
+ * @param {string} [opts.profileUrl] - Identity endpoint for isolated imports.
+ *   Default: env CWM_CRED_PROFILE_URL, else the real Anthropic endpoint.
+ * @param {(accessToken: string) => Promise<object>} [opts.profileFetcher] -
+ *   Injectable identity check for isolated imports (tests stub it). Must
+ *   resolve to the fetchProfile classification shape. Default fetchProfile.
+ * @param {string} [opts.captureRoot] - Isolated-import allowlist root.
+ *   Default %LOCALAPPDATA%\Quota\capture (resolved per call).
  * @returns {object} The manager API (see the design section 3.1 table).
  */
 function createCredentialManager(opts = {}) {
@@ -469,6 +497,11 @@ function createCredentialManager(opts = {}) {
   const watchdogIntervalMs = opts.watchdogIntervalMs || CHAIN_WATCHDOG_INTERVAL_MS;
   const log = opts.log || console;
   const externalBridgeOwnerOverride = opts.externalBridgeOwner;
+  // Quota widget support (W3): identity endpoint, injectable identity check,
+  // and the capture-dir allowlist root (null = resolve the default per call).
+  const profileUrl = opts.profileUrl || process.env.CWM_CRED_PROFILE_URL || ANTHROPIC_PROFILE_URL;
+  const profileFetcherOverride = typeof opts.profileFetcher === 'function' ? opts.profileFetcher : null;
+  const captureRootOverride = opts.captureRoot || null;
 
   const credFilePath = path.join(claudeDir, CREDENTIALS_FILE_NAME);
 
@@ -764,6 +797,94 @@ function createCredentialManager(opts = {}) {
       return { credText, oauth };
     } catch (_) {
       return null;
+    }
+  }
+
+  // ─── W1: read-modify-write of the live token file (Quota widget support) ──
+  // WHY: the live .credentials.json is NOT a single-key file. Claude Code
+  // also keeps mcpOAuth there (MCP server OAuth registrations, e.g. Figma)
+  // and knows other top-level keys (designOauth, organizationUuid, ...).
+  // The old apply wrote serializeCredentialsFile(snapshot) over the whole
+  // file, which silently deleted every one of them on each swap. Every write
+  // of the live file now parses the current file, replaces ONLY
+  // claudeAiOauth, keeps every other key byte-for-value, and refuses to write
+  // at all when an existing file cannot be parsed (a non-atomic writer may be
+  // mid-write; clobbering it would lose data we cannot see).
+
+  /**
+   * Read the live token file as a plain object for a read-modify-write.
+   * A missing file (or a non-file at that path, which the atomic write will
+   * then fail on exactly as before) yields an empty object. An existing
+   * regular file that cannot be read or parsed to a plain JSON object throws
+   * a retryable 409 CRED_LIVE_UNPARSEABLE; nothing is written in that case.
+   * The error message never carries file content.
+   *
+   * @returns {object} The parsed top-level object (mutable copy).
+   */
+  function _readLiveCredentialsObject() {
+    let st = null;
+    try { st = fs.statSync(credFilePath); } catch (_) { st = null; }
+    if (!st || !st.isFile()) return {};
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(credFilePath, 'utf-8'));
+    } catch (_) {
+      parsed = undefined;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw credError(409, 'CRED_LIVE_UNPARSEABLE',
+        'The live ' + CREDENTIALS_FILE_NAME + ' exists but could not be parsed (it may be mid-write). '
+        + 'Nothing was changed so keys such as mcpOAuth are not lost; try again in a moment.', true);
+    }
+    return parsed;
+  }
+
+  /**
+   * Build the next live token-file text: the CURRENT file's top-level keys
+   * with only claudeAiOauth replaced by `oauth` (every key of the given
+   * object is written verbatim), or removed when `oauth` is null. Compact
+   * JSON like serializeCredentialsFile, so a file that only ever held
+   * claudeAiOauth keeps its exact historical bytes. Throws
+   * CRED_LIVE_UNPARSEABLE (see _readLiveCredentialsObject) without writing.
+   *
+   * @param {object|null} oauth - The claudeAiOauth object to install.
+   * @returns {string} File text ready for writeFileAtomic.
+   */
+  function _buildMergedCredentialsText(oauth) {
+    const current = _readLiveCredentialsObject();
+    if (oauth === null) {
+      delete current.claudeAiOauth;
+    } else {
+      current.claudeAiOauth = oauth;
+    }
+    return JSON.stringify(current);
+  }
+
+  /**
+   * Best-effort rollback of the live token file to a backup's claudeAiOauth
+   * via the same read-modify-write, so an mcpOAuth (or any other key) that
+   * changed after the backup was taken is kept rather than reverted. When
+   * the backup held no claudeAiOauth the key is removed again. Never throws:
+   * an unparseable backup or live file skips the restore (logged without
+   * any file content) and leaves the backup on disk for manual recovery.
+   *
+   * @param {string} backupPath - Backup created by backupLiveFile.
+   * @returns {boolean} True when the live file was rewritten.
+   */
+  function _restoreLiveCredentialsFromBackup(backupPath) {
+    try {
+      const backupObj = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
+      if (!backupObj || typeof backupObj !== 'object' || Array.isArray(backupObj)) {
+        throw new Error('backup is not a JSON object');
+      }
+      const priorOauth = (backupObj.claudeAiOauth && typeof backupObj.claudeAiOauth === 'object')
+        ? backupObj.claudeAiOauth : null;
+      writeFileAtomic(credFilePath, _buildMergedCredentialsText(priorOauth));
+      return true;
+    } catch (err) {
+      log.warn('[Credentials] live token-file restore skipped (' + ((err && err.code) || 'error')
+        + '); the backup stays on disk for manual recovery: ' + backupPath);
+      return false;
     }
   }
 
@@ -1863,6 +1984,229 @@ function createCredentialManager(opts = {}) {
   }
 
   /**
+   * Read-only identity lookup for one access token (W3): GET the OAuth
+   * profile endpoint and classify the answer. Never a token endpoint, never
+   * a refresh. Same deadlock discipline as fetchUsage: ONE abort controller
+   * spans the request AND the body read, and the timer is cleared only in
+   * finally, because this runs inside the serialize() mutex.
+   *
+   *   { ok: true, status, profile }          HTTP 200 whose body names a
+   *                                           valid account.uuid
+   *   { ok: false, kind: 'auth', status }     HTTP 401/403: the captured
+   *                                           token was not accepted
+   *   { ok: false, kind: 'transient', ... }   network, timeout, 429, 5xx,
+   *                                           or a body without an account
+   *
+   * Detail strings are fixed text: they never carry the token or the body.
+   *
+   * @param {string} accessToken - The captured access token.
+   * @returns {Promise<object>} Classification per above.
+   */
+  async function fetchProfile(accessToken) {
+    if (!accessToken || typeof fetchImpl !== 'function') {
+      return { ok: false, kind: 'transient', status: null, detail: 'no fetch implementation or token available' };
+    }
+    const timeoutMs = Math.max(1, Number(getSettings().httpTimeoutSec) || 5) * 1000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    if (timer.unref) timer.unref();
+    try {
+      let res;
+      try {
+        res = await fetchImpl(profileUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': 'Bearer ' + accessToken,
+            'anthropic-beta': ANTHROPIC_OAUTH_BETA,
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal,
+        });
+      } catch (err) {
+        const timedOut = !!(err && (err.name === 'AbortError' || err.name === 'TimeoutError' || err.code === 'ABORT_ERR'));
+        return { ok: false, kind: 'transient', status: null, detail: timedOut ? 'timeout' : 'network error' };
+      }
+      if (!res) return { ok: false, kind: 'transient', status: null, detail: 'no response' };
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, kind: 'auth', status: res.status, detail: 'the profile endpoint rejected the captured token' };
+      }
+      if (!res.ok) {
+        return { ok: false, kind: 'transient', status: res.status, detail: 'HTTP ' + res.status + ' from the profile endpoint' };
+      }
+      const body = await res.json().catch(() => null);
+      const uuid = body && body.account && typeof body.account.uuid === 'string' ? body.account.uuid : '';
+      if (!validateAccountUuid(uuid)) {
+        return { ok: false, kind: 'transient', status: res.status, detail: 'the profile response named no valid account uuid' };
+      }
+      return { ok: true, status: res.status, profile: body };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Build an oauthAccount-shaped identity from an OAuth profile response,
+   * mirroring the field mapping Claude Code itself applies after /login
+   * (account.* and organization.* renamed to the camelCase keys it stores in
+   * .claude.json). Only fields that are present are copied. Used when the
+   * capture dir has no .claude.json identity and no stored identity exists.
+   *
+   * @param {object} profile - Parsed profile response (account, organization).
+   * @returns {object} oauthAccount-shaped identity (never token material).
+   */
+  function _identityFromProfile(profile) {
+    const account = (profile && profile.account && typeof profile.account === 'object') ? profile.account : {};
+    const org = (profile && profile.organization && typeof profile.organization === 'object') ? profile.organization : {};
+    const identity = { accountUuid: account.uuid };
+    const put = (key, value) => { if (value !== undefined && value !== null && value !== '') identity[key] = value; };
+    put('emailAddress', account.email);
+    put('organizationUuid', org.uuid);
+    put('displayName', account.display_name);
+    put('fullName', account.full_name);
+    put('hasExtraUsageEnabled', org.has_extra_usage_enabled);
+    put('billingType', org.billing_type);
+    put('accountCreatedAt', account.created_at);
+    put('subscriptionCreatedAt', org.subscription_created_at);
+    put('organizationName', org.name);
+    put('organizationType', org.organization_type);
+    put('organizationRateLimitTier', org.rate_limit_tier);
+    put('seatTier', org.seat_tier);
+    identity.profileFetchedAt = clock();
+    return identity;
+  }
+
+  /**
+   * Unlocked core of importIsolated (W3): import a login that the Quota
+   * widget captured in an isolated CLAUDE_CONFIG_DIR, without touching any
+   * live file. Order is load-bearing:
+   *
+   *   1. passive-mode guard (409 CRED_POOL_EXTERNAL_OWNER), label check;
+   *   2. allowlist: the dir's REAL path must be inside
+   *      %LOCALAPPDATA%\Quota\capture\ (400 PATH_NOT_ALLOWED);
+   *   3. read <dir>/.credentials.json (claudeAiOauth.accessToken and
+   *      refreshToken required, else 422 CRED_IMPORT_INCOMPLETE) and the
+   *      optional <dir>/.claude.json oauthAccount, both from that dir only;
+   *   4. confirm the identity with GET /api/oauth/profile using the captured
+   *      access token (401/403: 422 PROFILE_REJECTED; network, timeout, 5xx:
+   *      502 PROFILE_FETCH_FAILED, retryable); a captured oauthAccount whose
+   *      accountUuid differs from the profile's: 409 IDENTITY_MISMATCH;
+   *   5. the live PC account itself: 409 ALREADY_LIVE (its lineage belongs
+   *      to the running CLI; the rotation watcher already tracks it);
+   *   6. upsert the snapshot keyed by accountUuid: the captured credentials
+   *      (every key), the identity, tokenState ok, lastRefreshError null,
+   *      updatedAt now, the existing label kept unless one is given.
+   *
+   * Never calls a token endpoint, never logs or returns token material.
+   *
+   * @param {{configDir: string, label?: string|null}} importOpts
+   * @returns {Promise<{profileId: string, created: boolean}>}
+   */
+  async function _importIsolatedUnlocked(importOpts = {}) {
+    assertCredentialPoolWritable('Credential import');
+    let label = '';
+    if (importOpts.label != null) {
+      if (typeof importOpts.label !== 'string') throw credError(400, 'VALIDATION', 'label must be a string');
+      label = importOpts.label.trim();
+      if (label.length > LABEL_MAX_LENGTH) {
+        throw credError(400, 'VALIDATION', 'label must be ' + LABEL_MAX_LENGTH + ' characters or fewer');
+      }
+    }
+    const resolved = resolveCaptureDir(importOpts.configDir, captureRootOverride || undefined);
+
+    // Credentials: from the capture dir only, never from a live path.
+    const credText = readCaptureFile(resolved, CREDENTIALS_FILE_NAME);
+    if (credText === null) {
+      throw credError(422, 'CRED_IMPORT_INCOMPLETE',
+        'The capture directory has no ' + CREDENTIALS_FILE_NAME + ' yet. Finish the login first.');
+    }
+    let credObj = null;
+    try { credObj = JSON.parse(credText); } catch (_) { credObj = null; }
+    const oauth = credObj && typeof credObj === 'object' && credObj.claudeAiOauth && typeof credObj.claudeAiOauth === 'object'
+      ? credObj.claudeAiOauth : null;
+    if (!oauth || typeof oauth.accessToken !== 'string' || !oauth.accessToken
+      || typeof oauth.refreshToken !== 'string' || !oauth.refreshToken) {
+      throw credError(422, 'CRED_IMPORT_INCOMPLETE',
+        'The captured ' + CREDENTIALS_FILE_NAME + ' has no complete claudeAiOauth access/refresh token pair.');
+    }
+
+    // Optional identity file written by the CLI next to the tokens.
+    let capturedIdentity = null;
+    const identityText = readCaptureFile(resolved, CAPTURE_IDENTITY_FILE_NAME);
+    if (identityText !== null) {
+      try {
+        const parsed = JSON.parse(identityText);
+        const acct = parsed && parsed.oauthAccount;
+        if (acct && typeof acct === 'object' && !Array.isArray(acct) && typeof acct.accountUuid === 'string' && acct.accountUuid) {
+          capturedIdentity = acct;
+        }
+      } catch (_) {
+        capturedIdentity = null; // unreadable identity: the profile answer decides
+      }
+    }
+
+    // Identity confirmation through the injectable profile fetcher.
+    const fetcher = profileFetcherOverride || fetchProfile;
+    let answer;
+    try {
+      answer = await fetcher(oauth.accessToken);
+    } catch (_) {
+      answer = { ok: false, kind: 'transient', status: null, detail: 'profile check failed' };
+    }
+    if (!answer || !answer.ok) {
+      if (answer && answer.kind === 'auth') {
+        throw credError(422, 'PROFILE_REJECTED',
+          'The profile endpoint did not accept the captured login (HTTP ' + (answer.status != null ? answer.status : 'unknown')
+          + '). Log in again.');
+      }
+      throw credError(502, 'PROFILE_FETCH_FAILED',
+        'Could not confirm which account the captured login belongs to (' + String((answer && answer.detail) || 'no answer')
+        + '). Nothing was imported; retry shortly.', true);
+    }
+    const profileAccount = (answer.profile && answer.profile.account) || {};
+    const uuid = typeof profileAccount.uuid === 'string' ? profileAccount.uuid : '';
+    if (!validateAccountUuid(uuid)) {
+      throw credError(502, 'PROFILE_FETCH_FAILED',
+        'The profile endpoint named no valid account uuid. Nothing was imported; retry shortly.', true);
+    }
+    if (capturedIdentity && capturedIdentity.accountUuid !== uuid) {
+      throw credError(409, 'IDENTITY_MISMATCH',
+        'The captured identity (' + String(capturedIdentity.accountUuid).slice(0, 8) + ') does not match the account the '
+        + 'captured token belongs to (' + uuid.slice(0, 8) + '). Nothing was imported.');
+    }
+    const activeUuid = getActiveAccountUuid();
+    if (activeUuid && activeUuid === uuid) {
+      throw credError(409, 'ALREADY_LIVE',
+        'That account is the one currently logged in on this PC; it is already tracked. Nothing was imported.');
+    }
+
+    // Upsert keyed by accountUuid (the Workbook key; emails are display only).
+    const existing = readSnapshot(uuid);
+    let identity = capturedIdentity;
+    if (!identity && existing && existing.identity && existing.identity.accountUuid === uuid) {
+      identity = existing.identity;
+    }
+    if (!identity) identity = _identityFromProfile(answer.profile);
+    const nowIso = new Date(clock()).toISOString();
+    const email = (typeof identity.emailAddress === 'string' && identity.emailAddress)
+      || (typeof profileAccount.email === 'string' ? profileAccount.email : '')
+      || (existing && existing.email) || '';
+    _writeSnapshot({
+      ...(existing || {}),
+      accountUuid: uuid,
+      email,
+      label: label || (existing && existing.label) || '',
+      savedAt: (existing && existing.savedAt) || nowIso,
+      updatedAt: nowIso,
+      credentials: { ...oauth },
+      identity,
+      usage: (existing && existing.usage) || null,
+      tokenState: TOKEN_STATE_OK,
+      lastRefreshError: null,
+    });
+    return { profileId: uuid, created: !existing };
+  }
+
+  /**
    * Unlocked core of seedFromClaudeSwap: one-time READ-ONLY conversion of
    * claude-swap's profiles/pc/*.json into our schema. Idempotence comes from
    * an explicit sentinel file (<accountsDir>/.seeded) written after the
@@ -2031,6 +2375,12 @@ function createCredentialManager(opts = {}) {
    * account is inactive here); transient verification failures apply anyway
    * with a warning instead of blocking.
    *
+   * W1 (Quota widget support): the live token file is written by
+   * read-modify-write (only claudeAiOauth is replaced; mcpOAuth and every
+   * other top-level key survive apply AND rollback), and an existing token
+   * file that does not parse aborts the apply with 409 CRED_LIVE_UNPARSEABLE
+   * before any live file is written.
+   *
    * @param {string} accountUuid - The target profileId.
    * @returns {Promise<{applied: boolean, alreadyActive: boolean, email: string, warning?: string}>}
    */
@@ -2100,6 +2450,12 @@ function createCredentialManager(opts = {}) {
       }
     }
 
+    // Step 0.9 (W1 preflight): the token write below is a read-modify-write
+    // that must keep mcpOAuth and every other top-level key. If the live
+    // token file exists but cannot be parsed, abort NOW, before any live
+    // file (identity included) is touched. Throws CRED_LIVE_UNPARSEABLE.
+    _readLiveCredentialsObject();
+
     // Step a: arm the self-write guard so the watcher ignores our writes.
     _selfWriteUntil = clock() + SELF_WRITE_GUARD_MS;
     // Step 1: capture the CURRENT account's freshest rotated tokens before
@@ -2126,8 +2482,13 @@ function createCredentialManager(opts = {}) {
     }
     // Step 4: TOKENS LAST. On failure restore the identity file atomically
     // (a live Claude process may be mid-read; same torn-write-proof path).
+    // W1: read-modify-write, replacing ONLY claudeAiOauth (all snapshot
+    // credential keys) and keeping mcpOAuth plus every other top-level key.
+    // The file is re-read here (not reused from the preflight) so a key a
+    // concurrent Claude process wrote a moment ago is kept too; if it became
+    // unparseable in between, the throw lands in the identity-restore path.
     try {
-      writeFileAtomic(credFilePath, serializeCredentialsFile(snap.credentials));
+      writeFileAtomic(credFilePath, _buildMergedCredentialsText(snap.credentials));
     } catch (credWriteErr) {
       const detail = (credWriteErr && credWriteErr.message) || String(credWriteErr);
       if (jsonBackup) {
@@ -2150,7 +2511,9 @@ function createCredentialManager(opts = {}) {
       // the exact identity/token mismatch this transaction exists to avoid).
       try {
         if (jsonBackup) writeFileAtomic(claudeJsonPath, fs.readFileSync(jsonBackup, 'utf-8'));
-        if (credBackup) writeFileAtomic(credFilePath, fs.readFileSync(credBackup, 'utf-8'));
+        // W1: the token half is restored by read-modify-write too (only
+        // claudeAiOauth goes back; mcpOAuth and other keys are kept).
+        if (credBackup) _restoreLiveCredentialsFromBackup(credBackup);
       } catch (_) { /* verify rollback is best effort; backups remain on disk */ }
       throw credError(500, 'CRED_VERIFY_FAILED',
         'Post-apply verification failed: the live identity does not report the target account. Backups are in ' + backupsDir + '.');
@@ -2471,6 +2834,10 @@ function createCredentialManager(opts = {}) {
     migrateLegacyMacHost,
     // Capture / seed / labels
     captureCurrent: (o) => serialize(() => _captureCurrentUnlocked(o), 'capture'),
+    // W3 (Quota widget support): import an isolated capture dir, identity
+    // confirmed via the profile endpoint; runs inside the serialized chain.
+    importIsolated: (o) => serialize(() => _importIsolatedUnlocked(o), 'import-isolated'),
+    fetchProfile,
     seedFromClaudeSwap: (dir) => serialize(() => _seedFromClaudeSwapUnlocked(dir), 'seed'),
     setLabel: (uuid, label) => serialize(() => _setLabelUnlocked(uuid, label), 'set-label'),
     // Network
@@ -2521,6 +2888,7 @@ module.exports = {
   DEFAULT_CRED_SETTINGS,
   ANTHROPIC_TOKEN_URL,
   ANTHROPIC_USAGE_URL,
+  ANTHROPIC_PROFILE_URL,
   ANTHROPIC_OAUTH_BETA,
   ANTHROPIC_OAUTH_CLIENT_ID,
   REFRESH_TIMEOUT_MS,

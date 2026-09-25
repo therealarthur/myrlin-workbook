@@ -934,6 +934,7 @@ const standaloneTests = [
   'provider-account-manager.test.js',    // feat/codex-account-switcher C2: generic manager (capture, watcher, strictly-newer merge, apply transaction, v1 no-refresh usage policy, leak gate)
   'provider-account-routes.test.js',     // feat/codex-account-switcher C2: /api/provider-accounts routes (auth wall, six routes, SSE payload discipline, leak gate)
   'provider-account-tabs.test.js',       // feat/codex-account-switcher C2: account-panel tab bar + provider pipeline + SSE cases + CSS gates
+  'quota-widget-support.test.js',        // feat/quota-widget-support: W1 mcpOAuth-preserving apply/rollback, W2 CODEX_RUNNING warn-and-allow, W3 isolated imports (capture-root allowlist, profile identity check)
   'windows-hide-sweep.test.js',  // chore/windowshide-sweep: every server-side child_process call site passes windowsHide (source gate)
   'git-conflict-cache.test.js',  // chore/windowshide-sweep: short-TTL git status cache hit/expiry/eager invalidation
   'jsonl-tailer.test.js',            // issue #10 T1 P1: byte-offset tailer (watch+poll, UTF-8 carry, truncate reset, oversized sentinel) + readTailWindow
