@@ -37,6 +37,10 @@ const HERMETIC_UI_TEST = process.env.CWM_TEST_HERMETIC_UI === '1';
 // abstraction is ready for Phase 17 (Codex) without further surgery.
 const registry = require('../providers');
 const claudeProvider = require('../providers/claude');
+// 2026-09-26: resume targets inside a custom session command, for the legacy
+// start/restart live-session guard (legacyLaunchLiveGuard).
+const { parseResumeCommand, newestTranscriptForCwd, appendDecisionLog } = require('../providers/claude/live-sessions');
+const { expandHome } = require('../utils/path-utils');
 
 /**
  * Resolve the Provider object for a session record. Reads session.provider,
@@ -1895,11 +1899,90 @@ app.put('/api/session-titles/:providerId/:uuid', requireAuth, (req, res) => {
 });
 
 /**
+ * Live-session guard for the legacy console launcher (2026-09-26).
+ *
+ * POST /api/sessions/:id/start and /restart (Restart-all and the credential
+ * switcher's post-apply restart both land on /restart) run
+ * `session.command` in a new console window after killing `session.pid`.
+ * With the bare CLI that starts a fresh conversation and cannot fork one,
+ * so it passes. Two cases are refused:
+ *   - the session's pane is a `claude attach` client of a live background
+ *     session: a restart would only kill that view and open an unrelated
+ *     fresh session, while the background session runs on untouched;
+ *   - the command itself resumes a conversation ("claude --resume <id>",
+ *     "claude --continue") that is live right now (same lookup and fail-safe
+ *     rules as the pane gate): launching it would fork the live session.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<{status: number, code: string, error: string}|null>} null = allowed.
+ */
+async function legacyLaunchLiveGuard(sessionId) {
+  const store = getStore();
+  const rec = store.getSession(sessionId);
+  if (!rec) return null;
+  const ptyMgr = getPtyManager();
+  const pane = ptyMgr ? ptyMgr.getSession(sessionId) : null;
+  if (pane && pane.alive && pane.attachShortId) {
+    appendDecisionLog('legacy-launch session=' + sessionId + ' refused: attach pane of background session ' + pane.attachShortId);
+    return {
+      status: 409,
+      code: 'LIVE_BACKGROUND',
+      error: 'Skipped: this pane is attached to the live background session ' + pane.attachShortId
+        + '. Starting or restarting it here would only close the view and open an unrelated new session. The background session is still running.',
+    };
+  }
+  // What the launcher runs is decided by the command, not the provider tag:
+  // a "claude --resume <id>" command is Claude's whatever the record says.
+  const provider = claudeProvider;
+  if (!provider || typeof provider.liveSessionLookup !== 'function') return null;
+  const command = rec.command || registry.getProvider(rec.provider || claudeProvider.id)?.cliBinary || provider.cliBinary;
+  const parsed = parseResumeCommand(command, provider.cliBinary);
+  if (!parsed || parsed.fork || (!parsed.resumeId && !parsed.continueInCwd && !parsed.unknownResume)) return null;
+  const lookup = provider.liveSessionLookup();
+  let decision;
+  let target = parsed.resumeId;
+  if (target) {
+    decision = await lookup.resolveResumeAction({ resumeSessionId: target, record: rec });
+  } else {
+    // --continue resumes the newest conversation in the folder the console
+    // opens in (session-manager: expandHome(workingDir) || process.cwd());
+    // the resume picker and --from-pr pick one when the CLI starts, so for
+    // those only the folder rule applies.
+    const cwd = expandHome(rec.workingDir) || process.cwd();
+    target = parsed.continueInCwd ? newestTranscriptForCwd(cwd) : null;
+    decision = await lookup.resolveContinueAction({ cwd, transcriptId: target, record: rec });
+  }
+  const line = 'legacy-launch live-check session=' + sessionId + ' transcript=' + (target || '-') + ' action=' + decision.action
+    + (decision.reason ? ' reason=' + decision.reason : '');
+  console.log('[' + line + ']');
+  appendDecisionLog(line);
+  if (decision.action === 'resume') return null;
+  return {
+    status: 409,
+    code: 'LIVE_ELSEWHERE',
+    error: 'Not started: this session\'s command resumes '
+      + (target ? 'conversation ' + target : 'the newest conversation in its folder')
+      + ', which is live right now'
+      + (decision.action === 'attach' ? ' as background session ' + decision.shortId : '')
+      + '. Starting it would fork the live session. Open it in a pane instead.',
+  };
+}
+
+/**
  * POST /api/sessions/:id/start
  * Launch the session process and mark it as recently used.
  */
-app.post('/api/sessions/:id/start', requireAuth, (req, res) => {
+app.post('/api/sessions/:id/start', requireAuth, async (req, res) => {
   const store = getStore();
+  // 2026-09-26: never fork a live Claude session from the legacy launcher.
+  let liveBlock = null;
+  try { liveBlock = await legacyLaunchLiveGuard(req.params.id); } catch (err) {
+    console.error('[legacy-launch] live guard failed: ' + (err && err.message));
+    liveBlock = null;
+  }
+  if (liveBlock) {
+    return res.status(liveBlock.status).json({ success: false, error: liveBlock.error, code: liveBlock.code });
+  }
   const result = launchSession(req.params.id);
 
   if (result.success) {
@@ -1922,8 +2005,18 @@ app.post('/api/sessions/:id/stop', requireAuth, (req, res) => {
  * POST /api/sessions/:id/restart
  * Restart the session process and mark it as recently used.
  */
-app.post('/api/sessions/:id/restart', requireAuth, (req, res) => {
+app.post('/api/sessions/:id/restart', requireAuth, async (req, res) => {
   const store = getStore();
+  // 2026-09-26: Restart-all and the credential switcher's restart come here.
+  // Skip attach panes and live resume targets instead of killing and relaunching.
+  let liveBlock = null;
+  try { liveBlock = await legacyLaunchLiveGuard(req.params.id); } catch (err) {
+    console.error('[legacy-launch] live guard failed: ' + (err && err.message));
+    liveBlock = null;
+  }
+  if (liveBlock) {
+    return res.status(liveBlock.status).json({ success: false, error: liveBlock.error, code: liveBlock.code });
+  }
   const result = restartSession(req.params.id);
 
   if (result.success) {
@@ -6655,6 +6748,14 @@ app.post('/api/pty/:sessionId/kill', requireAuth, (req, res) => {
   const session = ptyMgr.getSession(sessionId);
 
   if (!session) {
+    // 2026-09-26: while a pane waits on the live-session check (or sits on
+    // its notice) there is no PTY yet, but a Kill must still stop the pending
+    // spawn; killSession bumps the check's epoch and closes held sockets.
+    if (typeof ptyMgr.hasPendingLiveCheck === 'function' && ptyMgr.hasPendingLiveCheck(sessionId)) {
+      ptyMgr.killSession(sessionId);
+      console.log(`[API] Cancelled the pending live-session check for ${sessionId}`);
+      return res.json({ success: true, pid: null, cancelled: true });
+    }
     return res.status(404).json({ error: 'No active PTY session found' });
   }
 

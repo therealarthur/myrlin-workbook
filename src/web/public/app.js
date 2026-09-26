@@ -6265,7 +6265,13 @@ class CWMApp {
 
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || `Request failed (${res.status})`);
+        const apiErr = new Error(errBody.error || `Request failed (${res.status})`);
+        // Keep the machine-readable parts so callers can branch without
+        // matching message text (2026-09-26: LIVE_BACKGROUND / LIVE_ELSEWHERE
+        // from the legacy start/restart live-session guard).
+        apiErr.status = res.status;
+        if (errBody && errBody.code) apiErr.code = errBody.code;
+        throw apiErr;
       }
 
       // Handle 204 No Content
@@ -12835,14 +12841,30 @@ class CWMApp {
       if (!confirmed) return;
     }
 
+    // 2026-09-26: the server refuses to restart a pane attached to a live
+    // background session (LIVE_BACKGROUND) or a command that would fork a
+    // live one (LIVE_ELSEWHERE). Count those apart so the toast is honest.
+    let restarted = 0;
+    let skippedLive = 0;
+    let failedOther = 0;
     for (const s of runningSessions) {
       try {
         await this.api('POST', `/api/sessions/${s.id}/restart`);
-      } catch {
+        restarted++;
+      } catch (err) {
+        if (err && (err.code === 'LIVE_BACKGROUND' || err.code === 'LIVE_ELSEWHERE')) skippedLive++;
+        else failedOther++;
         // continue with others
       }
     }
-    this.showToast(`Restarted ${runningSessions.length} session(s)`, 'success');
+    if (skippedLive > 0 || failedOther > 0) {
+      const parts = [`Restarted ${restarted} session(s).`];
+      if (skippedLive > 0) parts.push(`Skipped ${skippedLive} live session(s); they keep running.`);
+      if (failedOther > 0) parts.push(`${failedOther} failed.`);
+      this.showToast(parts.join(' '), failedOther > 0 ? 'warning' : 'info');
+    } else {
+      this.showToast(`Restarted ${runningSessions.length} session(s)`, 'success');
+    }
     await this.loadSessions();
     await this.loadStats();
   }
@@ -28686,8 +28708,10 @@ class CWMApp {
             this.openPRDialog(taskId);
           } else if (btn.classList.contains('wt-review-btn-resume')) {
             try {
-              await this.api('PUT', `/api/worktree-tasks/${taskId}`, { status: 'running', completedAt: null });
+              // 2026-09-26: restart first, so a refused restart (the live-session
+              // guard answers 409) does not leave the task marked running.
               await this.api('POST', `/api/sessions/${session.id}/restart`);
+              await this.api('PUT', `/api/worktree-tasks/${taskId}`, { status: 'running', completedAt: null });
               this.showToast('Resumed worktree task', 'success');
               this.renderSessionDetail();
             } catch (err) {

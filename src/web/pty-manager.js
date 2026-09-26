@@ -18,6 +18,14 @@ const crypto = require('crypto');
 // Forward encoder for Claude's ~/.claude/projects/<dir> naming. Used by the
 // post-spawn JSONL watcher's candidate-dir matcher (see findCandidateDirs).
 const { encodeClaudeProjectDir } = require('../providers/claude/path-decode');
+// Live-session gate (2026-09-26): case-insensitive transcript id compare,
+// shared with the lookup so both sides agree on what "the same session" is.
+const {
+  sameTranscriptId,
+  parseResumeCommand,
+  newestTranscriptForCwd,
+  appendDecisionLog,
+} = require('../providers/claude/live-sessions');
 
 // Ensure node-pty's prebuilt spawn-helper is executable BEFORE requiring node-pty.
 // node-pty's prebuild ships with mode 644 instead of 755, causing posix_spawnp
@@ -223,6 +231,127 @@ const WS_BACKPRESSURE_BYTES = 65536; // 64KB
 // 'exit'/'resumeId'/'error': raw PTY data is sent as plain strings, control
 // messages as JSON-stringified objects with a 'type' field.
 const RESET_MSG = JSON.stringify({ type: 'reset' });
+
+// ─── Live-session gate (2026-09-26) ──────────────────────────────────────
+//
+// Opening a Claude pane runs `claude --resume <transcript>`. If that
+// transcript belongs to a session that is running right now (a `claude --bg`
+// background session, or an interactive terminal on the PC), the resume FORKS
+// it. attachClient therefore asks `claude agents --json` first (through the
+// provider's optional liveSessionLookup) and attaches, holds the socket on a
+// notice, or resumes. These are the tunables and the stable code for it.
+
+// Coded error spawnSession throws when a resume that skipped the gate targets
+// a transcript the lookup already knows is live. attachClient maps it to the
+// same notice the gate shows.
+const CLAUDE_SESSION_LIVE_CODE = 'CLAUDE_SESSION_LIVE';
+// Notice code on the {type:'notice'} frame (shown as a toast by app.js).
+const LIVE_ELSEWHERE_NOTICE_CODE = 'LIVE_ELSEWHERE';
+// A Workbook PTY for the same transcript that exited this recently may still
+// be listed by `claude agents` while it tears down (Restart, Change
+// Environment, toggles all kill and reopen). The gate re-asks a few times
+// with a fresh listing before calling it "live elsewhere".
+const OWN_EXIT_GRACE_MS = 15000;
+// Above the lookup's 1 s fresh-reuse floor, so every re-check really asks.
+const OWN_EXIT_RECHECK_DELAY_MS = 1100;
+const OWN_EXIT_RECHECK_ATTEMPTS = 3;
+// Keepalive for a socket held on the notice (it is not in any session's
+// client set, so the per-session ping loop does not cover it).
+const LIVE_HOLD_PING_MS = 30000;
+// The typed confirmation word, and a cap on the typed line.
+const LIVE_HOLD_CONFIRM_WORD = 'copy';
+const LIVE_HOLD_MAX_LINE = 64;
+// A Workbook Claude pane younger than this may not be registered with the CLI
+// yet, so it does not count for the blind-listing check.
+const SIGHT_CHECK_MIN_PANE_AGE_MS = 30000;
+
+/**
+ * True when two live-gate results point at the same spawn target. For a
+ * `--continue` command only the folder counts: which transcript is newest in
+ * it can flip while sessions write, and that must not re-trigger the check.
+ * @param {object} a
+ * @param {object} b
+ * @returns {boolean}
+ */
+function sameGateTarget(a, b) {
+  if (!a || !b) return false;
+  if (!!a.viaCommand !== !!b.viaCommand || a.cliBinary !== b.cliBinary) return false;
+  if (a.continueCwd || b.continueCwd) {
+    return String(a.continueCwd || '').toLowerCase() === String(b.continueCwd || '').toLowerCase();
+  }
+  return sameTranscriptId(a.resumeSessionId, b.resumeSessionId);
+}
+
+/**
+ * Remove terminal control characters from text that came from outside
+ * (session names from `claude agents`) before it is written into a pane.
+ * @param {*} s
+ * @returns {string}
+ */
+function stripControlChars(s) {
+  return String(s == null ? '' : s).replace(/[\x00-\x1f\x7f-\x9f]/g, '');
+}
+
+/**
+ * Human wording for a live-session notice decision. Pure; exported for tests.
+ *
+ * @param {object} decision - {reason, entry?, marker?, error?, otherSessionId?}
+ * @param {number} [now=Date.now()]
+ * @returns {{headline: string, lines: string[]}} headline goes to the toast,
+ *   lines are written into the pane.
+ */
+function describeLiveNotice(decision, now = Date.now()) {
+  const d = decision || {};
+  const entry = d.entry || null;
+  const copyLine = 'Opening it here would start a copy of it that writes to the same conversation.';
+  let headline;
+  let detail = copyLine;
+  const who = (e) => {
+    if (!e) return '';
+    const bits = [];
+    if (e.name) bits.push('"' + stripControlChars(e.name) + '"');
+    if (Number.isFinite(e.pid)) bits.push('pid ' + e.pid);
+    return bits.length ? ' (' + bits.join(', ') + ')' : '';
+  };
+  switch (d.reason) {
+    case 'interactive':
+      headline = 'This session is live in a terminal on the PC' + who(entry) + '.';
+      break;
+    case 'open-in-workbook':
+      headline = 'This session is already open in another Workbook pane' + (d.otherSessionId ? ' (' + d.otherSessionId + ')' : '') + '.';
+      break;
+    case 'unattachable':
+      headline = 'This session is running' + (entry && entry.kind ? ' as ' + stripControlChars(entry.kind) : '') + who(entry) + ', but Workbook cannot attach to it.';
+      break;
+    case 'continue-live-cwd':
+      headline = 'This session\'s command picks its conversation when it starts (--continue, --from-pr or the resume picker), and a session is live in its folder' + who(entry) + '.';
+      detail = 'Workbook cannot tell which conversation it would pick, so it could start a copy of the live one.';
+      break;
+    case 'lookup-failed': {
+      headline = 'Could not check whether this session is running (claude agents: ' + (d.error || 'failed') + ').';
+      const m = d.marker;
+      if (m && Number.isFinite(m.at)) {
+        const mins = Math.max(0, Math.round((now - m.at) / 60000));
+        const ago = mins < 1 ? 'under a minute' : (mins < 120 ? mins + ' min' : Math.round(mins / 60) + ' h');
+        const kind = m.kind === 'background' ? 'as a background session' : 'in a terminal';
+        detail = 'It was seen live ' + kind + (m.name ? ' ("' + stripControlChars(m.name) + '")' : '') + ' ' + ago + ' ago, so opening it here could start a copy of it.';
+      } else {
+        detail = 'Its record says it is live, so opening it here could start a copy of it.';
+      }
+      break;
+    }
+    default:
+      headline = 'This session was just seen running outside this pane.';
+  }
+  return {
+    headline: headline + ' Nothing was started.',
+    lines: [
+      headline,
+      detail,
+      'Nothing was started. Type ' + LIVE_HOLD_CONFIRM_WORD + ' and press Enter to open a copy anyway, or press Enter to check again.',
+    ],
+  };
+}
 
 // ─── Viewport-ownership contention control (Notion-restyle P6.4) ──────────
 //
@@ -829,6 +958,16 @@ class PtySessionManager {
     // registry allocates nothing and loads nothing while CWM_VT_SIDECAR is
     // unset, which is the default for one release.
     this.vtRegistry = new VtSidecarRegistry();
+    // Live-session gate (2026-09-26), see _liveGateFor / _attachAfterLiveCheck.
+    // sessionId -> Promise of the in-flight live check, so two sockets opening
+    // the same session during a lookup cannot both spawn.
+    this._liveChecks = new Map();
+    // sessionId -> Set of held sockets showing the "live elsewhere" notice.
+    this._liveHolds = new Map();
+    // Claude transcript id -> ms timestamp at which a Workbook PTY running it
+    // exited or was killed. A lookup right after a restart can still list the
+    // dying process; the gate re-checks instead of calling it "live elsewhere".
+    this._recentClaudeExits = new Map();
   }
 
   /**
@@ -918,9 +1057,20 @@ class PtySessionManager {
    *        pass this. The test suite uses it to assert the Claude-only JSONL
    *        fallback fires for the claude provider but NOT for non-claude
    *        providers. Plan 14-04 PTY-03 wiring.
+   * @param {string|null} [options.attachShortId] - Short id of a live Claude
+   *        Code background session (2026-09-26). When set, the pane runs
+   *        `claude attach <id>` instead of resuming the transcript, so it joins
+   *        the running session instead of forking it. Set by attachClient's
+   *        live-session gate after `claude agents --json` matched the
+   *        transcript; skips the transcript check, id minting and the watcher.
+   * @param {boolean} [options._liveChecked] - @private set by attachClient once
+   *        the live-session gate has decided (resume, attach, or a copy the
+   *        user confirmed). Without it a Claude resume is refused when the
+   *        cached lookup already knows the transcript is live (coded throw
+   *        CLAUDE_SESSION_LIVE), so no future caller can fork by skipping the gate.
    * @returns {PtySession} The PTY session object
    */
-  spawnSession(sessionId, { command = 'claude', cwd, cols = 120, rows = 30, bypassPermissions = false, resumeSessionId = null, verbose = false, model = null, agentTeams = false, shell: requestedShell = null, newSession = false, initialPrompt = null, flags = [], provider: optsProvider = null, _ptySpawnForTesting = null, _cwdFromJsonlForTesting = null } = {}) { // gsd:provider-literal-allowed (default-command sentinel paired with useProvider check below)
+  spawnSession(sessionId, { command = 'claude', cwd, cols = 120, rows = 30, bypassPermissions = false, resumeSessionId = null, verbose = false, model = null, agentTeams = false, shell: requestedShell = null, newSession = false, initialPrompt = null, flags = [], provider: optsProvider = null, attachShortId = null, _liveChecked = false, _ptySpawnForTesting = null, _cwdFromJsonlForTesting = null } = {}) { // gsd:provider-literal-allowed (default-command sentinel paired with useProvider check below)
     // Return existing session if already alive
     const existing = this.sessions.get(sessionId);
     if (existing && existing.alive) {
@@ -984,7 +1134,11 @@ class PtySessionManager {
     // ?provider= param cannot override an authoritative store tag (Pitfall
     // 19-B mitigation). When the store record is absent (ad-hoc spawn, no
     // session row yet), the WS-query value is the next-best signal.
-    const providerId = (storeSession && storeSession.provider)
+    // 2026-09-26: an attach (set only by the live-session gate) is a Claude
+    // operation whatever the record's tag says; the gate already decided the
+    // command is Claude's, so the Claude descriptor must build it.
+    const providerId = (attachShortId ? 'claude' : null) // gsd:provider-literal-allowed (attach is Claude-only)
+      || (storeSession && storeSession.provider)
       || optsProvider
       || 'claude'; // gsd:provider-literal-allowed (back-compat default for un-tagged sessions)
 
@@ -1033,7 +1187,26 @@ class PtySessionManager {
       // CWM_CLAUDE_MINT_SESSION_ID=0 disables minting (the watcher below then
       // runs as before) in case a CLI version rejects the flag.
       if (providerId === 'claude') { // gsd:provider-literal-allowed (Claude-specific identity handling)
-        if (resumeSessionId && typeof provider.findArtifactPath === 'function') {
+        // ── Live-session attach / refusal (2026-09-26) ──
+        // attachShortId: the gate in attachClient found this transcript running
+        // as a background session, so the pane attaches to it. There is no
+        // transcript to check and no id to mint: the session already exists.
+        // Otherwise, a resume that did not come through the gate is refused
+        // when the lookup's cache or seen-live markers already say the
+        // transcript is live, because resuming it would fork a live session.
+        if (attachShortId) {
+          console.log(`[PTY] Session ${sessionId} will attach to live background session ${attachShortId}`
+            + (resumeSessionId ? ` (transcript ${resumeSessionId})` : ''));
+        } else if (resumeSessionId && !_liveChecked && typeof provider.liveSessionLookup === 'function') {
+          let knownLive = false;
+          try { knownLive = !!provider.liveSessionLookup().isKnownLive(resumeSessionId); } catch (_) { knownLive = false; }
+          if (knownLive) {
+            const liveErr = new Error('Claude session ' + resumeSessionId + ' is live outside this pane; refusing to resume a copy of it');
+            liveErr.code = CLAUDE_SESSION_LIVE_CODE;
+            throw liveErr;
+          }
+        }
+        if (resumeSessionId && !attachShortId && typeof provider.findArtifactPath === 'function') {
           let artifact = null;
           try { artifact = provider.findArtifactPath(resumeSessionId); } catch (_) { artifact = null; }
           if (!artifact) {
@@ -1042,7 +1215,7 @@ class PtySessionManager {
             console.warn(`[PTY] Transcript for resumeSessionId=${expiredResumeId} is not on disk; session ${sessionId} will start fresh`);
           }
         }
-        if (!resumeSessionId && process.env.CWM_CLAUDE_MINT_SESSION_ID !== '0') {
+        if (!resumeSessionId && !attachShortId && process.env.CWM_CLAUDE_MINT_SESSION_ID !== '0') {
           mintedSessionId = crypto.randomUUID();
         }
       }
@@ -1073,6 +1246,7 @@ class PtySessionManager {
         console.log('[PTY] spawn provider=' + providerId
           + ' sessionId=' + sessionId
           + ' resumeSessionId=' + (resumeSessionId || '<fresh>')
+          + (attachShortId ? ' attachShortId=' + attachShortId : '')
           + (mintedSessionId ? ' mintedSessionId=' + mintedSessionId : '')
           + (expiredResumeId ? ' expiredResumeId=' + expiredResumeId : '')
           + ' providerSettings=' + (providerSettingsBundle ? JSON.stringify(providerSettingsBundle) : '<none>'));
@@ -1089,6 +1263,9 @@ class PtySessionManager {
           verbose,
           initialPrompt,
           providerSettings: providerSettingsBundle,
+          // Only the Claude descriptor knows `attach`; the gate never sets it
+          // for another provider, and the null keeps other descriptors unchanged.
+          attachShortId: attachShortId || null,
         });
       } catch (err) {
         console.error('[PTY] Provider ' + providerId + ' spawnCommand failed for ' + sessionId + ': ' + err.message);
@@ -1274,6 +1451,32 @@ class PtySessionManager {
     const session = new PtySession(sessionId, ptyProcess, { cols, rows });
     this.sessions.set(sessionId, session);
 
+    // Live-session gate bookkeeping (2026-09-26). Which Claude transcript this
+    // PTY runs (so a second pane on the same transcript is recognised, and so
+    // its exit can be told apart from a session live elsewhere), whether it is
+    // an attach client, and the lookup whose cache its exit invalidates.
+    const isClaudePane = !!(useProvider && providerId === 'claude'); // gsd:provider-literal-allowed (Claude-only live-session bookkeeping)
+    session.claudeTranscriptId = isClaudePane ? (resumeSessionId || mintedSessionId || null) : null;
+    session.attachShortId = isClaudePane && attachShortId ? attachShortId : null;
+    session._liveLookup = null;
+    if (isClaudePane && typeof provider.liveSessionLookup === 'function') {
+      try { session._liveLookup = provider.liveSessionLookup(); } catch (_) { session._liveLookup = null; }
+    }
+    // A custom Claude command ("claude --resume <id>", "claude --continue")
+    // runs through the inline descriptor; track the transcript it resumes too,
+    // so a second pane on it and its own exit are recognised by the gate.
+    if (!useProvider) {
+      try {
+        const claudeProv = registry.getProvider('claude'); // gsd:provider-literal-allowed (custom Claude commands are tracked by the Claude gate)
+        const parsed = claudeProv && typeof claudeProv.liveSessionLookup === 'function'
+          ? parseResumeCommand(command, claudeProv.cliBinary) : null;
+        if (parsed && !parsed.fork && (parsed.resumeId || parsed.continueInCwd)) {
+          session.claudeTranscriptId = parsed.resumeId || newestTranscriptForCwd(resolvedCwd) || null;
+          session._liveLookup = claudeProv.liveSessionLookup();
+        }
+      } catch (_) { /* bookkeeping only */ }
+    }
+
     // ── Session identity: apply the pre-flight outcome (2026-09-22) ──
     // The pane learns its id and its history the moment the process exists,
     // not seconds later from a filesystem watcher. attachClient re-sends both
@@ -1313,6 +1516,13 @@ class PtySessionManager {
           }
         }
       } catch (_) { /* store may not have this session (ad-hoc pane) */ }
+    }
+
+    // Attach pane (2026-09-26): say what this pane is before the CLI draws,
+    // same mechanism as the expired-resume line above (part of every replay).
+    if (session.attachShortId) {
+      session.appendScrollback('\x1b[2m[Myrlin] Attached to live background session '
+        + session.attachShortId + '. Closing this pane ends only this view; the session keeps running.\x1b[0m\r\n');
     }
 
     // VT sidecar lifecycle, half one: create on spawn, sized to the PTY.
@@ -1403,6 +1613,10 @@ class PtySessionManager {
       session.alive = false;
       session.exitCode = exitCode;
 
+      // Live-session gate: this transcript's Workbook process just ended, so a
+      // cached listing that still shows it is stale (2026-09-26).
+      this._noteClaudePaneEnded(session);
+
       // VT sidecar lifecycle, half two: the shadow dies with its PTY. Doing
       // this here (rather than only in killSession) covers the case where the
       // child exits on its own and the session record lingers for reconnect.
@@ -1411,6 +1625,17 @@ class PtySessionManager {
       } catch (_) { /* sidecar is never fatal */ }
       session.vt = null;
       session.clearOwnershipTimers();
+
+      // Attach pane: the client ended, not the session. Say so before the
+      // generic "[Process exited]" status the frontend prints (2026-09-26).
+      if (session.attachShortId) {
+        const detachLine = '\r\n\x1b[2m[Myrlin] Detached from background session ' + session.attachShortId
+          + '; it keeps running. Reopen this pane to attach again.\x1b[0m\r\n';
+        session.appendScrollback(detachLine);
+        for (const client of session.clients) {
+          try { if (client.readyState === 1) client.send(detachLine); } catch (_) { /* ignore */ }
+        }
+      }
 
       // Send structured exit message to all clients (this one IS JSON)
       const exitMsg = JSON.stringify({ type: 'exit', exitCode });
@@ -1457,7 +1682,9 @@ class PtySessionManager {
     // templates) skip it entirely.
     // 2026-09-22: skipped when the id was minted above (--session-id); the
     // watcher is now only the fallback for CWM_CLAUDE_MINT_SESSION_ID=0.
-    if (useProvider && providerId === 'claude' /* gsd:provider-literal-allowed (Claude-specific JSONL watcher) */ && resolvedCwd && !resumeSessionId && !mintedSessionId) {
+    // 2026-09-26: never for an attach pane; it joins an existing session and
+    // creates no transcript to watch for.
+    if (useProvider && providerId === 'claude' /* gsd:provider-literal-allowed (Claude-specific JSONL watcher) */ && resolvedCwd && !resumeSessionId && !mintedSessionId && !attachShortId) {
       const claudeDir = path.join(os.homedir(), '.claude', 'projects');
       const findCandidateDirs = () => {
         try {
@@ -1534,6 +1761,8 @@ class PtySessionManager {
 
           // Also store on the session object for layout saves
           session.detectedResumeId = uuid;
+          // Live-session gate: this pane now runs that transcript (2026-09-26).
+          if (!session.claudeTranscriptId) session.claudeTranscriptId = uuid;
 
           // Notify connected clients so the frontend can update its
           // spawnOpts for accurate layout persistence on restart.
@@ -1549,6 +1778,532 @@ class PtySessionManager {
     }
 
     return session;
+  }
+
+  // ─── Live-session gate (2026-09-26) ────────────────────────────────────
+  //
+  // attachClient -> _liveGateFor (sync: is this a Claude resume?) ->
+  // _attachAfterLiveCheck (buffers early frames, coalesces per session) ->
+  // _decideLive (claude agents --json via the provider's lookup) ->
+  //   attach:  attachClient(..., {_liveChecked, attachShortId}) -> `claude attach <id>`
+  //   resume:  attachClient(..., {_liveChecked})                -> `claude --resume <id>`
+  //   notice:  _holdForLiveNotice: nothing spawned; the socket stays open on a
+  //            notice until the user types `copy` (open a copy anyway) or
+  //            presses Enter (check again), or leaves.
+
+  /**
+   * Work out whether attaching `sessionId` with `spawnOpts` would resume a
+   * Claude transcript, and so needs the live-session check first. Mirrors the
+   * option merge attachClient does below (store record first, then the WS
+   * query params on top) so the check sees the same resume id the spawn
+   * would use.
+   *
+   * @private
+   * @param {string} sessionId
+   * @param {object} spawnOpts
+   * @returns {{lookup: object, resumeSessionId: string, record: (object|null), fresh: boolean}|null}
+   *   null when no check is needed (not Claude, not a resume, no lookup).
+   */
+  _liveGateFor(sessionId, spawnOpts) {
+    const store = getStore();
+    const record = store.getSession(sessionId) || null;
+    const merged = record
+      ? {
+          command: record.command || 'claude', // gsd:provider-literal-allowed (mirrors the attachClient store default)
+          resumeSessionId: record.resumeSessionId || null,
+          ...spawnOpts,
+        }
+      : { ...spawnOpts };
+    const command = merged.command === undefined ? 'claude' : merged.command; // gsd:provider-literal-allowed (spawnSession default command)
+    const providerId = (record && record.provider) || merged.provider || 'claude'; // gsd:provider-literal-allowed (same resolution order as spawnSession)
+    const registry = require('../providers');
+    let provider = registry.getProvider(providerId);
+    if (!provider || typeof provider.liveSessionLookup !== 'function' || provider.cliBinary !== command) {
+      // What runs is decided by the command, not the tag: a record tagged for
+      // another provider whose command is "claude --resume <id>" still runs
+      // Claude. Fall back to the Claude provider when the command is Claude's.
+      const claudeProvider = registry.getProvider('claude'); // gsd:provider-literal-allowed (the live gate is Claude-specific)
+      if (claudeProvider && typeof claudeProvider.liveSessionLookup === 'function'
+          && parseResumeCommand(command, claudeProvider.cliBinary)) {
+        provider = claudeProvider;
+      }
+    }
+    if (!provider || typeof provider.liveSessionLookup !== 'function') return null;
+    let resumeSessionId = null;
+    let viaCommand = false;
+    let continueCwd = null;
+    if (provider.cliBinary === command) {
+      resumeSessionId = merged.resumeSessionId || null;
+    } else {
+      // A custom command ("claude --resume <id>", "claude --continue") runs
+      // through the inline descriptor, which ignores resumeSessionId; its own
+      // flags are what would resume. Gate on the transcript they point at.
+      const parsed = parseResumeCommand(command, provider.cliBinary);
+      if (!parsed || parsed.fork) return null;
+      if (parsed.resumeId) {
+        resumeSessionId = parsed.resumeId;
+      } else if (parsed.continueInCwd || parsed.unknownResume) {
+        // --continue picks the newest conversation in the folder the pane
+        // runs in; the resume picker and --from-pr pick one when the CLI
+        // starts. Resolve that folder exactly as spawnSession does for an
+        // inline command (no ~ expansion; an invalid folder falls back to
+        // the home directory). Only --continue has a knowable target.
+        const cwdIsDir = (p) => { try { return !!p && fs.statSync(p).isDirectory(); } catch (_) { return false; } };
+        const wanted = merged.cwd || (record && record.workingDir) || process.cwd();
+        continueCwd = cwdIsDir(wanted) ? wanted : os.homedir();
+        resumeSessionId = parsed.continueInCwd ? newestTranscriptForCwd(continueCwd) : null;
+      } else {
+        return null;
+      }
+      viaCommand = true;
+    }
+    if (!continueCwd && (!resumeSessionId || typeof resumeSessionId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(resumeSessionId))) return null;
+    const lookup = provider.liveSessionLookup();
+    if (!lookup || typeof lookup.resolveResumeAction !== 'function') return null;
+    this._registerSightCheck(lookup);
+    return {
+      lookup,
+      resumeSessionId,
+      record,
+      fresh: !!spawnOpts._liveFresh,
+      // An attach must run through the provider descriptor, so a custom
+      // command is swapped for the bare CLI when the answer is "attach".
+      viaCommand,
+      cliBinary: provider.cliBinary,
+      // Set for `claude --continue`: the folder whose newest conversation
+      // the command would resume (resumeSessionId may then be null).
+      continueCwd,
+    };
+  }
+
+  /**
+   * Teach the lookup what a blind listing looks like from here: while this
+   * Workbook runs Claude panes that have been up for a while, a successful
+   * but EMPTY listing cannot be right (those panes are live sessions too),
+   * so it is treated as a failed lookup and the fail-safe applies instead of
+   * "nothing is live". Only emptiness counts: a pane's own transcript id can
+   * legitimately change (/clear starts a new conversation), so matching ids
+   * would raise false alarms.
+   *
+   * @private
+   * @param {object} lookup
+   */
+  _registerSightCheck(lookup) {
+    if (!lookup || typeof lookup.setSightCheck !== 'function') return;
+    if (!this._sightChecked) this._sightChecked = new WeakSet();
+    if (this._sightChecked.has(lookup)) return;
+    this._sightChecked.add(lookup);
+    lookup.setSightCheck((entries) => {
+      if (Array.isArray(entries) && entries.length > 0) return true;
+      const now = Date.now();
+      let own = 0;
+      for (const s of this.sessions.values()) {
+        if (s.alive && s.claudeTranscriptId && !s.attachShortId && now - (s.createdAt || now) > SIGHT_CHECK_MIN_PANE_AGE_MS) own++;
+      }
+      return own === 0 ? true : 'empty listing while this Workbook runs ' + own + ' Claude pane(s)';
+    });
+  }
+
+  /**
+   * Run the live-session check for a gated attach, then continue it.
+   *
+   * While the lookup runs (up to ~5 s) the socket has no handlers yet, and ws
+   * delivers 'message' only to listeners that exist, so resize/activate
+   * frames and early keystrokes are buffered here and replayed once the real
+   * handlers are in place. A second socket for the same session waits for the
+   * first check instead of starting its own, so the two cannot both spawn.
+   *
+   * @private
+   * @param {string} sessionId
+   * @param {import('ws')} ws
+   * @param {object} spawnOpts - The caller's options (internal keys are stripped).
+   * @param {{lookup: object, resumeSessionId: string, record: (object|null), fresh: boolean}} gate
+   */
+  _attachAfterLiveCheck(sessionId, ws, spawnOpts, gate) {
+    const buffered = [];
+    let closed = false;
+    const onEarlyMessage = (data, isBinary) => { buffered.push([data, isBinary]); };
+    const onEarlyClose = () => { closed = true; };
+    ws.on('message', onEarlyMessage);
+    ws.on('close', onEarlyClose);
+    ws.on('error', onEarlyClose);
+    // Returns true when the socket is still there to continue with.
+    const settle = () => {
+      ws.removeListener('message', onEarlyMessage);
+      ws.removeListener('close', onEarlyClose);
+      ws.removeListener('error', onEarlyClose);
+      return !closed && ws.readyState === 1;
+    };
+    const replay = () => {
+      for (const [data, isBinary] of buffered.splice(0)) {
+        try { ws.emit('message', data, isBinary); } catch (_) { /* handler errors are theirs */ }
+      }
+    };
+    // Internal keys never travel further than one hop.
+    const baseOpts = { ...spawnOpts };
+    delete baseOpts._liveFresh;
+    delete baseOpts._liveChecked;
+    delete baseOpts.attachShortId;
+
+    const pending = this._liveChecks.get(sessionId);
+    if (pending) {
+      pending.catch(() => {}).then(() => {
+        if (!settle()) return;
+        // Attaches to the PTY the first check spawned, or runs its own check
+        // (instant from the lookup cache) if that one ended on a notice.
+        this.attachClient(sessionId, ws, baseOpts);
+        replay();
+      });
+      return;
+    }
+
+    const epoch = this._liveEpochOf(sessionId);
+    const run = this._decideLive(sessionId, gate).catch((err) => {
+      // resolveResumeAction does not throw; if something here does anyway,
+      // fail safe: show the notice rather than risk forking a live session.
+      console.error(`[PTY] Live-session check threw for ${sessionId}: ${err && err.message}`);
+      return { action: 'notice', reason: 'lookup-failed', error: 'exception', lookup: null };
+    });
+    this._liveChecks.set(sessionId, run);
+    run.then((checked) => {
+      let decision = checked;
+      if (this._liveChecks.get(sessionId) === run) this._liveChecks.delete(sessionId);
+      if (!settle()) {
+        console.log(`[PTY] Client left ${sessionId} during the live-session check; nothing spawned`);
+        return;
+      }
+      if (this._liveEpochOf(sessionId) !== epoch) {
+        // Killed while the lookup ran: do not bring it back behind the kill.
+        console.log(`[PTY] ${sessionId} was killed during the live-session check; nothing spawned`);
+        try { ws.close(1000, 'Session terminated'); } catch (_) {}
+        return;
+      }
+      const current = this.sessions.get(sessionId);
+      if (current && current.alive) {
+        // Spawned meanwhile (a confirmed copy from another socket): join it.
+        this.attachClient(sessionId, ws, baseOpts);
+        replay();
+        return;
+      }
+      // The decision must be about what will actually spawn. If the record
+      // changed during the lookup (a new resume id, a new command), check
+      // again for the new target instead of spawning it unchecked.
+      let again = null;
+      try { again = this._liveGateFor(sessionId, baseOpts); } catch (_) { again = null; }
+      if (!again || !sameGateTarget(again, gate)) {
+        console.log(`[PTY] ${sessionId} changed during the live-session check; checking the new target`);
+        this.attachClient(sessionId, ws, baseOpts);
+        replay();
+        return;
+      }
+      // Two panes resuming one transcript can both pass the lookup while
+      // neither has spawned yet (layout restore opens them together). This
+      // scan runs synchronously right before the spawn, and spawnSession
+      // marks its pane synchronously, so the second one sees the first.
+      if (decision.action === 'resume' && gate.resumeSessionId) {
+        const other = this._otherPaneOnTranscript(sessionId, gate.resumeSessionId);
+        if (other) decision = { action: 'notice', reason: 'open-in-workbook', otherSessionId: other, lookup: decision.lookup };
+      }
+      this._logLiveDecision(sessionId, gate, decision);
+      if (decision.action === 'attach') {
+        const attachOpts = { ...baseOpts, _liveChecked: true, attachShortId: decision.shortId };
+        if (gate.viaCommand) {
+          attachOpts.command = gate.cliBinary;
+          // Keep the transcript on the attach pane (bookkeeping, logs).
+          if (gate.resumeSessionId) attachOpts.resumeSessionId = gate.resumeSessionId;
+        }
+        this.attachClient(sessionId, ws, attachOpts);
+      } else if (decision.action === 'resume') {
+        this.attachClient(sessionId, ws, { ...baseOpts, _liveChecked: true });
+      } else {
+        this._holdForLiveNotice(sessionId, ws, baseOpts, decision);
+      }
+      replay();
+      this._releaseLiveHolds(sessionId);
+    });
+  }
+
+  /**
+   * Decide what opening this transcript should do. Adds the two things only
+   * the manager knows to the provider lookup's answer: the same transcript
+   * already resumed in another Workbook pane, and a Workbook PTY for it that
+   * exited moments ago and may still be listed while it tears down.
+   *
+   * @private
+   * @param {string} sessionId
+   * @param {{lookup: object, resumeSessionId: string, record: (object|null), fresh: boolean}} gate
+   * @returns {Promise<object>} resolveResumeAction()-shaped decision.
+   */
+  async _decideLive(sessionId, gate) {
+    const { lookup, resumeSessionId, record } = gate;
+    if (resumeSessionId) {
+      const other = this._otherPaneOnTranscript(sessionId, resumeSessionId);
+      if (other) return { action: 'notice', reason: 'open-in-workbook', otherSessionId: other, lookup: null };
+    }
+    const ask = (fresh) => (gate.continueCwd && typeof lookup.resolveContinueAction === 'function'
+      ? lookup.resolveContinueAction({ cwd: gate.continueCwd, transcriptId: resumeSessionId, record, fresh })
+      : lookup.resolveResumeAction({ resumeSessionId, record, fresh }));
+    let decision = await ask(!!gate.fresh);
+    if (resumeSessionId && this._recentClaudeExitAt(resumeSessionId)) {
+      for (let i = 0; i < OWN_EXIT_RECHECK_ATTEMPTS
+        && decision.action === 'notice' && decision.reason === 'interactive'; i++) {
+        await new Promise((resolve) => setTimeout(resolve, OWN_EXIT_RECHECK_DELAY_MS));
+        decision = await ask(true);
+      }
+    }
+    return decision;
+  }
+
+  /**
+   * Another live, non-attach Workbook pane already running this transcript,
+   * if any. Two attach clients on one background session are fine; a second
+   * resume of a transcript another pane runs is a fork.
+   *
+   * @private
+   * @param {string} sessionId - The pane asking (excluded).
+   * @param {string} transcriptId
+   * @returns {string|null} The other pane's session id.
+   */
+  _otherPaneOnTranscript(sessionId, transcriptId) {
+    if (!transcriptId) return null;
+    for (const [otherId, other] of this.sessions) {
+      if (otherId === sessionId || !other.alive || other.attachShortId) continue;
+      if (other.claudeTranscriptId && sameTranscriptId(other.claudeTranscriptId, transcriptId)) return otherId;
+    }
+    return null;
+  }
+
+  /**
+   * Kill generation for a session id: killSession bumps it, so a live check
+   * that started before a kill does not spawn after it.
+   *
+   * @private
+   * @param {string} sessionId
+   * @returns {number}
+   */
+  _liveEpochOf(sessionId) {
+    if (!this._liveEpochs) this._liveEpochs = new Map();
+    return this._liveEpochs.get(sessionId) || 0;
+  }
+
+  /**
+   * True while a pane for this session waits on the live-session check or
+   * sits on its notice (no PTY exists yet). The kill route uses it so a Kill
+   * during that window cancels the pending spawn instead of answering 404.
+   *
+   * @param {string} sessionId
+   * @returns {boolean}
+   */
+  hasPendingLiveCheck(sessionId) {
+    const holds = this._liveHolds.get(sessionId);
+    return this._liveChecks.has(sessionId) || !!(holds && holds.size > 0);
+  }
+
+  /**
+   * When a Workbook PTY for this transcript last ended, if within
+   * OWN_EXIT_GRACE_MS. Prunes older entries as it goes.
+   *
+   * @private
+   * @param {string} transcriptId
+   * @returns {number|null}
+   */
+  _recentClaudeExitAt(transcriptId) {
+    const now = Date.now();
+    let hit = null;
+    for (const [id, at] of this._recentClaudeExits) {
+      if (now - at > OWN_EXIT_GRACE_MS) { this._recentClaudeExits.delete(id); continue; }
+      if (sameTranscriptId(id, transcriptId)) hit = at;
+    }
+    return hit;
+  }
+
+  /**
+   * Record that a Claude pane's process ended (exit or kill): remember the
+   * transcript for the teardown grace window and drop the lookup cache, which
+   * may still list the process as running.
+   *
+   * @private
+   * @param {PtySession} session
+   */
+  _noteClaudePaneEnded(session) {
+    if (!session || !session.claudeTranscriptId) return;
+    this._recentClaudeExits.set(session.claudeTranscriptId, Date.now());
+    try { if (session._liveLookup) session._liveLookup.invalidate(); } catch (_) { /* never fatal */ }
+  }
+
+  /**
+   * One log line per gated decision, so logs/server.log shows why a pane
+   * attached, resumed, or stopped at a notice.
+   *
+   * @private
+   */
+  _logLiveDecision(sessionId, gate, decision) {
+    let line = '';
+    try {
+      const lk = decision.lookup;
+      line = 'live-check session=' + sessionId
+        + ' transcript=' + (gate.resumeSessionId || '-')
+        + (gate.continueCwd ? ' continue-cwd=' + gate.continueCwd : '')
+        + (gate.viaCommand ? ' via-command' : '')
+        + ' action=' + decision.action
+        + (decision.reason ? ' reason=' + decision.reason : '')
+        + (decision.shortId ? ' attach=' + decision.shortId : '')
+        + (lk ? ' lookup=' + (lk.ok ? 'ok' : 'failed:' + lk.error) + (lk.cached ? '(cached)' : '') : '')
+        + (decision.degraded ? ' degraded=resume-unmarked' : '');
+      console.log('[PTY] ' + line);
+    } catch (_) { /* console.log can EPIPE; never fatal */ }
+    // Durable copy: the served install has no console log (2026-09-26 review).
+    if (line) appendDecisionLog(line);
+  }
+
+  /**
+   * Hold a socket on the "live elsewhere" notice. Nothing is spawned. The
+   * notice is written into the pane as terminal text (every client, including
+   * an older cached bundle, renders it) and sent as a {type:'notice'} frame
+   * (shown as a toast by app.js). The socket stays open, so the client does
+   * not enter its reconnect ladder, and no "open anyway" flag ever lands in
+   * the saved layout. The user answers by typing in the pane:
+   *   `copy` + Enter  opens a copy anyway (explicit confirmation)
+   *   Enter           checks again with a fresh lookup
+   *
+   * @private
+   * @param {string} sessionId
+   * @param {import('ws')} ws
+   * @param {object} opts - Spawn options to use if the user confirms.
+   * @param {object} decision - The notice decision (reason, entry, marker, ...).
+   */
+  _holdForLiveNotice(sessionId, ws, opts, decision) {
+    const holdOpts = { ...opts };
+    delete holdOpts._liveChecked;
+    delete holdOpts._liveFresh;
+    delete holdOpts.attachShortId;
+    const notice = describeLiveNotice(decision);
+    const PROMPT = '\x1b[1;33m[Myrlin]\x1b[0m > ';
+    const line = (s) => '\x1b[1;33m[Myrlin]\x1b[0m\x1b[33m ' + s + '\x1b[0m\r\n';
+    const write = (s) => {
+      try { if (ws.readyState === 1) ws.send(s); } catch (_) { /* dead socket; close handler releases */ }
+    };
+
+    write('\r\n' + notice.lines.map(line).join('') + PROMPT);
+    sendControlFrame(ws, JSON.stringify({ type: 'notice', code: LIVE_ELSEWHERE_NOTICE_CODE, message: notice.headline }));
+    console.log(`[PTY] Holding ${sessionId} on the live-session notice (${decision.reason || 'live'}); nothing spawned`);
+    if (decision.reason === 'known-live') {
+      // The gated reasons are logged by _logLiveDecision; this one comes from
+      // the spawnSession refusal, so it gets its own durable line.
+      appendDecisionLog('live-check session=' + sessionId + ' action=notice reason=known-live (spawnSession refusal)');
+    }
+
+    let holds = this._liveHolds.get(sessionId);
+    if (!holds) { holds = new Set(); this._liveHolds.set(sessionId, holds); }
+    let typed = '';
+    let released = false;
+    const hold = { ws, opts: holdOpts, release: null };
+    const ping = setInterval(() => { try { ws.ping(); } catch (_) {} }, LIVE_HOLD_PING_MS);
+    if (typeof ping.unref === 'function') ping.unref();
+
+    const release = () => {
+      if (released) return;
+      released = true;
+      clearInterval(ping);
+      ws.removeListener('message', onMessage);
+      ws.removeListener('close', release);
+      ws.removeListener('error', release);
+      holds.delete(hold);
+      if (holds.size === 0 && this._liveHolds.get(sessionId) === holds) this._liveHolds.delete(sessionId);
+    };
+    hold.release = release;
+    holds.add(hold);
+
+    const evaluate = (entered) => {
+      const word = entered.trim().toLowerCase();
+      if (word === LIVE_HOLD_CONFIRM_WORD) {
+        console.log(`[PTY] User confirmed opening a copy of a live Claude session in ${sessionId} (${decision.reason || 'live'})`);
+        appendDecisionLog('live-check session=' + sessionId + ' user typed copy: opening a copy (' + (decision.reason || 'live') + ')');
+        write(line('Opening a copy of the session...'));
+        release();
+        this.attachClient(sessionId, ws, { ...holdOpts, _liveChecked: true });
+        this._releaseLiveHolds(sessionId);
+        return;
+      }
+      if (word === '' || word === 'retry' || word === 'check') {
+        write(line('Checking again...'));
+        release();
+        this.attachClient(sessionId, ws, { ...holdOpts, _liveFresh: true });
+        return;
+      }
+      write(line('Type ' + LIVE_HOLD_CONFIRM_WORD + ' and press Enter to open a copy anyway, or press Enter to check again.') + PROMPT);
+    };
+
+    const handleTyped = (data) => {
+      // Drop escape sequences (arrows, focus reports, paste brackets) and
+      // treat CRLF, CR and LF alike as Enter.
+      const clean = String(data)
+        .replace(/\x1b(?:\[[0-?]*[ -\/]*[@-~]|O.|.)?/g, '')
+        .replace(/\r\n/g, '\r')
+        .replace(/\n/g, '\r');
+      for (const ch of clean) {
+        if (released) return;
+        if (ch === '\r') {
+          const entered = typed;
+          typed = '';
+          write('\r\n');
+          evaluate(entered);
+          continue;
+        }
+        if (ch === '\x7f' || ch === '\b') {
+          if (typed.length > 0) { typed = typed.slice(0, -1); write('\b \b'); }
+          continue;
+        }
+        if (ch === '\x03') { typed = ''; write('^C\r\n' + PROMPT); continue; }
+        // Printable ASCII only: the one meaningful answer is "copy", and a
+        // wide or astral character would break backspace into half a pair.
+        if (ch < ' ' || ch > '~' || typed.length >= LIVE_HOLD_MAX_LINE) continue;
+        typed += ch;
+        write(ch);
+      }
+    };
+
+    const onMessage = (raw) => {
+      let data;
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg && msg.type === 'resize' && msg.cols && msg.rows) {
+          // Remember the pane size so a confirmed copy starts at it.
+          const c = Number(msg.cols);
+          const r = Number(msg.rows);
+          if (Number.isFinite(c) && c > 0 && Number.isFinite(r) && r > 0) { holdOpts.cols = c; holdOpts.rows = r; }
+          return;
+        }
+        if (!msg || msg.type !== 'input' || msg.data === undefined) return;
+        data = String(msg.data);
+      } catch (_) {
+        data = raw.toString();
+      }
+      handleTyped(data);
+    };
+
+    ws.on('message', onMessage);
+    ws.on('close', release);
+    ws.on('error', release);
+  }
+
+  /**
+   * After a gated session has spawned (attach, resume, or a confirmed copy),
+   * move every other socket still held on that session's notice onto the
+   * running PTY, so a phone that was showing the notice follows along.
+   *
+   * @private
+   * @param {string} sessionId
+   */
+  _releaseLiveHolds(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.alive) return;
+    const holds = this._liveHolds.get(sessionId);
+    if (!holds || holds.size === 0) return;
+    for (const hold of Array.from(holds)) {
+      hold.release();
+      if (hold.ws.readyState === 1) this.attachClient(sessionId, hold.ws, hold.opts);
+    }
   }
 
   /**
@@ -1578,6 +2333,22 @@ class PtySessionManager {
     }
 
     let session = this.sessions.get(sessionId);
+
+    // ── Live-session gate (2026-09-26) ──
+    // Before a Claude transcript is resumed, ask whether it is running right
+    // now outside this pane. The answer needs `claude agents --json`, which is
+    // asynchronous, so a gated attach continues in _attachAfterLiveCheck and
+    // re-enters here with _liveChecked set. Everything that is not a Claude
+    // resume (shells, td, templates, Codex, fresh sessions, test fakes without
+    // a lookup) stays on the synchronous path below, unchanged.
+    if ((!session || !session.alive) && !spawnOpts._liveChecked) {
+      let gate = null;
+      try { gate = this._liveGateFor(sessionId, spawnOpts); } catch (_) { gate = null; }
+      if (gate) {
+        this._attachAfterLiveCheck(sessionId, ws, spawnOpts, gate);
+        return;
+      }
+    }
 
     // If no live session, try to spawn from store data
     if (!session || !session.alive) {
@@ -1612,6 +2383,14 @@ class PtySessionManager {
         // 'PTY_UNAVAILABLE' close reason the early guard uses so the frontend
         // takes the degraded-banner path rather than the generic reconnect
         // path. All other spawn failures keep their descriptive reason.
+        // Live-session gate (2026-09-26): spawnSession refused a resume that
+        // reached it without the gate while the lookup already knows the
+        // transcript is live. Same outcome as the gate: a notice, no spawn.
+        if (err && err.code === CLAUDE_SESSION_LIVE_CODE) {
+          console.warn(`[PTY] ${err.message} (session ${sessionId})`);
+          this._holdForLiveNotice(sessionId, ws, spawnOpts, { action: 'notice', reason: 'known-live' });
+          return;
+        }
         if (err && err.code === PTY_UNAVAILABLE_CODE) {
           console.error(`[PTY] Cannot spawn session ${sessionId}: ${err.message}`);
           try {
@@ -1909,6 +2688,19 @@ class PtySessionManager {
    * @returns {boolean} True if session existed and was killed
    */
   killSession(sessionId) {
+    // Live-session gate (2026-09-26): a check still running for this session
+    // must not spawn after the kill, and sockets parked on its notice go
+    // the way attached clients do below.
+    if (!this._liveEpochs) this._liveEpochs = new Map();
+    this._liveEpochs.set(sessionId, this._liveEpochOf(sessionId) + 1);
+    const heldSockets = this._liveHolds.get(sessionId);
+    if (heldSockets) {
+      for (const hold of Array.from(heldSockets)) {
+        hold.release();
+        try { hold.ws.close(1000, 'Session terminated'); } catch (_) {}
+      }
+    }
+
     const session = this.sessions.get(sessionId);
     if (!session) return false;
 
@@ -1939,13 +2731,17 @@ class PtySessionManager {
     try { this.vtRegistry.dispose(sessionId); } catch (_) {}
     session.vt = null;
 
-    // Kill the PTY process
+    // Kill the PTY process. For an attach pane (session.attachShortId) this
+    // ends only the `claude attach` client: ConPTY's kill reaches the
+    // processes attached to THIS pseudo-console, and the background session
+    // runs under the Claude daemon, not under this console, so it keeps going.
     if (session.alive) {
       try {
         session.pty.kill();
       } catch (_) {}
       session.alive = false;
     }
+    this._noteClaudePaneEnded(session);
 
     // Remove from map
     this.sessions.delete(sessionId);
@@ -2073,6 +2869,10 @@ class PtySessionManager {
         // "does somebody hold the width right now".
         ownerAssigned: !!(session.sizeOwner && session.clients.has(session.sizeOwner)),
         resizeStats: Object.assign({}, session.resizeStats),
+        // 2026-09-26: true when this pane is a `claude attach` client of a
+        // live background session (killing it ends only the client).
+        attached: !!session.attachShortId,
+        attachShortId: session.attachShortId || null,
       });
     }
     return result;
@@ -2144,6 +2944,9 @@ module.exports = {
   // load without importing node-pty themselves or string-matching a message.
   getPtyAvailability,
   PTY_UNAVAILABLE_CODE,
+  // Live-session gate (2026-09-26): the coded refusal and the notice code.
+  CLAUDE_SESSION_LIVE_CODE,
+  LIVE_ELSEWHERE_NOTICE_CODE,
   // VT sidecar (P6): re-exported so the health surface and the tests can
   // probe the headless engine through the same module they already import,
   // exactly as getPtyAvailability does for node-pty.
@@ -2161,5 +2964,6 @@ module.exports = {
     isAltRingSuppressionEnabled,
     sendControlFrame,
     buildSizeFrame,
+    describeLiveNotice,
   },
 };

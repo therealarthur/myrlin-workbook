@@ -175,6 +175,23 @@ function findArtifactByWorkingDir(workingDir) {
 }
 
 const { spawnCommand } = require('./spawn');
+// 2026-09-26: live background/interactive session lookup (claude agents
+// --json), used before a pane resumes a transcript so a live session is
+// attached to instead of forked. The module resolves the data dir only on the
+// first liveSessionLookup() call, so loading the provider stays side-effect free.
+const liveSessions = require('./live-sessions');
+
+/**
+ * The process-wide live-session lookup (cached `claude agents --json`).
+ * OPTIONAL Provider member, probed with typeof by pty-manager and the legacy
+ * start/restart routes; providers without it (Codex, test fakes) keep the
+ * plain resume path.
+ *
+ * @returns {ReturnType<typeof liveSessions.createLiveSessionLookup>}
+ */
+function liveSessionLookup() {
+  return liveSessions.getDefaultLookup();
+}
 
 module.exports = {
   id: 'claude', // gsd:provider-literal-allowed
@@ -203,6 +220,8 @@ module.exports = {
   // Plan 15-01 (DISC-03): transcript artifact path resolution.
   findArtifactPath: findArtifactPath,
   findArtifactByWorkingDir: findArtifactByWorkingDir,
+  // 2026-09-26: OPTIONAL live-session lookup (attach instead of fork).
+  liveSessionLookup: liveSessionLookup,
   // Re-exports for callers that previously imported from server.js
   extractCustomTitle: extractCustomTitle,
   extractSessionName: extractSessionName,

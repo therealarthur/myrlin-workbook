@@ -54,9 +54,16 @@
  * @param {string|null} [init.model]          - Model id, e.g. `sonnet` or `claude-3-5-haiku-latest`. Validated.
  * @param {boolean} [init.verbose]            - Adds `--verbose`.
  * @param {string|null} [init.initialPrompt]  - First-turn prompt to append as the trailing positional arg. Single-quote-escaped.
+ * @param {string|null} [init.attachShortId]  - Short id of a live Claude Code BACKGROUND session (`claude agents --json`
+ *                                              `id`, 8 chars today). When set the descriptor is `claude attach <id>`
+ *                                              and every other option is ignored: the attach client joins the running
+ *                                              session instead of forking its transcript with --resume (2026-09-26).
+ *                                              Validated against /^[A-Za-z0-9]{4,32}$/ because the id is joined into
+ *                                              the pane's shell command line.
  * @returns {{cmd: string, args: string[], cwd: (string|null), env: Object<string,(string|undefined)>}} SpawnDescriptor.
  * @throws {Error} when model fails the validation regex.
  * @throws {Error} when providerSessionId fails the validation regex.
+ * @throws {Error} when attachShortId fails the validation regex.
  */
 function spawnCommand({
   sessionId,
@@ -68,11 +75,28 @@ function spawnCommand({
   model = null,
   verbose = false,
   initialPrompt = null,
+  attachShortId = null,
 } = {}) {
   // The literal 'claude' below is the CLI binary name. This file lives inside
   // src/providers/claude/, which the grep gate (Plan 14-05) skips, so the
   // marker is defensive (extra signal for future readers) rather than required.
   const cmd = 'claude'; // gsd:provider-literal-allowed (Claude provider CLI binary)
+
+  // Attach to a live background session (2026-09-26). Checked first and
+  // returned early: `claude attach` takes only the id, and none of the
+  // resume/model/permission flags apply to a session that is already running
+  // with its own settings. Same env scrub as the resume path below.
+  if (attachShortId !== null && attachShortId !== undefined && attachShortId !== '') {
+    if (typeof attachShortId !== 'string' || !/^[A-Za-z0-9]{4,32}$/.test(attachShortId)) {
+      throw new Error('unsafe attachShortId: ' + attachShortId);
+    }
+    return {
+      cmd,
+      args: ['attach', attachShortId],
+      cwd: cwd || null,
+      env: { CLAUDECODE: undefined },
+    };
+  }
 
   // Defense-in-depth validation. Mirrors pty-manager.js lines 284-291 verbatim
   // so any input that historically passed the SHELL_UNSAFE gate continues to
