@@ -1,0 +1,715 @@
+{
+  "cli": "claude",
+  "version": "2.1.283",
+  "scratchDir": "C:\\Users\\tester\\AppData\\Local\\Temp\\claude\\C--Users-tester\\00000000-0000-0000-0000-000000000000\\scratchpad\\claude-live\\claude-live-a-1790482680514",
+  "startedAt": "2026-09-27T04:18:00.515Z",
+  "results": {
+    "clearDraftWithCtrlU": true,
+    "pasteThenSubmitStartsTurn": false,
+    "busyAfterMs": null,
+    "F1_permission": {
+      "dialogOpenAfterPaste1Hello": true,
+      "dialogOpenAfterLoneCr": false
+    },
+    "turnDurationClosesTurn": true,
+    "permissionTurnRecords": [
+      {
+        "type": "last-prompt"
+      },
+      {
+        "type": "mode"
+      },
+      {
+        "type": "permission-mode"
+      },
+      {
+        "type": "atis-latch"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "file-history-snapshot"
+      },
+      {
+        "type": "user"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "last-prompt"
+      },
+      {
+        "type": "mode"
+      },
+      {
+        "type": "permission-mode"
+      },
+      {
+        "type": "atis-latch"
+      },
+      {
+        "type": "ai-title"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "assistant",
+        "blocks": [
+          "thinking"
+        ],
+        "messageId": "msg_011CfTJN1Q6dVaLMDsDURZ2a"
+      },
+      {
+        "type": "assistant",
+        "blocks": [
+          "tool_use"
+        ],
+        "messageId": "msg_011CfTJN1Q6dVaLMDsDURZ2a"
+      },
+      {
+        "type": "user",
+        "blocks": [
+          "tool_result"
+        ]
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "last-prompt"
+      },
+      {
+        "type": "ai-title"
+      },
+      {
+        "type": "mode"
+      },
+      {
+        "type": "permission-mode"
+      },
+      {
+        "type": "atis-latch"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "assistant",
+        "blocks": [
+          "thinking"
+        ],
+        "messageId": "msg_011CfTJPnQZ7oehRgFuhJ49d"
+      },
+      {
+        "type": "assistant",
+        "blocks": [
+          "text"
+        ],
+        "messageId": "msg_011CfTJPnQZ7oehRgFuhJ49d"
+      },
+      {
+        "type": "system",
+        "subtype": "stop_hook_summary"
+      },
+      {
+        "type": "system",
+        "subtype": "turn_duration",
+        "durationMs": 6581
+      }
+    ],
+    "F1_question": {
+      "dialogOpenAfterPaste1Hello": true,
+      "dialogOpenAfterLoneCr": true
+    },
+    "askTurnRecords": null,
+    "askToolInput": null,
+    "askMultiTurnRecords": [
+      {
+        "type": "queue-operation"
+      },
+      {
+        "type": "assistant",
+        "blocks": [
+          "thinking"
+        ],
+        "messageId": "msg_011CfTJPxjg1vMoT3Rv25hhj"
+      },
+      {
+        "type": "assistant",
+        "blocks": [
+          "tool_use"
+        ],
+        "messageId": "msg_011CfTJPxjg1vMoT3Rv25hhj"
+      },
+      {
+        "type": "user",
+        "blocks": [
+          "tool_result"
+        ]
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "attachment"
+      },
+      {
+        "type": "assistant",
+        "blocks": [
+          "thinking"
+        ],
+        "messageId": "msg_011CfTJYPCYnKHybqEHmLYMh"
+      },
+      {
+        "type": "assistant",
+        "blocks": [
+          "text"
+        ],
+        "messageId": "msg_011CfTJYPCYnKHybqEHmLYMh"
+      },
+      {
+        "type": "system",
+        "subtype": "stop_hook_summary"
+      },
+      {
+        "type": "system",
+        "subtype": "turn_duration",
+        "durationMs": 4089
+      }
+    ],
+    "F6_emdash": {
+      "turnDurationCount": 1,
+      "stopHookSummaries": 1,
+      "records": [
+        {
+          "type": "file-history-snapshot"
+        },
+        {
+          "type": "user"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "thinking"
+          ],
+          "messageId": "msg_011CfTJZ7yYh4KkcdjB5tQDh"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "text"
+          ],
+          "messageId": "msg_011CfTJZ7yYh4KkcdjB5tQDh"
+        },
+        {
+          "type": "system",
+          "subtype": "stop_hook_summary"
+        },
+        {
+          "type": "system",
+          "subtype": "turn_duration",
+          "durationMs": 5306
+        }
+      ]
+    },
+    "slashCommands": [
+      {
+        "name": "claude-api",
+        "description": "Reference for the Claude API / Anthropic SDK \u2014 model ids, pricing,"
+      },
+      {
+        "name": "artifact-capabilities",
+        "description": "Runtime capabilities a published Artifact page can be granted \u2014"
+      },
+      {
+        "name": "webapp-testing",
+        "description": "Toolkit for interacting with and testing local or deployed web"
+      },
+      {
+        "name": "add-dir",
+        "description": "Add a new working directory"
+      },
+      {
+        "name": "advisor",
+        "description": "Let Claude consult a stronger model at key moments"
+      },
+      {
+        "name": "artifacts",
+        "description": "Browse your published and shared artifacts"
+      },
+      {
+        "name": "auto-mode-setup",
+        "description": "Teach auto mode about your environment, plus optional rule tweaks"
+      },
+      {
+        "name": "autocompact",
+        "description": "Set how full the context gets before auto-summarizing"
+      },
+      {
+        "name": "autofix-pr",
+        "description": "Monitor and autofix any issues with the current PR"
+      },
+      {
+        "name": "background",
+        "description": "Send this session to the background and free the terminal"
+      },
+      {
+        "name": "branch",
+        "description": "Create a branch of the current conversation at this point"
+      },
+      {
+        "name": "btw",
+        "description": "Ask a quick side question without interrupting the main conversation"
+      },
+      {
+        "name": "bug",
+        "description": "Report a bug or share your conversation"
+      },
+      {
+        "name": "cd",
+        "description": "Move this session to a new working directory"
+      },
+      {
+        "name": "chrome",
+        "description": "Open Claude in Chrome settings"
+      },
+      {
+        "name": "color",
+        "description": "Set the prompt bar color for this session"
+      },
+      {
+        "name": "compact",
+        "description": "Free up context by summarizing the conversation so far"
+      },
+      {
+        "name": "config",
+        "description": "Open settings"
+      },
+      {
+        "name": "context",
+        "description": "Visualize current context usage as a colored grid"
+      },
+      {
+        "name": "desktop",
+        "description": "Continue the current session in Claude Desktop"
+      },
+      {
+        "name": "diff",
+        "description": "Toggle the diff panel showing uncommitted changes"
+      },
+      {
+        "name": "effort",
+        "description": "Set effort level for model usage"
+      },
+      {
+        "name": "exit",
+        "description": "Exit the CLI"
+      },
+      {
+        "name": "export",
+        "description": "Export the current conversation to a file or clipboard"
+      },
+      {
+        "name": "fast",
+        "description": "Toggle fast mode (Opus 5.5)"
+      },
+      {
+        "name": "feedback",
+        "description": "Send feedback to Anthropic or report a bug"
+      },
+      {
+        "name": "focus",
+        "description": "Toggle focus view: just your prompt, summary, and response"
+      },
+      {
+        "name": "goal",
+        "description": "Set a goal Claude checks before stopping"
+      },
+      {
+        "name": "help",
+        "description": "Show help and available commands"
+      },
+      {
+        "name": "hooks",
+        "description": "View hook configurations for tool events"
+      },
+      {
+        "name": "ide",
+        "description": "Manage IDE integrations and show status"
+      },
+      {
+        "name": "import",
+        "description": "Import config from another AI coding agent"
+      },
+      {
+        "name": "install-github-app",
+        "description": "Set up Claude GitHub Actions for a repository"
+      },
+      {
+        "name": "install-slack-app",
+        "description": "Install the Claude Slack app"
+      },
+      {
+        "name": "keybindings",
+        "description": "Open your keyboard shortcuts file"
+      },
+      {
+        "name": "list-agents",
+        "description": "List subagents, teammates, and other Claude sessions you can message"
+      },
+      {
+        "name": "login",
+        "description": "Sign in with your Anthropic account"
+      },
+      {
+        "name": "logout",
+        "description": "Sign out from your Anthropic account"
+      },
+      {
+        "name": "mcp",
+        "description": "Manage MCP servers"
+      },
+      {
+        "name": "memory",
+        "description": "Edit CLAUDE.md files and memory settings"
+      },
+      {
+        "name": "mobile",
+        "description": "Show QR code to download the Claude mobile app"
+      },
+      {
+        "name": "model",
+        "description": "Set the AI model for Claude Code (currently Haiku 4.5)"
+      },
+      {
+        "name": "output-style",
+        "description": "List output styles or switch to one"
+      },
+      {
+        "name": "permissions",
+        "description": "Manage allow and deny tool permission rules"
+      },
+      {
+        "name": "plan",
+        "description": "Enable plan mode or view the current session plan"
+      },
+      {
+        "name": "plugin",
+        "description": "Manage Claude Code plugins"
+      },
+      {
+        "name": "powerup",
+        "description": "Discover Claude Code features through quick interactive lessons"
+      },
+      {
+        "name": "privacy-settings",
+        "description": "View and update your privacy settings"
+      },
+      {
+        "name": "radio",
+        "description": "Listen to Claude FM lo-fi radio"
+      },
+      {
+        "name": "recap",
+        "description": "Generate a one-line session recap now"
+      },
+      {
+        "name": "release-notes",
+        "description": "View release notes"
+      },
+      {
+        "name": "reload-plugins",
+        "description": "Activate pending plugin changes in the current session"
+      },
+      {
+        "name": "reload-skills",
+        "description": "Pick up skills added or changed on disk during this session"
+      },
+      {
+        "name": "remote-control",
+        "description": "Control this session from your phone or claude.ai/code"
+      },
+      {
+        "name": "remote-env",
+        "description": "Choose the default environment for cloud agents"
+      },
+      {
+        "name": "rename",
+        "description": "Rename the current conversation"
+      },
+      {
+        "name": "resume",
+        "description": "Resume a previous conversation"
+      },
+      {
+        "name": "rewind",
+        "description": "Restore the code and/or conversation to a previous point"
+      },
+      {
+        "name": "scroll-speed",
+        "description": "Adjust mouse wheel scroll speed"
+      },
+      {
+        "name": "skill-doctor",
+        "description": "Show which loaded skills are unused and costing context"
+      },
+      {
+        "name": "skills",
+        "description": "List available skills"
+      },
+      {
+        "name": "subtask",
+        "description": "Send a subagent off with your full context; its result comes back"
+      },
+      {
+        "name": "tasks",
+        "description": "View and manage everything running in the background"
+      },
+      {
+        "name": "teleport",
+        "description": "Send this session to the cloud, or resume one from claude.ai"
+      },
+      {
+        "name": "terminal-setup",
+        "description": "Install Shift+Enter key binding for newlines"
+      },
+      {
+        "name": "theme",
+        "description": "Change the theme"
+      },
+      {
+        "name": "tui",
+        "description": "Set the terminal UI renderer (default | fullscreen)"
+      },
+      {
+        "name": "ultrareview",
+        "description": "3 free left \u00b7 Start a cloud agent that finds and verifies bugs in"
+      },
+      {
+        "name": "upgrade",
+        "description": "Upgrade to Max for higher rate limits and more Opus"
+      },
+      {
+        "name": "voice",
+        "description": "Toggle voice mode"
+      },
+      {
+        "name": "web-setup",
+        "description": "Set up cloud sessions with your GitHub account"
+      },
+      {
+        "name": "workflows",
+        "description": "Browse running and completed workflows"
+      },
+      {
+        "name": "analyze-project",
+        "description": "Analyzes a repo structure and suggests optimal custom subagent"
+      },
+      {
+        "name": "animate-expo",
+        "description": "Build animations in React Native and Expo, making the decisions in"
+      },
+      {
+        "name": "animation-vocabulary",
+        "description": "Reverse-lookup glossary that turns a vague description of a web"
+      },
+      {
+        "name": "docs",
+        "description": "docs (living docs people share, comment on and edit; use only when"
+      },
+      {
+        "name": "docx",
+        "description": "Use this skill whenever the user wants to create, read, edit, or"
+      },
+      {
+        "name": "google-workspace",
+        "description": "Read this before the first Google Drive, Docs, Sheets or Slides"
+      },
+      {
+        "name": "gsd:add-phase",
+        "description": "Add phase to end of current milestone in roadmap (user)"
+      },
+      {
+        "name": "gsd:add-tests",
+        "description": "Generate tests for a completed phase based on UAT criteria and"
+      },
+      {
+        "name": "gsd:check-todos",
+        "description": "List pending todos and select one to work on (user)"
+      },
+      {
+        "name": "gsd:cleanup",
+        "description": "Archive accumulated phase directories from completed milestones"
+      },
+      {
+        "name": "gsd:complete-milestone",
+        "description": "Archive completed milestone and prepare for next version (user)"
+      },
+      {
+        "name": "gsd:execute-phase",
+        "description": "Execute all plans in a phase with wave-based parallelization (user)"
+      },
+      {
+        "name": "gsd:health",
+        "description": "Diagnose planning directory health and optionally repair issues"
+      },
+      {
+        "name": "gsd:help",
+        "description": "Show available GSD commands and usage guide (user)"
+      },
+      {
+        "name": "gsd:join-discord",
+        "description": "Join the GSD Discord community (user)"
+      },
+      {
+        "name": "gsd:list-phase-assumptions",
+        "description": "Surface Claude's assumptions about a phase approach before planning"
+      },
+      {
+        "name": "gsd:map-codebase",
+        "description": "Analyze codebase with parallel mapper agents to produce"
+      },
+      {
+        "name": "gsd:pause-work",
+        "description": "Create context handoff when pausing work mid-phase (user)"
+      },
+      {
+        "name": "gsd:plan-milestone-gaps",
+        "description": "Create phases to close all gaps identified by milestone audit (user)"
+      },
+      {
+        "name": "gsd:plan-phase",
+        "description": "Create detailed phase plan (PLAN.md) with verification loop (user)"
+      },
+      {
+        "name": "gsd:progress",
+        "description": "Check project progress, show context, and route to next action"
+      },
+      {
+        "name": "gsd:reapply-patches",
+        "description": "Reapply local modifications after a GSD update (user)"
+      },
+      {
+        "name": "gsd:remove-phase",
+        "description": "Remove a future phase from roadmap and renumber subsequent phases"
+      },
+      {
+        "name": "gsd:research-phase",
+        "description": "Research how to implement a phase (standalone - usually use"
+      },
+      {
+        "name": "gsd:settings",
+        "description": "Configure GSD workflow toggles and model profile (user)"
+      },
+      {
+        "name": "gsd:update",
+        "description": "Update GSD to latest version with changelog display (user)"
+      },
+      {
+        "name": "gsd:validate-phase",
+        "description": "Retroactively audit and fill Nyquist validation gaps for a completed"
+      },
+      {
+        "name": "gsd:verify-work",
+        "description": "Validate built features through conversational UAT (user)"
+      },
+      {
+        "name": "morning",
+        "description": "Render the user's morning brief as a styled HTML artifact, or set it"
+      },
+      {
+        "name": "pdf",
+        "description": "Use this skill whenever the user wants to do anything with PDF"
+      },
+      {
+        "name": "prime",
+        "description": "Project consciousness bootstrap. Deep codebase absorption with"
+      },
+      {
+        "name": "prototype",
+        "description": "Build multiple genuinely different versions of a UI piece you"
+      },
+      {
+        "name": "skill-creator",
+        "description": "Create new skills, modify and improve existing skills, and measure"
+      },
+      {
+        "name": "wrap-up",
+        "description": "End-of-session wrap-up. Saves handoff note with session state,"
+      },
+      {
+        "name": "claude-in-chrome",
+        "description": "Automates your Chrome browser to interact with web pages - clicking"
+      },
+      {
+        "name": "code-review",
+        "description": "3 free /ultrareview \u00b7 Review the current diff, or a PR"
+      },
+      {
+        "name": "debug",
+        "description": "Enable debug logging for this session and help diagnose issues"
+      }
+    ],
+    "F1_plan": {
+      "dialogOpenAfterPaste1Hello": true
+    },
+    "forkStartText": [],
+    "forkWithSessionId": {
+      "newTranscriptExists": true,
+      "turnEnded": true,
+      "copiedRecordsFromSource": 0,
+      "recordsTotal": 67
+    },
+    "helpHasForkSession": true,
+    "helpHasResumeSessionAt": false,
+    "helpHasSessionId": true
+  },
+  "finishedAt": "2026-09-27T04:22:34.466Z",
+  "transcripts": {
+    "sessionA": "112a58d7-76b3-4480-bd2f-6e28896b603e",
+    "planSession": "45045a9e-2915-4a7f-8f7e-d4b9df0be227",
+    "forkSession": "9ea3bcab-2cd4-4cbf-b336-a67b5942a07e"
+  }
+}

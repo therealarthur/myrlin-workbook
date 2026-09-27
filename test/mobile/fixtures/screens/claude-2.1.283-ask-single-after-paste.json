@@ -1,0 +1,513 @@
+{
+  "cli": "claude",
+  "version": "2.1.283",
+  "name": "ask-single-after-paste",
+  "capturedAt": "2026-09-27T04:19:00.964Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 9,
+  "cursorY": 26,
+  "altBuffer": true,
+  "lines": [
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": " \u2590\u259b\u2588\u2588\u2588\u259b\u2588   Claude Code v2.1.283",
+      "runs": [
+        {
+          "s": 0,
+          "e": 8,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 14120791
+        },
+        {
+          "s": 11,
+          "e": 22,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 23,
+          "e": 31,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "\u259d\u259c\u2588\u2588\u2588\u2588\u2588\u2588\u2580  Haiku 4.5 \u00b7 Claude Max",
+      "runs": [
+        {
+          "s": 0,
+          "e": 11,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 14120791
+        },
+        {
+          "s": 11,
+          "e": 33,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": " \u259d\u259d   \u259d\u259d   ~\\AppData\\Local\\Temp\\claude\\C--Users-tester\\00000000-0000-0000-0000-000000000000\\scratchpad\\claude-live\\\u2026    ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 11,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 14120791
+        },
+        {
+          "s": 11,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  \u23bf \u00a0SessionStart:startup hook error",
+      "runs": [
+        {
+          "s": 0,
+          "e": 36,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf \u00a0Failed with non-blocking status code: /usr/bin/bash: line 1: ${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd: No such file",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "     or directory",
+      "runs": [
+        {
+          "s": 5,
+          "e": 17,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u276f Run this shell command with the Bash tool: echo myrlin-check > probe.txt                                              ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 74,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        },
+        {
+          "s": 74,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  Ran 1 shell command",
+      "runs": [
+        {
+          "s": 2,
+          "e": 6,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 6,
+          "e": 7,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 7,
+          "e": 21,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u25cf Done. Created probe.txt with the content \"myrlin-check\" in the current directory.",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        },
+        {
+          "s": 16,
+          "e": 25,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u273b Brewed for 6s \u00b7 done 12:18 AM",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 2,
+          "e": 31,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u276f Use the AskUserQuestion tool to ask me exactly one question: \"Pick a color\" with the options Red and Blue. After I    ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 117,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        },
+        {
+          "s": 117,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  answer, reply with only the color I chose.                                                                            ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 44,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        },
+        {
+          "s": 44,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u273d Hatching\u2026 (1s \u00b7 \u2193 63 tokens \u00b7 thinking)",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 14120791
+        },
+        {
+          "s": 2,
+          "e": 12,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 14120791
+        },
+        {
+          "s": 12,
+          "e": 32,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 32,
+          "e": 40,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11119017
+        },
+        {
+          "s": 40,
+          "e": 41,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf \u00a0Tip: Run /ultrareview for a cloud-based multi-agent review that finds and verifies bugs in your branch \u2014 3 free    ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 14,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 14,
+          "e": 27,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        },
+        {
+          "s": 27,
+          "e": 117,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "     reviews left",
+      "runs": [
+        {
+          "s": 5,
+          "e": 17,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 8947848
+        }
+      ]
+    },
+    {
+      "text": "\u276f\u00a01 hello",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 8947848
+        }
+      ]
+    },
+    {
+      "text": "  \u2b06 /gsd:update \u2502 Haiku 4.5 \u2502 claude-live-a-1790482680514 \u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591 31%",
+      "runs": [
+        {
+          "s": 2,
+          "e": 16,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 3
+        },
+        {
+          "s": 16,
+          "e": 18,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 18,
+          "e": 27,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 27,
+          "e": 30,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 30,
+          "e": 57,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 57,
+          "e": 58,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 58,
+          "e": 72,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 2
+        }
+      ]
+    },
+    {
+      "text": "  \u23f8 manual mode on",
+      "runs": [
+        {
+          "s": 2,
+          "e": 18,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    }
+  ]
+}

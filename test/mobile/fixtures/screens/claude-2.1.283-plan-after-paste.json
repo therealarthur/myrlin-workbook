@@ -1,0 +1,283 @@
+{
+  "cli": "claude",
+  "version": "2.1.283",
+  "name": "plan-after-paste",
+  "capturedAt": "2026-09-27T04:22:28.484Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 78,
+  "cursorY": 29,
+  "altBuffer": true,
+  "lines": [
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  \u23bf \u00a0/plan to preview",
+      "runs": [
+        {
+          "s": 0,
+          "e": 21,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 2,
+          "e": 118,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 4757132
+        }
+      ]
+    },
+    {
+      "text": "   Ready to code?",
+      "runs": [
+        {
+          "s": 3,
+          "e": 17,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "   Here is Claude's plan:",
+      "runs": []
+    },
+    {
+      "text": "  \u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c",
+      "runs": [
+        {
+          "s": 2,
+          "e": 118,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        }
+      ]
+    },
+    {
+      "text": "   Create plan-probe.txt in the working directory containing the text hi.                                               ",
+      "runs": [
+        {
+          "s": 10,
+          "e": 25,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        },
+        {
+          "s": 70,
+          "e": 72,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": "  \u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c  ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 2,
+          "e": 118,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 4757132
+        }
+      ]
+    },
+    {
+      "text": "   Claude has written up a plan and is ready to execute. Would you like to proceed?",
+      "runs": [
+        {
+          "s": 3,
+          "e": 83,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "   \u276f 1. Yes, auto-accept edits                                                                                          ",
+      "runs": [
+        {
+          "s": 3,
+          "e": 4,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        },
+        {
+          "s": 5,
+          "e": 8,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 8,
+          "e": 30,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": "     2. Yes, manually approve edits                                                                                     ",
+      "runs": [
+        {
+          "s": 5,
+          "e": 8,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "     3. Tell Claude what to change",
+      "runs": [
+        {
+          "s": 5,
+          "e": 34,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "        shift+tab to approve with this feedback                                                                         ",
+      "runs": [
+        {
+          "s": 8,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "   ctrl+g to edit in Notepad \u00b7 ~\\.claude\\plans\\make-a-plan-to-purring-pearl.md",
+      "runs": [
+        {
+          "s": 3,
+          "e": 78,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    }
+  ]
+}
