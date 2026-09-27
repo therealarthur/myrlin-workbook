@@ -6954,6 +6954,10 @@ app.get('/api/events', (req, res) => {
  * @param {object} data - The event payload
  */
 function broadcastSSE(eventType, data) {
+  // PROTOCOL 4.11: account monitors consume event names instead of polling rosters.
+  if (/^(credentials|provider-accounts):/.test(eventType)) {
+    try { require('./mobile').onAccountChange(eventType); } catch (_) { /* optional mobile track */ }
+  }
   const payload = JSON.stringify({ type: eventType, data, timestamp: new Date().toISOString() });
   // Send as unnamed event so EventSource.onmessage fires (named events require addEventListener per type)
   const message = `data: ${payload}\n\n`;

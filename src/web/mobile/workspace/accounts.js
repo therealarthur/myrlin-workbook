@@ -41,8 +41,12 @@ const LIMITED_AT = 100;
 const STALL_MS = 3 * 60 * 1000;
 /** accounts.updated at most this often (PROTOCOL.md 14). */
 const PUBLISH_MIN_MS = 2000;
-/** How often the rosters are checked for changes Workbook made. */
-const WATCH_TICK_MS = 10 * 1000;
+/** Recheck immediately after a strict age threshold has elapsed. */
+const AGE_BOUNDARY_MS = 1;
+/** Delay before reading Glass after it accepts an explicit refresh. */
+const GLASS_REFRESH_DELAY_MS = 1500;
+/** Node clamps longer timeout delays to one millisecond. */
+const MAX_TIMER_DELAY_MS = 2147483647;
 /** A built snapshot is reused this long by GET /accounts. */
 const SNAPSHOT_TTL_MS = 2000;
 /** Undo stays offered this long (PROTOCOL.md 4.11). */
@@ -295,6 +299,12 @@ function createAccounts(deps) {
   let lastClaudeRefreshAt = 0;
   let seenAgentSwaps = null;
   const stops = [];
+  let monitoring = false;
+  let monitorGeneration = 0;
+  let monitorRefresh = null;
+  let monitorRefreshQueued = false;
+  let ageTimer = null;
+  let refreshTimer = null;
 
   // ── Fixture mode ────────────────────────────────────────────────────────
 
@@ -759,13 +769,18 @@ function createAccounts(deps) {
    */
   async function refreshSnapshot(force) {
     if (!force && lastSnapshot && now() - lastBuiltAt < SNAPSHOT_TTL_MS) return lastSnapshot;
+    const generation = monitorGeneration;
     let status = null;
     if (!fixture) status = await glass.status().catch(() => null);
+    if (generation !== monitorGeneration && lastSnapshot) return lastSnapshot;
     const snap = build(status);
+    if (generation !== monitorGeneration) return snap;
     await addRecommendations(snap).catch(() => {});
+    if (generation !== monitorGeneration) return snap;
     observe(snap);
     lastSnapshot = snap;
     lastBuiltAt = now();
+    scheduleAgeCheck(snap);
     return snap;
   }
 
@@ -1148,7 +1163,7 @@ function createAccounts(deps) {
     const message = words.outcome(b.provider === 'codex' ? 'OK_CODEX' : 'OK_CLAUDE', { name: acc.displayName }).message; // gsd:provider-literal-allowed (mobile v2 accounts)
     lastSnapshot = null;
     pendingReason = 'swap';
-    refreshSnapshot(true).catch(() => {});
+    refreshMonitored();
     return swapResult({ provider: b.provider, acc, prev, message, runningProcesses: running });
   }
 
@@ -1226,7 +1241,7 @@ function createAccounts(deps) {
     if (prev) activity[b.provider + ':' + prev.accountId] = now();
     try { common.writeJson(activityFile, activity); } catch (_) { /* best effort */ }
     pendingReason = 'swap';
-    refreshSnapshot(true).catch(() => {});
+    refreshMonitored();
     const message = words.outcome(b.provider === 'codex' ? 'OK_CODEX' : 'OK_CLAUDE', { name }).message; // gsd:provider-literal-allowed (mobile v2 accounts)
     return swapResult({ provider: b.provider, acc, prev, message, runningProcesses: running });
   }
@@ -1250,7 +1265,11 @@ function createAccounts(deps) {
       const r = await glass.refresh(provider);
       if (r && r.status >= 200 && r.status < 300) {
         pendingReason = 'refresh';
-        setTimeout(() => refreshSnapshot(true).catch(() => {}), 1500).unref();
+        if (monitoring) {
+          if (refreshTimer) clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(() => { refreshTimer = null; refreshMonitored(); }, GLASS_REFRESH_DELAY_MS);
+          if (refreshTimer.unref) refreshTimer.unref();
+        }
         return { ok: true, message: r.body && r.body.message ? words.period(String(r.body.message)) : 'Refreshing usage.' };
       }
     }
@@ -1279,7 +1298,7 @@ function createAccounts(deps) {
       }
     }
     if (!jobs.length) return { ok: true, message: 'Refreshed recently. Numbers update within a minute.' };
-    Promise.allSettled(jobs).then(() => { pendingReason = 'refresh'; return refreshSnapshot(true); }).catch(() => {});
+    Promise.allSettled(jobs).then(() => { if (monitoring) { pendingReason = 'refresh'; refreshMonitored(); } }).catch(() => {});
     return { ok: true, message: 'Refreshing usage.' };
   }
 
@@ -1360,7 +1379,7 @@ function createAccounts(deps) {
     if (r && r.status === 200 && r.body) {
       const was = f.flow.phase;
       f.flow = flowOf(r.body, f.provider);
-      if (f.flow.phase === 'done' && was !== 'done') { pendingReason = 'login'; refreshSnapshot(true).catch(() => {}); }
+      if (f.flow.phase === 'done' && was !== 'done') { pendingReason = 'login'; refreshMonitored(); }
     } else if (r && r.status === 404) {
       f.flow = Object.assign({}, f.flow, { phase: 'failed', message: 'Sign-in failed.', done: true, updatedAtMs: now() });
     }
@@ -1429,20 +1448,74 @@ function createAccounts(deps) {
 
   // ── Lifecycle ───────────────────────────────────────────────────────────
 
-  /** Start the watchers: state.json and the periodic roster check. */
+  /** Refresh once per event burst, retaining a change received during a lookup. */
+  function refreshMonitored() {
+    if (!monitoring) return;
+    if (monitorRefresh) { monitorRefreshQueued = true; return; }
+    const pending = refreshSnapshot(true).catch(() => {}).finally(() => {
+      if (monitorRefresh !== pending) return;
+      monitorRefresh = null;
+      if (monitorRefreshQueued) { monitorRefreshQueued = false; refreshMonitored(); }
+    });
+    monitorRefresh = pending;
+  }
+
+  /** Age cached usage when its state changes, without periodically reading rosters. */
+  function scheduleAgeCheck(snap) {
+    if (ageTimer) { clearTimeout(ageTimer); ageTimer = null; }
+    if (!monitoring || fixture) return;
+    const nowMs = now();
+    const deadlines = [];
+    if (snap._glassPayload && Number.isFinite(snap._glassPayload.generatedAtMs)) {
+      deadlines.push(snap._glassPayload.generatedAtMs + STALL_MS + AGE_BOUNDARY_MS);
+    }
+    for (const provider of snap.providers) {
+      for (const account of provider.accounts) {
+        if (snap.source === 'workbook' && Number.isFinite(account.asOfMs)) deadlines.push(account.asOfMs + USAGE_STALE_MS + AGE_BOUNDARY_MS);
+        for (const window of account.windows) if (Number.isFinite(window.resetsAtMs)) deadlines.push(window.resetsAtMs + AGE_BOUNDARY_MS);
+      }
+    }
+    const next = deadlines.filter((at) => at > nowMs).sort((a, b) => a - b)[0];
+    if (next === undefined) return;
+    ageTimer = setTimeout(() => { ageTimer = null; refreshMonitored(); }, Math.min(next - nowMs, MAX_TIMER_DELAY_MS));
+    if (ageTimer.unref) ageTimer.unref();
+  }
+
+  /** Account route events carry no payload into the mobile monitor. */
+  function onWorkbookEvent(eventType) {
+    if (!monitoring || fixture || !/^(credentials|provider-accounts):/.test(eventType)) return;
+    pendingReason = eventType.endsWith(':usage') ? 'refresh' : 'other';
+    refreshMonitored();
+  }
+
+  /** Start account observation only after the mobile listener has bound. */
   function start() {
+    if (monitoring) return;
+    monitoring = true;
+    monitorGeneration += 1;
     ensureBaseline();
     if (fixture) return;
-    stops.push(glass.watchStateFile(() => { refreshSnapshot(true).catch(() => {}); }));
-    const tick = setInterval(() => { refreshSnapshot(true).catch(() => {}); }, WATCH_TICK_MS);
-    if (tick.unref) tick.unref();
-    stops.push(() => clearInterval(tick));
-    refreshSnapshot(true).catch(() => {});
+    stops.push(glass.watchStateFile(refreshMonitored));
+    refreshMonitored();
+  }
+
+  /** Drop watcher work and ignore a lookup that completes after listener shutdown. */
+  function stop() {
+    monitoring = false;
+    monitorGeneration += 1;
+    monitorRefresh = null;
+    monitorRefreshQueued = false;
+    for (const s of stops.splice(0)) { try { s(); } catch (_) { /* best effort */ } }
+    for (const timer of [publishTimer, ageTimer, refreshTimer]) if (timer) clearTimeout(timer);
+    publishTimer = null;
+    ageTimer = null;
+    refreshTimer = null;
   }
 
   return {
     start,
-    stop() { for (const s of stops.splice(0)) { try { s(); } catch (_) {} } if (publishTimer) { clearTimeout(publishTimer); publishTimer = null; } },
+    stop,
+    onWorkbookEvent,
     snapshot,
     get: async () => publicSnapshot(await refreshSnapshot(false)),
     swap,

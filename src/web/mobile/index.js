@@ -92,6 +92,7 @@ function ensureCore(ctx) {
     getSettings, computerName, getStreamEpoch, getHub, broadcast, log, now,
     packageVersion: ctx.packageVersion,
     listener: null,
+    accountMonitorGeneration: 0,
     mounted: { chat: false, workspace: false },
   };
   rt.listener = createListener({ router, auth, limiters, getSettings, getHub, log });
@@ -233,6 +234,7 @@ function mountOtherTracks(ctx) {
  */
 function startMobile(ctx) {
   const runtime = ensureCore(ctx);
+  const generation = ++runtime.accountMonitorGeneration;
   mountOtherTracks(runtime.ctx);
   const s = runtime.getSettings();
   for (const e of s.envErrors) runtime.log('[mobile] ' + e);
@@ -242,7 +244,20 @@ function startMobile(ctx) {
   if (!s.enabled) return Promise.resolve(runtime.listener.status());
   runtime.identity.ensure(); // first start of the listener creates K_c (PROTOCOL.md 2.1)
   runtime.endpoints.start();
-  return runtime.listener.start();
+  return runtime.listener.start().then((status) => {
+    if (generation === runtime.accountMonitorGeneration) setAccountMonitoring(runtime, status.running && runtime.listener.status().running);
+    return status;
+  });
+}
+
+/** Keep account watching aligned with the listener without unmounting desktop layout hooks. */
+function setAccountMonitoring(runtime, running) {
+  const workspace = runtime.ctx.mobile.workspace;
+  const accounts = workspace && workspace.accounts;
+  const fn = accounts && accounts[running ? 'start' : 'stop'];
+  if (typeof fn === 'function') {
+    try { fn(); } catch (err) { runtime.log('[mobile] account monitor failed: ' + (err && err.message)); }
+  }
 }
 
 /**
@@ -253,6 +268,8 @@ function startMobile(ctx) {
  */
 function stopMobile() {
   if (!rt) return Promise.resolve();
+  rt.accountMonitorGeneration += 1;
+  setAccountMonitoring(rt, false);
   // server.js calls this from its cleanup, so Workbook is shutting down:
   // stream sockets close with 1001 after the WORKBOOK_SHUTTING_DOWN notice
   // (PROTOCOL.md 5.6), which B2's hub sends for that code. The listener stop
@@ -275,15 +292,29 @@ function stopMobile() {
  */
 async function restartListener() {
   if (!rt) throw new Error('[mobile] not initialized');
-  await rt.listener.stop();
-  const s = rt.getSettings();
+  const runtime = rt;
+  const generation = ++runtime.accountMonitorGeneration;
+  setAccountMonitoring(runtime, false);
+  await runtime.listener.stop();
+  if (generation !== runtime.accountMonitorGeneration) return runtime.listener.status();
+  const s = runtime.getSettings();
   if (!s.enabled) {
-    rt.endpoints.stop();
-    return rt.listener.status();
+    runtime.endpoints.stop();
+    return runtime.listener.status();
   }
-  rt.identity.ensure(); // first start of the listener creates K_c (PROTOCOL.md 2.1)
-  rt.endpoints.start();
-  return rt.listener.start();
+  runtime.identity.ensure(); // first start of the listener creates K_c (PROTOCOL.md 2.1)
+  runtime.endpoints.start();
+  const status = await runtime.listener.start();
+  if (generation === runtime.accountMonitorGeneration) setAccountMonitoring(runtime, status.running && runtime.listener.status().running);
+  return status;
+}
+
+/** Forward only an account event name, never its credential or account payload. */
+function onAccountChange(eventType) {
+  if (!rt) return;
+  const workspace = rt.ctx.mobile.workspace;
+  const accounts = workspace && workspace.accounts;
+  if (accounts && typeof accounts.onWorkbookEvent === 'function') accounts.onWorkbookEvent(eventType);
 }
 
 /**
@@ -315,6 +346,7 @@ module.exports = {
   startMobile,
   stopMobile,
   onProviderChange,
+  onAccountChange,
   ensureCore,
   getRuntime,
   restartListener,

@@ -261,28 +261,52 @@ function createGlassClient(o) {
    */
   function watchStateFile(fn) {
     if (!dir()) return () => {};
+    const folder = dir();
+    const stateFile = path.join(folder, 'state.json');
     let timer = null;
     let watcher = null;
+    let poll = null;
+    let stopped = false;
     let lastMtime = -1;
     const fire = () => {
-      if (timer) return;
+      if (stopped || timer) return;
       timer = setTimeout(() => { timer = null; try { fn(); } catch (_) { /* theirs */ } }, WATCH_DEBOUNCE_MS);
       if (timer.unref) timer.unref();
     };
-    try {
-      if (fs.existsSync(dir())) {
-        watcher = fs.watch(dir(), (ev, name) => { if (!name || name === 'state.json') fire(); });
-        watcher.on('error', () => { try { watcher.close(); } catch (_) {} watcher = null; });
+
+    /** Poll only while no directory watcher exists, then retry attaching it. */
+    function startFallback() {
+      if (stopped || poll) return;
+      poll = setInterval(() => {
+        let m = -1;
+        try { m = fs.statSync(stateFile).mtimeMs; } catch (_) { /* absent */ }
+        if (m !== lastMtime) { lastMtime = m; fire(); }
+        attachWatcher();
+      }, WATCH_POLL_MS);
+      if (poll.unref) poll.unref();
+    }
+
+    /** Watch the directory so an atomic replacement of state.json stays visible. */
+    function attachWatcher() {
+      if (stopped || watcher) return;
+      try {
+        watcher = fs.watch(folder, (ev, name) => { if (!name || String(name) === 'state.json') fire(); });
+        watcher.on('error', () => {
+          if (watcher) { try { watcher.close(); } catch (_) { /* already closed */ } }
+          watcher = null;
+          startFallback();
+        });
+        if (poll) { clearInterval(poll); poll = null; }
+      } catch (_) {
+        watcher = null;
+        startFallback();
       }
-    } catch (_) { watcher = null; }
-    const poll = setInterval(() => {
-      let m = -1;
-      try { m = fs.statSync(path.join(dir(), 'state.json')).mtimeMs; } catch (_) { m = -1; }
-      if (m !== lastMtime) { lastMtime = m; fire(); }
-    }, WATCH_POLL_MS);
-    if (poll.unref) poll.unref();
+    }
+
+    attachWatcher();
     return () => {
-      clearInterval(poll);
+      stopped = true;
+      if (poll) clearInterval(poll);
       if (timer) clearTimeout(timer);
       if (watcher) { try { watcher.close(); } catch (_) {} }
     };

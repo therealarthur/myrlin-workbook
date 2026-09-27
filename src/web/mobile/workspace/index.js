@@ -101,7 +101,13 @@ function mountWorkspace(router, ctx, options) {
       tabGroupIdsFor: (id) => tabs.tabGroupIdsFor(id),
       addSessionToGroup: (groupId, sessionId, afterSessionId, who) => tabs.addSessionToGroup(groupId, sessionId, afterSessionId, who),
     },
-    accounts: { snapshot: () => accounts.snapshot(), glassApiUp: () => accounts.glassApiUp() },
+    accounts: {
+      snapshot: () => accounts.snapshot(),
+      glassApiUp: () => accounts.glassApiUp(),
+      start: () => accounts.start(),
+      stop: () => accounts.stop(),
+      onWorkbookEvent: (type) => accounts.onWorkbookEvent(type),
+    },
     lineage: { of: (id) => null },
     migrations: null,
     onProviderChange: () => { search.invalidateNames(); },
@@ -182,7 +188,6 @@ function mountWorkspace(router, ctx, options) {
     }));
   }
 
-  accounts.start();
   try { migrations.load(); } catch (err) { log('migration resume failed: ' + (err && err.message)); }
 
   workspace.stop = () => {
