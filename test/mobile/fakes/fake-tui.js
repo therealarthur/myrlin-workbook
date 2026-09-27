@@ -112,6 +112,7 @@ class Tui {
    * @param {string} data
    */
   feed(data) {
+    if (process.env.FAKE_TUI_DEBUG) { try { fs.appendFileSync(process.env.FAKE_TUI_DEBUG, JSON.stringify(data) + String.fromCharCode(10)); } catch (_) {} }
     this.buf += data;
     for (;;) {
       if (this.inPaste) {

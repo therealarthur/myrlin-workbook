@@ -642,6 +642,8 @@ function createTurnService(deps) {
       if (fd !== undefined) try { fs.closeSync(fd); } catch (_) {}
     }
     if (w.metaDirty) { w.metaDirty = false; publishMeta(w); }
+    const pr = prompts();
+    if (pr && pr.recomplete) pr.recomplete(w.sessionId);
     refresh(w);
   }
 

@@ -532,6 +532,7 @@ const tui = new Tui({
       const count = d.kind === 'question' ? (d.review ? 2 : d.questions[d.qi].options.length + 1) : d.options.length;
       if (name === 'up' && d.hl > 0) d.hl -= 1;
       else if (name === 'down' && d.hl < count - 1) d.hl += 1;
+      else if (name === 'space' && d.otherMode) d.otherText += ' ';
       else if (name === 'space' && d.kind === 'question' && !d.review && d.questions[d.qi].multiSelect && d.hl < d.questions[d.qi].options.length) d.checked[d.hl] = !d.checked[d.hl];
       else if (name === 'right' && d.kind === 'question' && !d.review && d.questions[d.qi].multiSelect) {
         d.answers[d.qi] = { idxs: d.checked.map((c, i) => (c ? i : -1)).filter((i) => i >= 0), other: null };
@@ -548,7 +549,9 @@ const tui = new Tui({
     render();
   },
   onChar(ch) {
-    if (ui.dialog) return;
+    // On Windows ConPTY delivers a paste as plain characters, so the inline
+    // Other field takes typed characters as well as bracketed pastes.
+    if (ui.dialog) { if (ui.dialog.otherMode) { ui.dialog.otherText += ch; render(); } return; }
     ui.input += ch;
     render();
   },

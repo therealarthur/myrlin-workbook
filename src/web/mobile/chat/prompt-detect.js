@@ -403,6 +403,7 @@ function createPromptService(deps) {
   const now = deps.now || Date.now;
   const open = new Map();
   const phoneKeys = new Map();
+  const lastCls = new Map();
   const listeners = new Set();
   const hub = () => (deps.ctx && deps.ctx.mobile && deps.ctx.mobile.hub) || null;
   const turns = () => (deps.lazy && deps.lazy.turns ? deps.lazy.turns() : null);
@@ -527,6 +528,7 @@ function createPromptService(deps) {
    * @param {object} cls - classify() output
    */
   function onClassified(sessionId, cls) {
+    lastCls.set(sessionId, cls);
     const prev = open.get(sessionId) || null;
     const d = cls.kind === 'prompt' || cls.kind === 'unknownModal' ? cls.dialog : null;
     if (d) {
@@ -585,6 +587,16 @@ function createPromptService(deps) {
     notePhoneKeys(sessionId, promptId, deviceId, summary) { phoneKeys.set(sessionId, { promptId, deviceId, summary, at: now() }); },
     /** The PTY exited: every open prompt resolves by exit. */
     onExit(sessionId) { const p = open.get(sessionId); if (p) resolve(sessionId, p, 'exit'); },
+    /**
+     * The transcript caught up: rebuild an open prompt that was built from the
+     * screen alone and publish it again with the same id (PROTOCOL.md 8.3).
+     * @param {string} sessionId
+     */
+    recomplete(sessionId) {
+      const p = open.get(sessionId);
+      const cls = lastCls.get(sessionId);
+      if (p && cls && p.source === 'screen' && p.kind !== 'unknown') onClassified(sessionId, cls);
+    },
     /** Drop state without events (tests). */
     clear(sessionId) { open.delete(sessionId); },
     onEvent(fn) { listeners.add(fn); return () => listeners.delete(fn); },
