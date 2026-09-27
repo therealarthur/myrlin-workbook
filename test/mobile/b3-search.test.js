@@ -22,6 +22,8 @@ const crypto = require('crypto');
 const kit = require('./b3-kit');
 const { createDiscoveryCache } = require('../../src/web/mobile/chat/discovery-cache');
 
+const NAME_SEARCH_BUDGET_MS = 100;
+const NAME_SEARCH_IO_METHODS = Object.freeze(['readFileSync', 'openSync', 'readSync', 'statSync', 'lstatSync', 'readdirSync', 'existsSync']);
 const sb = kit.sandbox();
 const discovery = createDiscoveryCache({ registry: { getProvider: () => null } });
 const dir = path.join(sb.work, 'search');
@@ -44,6 +46,26 @@ function racedSearch(provider, query, limit, budget, grace) {
 /** Decode an anchor (B2's base64url JSON). */
 function anchorOf(a) {
   return JSON.parse(Buffer.from(a.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+}
+
+/** Verify a warmed synchronous name query uses no filesystem or session-list reads. */
+function cachedNameSearch(query) {
+  const reads = [];
+  const originals = new Map(NAME_SEARCH_IO_METHODS.map((name) => [name, fs[name]]));
+  const originalList = env.chat.sessions.list;
+  for (const [name, original] of originals) {
+    fs[name] = function recordRead(...args) { reads.push(name); return original.apply(this, args); };
+  }
+  env.chat.sessions.list = function recordList(...args) { reads.push('sessions.list'); return originalList.apply(this, args); };
+  let result;
+  try {
+    result = env.ws.internals.search.names({ q: query });
+  } finally {
+    for (const [name, original] of originals) fs[name] = original;
+    env.chat.sessions.list = originalList;
+  }
+  kit.eq(reads, [], 'a cached name query reads only the name index');
+  return result;
 }
 
 kit.test('boot with transcripts: two busy sessions, a 9 MB one, a Codex thread', async () => {
@@ -85,11 +107,16 @@ kit.test('boot with transcripts: two busy sessions, a 9 MB one, a Codex thread',
   if (codex && typeof codex.init === 'function') await codex.init();
   env.chat.internals.index.invalidate();
   env.ws.onProviderChange();
-  // The name index warms in the background after a change.
-  await kit.sleep(400);
+  // Warm the completed fixture explicitly. A startup build can delay the
+  // scheduled rebuild for two seconds, so a fixed sleep is not readiness.
+  const warm = env.ws.internals.search.names({ q: 'zeb' });
+  kit.eq(warm.results[0].sessionId, 'cl_' + ids.a, 'the final fixture is indexed');
 });
 
 kit.test('name search answers from memory, ranked, with match ranges', async () => {
+  const cached = cachedNameSearch('zeb');
+  kit.eq(cached.results[0].title, 'Zebra planning');
+  kit.ok(cached.durationMs < NAME_SEARCH_BUDGET_MS, 'cached name query took ' + cached.durationMs + ' ms');
   const r = await env.api('GET', '/search/names?q=zeb');
   kit.eq(r.status, 200, JSON.stringify(r.body));
   kit.validate(r.body, 'search/search-names.json');
@@ -99,7 +126,7 @@ kit.test('name search answers from memory, ranked, with match ranges', async () 
   kit.ok(p.body.results.some((x) => x.kind === 'project' && x.title === 'Search zoo'), 'projects are searched');
   const d = await env.api('GET', '/search/names?q=' + encodeURIComponent('search'));
   kit.ok(d.body.results.some((x) => x.kind === 'workingDir'), 'working directories are searched');
-  kit.ok(r.body.durationMs < 100, 'from memory');
+  kit.ok(r.body.durationMs < NAME_SEARCH_BUDGET_MS, 'name route took ' + r.body.durationMs + ' ms');
   const short = await env.api('GET', '/search/names?q=');
   kit.eq(short.body.code, 'QUERY_TOO_SHORT');
   const lim = await env.api('GET', '/search/names?q=z&limit=101');
