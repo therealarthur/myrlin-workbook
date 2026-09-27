@@ -27126,8 +27126,9 @@ class CWMApp {
       this.renderWorkspaces();
     }
     // A failed initial load leaves only a provisional local layout. Fetch
-    // the server snapshot before allowing a save to overwrite any of it.
+    // the server snapshot before saving, retaining edits made during recovery.
     if (typeof this._layoutRevision !== 'number' && !this._layoutRevisionUnsupported) {
+      this._layoutHeldEdits = true;
       this._retryTerminalLayoutLoad();
       return;
     }
@@ -27192,10 +27193,30 @@ class CWMApp {
           if (Array.isArray(layout.tabGroups) && layout.tabGroups.length) this.applyRemoteLayout(layout);
           return;
         }
-        const recovered = Array.isArray(layout.tabGroups) && layout.tabGroups.length
-          ? layout
-          : { ...layout, tabGroups: [{ id: 'tg_default', name: 'Main', panes: [] }], tabFolders: [], activeGroupId: 'tg_default' };
-        this.applyRemoteLayout(recovered);
+        if (!Array.isArray(layout.tabGroups) || layout.tabGroups.length === 0) {
+          this._layoutRevision = layout.revision;
+          if (this._layoutHeldEdits) {
+            this._layoutHeldEdits = false;
+            this.saveTerminalLayout();
+          }
+        } else if (this._layoutHeldEdits) {
+          let local = this._tabGroups.filter(g => !(g.id === 'tg_default' && (!g.panes || g.panes.length === 0)));
+          local.forEach((g, i) => {
+            if (layout.tabGroups.some(remote => remote.id === g.id)) {
+              let newId = 'tg_offline_' + Date.now().toString(36) + '_' + i;
+              if (this._activeGroupId === g.id) this._activeGroupId = newId;
+              g.id = newId;
+            }
+          });
+          this.applyRemoteLayout({ ...layout, tabGroups: layout.tabGroups.concat(local), tabFolders: layout.tabFolders || [], activeGroupId: this._activeGroupId });
+          this._layoutHeldEdits = false;
+          this.saveTerminalLayout();
+        } else {
+          const recovered = Array.isArray(layout.tabGroups) && layout.tabGroups.length
+            ? layout
+            : { ...layout, tabGroups: [{ id: 'tg_default', name: 'Main', panes: [] }], tabFolders: [], activeGroupId: 'tg_default' };
+          this.applyRemoteLayout(recovered);
+        }
         this._layoutLoadRetryAttempt = 0;
       } catch (_) {
         // Offline or signed out: keep holding saves and retry the load.

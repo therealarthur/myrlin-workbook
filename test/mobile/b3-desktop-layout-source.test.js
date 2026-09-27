@@ -157,6 +157,48 @@ kit.test('a revisionless layout permits a legacy save without a retry', async ()
   kit.eq(h.timers.size, 0);
 });
 
+for (const hasServerGroups of [false, true]) {
+  kit.test('held desktop groups and panes survive recovery ' + (hasServerGroups ? 'with a conflicting server group' : 'with an empty server layout'), async () => {
+    const recoveredRevision = hasServerGroups ? 7 : 0;
+    const serverGroups = hasServerGroups ? [{ id: 'tg_default', name: 'Phone main', panes: [] }] : [];
+    let reads = 0;
+    const writes = [];
+    const disposed = [];
+    const switched = [];
+    const h = layoutPage(async (method, route, body) => {
+      if (method === 'PUT') {
+        writes.push(JSON.parse(JSON.stringify(body)));
+        return { revision: recoveredRevision + 1 };
+      }
+      reads += 1;
+      if (reads === 1) throw new Error('offline');
+      return { revision: recoveredRevision, tabGroups: serverGroups };
+    });
+    h.page._disposeGroupCache = id => disposed.push(id);
+    h.page.switchTerminalGroup = id => { switched.push(id); h.page._activeGroupId = id; };
+    await h.page.loadTerminalLayout();
+    h.page._tabGroups[0].panes.push({ slot: 0, sessionId: 'local-session', sessionName: 'Local pane' });
+    h.page._tabGroups.push({ id: 'tg_work', name: 'Work', panes: [] });
+    h.page.saveTerminalLayout();
+    kit.eq(writes.length, 0);
+    await h.fire();
+    kit.eq(h.page._layoutRevision, recoveredRevision);
+    kit.eq(disposed, [], 'the active pane cache is preserved');
+    kit.eq(switched, [], 'the active group is not reopened');
+    const active = h.page._tabGroups.find(g => g.id === h.page._activeGroupId);
+    kit.eq(active.panes[0].sessionId, 'local-session');
+    kit.ok(h.page._tabGroups.some(g => g.id === 'tg_work' && g.name === 'Work'));
+    if (hasServerGroups) kit.ok(active.id.startsWith('tg_offline_'), 'the conflicting local group gets its own id');
+    await h.fire();
+    kit.eq(writes.length, 1);
+    kit.eq(writes[0].baseRevision, recoveredRevision);
+    kit.eq(writes[0].tabGroups.length, serverGroups.length + 2);
+    kit.ok(writes[0].tabGroups.some(g => g.panes.some(p => p.sessionId === 'local-session')));
+    if (hasServerGroups) kit.ok(writes[0].tabGroups.some(g => g.id === 'tg_default' && g.name === 'Phone main'));
+    kit.eq(h.timers.size, 0);
+  });
+}
+
 kit.test('a layout retry can recover against a revisionless server', async () => {
   let reads = 0;
   const h = layoutPage(async () => {
