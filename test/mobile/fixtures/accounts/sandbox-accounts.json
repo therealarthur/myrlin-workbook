@@ -1,0 +1,80 @@
+{
+  "_comment": "The accounts fixture of the sandbox Workbook (BUILD-CONTRACT 3.7.1 item 6, 6.1): an AccountsSnapshot plus codexRunning. e2e/seed-workspace.js moves every ...AtMs so generatedAtMs is the seed time and writes <data>/accounts-fixture.json, which CWM_MOBILE_ACCOUNTS_FIXTURE names. Neutral names. E2E_09 taps the Codex chip alt.",
+  "codexRunning": true,
+  "codexProcesses": [{"pid": 4120, "name": "codex.exe", "path": "C:\\Program Files\\Codex\\codex.exe"}],
+  "accounts": {
+    "source": "workbook",
+    "generatedAtMs": 1790000000000,
+    "stalledSinceAtMs": null,
+    "swapsEnabled": true,
+    "swapsDisabledReason": null,
+    "glass": {"apiAvailable": false, "stateFileAgeMs": null},
+    "providers": [
+      {
+        "provider": "claude",
+        "activeAccountId": "acc-personal",
+        "swapEffect": "Running Claude Code sessions follow within about a second.",
+        "recommendation": null,
+        "accounts": [
+          {
+            "provider": "claude", "accountId": "acc-personal", "email": "avery.lane@example.com", "label": "Personal", "displayName": "Personal", "plan": "Max 20x",
+            "active": true, "state": "ok", "stateDetail": null, "staleReason": null,
+            "windows": [
+              {"key": "session", "label": "Session", "percent": 8, "resetsAtMs": 1790002000000, "windowSeconds": 18000, "severity": "normal", "ring": "outer"},
+              {"key": "weekly", "label": "Weekly", "percent": 80, "resetsAtMs": 1790140000000, "windowSeconds": 604800, "severity": "warn", "ring": "inner"},
+              {"key": "weekly:Fable", "label": "Weekly Fable", "percent": 0, "resetsAtMs": 1790140000000, "windowSeconds": 604800, "severity": "normal", "ring": "none"}
+            ],
+            "asOfMs": 1789999900000, "dataSource": "workbookCache", "reloginInDays": null, "headroom": 20, "swappable": true, "chip": "usable", "lastActiveAtMs": 1790000000000
+          },
+          {
+            "provider": "claude", "accountId": "acc-work", "email": "morgan.hale@example.com", "label": "Work", "displayName": "Work", "plan": "Max 5x",
+            "active": false, "state": "ok", "stateDetail": null, "staleReason": null,
+            "windows": [
+              {"key": "session", "label": "Session", "percent": 30, "resetsAtMs": 1790003000000, "windowSeconds": 18000, "severity": "normal", "ring": "outer"},
+              {"key": "weekly", "label": "Weekly", "percent": 41, "resetsAtMs": 1790200000000, "windowSeconds": 604800, "severity": "normal", "ring": "inner"}
+            ],
+            "asOfMs": 1789999800000, "dataSource": "workbookCache", "reloginInDays": null, "headroom": 59, "swappable": true, "chip": "usable", "lastActiveAtMs": 1789990000000
+          },
+          {
+            "provider": "claude", "accountId": "acc-blocked", "email": "robin.ash@example.com", "label": null, "displayName": "robin.ash", "plan": "Team",
+            "active": false, "state": "blocked", "stateDetail": "This organization does not allow OAuth sign-ins", "staleReason": null,
+            "windows": [], "asOfMs": null, "dataSource": "none", "reloginInDays": null, "headroom": null, "swappable": false, "chip": "blocked", "lastActiveAtMs": null
+          },
+          {
+            "provider": "claude", "accountId": "acc-signin", "email": "sam.reed@example.com", "label": null, "displayName": "sam.reed", "plan": "Pro",
+            "active": false, "state": "needsLogin", "stateDetail": null, "staleReason": null,
+            "windows": [], "asOfMs": null, "dataSource": "none", "reloginInDays": null, "headroom": null, "swappable": false, "chip": "signIn", "lastActiveAtMs": null
+          }
+        ]
+      },
+      {
+        "provider": "codex",
+        "activeAccountId": "acct_morgan",
+        "swapEffect": "New Codex processes use it; running ones keep the old account until restarted.",
+        "recommendation": null,
+        "accounts": [
+          {
+            "provider": "codex", "accountId": "acct_morgan", "email": "morgan.hale@example.com", "label": null, "displayName": "morgan.hale", "plan": "Pro",
+            "active": true, "state": "ok", "stateDetail": null, "staleReason": null,
+            "windows": [
+              {"key": "codex:604800", "label": "Weekly", "percent": 96, "resetsAtMs": 1790390000000, "windowSeconds": 604800, "severity": "critical", "ring": "single"}
+            ],
+            "asOfMs": 1789999000000, "dataSource": "workbookCache", "reloginInDays": null, "headroom": 4, "swappable": true, "chip": "usable", "lastActiveAtMs": 1790000000000
+          },
+          {
+            "provider": "codex", "accountId": "acct_alt", "email": "alt.user@example.com", "label": "alt", "displayName": "alt", "plan": "Pro",
+            "active": false, "state": "ok", "stateDetail": null, "staleReason": null,
+            "windows": [
+              {"key": "codex:604800", "label": "Weekly", "percent": 10, "resetsAtMs": 1790500000000, "windowSeconds": 604800, "severity": "normal", "ring": "single"}
+            ],
+            "asOfMs": 1789999000000, "dataSource": "workbookCache", "reloginInDays": null, "headroom": 90, "swappable": true, "chip": "usable", "lastActiveAtMs": 1789980000000
+          }
+        ]
+      }
+    ],
+    "swapLog": [
+      {"atMs": 1789990000000, "provider": "claude", "accountId": "acc-personal", "accountLabel": "Personal", "source": "agent", "requester": "claude-code", "reason": "weekly limit", "ok": true}
+    ],
+    "services": null
+  }
+}

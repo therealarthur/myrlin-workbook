@@ -1,0 +1,143 @@
+{
+  "_comment": "Synthetic Myrlin Glass GET /v1/status payload (StatusPayload, claude-swap widget/src/api_types.rs, model.rs). Neutral names. Every ...AtMs and ISO time is relative to generatedAtMs; b3-accounts-glass.test.js shifts them to the test clock.",
+  "version": "0.4.0",
+  "accounts": [
+    {
+      "provider": "claude",
+      "id": "acc-claude-personal",
+      "email": "avery.lane@example.com",
+      "label": "Personal",
+      "plan": "Max 20x",
+      "active": true,
+      "state": "ok",
+      "stateDetail": null,
+      "staleReason": null,
+      "windows": [
+        {"key": "session", "label": "Session", "percent": 8, "resetsAtMs": 1790002000000, "resetsAt": "2026-09-21T13:46:40Z", "windowSeconds": 18000, "severity": "normal"},
+        {"key": "weekly", "label": "Weekly", "percent": 80, "resetsAtMs": 1790140000000, "resetsAt": "2026-09-23T04:06:40Z", "windowSeconds": 604800, "severity": "warn"},
+        {"key": "weekly:Fable", "label": "Weekly Fable", "percent": 0, "resetsAtMs": 1790140000000, "resetsAt": "2026-09-23T04:06:40Z", "windowSeconds": 604800, "severity": "normal"}
+      ],
+      "headroom": 20,
+      "asOfMs": 1789999900000,
+      "asOf": "2026-09-21T13:11:40Z",
+      "source": "statusline",
+      "reloginInDays": null
+    },
+    {
+      "provider": "claude",
+      "id": "acc-claude-work",
+      "email": "morgan.hale@example.com",
+      "label": "Work",
+      "plan": "Max 5x",
+      "active": false,
+      "state": "ok",
+      "stateDetail": null,
+      "staleReason": null,
+      "windows": [
+        {"key": "session", "label": "Session", "percent": 30, "resetsAtMs": 1790003000000, "resetsAt": "2026-09-21T14:03:20Z", "windowSeconds": 18000, "severity": "normal"},
+        {"key": "weekly", "label": "Weekly", "percent": 41, "resetsAtMs": 1790200000000, "resetsAt": "2026-09-23T20:46:40Z", "windowSeconds": 604800, "severity": "normal"}
+      ],
+      "headroom": 59,
+      "asOfMs": 1789999800000,
+      "asOf": "2026-09-21T13:10:00Z",
+      "source": "endpoint",
+      "reloginInDays": 12
+    },
+    {
+      "provider": "claude",
+      "id": "acc-claude-blocked",
+      "email": "robin.ash@example.com",
+      "label": null,
+      "plan": "Team",
+      "active": false,
+      "state": "blocked",
+      "stateDetail": "This organization does not allow OAuth sign-ins",
+      "staleReason": null,
+      "windows": [],
+      "headroom": null,
+      "asOfMs": null,
+      "asOf": null,
+      "source": "none",
+      "reloginInDays": null
+    },
+    {
+      "provider": "claude",
+      "id": "acc-claude-login",
+      "email": "sam.reed@example.com",
+      "label": null,
+      "plan": "Pro",
+      "active": false,
+      "state": "stale",
+      "stateDetail": null,
+      "staleReason": "tokenExpired",
+      "windows": [
+        {"key": "session", "label": "Session", "percent": 12, "resetsAtMs": 1789990000000, "resetsAt": "2026-09-21T10:26:40Z", "windowSeconds": 18000, "severity": "normal"}
+      ],
+      "headroom": 88,
+      "asOfMs": 1789900000000,
+      "asOf": "2026-09-20T09:26:40Z",
+      "source": "workbookCache",
+      "reloginInDays": null
+    },
+    {
+      "provider": "codex",
+      "id": "acct_morgan",
+      "email": "morgan.hale@example.com",
+      "label": null,
+      "plan": "Pro",
+      "active": true,
+      "state": "ok",
+      "stateDetail": null,
+      "staleReason": null,
+      "windows": [
+        {"key": "codex:604800", "label": "Weekly", "percent": 96, "resetsAtMs": 1790390000000, "resetsAt": "2026-09-26T01:33:20Z", "windowSeconds": 604800, "severity": "critical"}
+      ],
+      "headroom": 4,
+      "asOfMs": 1789999000000,
+      "asOf": "2026-09-21T12:56:40Z",
+      "source": "endpoint",
+      "reloginInDays": null
+    },
+    {
+      "provider": "codex",
+      "id": "acct_alt",
+      "email": "alt.user@example.com",
+      "label": "alt",
+      "plan": "Pro",
+      "active": false,
+      "state": "ok",
+      "stateDetail": null,
+      "staleReason": null,
+      "windows": [
+        {"key": "codex:604800", "label": "Weekly", "percent": 10, "resetsAtMs": 1790500000000, "resetsAt": "2026-09-27T08:06:40Z", "windowSeconds": 604800, "severity": "normal"}
+      ],
+      "headroom": 90,
+      "asOfMs": 1789999000000,
+      "asOf": "2026-09-21T12:56:40Z",
+      "source": "endpoint",
+      "reloginInDays": null
+    }
+  ],
+  "workbook": {"reachable": true, "owner": true, "port": 3457, "detail": null},
+  "swapsEnabled": true,
+  "swapsDisabledReason": null,
+  "agentCooldowns": [{"provider": "claude", "secondsLeft": 0}, {"provider": "codex", "secondsLeft": 0}],
+  "swapLog": [
+    {"atMs": 1789999500000, "source": "agent", "requester": "claude-code", "reason": "weekly limit", "provider": "claude", "from": "Work", "to": "Personal", "ok": true, "message": "Switched Claude to Personal.", "fromId": "acc-claude-work", "toId": "acc-claude-personal"},
+    {"atMs": 1789999400000, "source": "ui", "requester": null, "reason": null, "provider": "codex", "from": "alt", "to": "morgan.hale@example.com", "ok": true, "message": "Switched Codex to morgan.hale.", "fromId": "acct_alt", "toId": "acct_morgan"},
+    {"atMs": 1789999300000, "source": "agent", "requester": "glass-cli", "reason": "service swap", "provider": "claude", "from": "a", "to": "b", "ok": true, "message": "Service swapped.", "slot": "mac-claude-1"}
+  ],
+  "services": {
+    "configured": true,
+    "reachable": true,
+    "error": null,
+    "slots": [
+      {"slotId": "mac-claude-1", "displayName": "Mac Claude", "machine": "mac", "kind": "claude", "consumers": "2 agents", "healthText": "Healthy", "healthLevel": "ok", "accountEmail": "robin.ash@example.com", "accountId": "acc-x", "plan": "Max 5x", "windows": [{"key": "weekly", "label": "Weekly", "percent": 55, "resetsAtMs": 1790140000000, "windowSeconds": 604800, "severity": "normal"}], "usageAsOfMs": 1789999000000, "sharedBy": 1, "familyKey": null, "familyAgeDays": null, "familyDiesAtMs": null}
+    ],
+    "vault": {"parked": 5, "inSlots": 1, "dead": 0, "accounts": [], "families": []},
+    "warnings": [{"code": "a"}, {"code": "b"}, {"code": "c"}],
+    "asOfMs": 1789999000000
+  },
+  "generatedAtMs": 1790000000000,
+  "generatedAt": "2026-09-21T13:13:20Z"
+}
