@@ -10,14 +10,111 @@
  * nothing reads the real ~/.claude or ~/.codex.
  *
  * Require it first in every mobile test (it requires ../_test-data-dir).
+ *
+ * Sandbox guard: on 2026-09-27 a hand run that loaded server.js without a
+ * sandbox wrote a store backup into the live data folder, and src/web/auth.js
+ * copied the live desktop password into the ignored state/config.json. So the
+ * harness refuses, before any Workbook module loads, to run unless this
+ * process is isolated: CWM_DATA_DIR is the fresh tmpdir of _test-data-dir
+ * (never the live ~/.myrlin, never the in-repo state/), CWM_PASSWORD is set (so
+ * auth.js stays on its side effect free environment path), and no module under
+ * src/ was loaded before the sandbox. run-all.js adds a static preflight and a
+ * sandboxed environment for every child (sandboxProblems is shared with it).
  */
 'use strict';
 
 const sandbox = require('../_test-data-dir');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
+
+/** The Workbook repository root (test/mobile/..). */
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+
+/**
+ * Whether a path is a folder or lies inside it. Case insensitive on Windows,
+ * where C:\Users and c:\users name the same folder.
+ *
+ * @param {string} child - Candidate path.
+ * @param {string} parent - Folder.
+ * @returns {boolean}
+ */
+function isInside(child, parent) {
+  const norm = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const rel = path.relative(norm(parent), norm(child));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/**
+ * Everything that makes a test process unsafe for the store, as sentences.
+ * Pure: every input is passed in, so the guard test can feed it bad cases.
+ *
+ * @param {object} o
+ * @param {object} o.sandbox - The test/_test-data-dir export ({dir, isolated}).
+ * @param {object} o.env - Environment.
+ * @param {string[]} o.loadedModules - require.cache keys in load order.
+ * @param {string} [o.repoRoot] - Repository root.
+ * @param {string} [o.homedir] - Home folder (the live data is <home>/.myrlin).
+ * @param {string} [o.tmpdir] - System temp folder.
+ * @returns {string[]} Problems; empty when the process is sandboxed.
+ */
+function sandboxProblems(o) {
+  const repoRoot = o.repoRoot || REPO_ROOT;
+  const liveDir = path.join(o.homedir || os.homedir(), '.myrlin');
+  const tmp = o.tmpdir || os.tmpdir();
+  const problems = [];
+  const sb = o.sandbox || {};
+  if (sb.isolated !== true) problems.push('test/_test-data-dir.js did not isolate this process (CWM_TEST_ALLOW_PROD_DIR=1 is refused for mobile tests)');
+  const raw = o.env.CWM_DATA_DIR;
+  if (!raw) {
+    problems.push('CWM_DATA_DIR is not set');
+  } else {
+    const dataDir = path.resolve(raw);
+    if (sb.dir && !isInside(dataDir, sb.dir)) problems.push('CWM_DATA_DIR is neither the sandbox folder of test/_test-data-dir.js nor inside it');
+    if (isInside(dataDir, liveDir) || isInside(liveDir, dataDir)) problems.push('CWM_DATA_DIR is or holds the live Workbook data folder');
+    if (isInside(dataDir, path.join(repoRoot, 'state'))) problems.push('CWM_DATA_DIR is the in-repo state folder');
+    if (!isInside(dataDir, tmp) || path.resolve(dataDir) === path.resolve(tmp)) problems.push('CWM_DATA_DIR is not a folder inside the system temp folder');
+  }
+  if (!o.env.CWM_PASSWORD) problems.push('CWM_PASSWORD is not set, so src/web/auth.js would read the live config.json and copy it into state/');
+  const early = workbookModulesBeforeSandbox(o.loadedModules, repoRoot);
+  if (early.length) problems.push('Workbook modules were loaded before the sandbox: ' + early.map((k) => path.relative(repoRoot, k)).join(', '));
+  return problems;
+}
+
+/**
+ * Modules under src/ that were loaded before test/_test-data-dir.js. The
+ * require cache keeps insertion order (a module is added when it starts to
+ * load), so anything under src/ ahead of the sandbox module ran without it.
+ *
+ * @param {string[]} keys - require.cache keys in load order.
+ * @param {string} [repoRoot] - Repository root.
+ * @returns {string[]} The offending absolute paths.
+ */
+function workbookModulesBeforeSandbox(keys, repoRoot) {
+  const root = repoRoot || REPO_ROOT;
+  const sandboxFile = path.join(root, 'test', '_test-data-dir.js');
+  const srcDir = path.join(root, 'src');
+  const idx = keys.findIndex((k) => isInside(k, sandboxFile));
+  const before = idx < 0 ? keys : keys.slice(0, idx);
+  return before.filter((k) => isInside(k, srcDir));
+}
+
+/**
+ * Throw, before any Workbook module loads, when this process is not sandboxed.
+ * The message names every problem so the fix is obvious.
+ */
+function assertSandboxed() {
+  const problems = sandboxProblems({ sandbox, env: process.env, loadedModules: Object.keys(require.cache) });
+  if (problems.length) {
+    throw new Error('[mobile tests] refusing to run outside a sandbox: ' + problems.join('; ') +
+      '. Require ./_harness (or ../_test-data-dir) before anything under src/.');
+  }
+}
+
+// The guard runs here, ahead of the first Workbook require below.
+assertSandboxed();
 
 // Sandbox every provider home and the credential switcher before any
 // Workbook module loads (the orchestrator's rules for any server a test starts).
@@ -76,6 +173,8 @@ function seedSettings(store, mobileSettings) {
  * @param {object} [opts.settings] - Extra settings.mobile.
  * @param {object} [opts.clock] - fakeClock().
  * @param {object} [opts.hub] - A stub hub to place at ctx.mobile.hub.
+ * @param {string} [opts.dataDir] - The mobile data dir (default: the process sandbox);
+ *   a fresh folder inside the sandbox lets a test see which files a start writes.
  * @returns {Promise<object>} The harness handle.
  */
 async function startSandbox(opts) {
@@ -100,7 +199,7 @@ async function startSandbox(opts) {
   const logs = [];
   const ctx = {
     store,
-    dataDir: sandbox.dir,
+    dataDir: o.dataDir || sandbox.dir,
     packageVersion: '9.9.9-test',
     broadcastSSE: (type, data) => sse.push({ type, data }),
     now: o.clock ? o.clock.now : Date.now,
@@ -377,6 +476,10 @@ async function run(title, tests) {
 
 module.exports = {
   sandbox,
+  REPO_ROOT,
+  isInside,
+  sandboxProblems,
+  workbookModulesBeforeSandbox,
   PROTOCOL_DIR,
   FIXTURE_HOME,
   fakeClock,
