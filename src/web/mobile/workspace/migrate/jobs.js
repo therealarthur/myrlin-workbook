@@ -611,6 +611,8 @@ function createMigrations(deps) {
       } catch (err) {
         fail(job, current, err);
       } finally {
+        // A pause or launch can finish after cancel has already cleared the lock.
+        if (stopped(job)) clearSourceHandoff(job);
         running.delete(job.migrationId);
       }
     })();
@@ -652,9 +654,11 @@ function createMigrations(deps) {
     const ref = resolveSource(job.sourceSessionId);
     let paused = 'source left running';
     if (job.sourcePolicy === 'pause') paused = await launcher.pauseSource(job, ref);
+    if (stopped(job)) return;
     const snap = pack.snapshotSource(job._.sourcePath, job._.cut);
     job._.snap = snap;
     const g = await pack.gitState(job._.cwd, null);
+    if (stopped(job)) return;
     // job.json keeps the git state for the tripwire; the free text parts
     // (commit subjects, remote URLs) are redacted like every pack file.
     job._.git = g ? Object.assign({}, g, { log: redact(g.log), remotes: redact(g.remotes) }) : null;
@@ -1016,6 +1020,21 @@ function createMigrations(deps) {
   }
 
   /**
+   * Clear only this migration's source lock, including a late pause completion.
+   * A new migration may already own the source after the old one was cancelled.
+   *
+   * @param {object} job - Migration whose lock can be removed.
+   */
+  function clearSourceHandoff(job) {
+    const c = chat();
+    if (!c || !c.sessions || typeof c.sessions.handoffOf !== 'function') return;
+    try {
+      const handoff = c.sessions.handoffOf(job.sourceSessionId);
+      if (handoff && handoff.migrationId === job.migrationId) c.sessions.setHandedOff(job.sourceSessionId, null);
+    } catch (_) { /* best effort */ }
+  }
+
+  /**
    * POST /migrations/:migrationId/cancel (PROTOCOL.md 4.12.4, P27).
    *
    * @param {string} id - Migration id.
@@ -1035,9 +1054,7 @@ function createMigrations(deps) {
       try { await c.launch.stop(job.targetSessionId, { clientRequestId: crypto.randomUUID() }); } catch (_) { /* not running */ }
       try { deps.flags.set(job.targetSessionId, { archived: true }); } catch (_) { /* best effort */ }
     }
-    if (c && c.sessions && c.sessions.handoffOf && c.sessions.handoffOf(job.sourceSessionId)) {
-      try { c.sessions.setHandedOff(job.sourceSessionId, null); } catch (_) { /* best effort */ }
-    }
+    clearSourceHandoff(job);
     unlink(job);
     for (const s of job.steps) if (s.state === 'running' || s.state === 'pending') { s.state = 'skipped'; s.endedAtMs = s.endedAtMs || now(); }
     save(job, prev);

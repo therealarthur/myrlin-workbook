@@ -205,7 +205,7 @@ kit.test('load jobs from job.json as after a restart', async () => {
     st.steps = st.steps.map((x) => (['reading', 'verifying', 'report'].includes(x.key) ? Object.assign({}, x, { state: x.key === 'reading' ? (j === jobs.failed ? 'failed' : 'running') : 'pending', endedAtMs: null }) : x));
     fs.writeFileSync(path.join(root, j.migrationId, 'job.json'), JSON.stringify(st));
   }
-  handoffs.set(jobs.cancel.sourceSessionId, { targetSessionId: jobs.cancel.targetSessionId });
+  handoffs.set(jobs.cancel.sourceSessionId, { targetSessionId: jobs.cancel.targetSessionId, migrationId: jobs.cancel.migrationId });
   settingsValues[jobs.bypass.sourceSessionId] = { permissionMode: 'bypassPermissions' };
   settingsValues[jobs.accept.sourceSessionId] = { permissionMode: 'acceptEdits' };
   settingsValues[jobs.manual.sourceSessionId] = { permissionMode: 'default' };

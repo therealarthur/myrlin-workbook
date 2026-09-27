@@ -81,23 +81,27 @@ function createMigrationLauncher(deps) {
   async function pauseSource(job, ref) {
     const c = chat();
     if (!c) return 'source left running';
+    if (job.state === 'cancelled') return 'source pause cancelled';
     if (turnOpen(ref.sessionId)) {
       if (job._.startWhileBusy && c.internals && c.internals.interrupts) {
         try { await c.internals.interrupts.interrupt(ref.sessionId, { clientRequestId: crypto.randomUUID() }, { deviceId: job._.deviceId || null }); } catch (err) { log('source interrupt failed: ' + (err && err.code)); }
       }
       const until = Date.now() + TURN_END_WAIT_MS;
-      while (turnOpen(ref.sessionId) && Date.now() < until) await sleep(WAIT_POLL_MS);
+      while (turnOpen(ref.sessionId) && Date.now() < until && job.state !== 'cancelled') await sleep(WAIT_POLL_MS);
+      if (job.state === 'cancelled') return 'source pause cancelled';
       if (turnOpen(ref.sessionId)) {
         const err = new Error('The source is still running a turn.');
         err.code = 'SOURCE_BUSY';
         throw err;
       }
     }
+    if (job.state === 'cancelled') return 'source pause cancelled';
     try {
       if (['workbook', 'background'].includes(ref.owner)) await c.launch.stop(ref.sessionId, { clientRequestId: crypto.randomUUID() });
     } catch (err) {
       log('source stop failed: ' + (err && err.code));
     }
+    if (job.state === 'cancelled') return 'source pause cancelled';
     c.sessions.setHandedOff(ref.sessionId, { targetSessionId: job.targetSessionId || null, targetTitle: job._.name, migrationId: job.migrationId });
     return 'source paused';
   }

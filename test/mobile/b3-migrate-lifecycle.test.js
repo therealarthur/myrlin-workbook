@@ -31,6 +31,7 @@ const path = require('path');
 const crypto = require('crypto');
 const childProcess = require('child_process');
 const kit = require('./b3-kit');
+const { createMigrationLauncher } = require('../../src/web/mobile/workspace/migrate/launch');
 
 /** Longest wait for a takeover to reach a state (fake CLI turns take seconds). */
 const STATE_WAIT_MS = 90 * 1000;
@@ -106,6 +107,30 @@ function walk(dir) {
     if (e.isDirectory()) out.push(...walk(p)); else out.push(p);
   }
   return out;
+}
+
+/** A promise barrier that makes the order of cancellation and source work explicit. */
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+/** Source-only B2 adapter for cancelling exactly at the launcher's await boundaries. */
+function pauseFixture() {
+  const calls = [];
+  const waiting = deferred();
+  const ref = { sessionId: 'cl_source', owner: 'workbook' };
+  const job = { migrationId: 'mg_pause', state: 'snapshotting', _: { name: 'Source takeover' } };
+  let open = true;
+  let checks = 0;
+  const chat = {
+    internals: { turns: { isTurnOpen: () => { if (++checks > 1) waiting.resolve(); return open; } } },
+    launch: { stop: async () => { calls.push('stop'); } },
+    sessions: { setHandedOff: () => { calls.push('handoff'); } },
+  };
+  const launcher = createMigrationLauncher({ ctx: { mobile: { chat } } });
+  return { job, ref, chat, calls, waiting, launcher, endTurn: () => { open = false; } };
 }
 
 kit.test('boot with PTYs, a git repo, three sources and a tab group', async () => {
@@ -393,6 +418,89 @@ kit.test('a fromMessageId start packs only the history up to that message', asyn
   const live = env.pm.getSession(tRef.workbookSessionId);
   kit.ok(!live || !live.alive, 'a cancelled takeover never starts again to deliver its kickoff');
   kit.ok(env.chat.internals.sends.list(running.targetSessionId).every((x) => x.state !== 'queued'), 'no send stays queued for the cancelled target');
+});
+
+kit.test('cancel before the source turn ends never stops or hands off the source', async () => {
+  const f = pauseFixture();
+  const pending = f.launcher.pauseSource(f.job, f.ref);
+  await f.waiting.promise;
+  f.job.state = 'cancelled';
+  f.endTurn();
+  await pending;
+  kit.eq(f.calls, [], 'the completed wait must recheck cancellation before stopping');
+});
+
+kit.test('cancel after the source turn ends prevents a hand off when stop finishes', async () => {
+  const f = pauseFixture();
+  const stopping = deferred();
+  const stopped = deferred();
+  f.chat.launch.stop = async () => { f.calls.push('stop'); stopping.resolve(); await stopped.promise; };
+  const pending = f.launcher.pauseSource(f.job, f.ref);
+  await f.waiting.promise;
+  f.endTurn();
+  await stopping.promise;
+  f.job.state = 'cancelled';
+  stopped.resolve();
+  await pending;
+  kit.eq(f.calls, ['stop'], 'an in-flight stop must recheck cancellation before the hand off');
+});
+
+kit.test('cancel clears a hand off that lands after the cancel returned', async () => {
+  const engine = env.ws.internals.migrations;
+  const sessions = env.chat.sessions;
+  const realSetHandedOff = sessions.setHandedOff;
+  let cancelled;
+  let lateHandoff = false;
+  sessions.setHandedOff = (id, info) => {
+    if (id === src3.phone && info && !cancelled) {
+      // A B2 callback can cancel before the adapter finishes setting its lock.
+      cancelled = engine.cancel(info.migrationId, { deviceId: null });
+      kit.eq(sessions.handoffOf(id), null, 'cancel saw no hand off yet');
+      realSetHandedOff(id, info);
+      lateHandoff = true;
+      return;
+    }
+    realSetHandedOff(id, info);
+  };
+  try {
+    const r = await start(src3.phone, {});
+    kit.eq(r.status, 202, JSON.stringify(r.body));
+    kit.ok(lateHandoff, 'the source lock landed after cancellation');
+    kit.eq((await cancelled).state, 'cancelled');
+    kit.eq(sessions.handoffOf(src3.phone), null, 'the pipeline removed its late hand off');
+    kit.eq(engine.lineageOf(src3.phone), null);
+    const job = engine.get(r.body.migrationId);
+    kit.eq([job.state, job.targetSessionId, job.steps[0].state], ['cancelled', null, 'skipped']);
+    const saved = JSON.parse(fs.readFileSync(path.join(process.env.CWM_DATA_DIR, 'migrations', r.body.migrationId, 'job.json'), 'utf8'));
+    kit.eq([saved.state, saved.steps[0].state], ['cancelled', 'skipped'], 'snapshot completion cannot overwrite the cancelled step');
+  } finally {
+    sessions.setHandedOff = realSetHandedOff;
+  }
+});
+
+kit.test('late cancellation cleanup preserves a newer migration hand off', async () => {
+  const engine = env.ws.internals.migrations;
+  const sessions = env.chat.sessions;
+  const realSetHandedOff = sessions.setHandedOff;
+  const newerMigrationId = 'mg_' + crypto.randomBytes(16).toString('base64url');
+  let cancelled;
+  sessions.setHandedOff = (id, info) => {
+    if (id === src3.phone && info && !cancelled) {
+      cancelled = engine.cancel(info.migrationId, { deviceId: null });
+      realSetHandedOff(id, Object.assign({}, info, { migrationId: newerMigrationId }));
+      return;
+    }
+    realSetHandedOff(id, info);
+  };
+  try {
+    const r = await start(src3.phone, {});
+    kit.eq(r.status, 202, JSON.stringify(r.body));
+    kit.eq((await cancelled).state, 'cancelled');
+    kit.eq(sessions.handoffOf(src3.phone).migrationId, newerMigrationId, 'the finalizer only clears its own migration lock');
+  } finally {
+    sessions.setHandedOff = realSetHandedOff;
+    realSetHandedOff(src3.phone, null);
+  }
 });
 
 kit.run(async () => { if (env) await env.close(); });
