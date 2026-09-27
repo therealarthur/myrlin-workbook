@@ -22,6 +22,7 @@ const path = require('path');
 const crypto = require('crypto');
 const kit = require('./fakes/b2-kit');
 
+const LIVE_FIXTURE_TIMEOUT_MS = 5000;
 const sb = kit.sandbox();
 let env;
 const spawns = [];
@@ -66,6 +67,11 @@ kit.test('a live interactive match is refused with SESSION_LIVE_ELSEWHERE and no
   const r = await env.pm.launchDetached(rec.id, { _ptySpawnForTesting: spy, _liveFresh: true });
   kit.eq([r.status, r.code], ['refused', 'SESSION_LIVE_ELSEWHERE']);
   kit.eq(spawns.length, before, 'no spawn on refusal');
+  // The mobile owner cache may predate this test's newly written live fixture.
+  await kit.until(async () => {
+    await env.chat.internals.agents.onDemand(-1);
+    return !!env.chat.internals.agents.entryFor(transcript);
+  }, LIVE_FIXTURE_TIMEOUT_MS, 'the owner poller sees the interactive fixture');
   env.chat.internals.index.invalidate();
   const sid = 'cl_' + transcript;
   const send = await kit.api(env.base, 'POST', '/sessions/' + sid + '/send', { clientMessageId: crypto.randomUUID(), text: 'hi' }, env.device.token);
@@ -229,26 +235,55 @@ kit.test('launchDetached ignores a caller supplied _liveChecked: a live interact
   kit.eq(spawns.length, before, 'nothing spawned');
 });
 
-kit.test('launchDetached checks again when the record changes during the lookup (attachClient rule)', async () => {
+kit.test('launchDetached refreshes even a just cached listing when the record changes during the lookup', async () => {
   const quiet = crypto.randomUUID();
   const live = crypto.randomUUID();
   kit.writeClaude(sb.projects, sb.work, quiet, kit.claudeExchange('quiet'));
   kit.writeClaude(sb.projects, sb.work, live, kit.claudeExchange('live'));
-  stateEntry(live, 'interactive', 'lv12ab34');
   const rec = kit.trackedSession(env.store, { provider: 'claude', workingDir: sb.work, resumeSessionId: quiet });
+  const liveSessions = require('../../src/providers/claude/live-sessions');
+  const originalLookup = liveSessions.getDefaultLookup();
+  const lookupTime = Date.now();
+  let entries = [];
+  // Keep the listing inside the fresh reuse window without depending on timing.
+  const lookup = liveSessions.createLiveSessionLookup({
+    now: () => lookupTime,
+    env: {},
+    homedir: sb.work,
+    resolveCandidates: () => [{ path: 'fixture-claude', viaCmd: false }],
+    execFileImpl(_file, _args, _options, callback) {
+      const output = JSON.stringify(entries);
+      queueMicrotask(() => callback(null, output));
+      return null;
+    },
+  });
+  liveSessions._setDefaultLookupForTesting(lookup);
   const orig = env.pm._decideLive;
-  let decisions = 0;
+  const decisions = [];
   env.pm._decideLive = async function decideThenChange(id, gate) {
-    decisions += 1;
     const d = await orig.call(env.pm, id, gate);
-    // The record moves to another transcript while the first lookup ran.
-    if (decisions === 1) env.store.updateSession(rec.id, { resumeSessionId: live });
+    decisions.push({ target: gate.resumeSessionId, fresh: gate.fresh, cached: d.lookup.cached });
+    if (decisions.length === 1) {
+      // The new target goes live after the listing, before the record recheck.
+      entries = [{ id: 'lv12ab34', sessionId: live, kind: 'interactive', pid: process.pid, cwd: sb.work }];
+      env.store.updateSession(rec.id, { resumeSessionId: live });
+    }
     return d;
   };
   const before = spawns.length;
   let r;
-  try { r = await env.pm.launchDetached(rec.id, { _ptySpawnForTesting: spy, _liveFresh: true }); } finally { env.pm._decideLive = orig; }
-  kit.eq([r.status, r.code, decisions], ['refused', 'SESSION_LIVE_ELSEWHERE', 2]);
+  try {
+    r = await env.pm.launchDetached(rec.id, { _ptySpawnForTesting: spy, _liveFresh: true });
+  } finally {
+    env.pm._decideLive = orig;
+    liveSessions._setDefaultLookupForTesting(originalLookup);
+  }
+  kit.eq([r.status, r.code], ['refused', 'SESSION_LIVE_ELSEWHERE']);
+  kit.eq(decisions, [
+    { target: quiet, fresh: true, cached: false },
+    { target: live, fresh: true, cached: false },
+  ]);
+  kit.eq(lookup.runs, 2, 'the changed target requires another actual listing');
   kit.eq(spawns.length, before, 'the changed target was checked, never spawned unchecked');
 });
 
