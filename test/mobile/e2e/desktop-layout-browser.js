@@ -6,7 +6,7 @@
  *
  * What: starts a sandbox Workbook in this process (startServer on an
  * ephemeral port, the mobile listener on another), opens the real desktop
- * page in headless Chromium, and drives three cases while reading the page's
+ * page in headless Chromium, and drives five cases while reading the page's
  * own state (window.cwm) and layout.json on disk:
  *   A. the phone renames a tab group while the page is idle: the page hears
  *      layout:updated, reloads the layout and shows the phone's name;
@@ -19,6 +19,8 @@
  *   D. the page's event stream is down, so it never hears of a phone
  *      rename, and then it saves a change of its own from its old revision:
  *      the server rebases that save and the phone's rename survives;
+ *   E. the initial layout read fails: saves wait for a successful retry,
+ *      which restores the phone's latest edit before saving is allowed;
  * then reloads the page and checks the merged layout is what loads.
  *
  * Why: the unit tests prove the store and the page's source; this proves the
@@ -259,6 +261,37 @@ async function main() {
     check(sR.names.join(',') === 'Phone D,Desk D,Phone C' && sR.revision === disk().revision, 'after a reload the page loads the merged layout (revision ' + sR.revision + ')');
     const tabs = (await request(phonePort, 'GET', '/api/m/v2/tabs', null, phoneToken)).body.tabs;
     check(tabs.groups.map((g) => g.name).join(',') === 'Phone D,Desk D,Phone C' && tabs.revision === sR.revision, 'the phone reads the same tabs and revision');
+
+    // E. Initial reads fail while the phone keeps editing the real layout.
+    let blockLayoutReads = true;
+    let failedReads = 0;
+    const recoverySaves = [];
+    await page.route('**/api/layout', async (route) => {
+      if (route.request().method() === 'GET' && blockLayoutReads) {
+        failedReads += 1;
+        await route.abort('failed');
+      } else {
+        if (route.request().method() === 'PUT') recoverySaves.push(route.request().postDataJSON());
+        await route.continue();
+      }
+    });
+    await page.reload();
+    await page.waitForFunction(() => window.cwm && window.cwm._layoutRevision === null && window.cwm._tabGroups.length === 1, null, { timeout: PAGE_WAIT_MS });
+    await page.evaluate(() => { window.cwm.saveTerminalLayout(); window.cwm.saveTerminalLayout(); });
+    const e = await phone([{ op: 'renameGroup', groupId: 'tg_main', name: 'Phone E' }], disk().revision);
+    check(e.status === 200, 'the phone can edit while the desktop initial load is unavailable');
+    await until(() => failedReads >= 2, PAGE_WAIT_MS, 'the failed initial layout read to be retried');
+    await new Promise((r) => setTimeout(r, SAVE_DEBOUNCE_MS * 2));
+    check(recoverySaves.length === 0 && names(disk()).includes('Phone E'), 'E: saves stay held and the phone edit survives failed initial reads');
+    blockLayoutReads = false;
+    await untilPage(async () => { const st = await pageState(); return st.names.includes('Phone E') && st.revision === disk().revision; }, 'initial layout recovery to restore the phone edit');
+    await page.dblclick('.terminal-group-tab[data-group-id="tg_research"]');
+    await page.waitForSelector('.inline-rename-input', { timeout: PAGE_WAIT_MS });
+    await page.fill('.inline-rename-input', 'Desk E');
+    await page.keyboard.press('Enter');
+    await untilPage(async () => { const st = await pageState(); return names(disk()).includes('Desk E') && st.revision === disk().revision; }, 'saving to resume after recovery');
+    check(recoverySaves.length > 0 && recoverySaves.every(save => typeof save.baseRevision === 'number'), 'E: every resumed save carries a known baseRevision');
+    check(names(disk()).join(',') === 'Phone E,Desk E,Phone C', 'E: recovery preserves the phone layout and the next desktop edit');
     check(pageErrors.length === 0, 'no page errors' + (pageErrors.length ? ': ' + pageErrors.join(' | ') : ''));
     if (process.env.B3_BROWSER_SHOT) {
       await page.screenshot({ path: process.env.B3_BROWSER_SHOT, clip: { x: 0, y: 0, width: 1280, height: 200 } });

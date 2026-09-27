@@ -11,7 +11,7 @@
  * server broadcasts through the layout store. It also runs the event
  * handler's payload rule on the real SSE envelope shape, so the page reads
  * the revision from data.data. The browser test
- * (b3-desktop-layout-browser.test.js) proves the behaviour end to end.
+ * (test/mobile/e2e/desktop-layout-browser.js) proves the behaviour end to end.
  *
  * Why: app.js is a 30,000 line browser file with no module seams; a source
  * check is the cheap guard the contract asks for against a later edit
@@ -24,6 +24,7 @@
 require('./_harness');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const kit = require('./b3-kit');
 
 const root = path.join(__dirname, '..', '..');
@@ -47,6 +48,88 @@ function methodBody(name) {
   const n = next.exec(app);
   return app.slice(start, n ? n.index : app.length);
 }
+
+/** Execute the real layout methods with controlled requests and retry timers. */
+function layoutPage(api) {
+  const timers = new Map();
+  let timerId = 0;
+  const methods = ['loadTerminalLayout', 'saveTerminalLayout', '_retryTerminalLayoutLoad', 'applyRemoteLayout', '_fetchAndApplyRemoteLayout'];
+  const page = vm.runInNewContext('({' + methods.map(methodBody).join(',') + '})', {
+    setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; },
+    clearTimeout(id) { timers.delete(id); },
+  });
+  Object.assign(page, {
+    api, terminalPanes: [], _tabGroups: [], _tabFolders: [],
+    renderTerminalGroupTabs() {}, renderWorkspaces() {}, saveCurrentGroupPanes() {},
+    switchTerminalGroup(id) { this._activeGroupId = id; }, _disposeGroupCache() {},
+  });
+  return {
+    page, timers,
+    async fire() {
+      const [id, fn] = timers.entries().next().value;
+      timers.delete(id);
+      await fn();
+      if (page._layoutSaveChain) await page._layoutSaveChain;
+    },
+  };
+}
+
+kit.test('failed initial layout reads hold saves until recovery loads the phone layout', async () => {
+  const writes = [];
+  let reads = 0;
+  const h = layoutPage(async (method, route, body) => {
+    kit.eq(route, '/api/layout');
+    if (method === 'PUT') { writes.push(body); return { revision: 8 }; }
+    reads += 1;
+    if (reads <= 2) throw new Error('offline');
+    return { revision: 7, tabGroups: [{ id: 'tg_phone', name: 'Phone edit', panes: [] }], tabFolders: [] };
+  });
+  await h.page.loadTerminalLayout();
+  h.page.saveTerminalLayout();
+  h.page.saveTerminalLayout();
+  kit.eq(h.timers.size, 1, 'one retry owns recovery');
+  await h.fire();
+  h.page.saveTerminalLayout();
+  kit.eq(writes.length, 0, 'no PUT after two failed GETs');
+  kit.eq(h.timers.size, 1, 'another load is scheduled');
+  await h.fire();
+  kit.eq(h.page._layoutRevision, 7);
+  kit.eq(h.page._tabGroups[0].name, 'Phone edit');
+  h.page.saveTerminalLayout();
+  await h.fire();
+  kit.eq(writes.length, 1);
+  kit.eq(writes[0].baseRevision, 7);
+  kit.eq(writes[0].tabGroups[0].name, 'Phone edit', 'the provisional default never overwrites the phone');
+  kit.eq(h.page._layoutRevision, 8);
+});
+
+kit.test('a layout response without a revision cannot release held saves', async () => {
+  let writes = 0;
+  const h = layoutPage(async (method) => {
+    if (method === 'PUT') writes += 1;
+    return { tabGroups: [] };
+  });
+  await h.page.loadTerminalLayout();
+  await h.fire();
+  h.page.saveTerminalLayout();
+  kit.eq(writes, 0);
+  kit.eq(h.page._layoutRevision, null);
+  kit.eq(h.timers.size, 1);
+});
+
+kit.test('a remote snapshot wins over an older initial layout retry in flight', async () => {
+  let resolveRetry;
+  const h = layoutPage(() => new Promise(resolve => { resolveRetry = resolve; }));
+  h.page._layoutRevision = null;
+  h.page._retryTerminalLayoutLoad();
+  const retry = h.fire();
+  h.page.applyRemoteLayout({ revision: 9, tabGroups: [{ id: 'tg_phone', name: 'Newest phone edit', panes: [] }] });
+  resolveRetry({ revision: 8, tabGroups: [{ id: 'tg_phone', name: 'Older edit', panes: [] }] });
+  await retry;
+  kit.eq(h.page._layoutRevision, 9);
+  kit.eq(h.page._tabGroups[0].name, 'Newest phone edit');
+  kit.eq(h.timers.size, 0);
+});
 
 kit.test('S17: loadTerminalLayout remembers the revision it loaded', () => {
   const body = methodBody('loadTerminalLayout');
@@ -102,7 +185,7 @@ kit.test('app.js moved to a new cache token atomically; the added code has no em
   // token moved with the change, in index.html and every pinning test (G10).
   const read = (rel) => fs.readFileSync(path.join(__dirname, '..', '..', rel), 'utf8');
   const token = (/<script src="app\.js\?v=([A-Za-z0-9._-]+)"/.exec(read('src/web/public/index.html')) || [])[1];
-  kit.eq(token, '20260927-mobile-v2-b3');
+  kit.eq(token, '20260927-mobile-v2-b3-fix1');
   for (const t of ['test/terminal-select-mode.test.js', 'test/copy-secure-context-fallback.test.js', 'test/browser/workbook-shell.test.js']) kit.ok(read(t).includes('?v=' + token), t + ' pins the new token');
 });
 
