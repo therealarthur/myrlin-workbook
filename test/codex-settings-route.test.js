@@ -97,6 +97,12 @@ function req(server, method, urlPath, opts) {
   const registry = require('../src/providers');
   const { getStore } = require('../src/state/store');
   const store = getStore();
+  // Route fixtures keep real persistence without racing async saves against cleanup.
+  /** Persist fixture changes before another save can reuse the temporary file. */
+  store._debouncedSave = function saveFixtureImmediately() {
+    this._dirty = true;
+    this.save();
+  };
   await registry.initRegistry(store);
   const server = require('../src/web/server');
   const app = server.app;
