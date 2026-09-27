@@ -25813,6 +25813,7 @@ class CWMApp {
       // Mobile v2 (BUILD-CONTRACT S17): the layout's revision, sent back as
       // baseRevision so the server can keep a phone's tab edit (4.8.1).
       this._layoutRevision = (layout && typeof layout.revision === 'number') ? layout.revision : null;
+      if (typeof this._layoutRevision === 'number') this._layoutLoadRetryAttempt = 0;
       if (this._layoutRevision === null) this._retryTerminalLayoutLoad();
       if (layout && layout.tabGroups && layout.tabGroups.length > 0) {
         this._tabGroups = layout.tabGroups;
@@ -27173,11 +27174,14 @@ class CWMApp {
    * revision arrives, including when an SSE refresh wins the race.
    */
   _retryTerminalLayoutLoad() {
-    const LAYOUT_LOAD_RETRY_MS = 1000;
+    const LAYOUT_LOAD_RETRY_BASE_MS = 1000;
+    const LAYOUT_LOAD_RETRY_MAX_MS = 30000;
     if (this._layoutLoadRetryTimer || typeof this._layoutRevision === 'number') return;
+    if (!this.state || !this.state.token) return;
     this._layoutLoadRetryTimer = setTimeout(async () => {
       try {
         if (typeof this._layoutRevision === 'number') return;
+        if (!this.state || !this.state.token) return;
         const layout = await this.api('GET', '/api/layout');
         if (typeof this._layoutRevision === 'number') return;
         if (!layout || typeof layout.revision !== 'number') return;
@@ -27185,13 +27189,15 @@ class CWMApp {
           ? layout
           : { ...layout, tabGroups: [{ id: 'tg_default', name: 'Main', panes: [] }], tabFolders: [], activeGroupId: 'tg_default' };
         this.applyRemoteLayout(recovered);
+        this._layoutLoadRetryAttempt = 0;
       } catch (_) {
         // Offline or signed out: keep holding saves and retry the load.
       } finally {
         this._layoutLoadRetryTimer = null;
-        if (typeof this._layoutRevision !== 'number') this._retryTerminalLayoutLoad();
+        if (typeof this._layoutRevision !== 'number' && this.state && this.state.token) this._retryTerminalLayoutLoad();
       }
-    }, LAYOUT_LOAD_RETRY_MS);
+    }, Math.min(LAYOUT_LOAD_RETRY_BASE_MS * 2 ** (this._layoutLoadRetryAttempt || 0), LAYOUT_LOAD_RETRY_MAX_MS));
+    this._layoutLoadRetryAttempt = (this._layoutLoadRetryAttempt || 0) + 1;
   }
 
   /**

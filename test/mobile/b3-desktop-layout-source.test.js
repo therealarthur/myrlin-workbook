@@ -52,19 +52,20 @@ function methodBody(name) {
 /** Execute the real layout methods with controlled requests and retry timers. */
 function layoutPage(api) {
   const timers = new Map();
+  const delays = [];
   let timerId = 0;
   const methods = ['loadTerminalLayout', 'saveTerminalLayout', '_retryTerminalLayoutLoad', 'applyRemoteLayout', '_fetchAndApplyRemoteLayout'];
   const page = vm.runInNewContext('({' + methods.map(methodBody).join(',') + '})', {
-    setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; },
+    setTimeout(fn, ms) { const id = ++timerId; timers.set(id, fn); delays.push(ms); return id; },
     clearTimeout(id) { timers.delete(id); },
   });
   Object.assign(page, {
-    api, terminalPanes: [], _tabGroups: [], _tabFolders: [],
+    api, state: { token: 't' }, terminalPanes: [], _tabGroups: [], _tabFolders: [],
     renderTerminalGroupTabs() {}, renderWorkspaces() {}, saveCurrentGroupPanes() {},
     switchTerminalGroup(id) { this._activeGroupId = id; }, _disposeGroupCache() {},
   });
   return {
-    page, timers,
+    page, timers, delays,
     async fire() {
       const [id, fn] = timers.entries().next().value;
       timers.delete(id);
@@ -73,6 +74,43 @@ function layoutPage(api) {
     },
   };
 }
+
+kit.test('a signed out page stops retrying the layout load', async () => {
+  let reads = 0;
+  let showLoginCalls = 0;
+  let password = 'typing';
+  const h = layoutPage(async () => {
+    reads += 1;
+    h.page.state.token = null;
+    showLoginCalls += 1;
+    password = '';
+    throw new Error('Unauthorized');
+  });
+  h.page._retryTerminalLayoutLoad();
+  await h.fire();
+  kit.eq(reads, 1);
+  kit.eq(h.timers.size, 0);
+  password = 'new password';
+  h.page._retryTerminalLayoutLoad();
+  kit.eq(h.timers.size, 0);
+  kit.eq([showLoginCalls, password], [1, 'new password'], 'recovery cannot clear the password repeatedly');
+});
+
+kit.test('signing out before a layout retry prevents its request', async () => {
+  let reads = 0;
+  const h = layoutPage(async () => { reads += 1; });
+  h.page._retryTerminalLayoutLoad();
+  h.page.state.token = null;
+  await h.fire();
+  kit.eq([reads, h.timers.size], [0, 0]);
+});
+
+kit.test('layout load recovery backs off after consecutive network errors', async () => {
+  const h = layoutPage(async () => { throw new Error('offline'); });
+  h.page._retryTerminalLayoutLoad();
+  for (let i = 0; i < 3; i += 1) await h.fire();
+  kit.eq(h.delays, [1000, 2000, 4000, 8000]);
+});
 
 kit.test('failed initial layout reads hold saves until recovery loads the phone layout', async () => {
   const writes = [];
@@ -185,7 +223,7 @@ kit.test('app.js moved to a new cache token atomically; the added code has no em
   // token moved with the change, in index.html and every pinning test (G10).
   const read = (rel) => fs.readFileSync(path.join(__dirname, '..', '..', rel), 'utf8');
   const token = (/<script src="app\.js\?v=([A-Za-z0-9._-]+)"/.exec(read('src/web/public/index.html')) || [])[1];
-  kit.eq(token, '20260927-mobile-v2-b3-fix1');
+  kit.eq(token, '20260927-mobile-v2-b3-fix2');
   for (const t of ['test/terminal-select-mode.test.js', 'test/copy-secure-context-fallback.test.js', 'test/browser/workbook-shell.test.js']) kit.ok(read(t).includes('?v=' + token), t + ' pins the new token');
 });
 

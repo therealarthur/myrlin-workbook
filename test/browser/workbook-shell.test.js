@@ -385,7 +385,7 @@ async function run() {
     // track. Neither value is this phase's to choose; both simply follow
     // index.html.
     // Mobile v2 (B3): app.js carries its own token since the layout revisions.
-    assert.strictEqual(shell.appScript, 'app.js?v=20260927-mobile-v2-b3-fix1');
+    assert.strictEqual(shell.appScript, 'app.js?v=20260927-mobile-v2-b3-fix2');
     assert.strictEqual(shell.terminalClass, 'function', 'production TerminalPane must load');
     assert.strictEqual(shell.selectInterceptor, 'function', 'Select-mode interceptor must be present');
     assert.strictEqual(shell.themeRegistry, 'object', 'canonical theme registry must load before the app');
