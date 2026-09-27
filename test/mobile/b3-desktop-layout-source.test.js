@@ -107,7 +107,7 @@ kit.test('signing out before a layout retry prevents its request', async () => {
 
 kit.test('layout load recovery backs off after consecutive network errors', async () => {
   const h = layoutPage(async () => { throw new Error('offline'); });
-  h.page._retryTerminalLayoutLoad();
+  await h.page.loadTerminalLayout();
   for (let i = 0; i < 3; i += 1) await h.fire();
   kit.eq(h.delays, [1000, 2000, 4000, 8000]);
 });
