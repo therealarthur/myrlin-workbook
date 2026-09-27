@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/attachment-ref.json",
+  "title": "AttachmentRef",
+  "description": "An upload attached to a phone sent message. PROTOCOL.md 3.6.",
+  "type": "object",
+  "properties": {
+    "uploadId": {
+      "$ref": "../common/defs.json#/$defs/UploadId"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "image",
+        "video",
+        "keyframe"
+      ]
+    },
+    "mediaType": {
+      "type": "string",
+      "minLength": 3
+    },
+    "byteSize": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "width": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "height": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "durationMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/DurationMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "contentPath": {
+      "type": "string",
+      "pattern": "^/"
+    }
+  },
+  "required": [
+    "uploadId",
+    "kind",
+    "mediaType",
+    "byteSize",
+    "width",
+    "height",
+    "durationMs",
+    "contentPath"
+  ],
+  "additionalProperties": true
+}

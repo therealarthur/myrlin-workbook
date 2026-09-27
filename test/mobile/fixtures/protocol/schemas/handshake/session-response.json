@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/handshake/session-response.json",
+  "title": "SessionResponse",
+  "description": "Answer to POST /session: the 15 minute in memory token. PROTOCOL.md 2.8 and 2.9.",
+  "type": "object",
+  "properties": {
+    "sessionToken": {
+      "$ref": "../common/defs.json#/$defs/Nonce"
+    },
+    "expiresAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "expiresInMs": {
+      "$ref": "../common/defs.json#/$defs/DurationMs"
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "$ref": "../common/defs.json#/$defs/Scope"
+      },
+      "uniqueItems": true
+    },
+    "device": {
+      "$ref": "../resources/device.json"
+    },
+    "streamEpoch": {
+      "$ref": "../common/defs.json#/$defs/StreamEpoch"
+    }
+  },
+  "required": [
+    "sessionToken",
+    "expiresAtMs",
+    "expiresInMs",
+    "scopes",
+    "device",
+    "streamEpoch"
+  ],
+  "additionalProperties": true
+}

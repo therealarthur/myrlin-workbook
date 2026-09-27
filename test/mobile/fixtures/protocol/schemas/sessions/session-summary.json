@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/session-summary.json",
+  "title": "SessionSummary",
+  "description": "One conversation in lists, the tree and search. PROTOCOL.md 3.4.3.",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "provider": {
+      "$ref": "../common/defs.json#/$defs/Provider"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "titleSource": {
+      "$ref": "../common/defs.json#/$defs/TitleSource"
+    },
+    "projectId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "folderId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "workingDir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "branch": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "owner": {
+      "$ref": "../common/defs.json#/$defs/Owner"
+    },
+    "state": {
+      "$ref": "../common/defs.json#/$defs/SessionStateName"
+    },
+    "stateEnteredAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "needsYou": {
+      "type": "boolean"
+    },
+    "lastActiveAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "createdAtMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tracked": {
+      "type": "boolean"
+    },
+    "workbookSessionId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "upstreamId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "archived": {
+      "type": "boolean"
+    },
+    "tabGroupIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "lineage": {
+      "anyOf": [
+        {
+          "$ref": "./lineage.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "preview": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 140
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sizeBytes": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "sessionId",
+    "provider",
+    "title",
+    "titleSource",
+    "projectId",
+    "folderId",
+    "workingDir",
+    "branch",
+    "owner",
+    "state",
+    "stateEnteredAtMs",
+    "needsYou",
+    "lastActiveAtMs",
+    "createdAtMs",
+    "model",
+    "tracked",
+    "workbookSessionId",
+    "upstreamId",
+    "pinned",
+    "archived",
+    "tabGroupIds",
+    "lineage",
+    "preview",
+    "sizeBytes"
+  ],
+  "additionalProperties": true
+}

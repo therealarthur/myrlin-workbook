@@ -1,0 +1,30 @@
+{
+  "tabs": {
+    "revision": 42,
+    "groups": [
+      {
+        "id": "tg_default",
+        "name": "Main",
+        "folderId": null,
+        "sessionIds": [
+          "cl_733b51a7-b861-4e1c-98b2-5af241fede0f"
+        ],
+        "capacity": 6,
+        "hiddenPanes": 0
+      }
+    ],
+    "folders": [
+      {
+        "id": "tf_1",
+        "name": "Clients",
+        "color": null,
+        "collapsed": false
+      }
+    ],
+    "desktopActiveGroupId": "tg_default"
+  },
+  "tempIds": {
+    "t1": "tg_Zx81Qa0p"
+  },
+  "rebased": false
+}

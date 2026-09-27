@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/workspace/folder-node.json",
+  "title": "FolderNode",
+  "description": "A Workbook project folder (workspace group). PROTOCOL.md 4.6.",
+  "type": "object",
+  "properties": {
+    "folderId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "color": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "projectIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "folderId",
+    "name",
+    "color",
+    "projectIds"
+  ],
+  "additionalProperties": true
+}

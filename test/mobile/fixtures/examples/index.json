@@ -1,0 +1,453 @@
+{
+  "source": "Every JSON example of PROTOCOL.md sections 2 to 11 (myrlin-ios commit e5e2db6b775e0b06c18ead1d30ee7b8781d4ccb6), one file each, placeholders replaced by concrete values (vector keys, nonces and signatures; full ids for truncated ones; the example objects of other sections for type names). schema null marks a Workbook file format that has no wire schema.",
+  "examples": [
+    {
+      "file": "L186-file-format.json",
+      "schema": null,
+      "section": "2.1",
+      "protocolLine": 186,
+      "notes": null
+    },
+    {
+      "file": "L318-handshake_identity-response.json",
+      "schema": "handshake/identity-response.json",
+      "section": "2.4",
+      "protocolLine": 318,
+      "notes": null
+    },
+    {
+      "file": "L336-handshake_pair-request.json",
+      "schema": "handshake/pair-request.json",
+      "section": "2.4",
+      "protocolLine": 336,
+      "notes": null
+    },
+    {
+      "file": "L368-handshake_pair-challenge.json",
+      "schema": "handshake/pair-challenge.json",
+      "section": "2.4",
+      "protocolLine": 368,
+      "notes": null
+    },
+    {
+      "file": "L389-handshake_pair-status.json",
+      "schema": "handshake/pair-status.json",
+      "section": "2.4",
+      "protocolLine": 389,
+      "notes": null
+    },
+    {
+      "file": "L395-handshake_pair-status.json",
+      "schema": "handshake/pair-status.json",
+      "section": "2.4",
+      "protocolLine": 395,
+      "notes": null
+    },
+    {
+      "file": "L441-file-format.json",
+      "schema": null,
+      "section": "2.7",
+      "protocolLine": 441,
+      "notes": null
+    },
+    {
+      "file": "L484-handshake_hello-response.json",
+      "schema": "handshake/hello-response.json",
+      "section": "2.8",
+      "protocolLine": 484,
+      "notes": null
+    },
+    {
+      "file": "L506-handshake_session-request.json",
+      "schema": "handshake/session-request.json",
+      "section": "2.8",
+      "protocolLine": 506,
+      "notes": null
+    },
+    {
+      "file": "L521-handshake_session-response.json",
+      "schema": "handshake/session-response.json",
+      "section": "2.8",
+      "protocolLine": 521,
+      "notes": "device: the Device example of section 3.3."
+    },
+    {
+      "file": "L641-handshake_revoked.json",
+      "schema": "handshake/revoked.json",
+      "section": "2.11",
+      "protocolLine": 641,
+      "notes": null
+    },
+    {
+      "file": "L711-resources_computer.json",
+      "schema": "resources/computer.json",
+      "section": "3.2",
+      "protocolLine": 711,
+      "notes": null
+    },
+    {
+      "file": "L759-resources_device.json",
+      "schema": "resources/device.json",
+      "section": "3.3",
+      "protocolLine": 759,
+      "notes": null
+    },
+    {
+      "file": "L777-resources_preferences.json",
+      "schema": "resources/preferences.json",
+      "section": "3.3",
+      "protocolLine": 777,
+      "notes": null
+    },
+    {
+      "file": "L830-sessions_session-summary.json",
+      "schema": "sessions/session-summary.json",
+      "section": "3.4.3",
+      "protocolLine": 830,
+      "notes": null
+    },
+    {
+      "file": "L874-sessions_session-meta.json",
+      "schema": "sessions/session-meta.json",
+      "section": "3.4.4",
+      "protocolLine": 874,
+      "notes": null
+    },
+    {
+      "file": "L917-sessions_session-state.json",
+      "schema": "sessions/session-state.json",
+      "section": "3.4.5",
+      "protocolLine": 917,
+      "notes": null
+    },
+    {
+      "file": "L965-sessions_lineage.json",
+      "schema": "sessions/lineage.json",
+      "section": "3.4.7",
+      "protocolLine": 965,
+      "notes": null
+    },
+    {
+      "file": "L976-sessions_turn.json",
+      "schema": "sessions/turn.json",
+      "section": "3.5",
+      "protocolLine": 976,
+      "notes": null
+    },
+    {
+      "file": "L1003-sessions_message.json",
+      "schema": "sessions/message.json",
+      "section": "3.6",
+      "protocolLine": 1003,
+      "notes": null
+    },
+    {
+      "file": "L1053-sessions_attachment-ref.json",
+      "schema": "sessions/attachment-ref.json",
+      "section": "3.6",
+      "protocolLine": 1053,
+      "notes": null
+    },
+    {
+      "file": "L1063-sessions_prompt.json",
+      "schema": "sessions/prompt.json",
+      "section": "3.7",
+      "protocolLine": 1063,
+      "notes": null
+    },
+    {
+      "file": "L1113-sessions_send-record.json",
+      "schema": "sessions/send-record.json",
+      "section": "3.8",
+      "protocolLine": 1113,
+      "notes": null
+    },
+    {
+      "file": "L1138-workspace_tabs.json",
+      "schema": "workspace/tabs.json",
+      "section": "3.9",
+      "protocolLine": 1138,
+      "notes": null
+    },
+    {
+      "file": "L1163-media_upload.json",
+      "schema": "media/upload.json",
+      "section": "3.10",
+      "protocolLine": 1163,
+      "notes": "sha256: a concrete 64 hex digest."
+    },
+    {
+      "file": "L1190-accounts_accounts.json",
+      "schema": "accounts/accounts.json",
+      "section": "3.11",
+      "protocolLine": 1190,
+      "notes": "providers: the Claude entry of the example plus a Codex copy, since the schema requires both providers."
+    },
+    {
+      "file": "L1267-migrate_migration.json",
+      "schema": "migrate/migration.json",
+      "section": "3.12",
+      "protocolLine": 1267,
+      "notes": null
+    },
+    {
+      "file": "L1313-stream_notice.json",
+      "schema": "stream/notice.json",
+      "section": "3.13",
+      "protocolLine": 1313,
+      "notes": null
+    },
+    {
+      "file": "L1337-resources_browse.json",
+      "schema": "resources/browse.json",
+      "section": "4.2",
+      "protocolLine": 1337,
+      "notes": null
+    },
+    {
+      "file": "L1357-resources_push-registration.json",
+      "schema": "resources/push-registration.json",
+      "section": "4.3.3",
+      "protocolLine": 1357,
+      "notes": null
+    },
+    {
+      "file": "L1381-sessions_recent-sessions.json",
+      "schema": "sessions/recent-sessions.json",
+      "section": "4.4.1",
+      "protocolLine": 1381,
+      "notes": null
+    },
+    {
+      "file": "L1393-sessions_session-detail.json",
+      "schema": "sessions/session-detail.json",
+      "section": "4.4.2",
+      "protocolLine": 1393,
+      "notes": "turn, openPrompts, sends: the Turn, Prompt and SendRecord examples of section 3."
+    },
+    {
+      "file": "L1421-sessions_message-page.json",
+      "schema": "sessions/message-page.json",
+      "section": "4.4.3",
+      "protocolLine": 1421,
+      "notes": "messages: the Message example of section 3.6."
+    },
+    {
+      "file": "L1448-sessions_part-text.json",
+      "schema": "sessions/part-text.json",
+      "section": "4.4.4",
+      "protocolLine": 1448,
+      "notes": null
+    },
+    {
+      "file": "L1460-sessions_send-request.json",
+      "schema": "sessions/send-request.json",
+      "section": "4.4.5",
+      "protocolLine": 1460,
+      "notes": null
+    },
+    {
+      "file": "L1490-sessions_answer-request.json",
+      "schema": "sessions/answer-request.json",
+      "section": "4.4.7",
+      "protocolLine": 1490,
+      "notes": null
+    },
+    {
+      "file": "L1522-sessions_commands.json",
+      "schema": "sessions/commands.json",
+      "section": "4.4.8",
+      "protocolLine": 1522,
+      "notes": null
+    },
+    {
+      "file": "L1552-sessions_settings-schema.json",
+      "schema": "sessions/settings-schema.json",
+      "section": "4.5.3",
+      "protocolLine": 1552,
+      "notes": null
+    },
+    {
+      "file": "L1594-sessions_session-settings.json",
+      "schema": "sessions/session-settings.json",
+      "section": "4.5.3",
+      "protocolLine": 1594,
+      "notes": null
+    },
+    {
+      "file": "L1620-sessions_new-session-request.json",
+      "schema": "sessions/new-session-request.json",
+      "section": "4.5.6",
+      "protocolLine": 1620,
+      "notes": null
+    },
+    {
+      "file": "L1658-sessions_branch-request.json",
+      "schema": "sessions/branch-request.json",
+      "section": "4.5.8",
+      "protocolLine": 1658,
+      "notes": null
+    },
+    {
+      "file": "L1675-workspace_tree.json",
+      "schema": "workspace/tree.json",
+      "section": "4.6",
+      "protocolLine": 1675,
+      "notes": null
+    },
+    {
+      "file": "L1687-workspace_tree-project.json",
+      "schema": "workspace/tree-project.json",
+      "section": "4.6",
+      "protocolLine": 1687,
+      "notes": "project: the first ProjectNode of the tree example; sessions: the SessionSummary example."
+    },
+    {
+      "file": "L1734-workspace_tabs-patch.json",
+      "schema": "workspace/tabs-patch.json",
+      "section": "4.8",
+      "protocolLine": 1734,
+      "notes": null
+    },
+    {
+      "file": "L1761-workspace_tabs-patch-result.json",
+      "schema": "workspace/tabs-patch-result.json",
+      "section": "4.8",
+      "protocolLine": 1761,
+      "notes": null
+    },
+    {
+      "file": "L1787-search_search-names.json",
+      "schema": "search/search-names.json",
+      "section": "4.9.1",
+      "protocolLine": 1787,
+      "notes": null
+    },
+    {
+      "file": "L1801-search_search-messages.json",
+      "schema": "search/search-messages.json",
+      "section": "4.9.2",
+      "protocolLine": 1801,
+      "notes": null
+    },
+    {
+      "file": "L1846-media_upload-create.json",
+      "schema": "media/upload-create.json",
+      "section": "4.10",
+      "protocolLine": 1846,
+      "notes": null
+    },
+    {
+      "file": "L1891-accounts_swap-request.json",
+      "schema": "accounts/swap-request.json",
+      "section": "4.11",
+      "protocolLine": 1891,
+      "notes": null
+    },
+    {
+      "file": "L1897-accounts_swap-result.json",
+      "schema": "accounts/swap-result.json",
+      "section": "4.11",
+      "protocolLine": 1897,
+      "notes": null
+    },
+    {
+      "file": "L1921-accounts_login-flow.json",
+      "schema": "accounts/login-flow.json",
+      "section": "4.11",
+      "protocolLine": 1921,
+      "notes": null
+    },
+    {
+      "file": "L1943-migrate_migration-preview.json",
+      "schema": "migrate/migration-preview.json",
+      "section": "4.12.1",
+      "protocolLine": 1943,
+      "notes": null
+    },
+    {
+      "file": "L1963-migrate_migration-start-request.json",
+      "schema": "migrate/migration-start-request.json",
+      "section": "4.12.2",
+      "protocolLine": 1963,
+      "notes": null
+    },
+    {
+      "file": "L2015-migrate_migration-report.json",
+      "schema": "migrate/migration-report.json",
+      "section": "4.12.6",
+      "protocolLine": 2015,
+      "notes": null
+    },
+    {
+      "file": "L2047-migrate_migration-turn.json",
+      "schema": "migrate/migration-turn.json",
+      "section": "4.12.7",
+      "protocolLine": 2047,
+      "notes": null
+    },
+    {
+      "file": "L2088-stream_envelope.json",
+      "schema": "stream/envelope.json",
+      "section": "5.3",
+      "protocolLine": 2088,
+      "notes": null
+    },
+    {
+      "file": "L2105-1-stream_client-command.json",
+      "schema": "stream/client-command.json",
+      "section": "5.3",
+      "protocolLine": 2105,
+      "notes": null
+    },
+    {
+      "file": "L2105-2-stream_client-command.json",
+      "schema": "stream/client-command.json",
+      "section": "5.3",
+      "protocolLine": 2105,
+      "notes": null
+    },
+    {
+      "file": "L2105-3-stream_client-command.json",
+      "schema": "stream/client-command.json",
+      "section": "5.3",
+      "protocolLine": 2105,
+      "notes": null
+    },
+    {
+      "file": "L2105-4-stream_client-command.json",
+      "schema": "stream/client-command.json",
+      "section": "5.3",
+      "protocolLine": 2105,
+      "notes": null
+    },
+    {
+      "file": "L2500-push_alert-payload.json",
+      "schema": "push/alert-payload.json",
+      "section": "10.3",
+      "protocolLine": 2500,
+      "notes": null
+    },
+    {
+      "file": "L2562-admin_status.json",
+      "schema": "admin/status.json",
+      "section": "11.1",
+      "protocolLine": 2562,
+      "notes": null
+    },
+    {
+      "file": "L2585-admin_pair-offer.json",
+      "schema": "admin/pair-offer.json",
+      "section": "11.3",
+      "protocolLine": 2585,
+      "notes": null
+    },
+    {
+      "file": "L2593-admin_pair-request-summary.json",
+      "schema": "admin/pair-request-summary.json",
+      "section": "11.3",
+      "protocolLine": 2593,
+      "notes": null
+    }
+  ]
+}

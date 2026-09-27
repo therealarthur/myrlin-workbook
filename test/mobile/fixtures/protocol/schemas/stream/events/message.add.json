@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/stream/events/message.add.json",
+  "title": "Event message.add",
+  "description": "The message.add event with its envelope. PROTOCOL.md 5.4.",
+  "allOf": [
+    {
+      "$ref": "../envelope.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "pattern": "^session:(cl|cx|wb)_[A-Za-z0-9._:-]{1,120}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "message.add"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "$ref": "../../sessions/message.json"
+            }
+          },
+          "required": [
+            "message"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "topic",
+        "seq",
+        "type",
+        "data"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/admin-device-patch.json",
+  "title": "AdminDevicePatch",
+  "description": "PATCH /api/mobile-admin/devices/:deviceId. PROTOCOL.md 11.4.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "$ref": "../common/defs.json#/$defs/Scope"
+      },
+      "uniqueItems": true
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

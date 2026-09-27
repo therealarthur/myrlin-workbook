@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/migrate/migration.json",
+  "title": "MigrationSnapshot",
+  "description": "A migration; also the data of migration.progress. PROTOCOL.md 3.12.",
+  "type": "object",
+  "properties": {
+    "migrationId": {
+      "$ref": "../common/defs.json#/$defs/MigrationId"
+    },
+    "sourceSessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "targetSessionId": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/SessionId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "$ref": "../common/defs.json#/$defs/Provider"
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "accountId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "effort",
+        "accountId"
+      ],
+      "additionalProperties": true
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "takeover",
+        "fork"
+      ]
+    },
+    "depth": {
+      "type": "string",
+      "enum": [
+        "quick",
+        "standard",
+        "exhaustive"
+      ]
+    },
+    "sourcePolicy": {
+      "type": "string",
+      "enum": [
+        "pause",
+        "leave"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "snapshotting",
+        "indexing",
+        "packing",
+        "launching",
+        "reading",
+        "verifying",
+        "reporting",
+        "awaitingApproval",
+        "continuing",
+        "completed",
+        "failed",
+        "cancelled",
+        "needsAttention"
+      ]
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "index",
+              "standards",
+              "reading",
+              "verifying",
+              "report"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "failed",
+              "skipped"
+            ]
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "done": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startedAtMs": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/TimestampMs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endedAtMs": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/TimestampMs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "state",
+          "detail",
+          "done",
+          "total",
+          "startedAtMs",
+          "endedAtMs"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 6,
+      "maxItems": 6
+    },
+    "plan": {
+      "type": "object",
+      "properties": {
+        "tier": {
+          "type": "string",
+          "enum": [
+            "S",
+            "M",
+            "L"
+          ]
+        },
+        "ranges": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxReaders": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "readerModel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "tier",
+        "ranges",
+        "maxReaders",
+        "readerModel"
+      ],
+      "additionalProperties": true
+    },
+    "coverage": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stale": {
+      "type": "boolean"
+    },
+    "report": {
+      "type": "object",
+      "properties": {
+        "ready": {
+          "type": "boolean"
+        },
+        "header": {
+          "anyOf": [
+            {
+              "$ref": "./report-header.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "ready",
+        "header"
+      ],
+      "additionalProperties": true
+    },
+    "tripwire": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "diffStat": {
+              "anyOf": [
+                {
+                  "$ref": "../common/defs.json#/$defs/DiffStat"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "changed",
+            "diffStat"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/CodeErrorRetryable"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "createdAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "updatedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    }
+  },
+  "required": [
+    "migrationId",
+    "sourceSessionId",
+    "targetSessionId",
+    "target",
+    "mode",
+    "depth",
+    "sourcePolicy",
+    "state",
+    "steps",
+    "plan",
+    "coverage",
+    "stale",
+    "report",
+    "tripwire",
+    "error",
+    "createdAtMs",
+    "updatedAtMs"
+  ],
+  "additionalProperties": true
+}

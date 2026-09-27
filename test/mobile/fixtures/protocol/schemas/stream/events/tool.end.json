@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/stream/events/tool.end.json",
+  "title": "Event tool.end",
+  "description": "The tool.end event with its envelope. PROTOCOL.md 5.4.",
+  "allOf": [
+    {
+      "$ref": "../envelope.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "pattern": "^session:(cl|cx|wb)_[A-Za-z0-9._:-]{1,120}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "tool.end"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "$ref": "../../common/defs.json#/$defs/SessionId"
+            },
+            "turnId": {
+              "anyOf": [
+                {
+                  "$ref": "../../common/defs.json#/$defs/TurnId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "toolCallId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "error",
+                "interrupted"
+              ]
+            },
+            "durationMs": {
+              "anyOf": [
+                {
+                  "$ref": "../../common/defs.json#/$defs/DurationMs"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "summary": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "exitCode": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "diffStat": {
+              "anyOf": [
+                {
+                  "$ref": "../../common/defs.json#/$defs/DiffStat"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "sessionId",
+            "turnId",
+            "toolCallId",
+            "status",
+            "durationMs",
+            "summary",
+            "exitCode",
+            "diffStat"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "topic",
+        "seq",
+        "type",
+        "data"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

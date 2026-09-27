@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/send-request.json",
+  "title": "SendRequest",
+  "description": "POST /api/m/v2/sessions/:sessionId/send; also the message of a new session. PROTOCOL.md 4.4.5.",
+  "type": "object",
+  "properties": {
+    "clientMessageId": {
+      "$ref": "../common/defs.json#/$defs/Uuid"
+    },
+    "text": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "uploadId": {
+            "$ref": "../common/defs.json#/$defs/UploadId"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "keyframe"
+            ]
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "uploadId",
+          "role"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "role": {
+                  "enum": [
+                    "image",
+                    "keyframe"
+                  ]
+                }
+              },
+              "required": [
+                "role"
+              ]
+            },
+            "then": {
+              "properties": {
+                "transcript": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "maxItems": 20
+    }
+  },
+  "required": [
+    "clientMessageId",
+    "text",
+    "attachments"
+  ],
+  "additionalProperties": false
+}

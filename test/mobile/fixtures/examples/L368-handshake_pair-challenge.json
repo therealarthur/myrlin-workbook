@@ -1,0 +1,12 @@
+{
+  "pairId": "pr_gIGCg4SFhoeIiYqLjI2Ojw",
+  "offerId": "oKGio6Sl",
+  "computerId": "c_ff392dwfMAEdmqePZGay",
+  "computerPublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKu21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOOP_L-qLSosb-FQB1eePv_WFQTISoDMmDfAUerb3FHQ6Q",
+  "devicePublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og",
+  "deviceNonce": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+  "serverNonce": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8",
+  "expiresAtMs": 1790000121000,
+  "status": "pending",
+  "sig": "4nRIswozFhV_jvF-InCRzM7PkL2hCrmmemMe1u9pYJiqXSdxuWyiuw9EXKDTxvlwJ7OjWiwyefkao8-qRR07cQ"
+}

@@ -122,6 +122,32 @@ function setupPairing(app, { requireAuth, addToken, generateToken, isRateLimited
   const serverInfo = getServerInfo();
 
   /**
+   * Mobile v2 (A4, critic F20, BUILD-CONTRACT S11): the v1 pair routes stay in
+   * the code but answer 410 LEGACY_PAIR_DISABLED unless the setting
+   * mobile.legacyPairEnabled is true, because v1 tokens carry full desktop
+   * privilege. Returns true when the request was answered.
+   *
+   * @param {object} res - Express response.
+   * @returns {boolean}
+   */
+  function refuseWhenLegacyOff(res) {
+    let enabled = false;
+    try {
+      const store = getStore ? getStore() : null;
+      const mobile = store && store.settings && store.settings.mobile;
+      enabled = !!(mobile && mobile.legacyPairEnabled === true);
+    } catch (_) {
+      enabled = false;
+    }
+    if (enabled) return false;
+    res.status(410).json({
+      error: 'Pairing moved to the Myrlin app. Update the app and scan again.',
+      code: 'LEGACY_PAIR_DISABLED',
+    });
+    return true;
+  }
+
+  /**
    * GET /api/auth/pairing-code
    * Requires Bearer auth. Generates a short-lived pairing token and
    * returns a QR payload that the mobile app scans.
@@ -132,6 +158,7 @@ function setupPairing(app, { requireAuth, addToken, generateToken, isRateLimited
    * Response: { pairingToken, expiresAt, qrPayload }
    */
   app.get('/api/auth/pairing-code', requireAuth, (req, res) => {
+    if (refuseWhenLegacyOff(res)) return undefined;
     const pairingToken = crypto.randomBytes(PAIRING_TOKEN_BYTES).toString('hex');
 
     pairingTokens.set(pairingToken, {
@@ -168,9 +195,13 @@ function setupPairing(app, { requireAuth, addToken, generateToken, isRateLimited
    * Response: { success: true, token, serverName, serverVersion }
    */
   app.post('/api/auth/pair', (req, res) => {
-    // Rate limiting
+    if (refuseWhenLegacyOff(res)) return undefined;
+    // Rate limiting. W1 fix: isRateLimited returns {limited, retryAfter}
+    // (auth.js:45-61); the object itself is always truthy, so read .limited.
     const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
-    if (isRateLimited(clientIp)) {
+    const rate = isRateLimited(clientIp);
+    if (rate && rate.limited) {
+      res.setHeader('Retry-After', String(Math.max(1, rate.retryAfter || 60)));
       return res.status(429).json({
         success: false,
         error: 'Too many pairing attempts. Try again in 1 minute.',

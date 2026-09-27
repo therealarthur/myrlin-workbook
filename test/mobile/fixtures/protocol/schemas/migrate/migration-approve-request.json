@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/migrate/migration-approve-request.json",
+  "title": "MigrationApproveRequest",
+  "description": "POST /api/m/v2/migrations/:migrationId/approve. PROTOCOL.md 4.12.4.",
+  "type": "object",
+  "properties": {
+    "note": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "note"
+  ],
+  "additionalProperties": false
+}

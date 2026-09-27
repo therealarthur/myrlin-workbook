@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/status-result.json",
+  "title": "StatusResult",
+  "description": "Answer of restart (202) and stop (200). PROTOCOL.md 4.5.4 and 4.5.5.",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "restarting",
+        "scheduled",
+        "stopped",
+        "notRunning"
+      ]
+    }
+  },
+  "required": [
+    "status"
+  ],
+  "additionalProperties": true
+}

@@ -1,0 +1,10 @@
+{
+  "noticeId": "n_8f7e6d5c",
+  "level": "warn",
+  "code": "SCREEN_MODEL_OFF",
+  "message": "Workbook cannot read terminal screens, so questions and approvals show only on STUDIO-PC.",
+  "sessionId": null,
+  "accountId": null,
+  "createdAtMs": 1790000000000,
+  "expiresAtMs": null
+}

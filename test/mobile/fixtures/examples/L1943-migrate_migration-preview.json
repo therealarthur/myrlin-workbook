@@ -1,0 +1,69 @@
+{
+  "source": {
+    "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+    "title": "Fix sidebar jitter",
+    "provider": "claude",
+    "bytes": 103500000,
+    "turns": 280,
+    "firstAtMs": 1787000000000,
+    "lastAtMs": 1790000100000,
+    "running": false,
+    "compactions": 13,
+    "subagents": {
+      "count": 41,
+      "bytes": 22000000
+    }
+  },
+  "index": {
+    "state": "building",
+    "coverage": null,
+    "formatDrift": false
+  },
+  "plan": {
+    "tier": "M",
+    "ranges": 12,
+    "maxReaders": 6,
+    "readerModel": "claude-sonnet-5",
+    "estInputTokens": {
+      "low": 1500000,
+      "high": 1900000
+    },
+    "estOutputTokens": 80000,
+    "estMinutes": {
+      "low": 15,
+      "high": 30
+    },
+    "estQuota": null,
+    "estUsdListPrice": {
+      "low": 5,
+      "high": 8
+    }
+  },
+  "models": [
+    {
+      "provider": "claude",
+      "id": "claude-opus-5-5",
+      "label": "Opus 5.5",
+      "contextTokens": 1000000
+    }
+  ],
+  "accounts": [
+    {
+      "provider": "claude",
+      "accountId": "acc-uuid-1",
+      "displayName": "Personal",
+      "headroom": 20,
+      "resetsAtMs": 1790140000000,
+      "recommended": true
+    }
+  ],
+  "forkAllowed": true,
+  "forkDisallowedReason": null,
+  "secondConfirmRequired": false,
+  "warnings": [
+    {
+      "code": "CROSS_PROVIDER",
+      "message": "This history will be read by OpenAI models."
+    }
+  ]
+}

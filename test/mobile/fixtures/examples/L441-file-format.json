@@ -1,0 +1,49 @@
+{
+  "v": 1,
+  "devices": [
+    {
+      "deviceId": "d_TViQs70r__UO4o8s844E",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og",
+      "name": "Sam’s iPhone",
+      "model": "iPhone17,2",
+      "osVersion": "26.1",
+      "appVersion": "1.0.0 (1)",
+      "scopes": [
+        "accounts.read",
+        "accounts.swap",
+        "chat",
+        "media.upload",
+        "search",
+        "sessions.manage"
+      ],
+      "pairedAtMs": 1790000015000,
+      "lastSeenAtMs": 1790000060500,
+      "lastEndpointKind": "tailscale",
+      "push": null,
+      "preferences": {
+        "notifications": {
+          "question": true,
+          "approval": true,
+          "finished": true,
+          "finishedMinMinutes": 2,
+          "accountThresholds": true,
+          "agentSwaps": true,
+          "migrationReady": true
+        },
+        "privacy": {
+          "hideSessionNames": false,
+          "showMessageText": false
+        },
+        "liveActivity": {
+          "enabled": true
+        }
+      }
+    }
+  ],
+  "tombstones": [
+    {
+      "deviceId": "d_TViQs70r__UO4o8s844E",
+      "revokedAtMs": 1790086400000
+    }
+  ]
+}

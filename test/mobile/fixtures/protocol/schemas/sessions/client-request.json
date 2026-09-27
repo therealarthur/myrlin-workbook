@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/client-request.json",
+  "title": "ClientRequest",
+  "description": "Body of interrupt and stop: only a clientRequestId. PROTOCOL.md 4.4.6 and 4.5.5.",
+  "type": "object",
+  "properties": {
+    "clientRequestId": {
+      "$ref": "../common/defs.json#/$defs/Uuid"
+    }
+  },
+  "required": [
+    "clientRequestId"
+  ],
+  "additionalProperties": false
+}

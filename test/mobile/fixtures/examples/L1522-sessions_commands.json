@@ -1,0 +1,17 @@
+{
+  "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+  "provider": "claude",
+  "commands": [
+    {
+      "name": "compact",
+      "description": "Summarize the conversation to free context",
+      "source": "builtin"
+    },
+    {
+      "name": "review:security",
+      "description": "Security review of the current diff",
+      "source": "project"
+    }
+  ],
+  "generatedAtMs": 1790000000000
+}

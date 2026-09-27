@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/resources/live-activity-token.json",
+  "title": "LiveActivityToken",
+  "description": "PUT /api/m/v2/devices/me/live-activities/:activityId. PROTOCOL.md 4.3.3.",
+  "type": "object",
+  "properties": {
+    "pushToken": {
+      "$ref": "../common/defs.json#/$defs/HexToken"
+    },
+    "startedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    }
+  },
+  "required": [
+    "pushToken",
+    "startedAtMs"
+  ],
+  "additionalProperties": false
+}

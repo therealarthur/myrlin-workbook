@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/session-state.json",
+  "title": "SessionState",
+  "description": "Turn state of one session; also the data of session.state. PROTOCOL.md 3.4.5 and 6.",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "state": {
+      "$ref": "../common/defs.json#/$defs/SessionStateName"
+    },
+    "enteredAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "turnId": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TurnId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "turnStartedAtMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "toolName": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "transcript",
+        "screen",
+        "agents",
+        "rollout",
+        "process",
+        "none"
+      ]
+    },
+    "lastActivityAtMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "queuedSends": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "estimatedThinkingTokens": {
+      "type": "null"
+    }
+  },
+  "required": [
+    "sessionId",
+    "state",
+    "enteredAtMs",
+    "turnId",
+    "turnStartedAtMs",
+    "toolName",
+    "detail",
+    "source",
+    "lastActivityAtMs",
+    "queuedSends",
+    "estimatedThinkingTokens"
+  ],
+  "additionalProperties": true
+}

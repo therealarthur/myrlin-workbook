@@ -1,0 +1,24 @@
+{
+  "migrationId": "mg_c2VjcmV0c2FyZW5vdGhlcm",
+  "header": {
+    "takeoverReport": 1,
+    "verdict": "The pairing work holds; two tests the old session called passing were never run.",
+    "claimsChecked": 14,
+    "claimsHeld": 11,
+    "claimsFailed": 2,
+    "claimsUnverifiable": 1,
+    "suspectedMistakes": 3,
+    "openIssues": 5,
+    "solvedVerified": 6,
+    "learned": 4,
+    "coverage": "all turns via readers; T260 to T280 in full",
+    "confidence": "medium"
+  },
+  "markdown": "# Takeover report ...",
+  "savedAtMs": 1790001200000,
+  "coveragePercent": 100,
+  "tripwire": {
+    "changed": false,
+    "diffStat": null
+  }
+}

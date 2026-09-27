@@ -1,0 +1,42 @@
+{
+  "folders": [
+    {
+      "folderId": "grp_1",
+      "name": "Clients",
+      "color": "#6572D4",
+      "projectIds": [
+        "ws_a",
+        "ws_b"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "projectId": "ws_a",
+      "name": "Myrlin iOS",
+      "color": null,
+      "folderId": "grp_1",
+      "kind": "project",
+      "sessionCount": 14,
+      "workingDirCount": 2,
+      "needsYouCount": 1,
+      "lastActiveAtMs": 1790000100000
+    }
+  ],
+  "rootOrder": [
+    {
+      "kind": "folder",
+      "id": "grp_1"
+    },
+    {
+      "kind": "project",
+      "id": "ws_c"
+    },
+    {
+      "kind": "project",
+      "id": "unassigned"
+    }
+  ],
+  "streamEpoch": "e_kJGSk5SVlpeYmZqb",
+  "streamSeq": 311
+}

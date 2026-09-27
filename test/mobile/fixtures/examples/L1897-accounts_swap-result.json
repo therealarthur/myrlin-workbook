@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "alreadyActive": false,
+  "provider": "codex",
+  "activeAccountId": "acct_2",
+  "previousAccountId": "acct_1",
+  "message": "Switched Codex to morgan.hale. Running Codex keeps the old account until restarted.",
+  "restartNote": null,
+  "runningProcesses": [
+    {
+      "pid": 4120,
+      "name": "codex.exe",
+      "path": "C:\\...\\codex.exe"
+    }
+  ],
+  "undo": {
+    "accountId": "acct_1",
+    "expiresAtMs": 1790000205000
+  }
+}

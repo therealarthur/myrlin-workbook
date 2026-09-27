@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/message-page.json",
+  "title": "MessagePage",
+  "description": "GET /api/m/v2/sessions/:sessionId/messages. PROTOCOL.md 4.4.3.",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "$ref": "./message.json"
+      },
+      "maxItems": 201
+    },
+    "hasMoreBefore": {
+      "type": "boolean"
+    },
+    "hasMoreAfter": {
+      "type": "boolean"
+    },
+    "beforeCursor": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/Cursor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "afterCursor": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/Cursor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "anchorMessageId": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/MessageId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "$ref": "../common/defs.json#/$defs/Provider"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "claudeJsonl",
+            "codexRollout"
+          ]
+        },
+        "transcriptBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "formatDrift": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "provider",
+        "format",
+        "transcriptBytes",
+        "formatDrift"
+      ],
+      "additionalProperties": true
+    },
+    "streamEpoch": {
+      "$ref": "../common/defs.json#/$defs/StreamEpoch"
+    },
+    "streamSeq": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "sessionId",
+    "messages",
+    "hasMoreBefore",
+    "hasMoreAfter",
+    "beforeCursor",
+    "afterCursor",
+    "anchorMessageId",
+    "source",
+    "streamEpoch",
+    "streamSeq"
+  ],
+  "additionalProperties": true
+}

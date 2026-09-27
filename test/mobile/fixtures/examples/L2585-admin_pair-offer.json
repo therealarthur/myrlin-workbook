@@ -1,0 +1,11 @@
+{
+  "offerId": "oKGio6Sl",
+  "qrLink": "myrlin://pair#v=2&o=oKGio6Sl&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&pk=ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78&n=STUDIO-PC&e=https%3A%2F%2Fstudio-1.tailnet-example.ts.net,http%3A%2F%2F127.0.0.1%3A3458",
+  "schemeLink": "myrlin://pair#v=2&o=oKGio6Sl&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&pk=ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78&n=STUDIO-PC&e=https%3A%2F%2Fstudio-1.tailnet-example.ts.net,http%3A%2F%2F127.0.0.1%3A3458",
+  "universalLink": "https://myrlin.io/p#v=2&o=oKGio6Sl&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&pk=ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78&n=STUDIO-PC&e=https%3A%2F%2Fstudio-1.tailnet-example.ts.net,http%3A%2F%2F127.0.0.1%3A3458",
+  "manualCode": "P2RV-5CXM",
+  "computerName": "STUDIO-PC",
+  "tailscaleName": "studio-1.tailnet-example.ts.net",
+  "expiresAtMs": 1790000300000,
+  "refreshAtMs": 1790000240000
+}

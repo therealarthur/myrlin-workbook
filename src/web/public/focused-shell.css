@@ -222,6 +222,12 @@
   display: none !important;
 }
 
+/* Mobile v2 (BUILD-CONTRACT S14, R03:108): Connect app stays visible in the
+   focused shell. More specific than the rule above, which is left as is. */
+:root[data-ui-shell="focused"] #pair-mobile-btn.connect-app-btn {
+  display: inline-flex !important;
+}
+
 :root[data-ui-shell="focused"] .header-right > .btn {
   width: var(--focused-control-height);
   height: var(--focused-control-height);

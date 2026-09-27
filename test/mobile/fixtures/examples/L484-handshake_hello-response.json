@@ -1,0 +1,19 @@
+{
+  "computerId": "c_ff392dwfMAEdmqePZGay",
+  "deviceId": "d_TViQs70r__UO4o8s844E",
+  "clientNonce": "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8",
+  "serverNonce": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8",
+  "streamEpoch": "e_kJGSk5SVlpeYmZqb",
+  "endpoints": [
+    {
+      "url": "https://studio-1.tailnet-example.ts.net",
+      "kind": "tailscale",
+      "priority": 0
+    }
+  ],
+  "apiVersion": 2,
+  "apiRevision": 0,
+  "workbookVersion": "1.4.0-alpha.1",
+  "ts": 1790000060000,
+  "sig": "4nRIswozFhV_jvF-InCRzM7PkL2hCrmmemMe1u9pYJiqXSdxuWyiuw9EXKDTxvlwJ7OjWiwyefkao8-qRR07cQ"
+}

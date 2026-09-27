@@ -1,0 +1,18 @@
+{
+  "target": {
+    "provider": "claude",
+    "model": "claude-opus-5-5",
+    "effort": "high",
+    "accountId": "acc-uuid-1"
+  },
+  "mode": "takeover",
+  "depth": "standard",
+  "focus": "Check the pairing tests first.",
+  "sourcePolicy": "pause",
+  "readerModel": null,
+  "name": null,
+  "tabGroupId": null,
+  "startWhileBusy": false,
+  "confirmCost": false,
+  "fromMessageId": null
+}

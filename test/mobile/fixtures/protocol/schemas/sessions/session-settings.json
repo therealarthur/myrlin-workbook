@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/session-settings.json",
+  "title": "SessionSettings",
+  "description": "GET and PATCH answer of /api/m/v2/sessions/:sessionId/settings. PROTOCOL.md 4.5.3.",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "provider": {
+      "$ref": "../common/defs.json#/$defs/Provider"
+    },
+    "schemaRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "values": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "boolean",
+          "null"
+        ]
+      }
+    },
+    "pendingRestart": {
+      "type": "boolean"
+    },
+    "canRestartNow": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "sessionId",
+    "provider",
+    "schemaRevision",
+    "values",
+    "pendingRestart",
+    "canRestartNow"
+  ],
+  "additionalProperties": true
+}

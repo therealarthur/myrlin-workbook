@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/resources/preferences.json",
+  "title": "Preferences",
+  "description": "GET and PATCH answer of /api/m/v2/devices/me/preferences. PROTOCOL.md 3.3.",
+  "type": "object",
+  "properties": {
+    "notifications": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "boolean"
+        },
+        "approval": {
+          "type": "boolean"
+        },
+        "finished": {
+          "type": "boolean"
+        },
+        "finishedMinMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "accountThresholds": {
+          "type": "boolean"
+        },
+        "agentSwaps": {
+          "type": "boolean"
+        },
+        "migrationReady": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "question",
+        "approval",
+        "finished",
+        "finishedMinMinutes",
+        "accountThresholds",
+        "agentSwaps",
+        "migrationReady"
+      ],
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "properties": {
+        "hideSessionNames": {
+          "type": "boolean"
+        },
+        "showMessageText": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hideSessionNames",
+        "showMessageText"
+      ],
+      "additionalProperties": false
+    },
+    "liveActivity": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "notifications",
+    "privacy",
+    "liveActivity"
+  ],
+  "additionalProperties": false
+}

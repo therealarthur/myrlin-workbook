@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/resources/push-registration.json",
+  "title": "PushRegistration",
+  "description": "PUT /api/m/v2/devices/me/push. PROTOCOL.md 4.3.3.",
+  "type": "object",
+  "properties": {
+    "apnsToken": {
+      "$ref": "../common/defs.json#/$defs/HexToken"
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "sandbox",
+        "production"
+      ]
+    },
+    "bundleId": {
+      "const": "io.myrlin.workbook"
+    },
+    "liveActivityPushToStartToken": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/HexToken"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "widgetPushToken": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/HexToken"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "apnsToken",
+    "environment",
+    "bundleId",
+    "liveActivityPushToStartToken",
+    "widgetPushToken"
+  ],
+  "additionalProperties": false
+}

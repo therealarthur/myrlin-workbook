@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/search/search-names.json",
+  "title": "NameSearchResult",
+  "description": "GET /api/m/v2/search/names. PROTOCOL.md 4.9.1.",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "session",
+              "project",
+              "folder",
+              "tabGroup",
+              "workingDir"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/Provider"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sessionId": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/SessionId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "projectId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workingDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastActiveAtMs": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/TimestampMs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "matchRanges": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "title",
+          "subtitle",
+          "provider",
+          "sessionId",
+          "projectId",
+          "workingDir",
+          "lastActiveAtMs",
+          "matchRanges"
+        ],
+        "additionalProperties": true
+      },
+      "maxItems": 100
+    },
+    "durationMs": {
+      "$ref": "../common/defs.json#/$defs/DurationMs"
+    }
+  },
+  "required": [
+    "query",
+    "results",
+    "durationMs"
+  ],
+  "additionalProperties": true
+}

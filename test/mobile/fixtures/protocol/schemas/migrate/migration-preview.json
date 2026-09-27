@@ -1,0 +1,407 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/migrate/migration-preview.json",
+  "title": "MigrationPreview",
+  "description": "Answer of the preview route. PROTOCOL.md 4.12.1.",
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "$ref": "../common/defs.json#/$defs/SessionId"
+        },
+        "title": {
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "../common/defs.json#/$defs/Provider"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "turns": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "firstAtMs": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/TimestampMs"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastAtMs": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/TimestampMs"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "compactions": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subagents": {
+          "type": "object",
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "count",
+            "bytes"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "sessionId",
+        "title",
+        "provider",
+        "bytes",
+        "turns",
+        "firstAtMs",
+        "lastAtMs",
+        "running",
+        "compactions",
+        "subagents"
+      ],
+      "additionalProperties": true
+    },
+    "index": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "none",
+            "building",
+            "ready",
+            "failed"
+          ]
+        },
+        "coverage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "formatDrift": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "coverage",
+        "formatDrift"
+      ],
+      "additionalProperties": true
+    },
+    "plan": {
+      "type": "object",
+      "properties": {
+        "tier": {
+          "type": "string",
+          "enum": [
+            "S",
+            "M",
+            "L"
+          ]
+        },
+        "ranges": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxReaders": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "readerModel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "estInputTokens": {
+          "type": "object",
+          "properties": {
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "low",
+            "high"
+          ],
+          "additionalProperties": true
+        },
+        "estOutputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "estMinutes": {
+          "type": "object",
+          "properties": {
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "low",
+            "high"
+          ],
+          "additionalProperties": true
+        },
+        "estQuota": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "accountId": {
+                  "type": "string"
+                },
+                "percent": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "window": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "accountId",
+                "percent",
+                "window"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "estUsdListPrice": {
+          "type": "object",
+          "properties": {
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "low",
+            "high"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "tier",
+        "ranges",
+        "maxReaders",
+        "readerModel",
+        "estInputTokens",
+        "estOutputTokens",
+        "estMinutes",
+        "estQuota",
+        "estUsdListPrice"
+      ],
+      "additionalProperties": true
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "../common/defs.json#/$defs/Provider"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contextTokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "provider",
+          "id",
+          "label",
+          "contextTokens"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "accounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "../common/defs.json#/$defs/Provider"
+          },
+          "accountId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "headroom": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resetsAtMs": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/TimestampMs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recommended": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "provider",
+          "accountId",
+          "displayName",
+          "headroom",
+          "resetsAtMs",
+          "recommended"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "forkAllowed": {
+      "type": "boolean"
+    },
+    "forkDisallowedReason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "secondConfirmRequired": {
+      "type": "boolean"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "CROSS_PROVIDER",
+              "FORMAT_DRIFT",
+              "SOURCE_RUNNING",
+              "ACCOUNT_LOW"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": [
+    "source",
+    "index",
+    "plan",
+    "models",
+    "accounts",
+    "forkAllowed",
+    "forkDisallowedReason",
+    "secondConfirmRequired",
+    "warnings"
+  ],
+  "additionalProperties": true
+}

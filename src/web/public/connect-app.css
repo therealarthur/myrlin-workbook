@@ -1,0 +1,478 @@
+/*
+ * connect-app.css: styles for the Connect app modal, the Allow dialog and the
+ * Devices tab (mobile v2, BUILD-CONTRACT B1 item 13).
+ *
+ * WHY: A23 and E11. These surfaces live inside Workbook, so they use the
+ * focused shell's own tokens (OS font stack, warm inks, the #2383e2 blue via
+ * --accent) and add no palette of their own. Status is carried by words and
+ * colour, never by a pill with a dot (a standing product rule, gate G16). The
+ * one fixed colour pair is the QR code's ground: dark modules on white in
+ * every theme, so it scans (PROTOCOL.md 2.3, R03:106).
+ *
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
+:root {
+  --connect-app-qr-ground: #ffffff;
+  --connect-app-scrim: color-mix(in srgb, var(--text-primary, #37352f) 28%, transparent);
+  --connect-app-danger: var(--color-danger, #d44c47);
+  --connect-app-success: var(--color-success, #448361);
+  --connect-app-radius: var(--radius-md, 8px);
+  --connect-app-radius-sm: var(--radius-sm, 6px);
+}
+
+/* The header entry: a visible text label in both shells (R03:108). */
+#pair-mobile-btn.connect-app-btn {
+  width: auto;
+  gap: 6px;
+  padding-left: 8px;
+  padding-right: 10px;
+}
+
+:root[data-ui-shell="focused"] #pair-mobile-btn.connect-app-btn {
+  width: auto;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+}
+
+.connect-app-btn .connect-app-label,
+#pair-mobile-btn .connect-app-label {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-secondary, inherit);
+}
+
+/* Overlays and dialogs. */
+.connect-app-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--connect-app-scrim);
+}
+
+.connect-app-allow-overlay {
+  z-index: 10001;
+}
+
+.connect-app-overlay[hidden],
+.connect-app-modal [hidden] {
+  display: none !important;
+}
+
+.connect-app-modal {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  background: var(--surface-raised, var(--surface-canvas));
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--connect-app-radius);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--text-primary, #37352f) 16%, transparent);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 20px 24px 24px;
+}
+
+.connect-app-modal:focus {
+  outline: none;
+}
+
+.connect-app-allow {
+  width: min(440px, 100%);
+}
+
+.connect-app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connect-app-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.connect-app-icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--connect-app-radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.connect-app-icon-btn:hover {
+  background: var(--app-wash-hover, var(--surface-interactive));
+}
+
+/* Tabs: text with an underline, no capsules. */
+.connect-app-tabs {
+  display: flex;
+  gap: 16px;
+  margin: 12px 0 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.connect-app-tab {
+  border: 0;
+  background: transparent;
+  padding: 6px 0 8px;
+  margin-bottom: -1px;
+  font: inherit;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.connect-app-tab[aria-selected="true"] {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+/* The connect panel. */
+.connect-app-pairing {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 24px;
+  align-items: center;
+}
+
+.connect-app-qr {
+  width: 256px;
+  height: 256px;
+  min-width: 240px;
+  min-height: 240px;
+  background: var(--connect-app-qr-ground);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--connect-app-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.connect-app-qr svg {
+  display: block;
+  width: 256px;
+  height: 256px;
+}
+
+.connect-app-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.connect-app-lede {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.connect-app-meta {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.connect-app-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.connect-app-field-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.connect-app-mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.connect-app-code {
+  font-size: 22px;
+  letter-spacing: 0.08em;
+}
+
+.connect-app-success {
+  margin: 4px 0 0;
+  color: var(--connect-app-success);
+  font-weight: 500;
+}
+
+.connect-app-off,
+.connect-app-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.connect-app-error-text {
+  margin: 0;
+  color: var(--connect-app-danger);
+  font-size: 13px;
+}
+
+.connect-app-note {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--connect-app-danger);
+  background: color-mix(in srgb, var(--connect-app-danger) 8%, transparent);
+  color: var(--text-primary);
+}
+
+/* Buttons. */
+.connect-app-btn,
+.connect-app-btn-primary,
+.connect-app-btn-danger,
+.connect-app-btn-danger-quiet {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--connect-app-radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast, 150ms ease), border-color var(--transition-fast, 150ms ease);
+}
+
+.connect-app-btn {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+.connect-app-btn:hover {
+  background: var(--app-wash-hover, var(--surface-interactive));
+}
+
+.connect-app-btn-primary {
+  background: var(--accent);
+  color: var(--connect-app-qr-ground);
+  border: 1px solid var(--accent);
+}
+
+.connect-app-btn-primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text-primary, #37352f));
+}
+
+.connect-app-btn-danger {
+  background: var(--connect-app-danger);
+  color: var(--connect-app-qr-ground);
+  border: 1px solid var(--connect-app-danger);
+}
+
+.connect-app-btn-danger-quiet {
+  background: transparent;
+  color: var(--connect-app-danger);
+  border: 1px solid transparent;
+}
+
+.connect-app-btn-danger-quiet:hover {
+  border-color: var(--connect-app-danger);
+}
+
+.connect-app-btn:disabled,
+.connect-app-btn-primary:disabled,
+.connect-app-btn-danger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.connect-app-btn:focus-visible,
+.connect-app-btn-primary:focus-visible,
+.connect-app-btn-danger:focus-visible,
+.connect-app-btn-danger-quiet:focus-visible,
+.connect-app-tab:focus-visible,
+.connect-app-icon-btn:focus-visible {
+  outline: 2px solid var(--color-focus, var(--accent));
+  outline-offset: 2px;
+}
+
+.connect-app-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* The Allow dialog. */
+.connect-app-allow .connect-app-title {
+  margin-bottom: 4px;
+}
+
+.connect-app-match {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0 16px;
+}
+
+.connect-app-digit {
+  width: 52px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 34px;
+  font-weight: 600;
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--connect-app-radius-sm);
+  background: var(--surface-canvas);
+}
+
+.connect-app-scopes {
+  border: 0;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.connect-app-scopes legend {
+  padding: 0;
+  margin-bottom: 6px;
+}
+
+.connect-app-scope {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.connect-app-scope input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.connect-app-scope-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.connect-app-scope-disabled {
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+/* The Devices tab. */
+.connect-app-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.connect-app-empty {
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+.connect-app-device {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--connect-app-radius);
+  background: var(--surface-canvas);
+}
+
+.connect-app-device-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.connect-app-device-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.connect-app-row-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 13px;
+}
+
+.connect-app-scope-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.connect-app-scope-inline input {
+  accent-color: var(--accent);
+}
+
+.connect-app-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--connect-app-danger);
+  background: color-mix(in srgb, var(--connect-app-danger) 6%, transparent);
+}
+
+.connect-app-details summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.connect-app-audit {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .connect-app-pairing {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connect-app-btn,
+  .connect-app-btn-primary,
+  .connect-app-btn-danger,
+  .connect-app-btn-danger-quiet {
+    transition: none;
+  }
+}

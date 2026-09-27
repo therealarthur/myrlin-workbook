@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/status.json",
+  "title": "AdminStatus",
+  "description": "GET /api/mobile-admin/status (main server, desktop auth). PROTOCOL.md 11.1.",
+  "type": "object",
+  "properties": {
+    "listener": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "enabled",
+        "host",
+        "port",
+        "running",
+        "error"
+      ],
+      "additionalProperties": true
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "computerId": {
+          "$ref": "../common/defs.json#/$defs/ComputerId"
+        },
+        "fingerprint": {
+          "$ref": "../common/defs.json#/$defs/Fingerprint"
+        },
+        "createdAtMs": {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        }
+      },
+      "required": [
+        "computerId",
+        "fingerprint",
+        "createdAtMs"
+      ],
+      "additionalProperties": true
+    },
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "$ref": "../common/defs.json#/$defs/Endpoint"
+      }
+    },
+    "legacyPairEnabled": {
+      "type": "boolean"
+    },
+    "screenModel": {
+      "type": "boolean"
+    },
+    "push": {
+      "type": "object",
+      "properties": {
+        "configured": {
+          "type": "boolean"
+        },
+        "keyId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastError": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "configured",
+        "keyId",
+        "lastError"
+      ],
+      "additionalProperties": true
+    },
+    "deviceCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "streamEpoch": {
+      "$ref": "../common/defs.json#/$defs/StreamEpoch"
+    }
+  },
+  "required": [
+    "listener",
+    "identity",
+    "endpoints",
+    "legacyPairEnabled",
+    "screenModel",
+    "push",
+    "deviceCount",
+    "streamEpoch"
+  ],
+  "additionalProperties": true
+}

@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/resources/computer.json",
+  "title": "Computer",
+  "description": "GET /api/m/v2/computer. PROTOCOL.md 3.2.",
+  "type": "object",
+  "properties": {
+    "computerId": {
+      "$ref": "../common/defs.json#/$defs/ComputerId"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hostname": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "workbookVersion": {
+      "type": "string"
+    },
+    "apiVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "apiRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "computerPublicKey": {
+      "$ref": "../common/defs.json#/$defs/PublicKey"
+    },
+    "streamEpoch": {
+      "$ref": "../common/defs.json#/$defs/StreamEpoch"
+    },
+    "ts": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "screenModel": {
+          "type": "boolean"
+        },
+        "push": {
+          "type": "boolean"
+        },
+        "glassApi": {
+          "type": "boolean"
+        },
+        "codexLinker": {
+          "type": "boolean"
+        },
+        "migrations": {
+          "type": "boolean"
+        },
+        "contentSearch": {
+          "type": "string",
+          "enum": [
+            "tailOfLargeFiles",
+            "full"
+          ]
+        },
+        "branchFromMessage": {
+          "type": "array",
+          "items": {
+            "$ref": "../common/defs.json#/$defs/Provider"
+          },
+          "uniqueItems": true,
+          "description": "Providers whose branch route accepts fromMessageId. PROTOCOL.md 3.2 and 4.5.8."
+        }
+      },
+      "required": [
+        "screenModel",
+        "push",
+        "glassApi",
+        "codexLinker",
+        "migrations",
+        "contentSearch",
+        "branchFromMessage"
+      ],
+      "additionalProperties": true
+    },
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "$ref": "../common/defs.json#/$defs/Endpoint"
+      },
+      "maxItems": 5
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "sendMaxChars": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attachmentsMax": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sendQueueMax": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "uploadChunkBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "uploadMaxImageBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "uploadMaxVideoBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "uploadQuotaBytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "sendMaxChars",
+        "attachmentsMax",
+        "sendQueueMax",
+        "uploadChunkBytes",
+        "uploadMaxImageBytes",
+        "uploadMaxVideoBytes",
+        "uploadQuotaBytes"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "computerId",
+    "name",
+    "hostname",
+    "platform",
+    "workbookVersion",
+    "apiVersion",
+    "apiRevision",
+    "computerPublicKey",
+    "streamEpoch",
+    "ts",
+    "capabilities",
+    "endpoints",
+    "limits"
+  ],
+  "additionalProperties": true
+}

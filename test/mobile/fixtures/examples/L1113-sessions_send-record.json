@@ -1,0 +1,16 @@
+{
+  "clientMessageId": "0f8f2d8e-5d0b-4c47-9a3e-2b6f5c9d1e7a",
+  "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+  "deviceId": "d_TViQs70r__UO4o8s844E",
+  "state": "queued",
+  "reason": "busy",
+  "position": 1,
+  "textPreview": "Run the tests again.",
+  "attachmentCount": 0,
+  "queuedAtMs": 1790000130000,
+  "writtenAtMs": null,
+  "deliveredAtMs": null,
+  "confirmedAtMs": null,
+  "messageId": null,
+  "error": null
+}

@@ -1,0 +1,13 @@
+{
+  "offerId": "oKGio6Sl",
+  "secretKind": "qr",
+  "secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "devicePublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og",
+  "deviceName": "Sam’s iPhone",
+  "model": "iPhone17,2",
+  "osVersion": "26.1",
+  "appVersion": "1.0.0 (1)",
+  "deviceNonce": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+  "ts": 1790000001000,
+  "sig": "4nRIswozFhV_jvF-InCRzM7PkL2hCrmmemMe1u9pYJiqXSdxuWyiuw9EXKDTxvlwJ7OjWiwyefkao8-qRR07cQ"
+}

@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/prompt.json",
+  "title": "Prompt",
+  "description": "An open TUI dialog read from the VT screen. PROTOCOL.md 3.7 and 8.",
+  "type": "object",
+  "properties": {
+    "promptId": {
+      "$ref": "../common/defs.json#/$defs/PromptId"
+    },
+    "sessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "question",
+        "approval",
+        "plan",
+        "unknown"
+      ]
+    },
+    "openedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "screen",
+        "screenAndTranscript"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "toolName": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "toolCallId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "header": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1
+          },
+          "multiSelect": {
+            "type": "boolean"
+          },
+          "allowOther": {
+            "type": "boolean"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "key": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "recommended": {
+                  "type": "boolean"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "allow",
+                    "allowAlways",
+                    "deny",
+                    "keepPlanning",
+                    "other",
+                    "neutral"
+                  ]
+                }
+              },
+              "required": [
+                "index",
+                "key",
+                "label",
+                "description",
+                "recommended",
+                "role"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "index",
+          "header",
+          "question",
+          "multiSelect",
+          "allowOther",
+          "options"
+        ],
+        "additionalProperties": true
+      },
+      "maxItems": 8
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recommended": {
+            "type": "boolean"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "allowAlways",
+              "deny",
+              "keepPlanning",
+              "other",
+              "neutral"
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "key",
+          "label",
+          "description",
+          "recommended",
+          "role"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "currentQuestionIndex": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "consequence": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "answerable": {
+      "type": "boolean"
+    },
+    "rawScreen": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 8200
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16}$"
+    }
+  },
+  "required": [
+    "promptId",
+    "sessionId",
+    "kind",
+    "openedAtMs",
+    "source",
+    "title",
+    "detail",
+    "toolName",
+    "toolCallId",
+    "questions",
+    "options",
+    "currentQuestionIndex",
+    "consequence",
+    "answerable",
+    "rawScreen",
+    "fingerprint"
+  ],
+  "additionalProperties": true
+}

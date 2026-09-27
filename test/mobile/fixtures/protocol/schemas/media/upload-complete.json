@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/media/upload-complete.json",
+  "title": "UploadComplete",
+  "description": "POST /api/m/v2/uploads/:uploadId/complete. PROTOCOL.md 4.10.",
+  "type": "object",
+  "properties": {
+    "sha256": {
+      "$ref": "../common/defs.json#/$defs/Sha256Hex"
+    }
+  },
+  "required": [
+    "sha256"
+  ],
+  "additionalProperties": false
+}

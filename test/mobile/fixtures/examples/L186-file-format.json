@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "createdAtMs": 1790000000000,
+  "privateKeyPkcs8": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg",
+  "publicKeySpki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og",
+  "fingerprint": "ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78",
+  "computerId": "c_ff392dwfMAEdmqePZGay"
+}
