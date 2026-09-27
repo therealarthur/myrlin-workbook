@@ -1,0 +1,237 @@
+{
+  "cli": "claude",
+  "version": "2.1.283",
+  "name": "live-idle",
+  "via": "Workbook PTY",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 2,
+  "cursorY": 26,
+  "altBuffer": true,
+  "lines": [
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": " \u2590\u259b\u2588\u2588\u2588\u259b\u2588   Claude Code v2.1.283",
+      "runs": [
+        {
+          "s": 0,
+          "e": 8,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 14120791
+        },
+        {
+          "s": 11,
+          "e": 22,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 23,
+          "e": 31,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "\u259d\u259c\u2588\u2588\u2588\u2588\u2588\u2588\u2580  Haiku 4.5 \u00b7 Claude Max",
+      "runs": [
+        {
+          "s": 0,
+          "e": 11,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 14120791
+        },
+        {
+          "s": 11,
+          "e": 33,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": " \u259d\u259d   \u259d\u259d   ~\\AppData\\Local\\Temp\\claude\\C--Users-tester\\00000000-0000-0000-0000-000000000000\\scratchpad\\claude-live\\\u2026    ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 11,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 14120791
+        },
+        {
+          "s": 11,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "                                         You've used 80% of your weekly limit \u00b7 resets Sep 29, 11pm (America/New_York)  ",
+      "runs": [
+        {
+          "s": 41,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16761095
+        }
+      ]
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 8947848
+        }
+      ]
+    },
+    {
+      "text": "\u276f\u00a0Try \"refactor <filepath>\"",
+      "runs": [
+        {
+          "s": 2,
+          "e": 27,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 8947848
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  \u23f8 manual mode on \u00b7 \u2190 for agents",
+      "runs": [
+        {
+          "s": 2,
+          "e": 33,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    }
+  ]
+}

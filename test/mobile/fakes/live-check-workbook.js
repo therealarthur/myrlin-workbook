@@ -155,12 +155,22 @@ async function main() {
       internals.sends.cancel(sid, h.send.clientMessageId, device.deviceId);
     }
     const permAnswer = perm ? await internals.answers.answer(sid, perm.promptId, { decision: 'allow' }, { deviceId: device.deviceId }).catch((e) => ({ error: e.code })) : null;
+    // The model may ask again (another tool after a failed one): allow follow ups too.
+    const followUps = [];
+    for (let i = 0; i < 3 && !ev('turn.end', t0).length; i++) {
+      const more = await until(() => ev('turn.end', t0).length > 0 || internals.prompts.openFor(sid).some((p) => p.kind === 'approval' && p.promptId !== (perm && perm.promptId)), 45000, 'follow up or end');
+      const next = internals.prompts.openFor(sid).find((p) => p.kind === 'approval');
+      if (!more || !next) break;
+      await snap('permission-followup-' + i);
+      followUps.push({ title: next.title, detail: next.detail, options: next.options.map((o) => o.label + ' [' + o.role + ']'), answer: await internals.answers.answer(sid, next.promptId, { decision: 'allow' }, { deviceId: device.deviceId }).catch((e) => ({ error: e.code })) });
+    }
     await until(() => ev('turn.end', t0).length > 0, 90000, 'turn end after permission');
     results.steps.permission = {
       detected: !!perm,
       prompt: perm ? { kind: perm.kind, title: perm.title, detail: perm.detail, toolName: perm.toolName, source: perm.source, options: perm.options.map((o) => o.label + ' [' + o.role + ']') } : null,
       phoneSendWhileOpen: held,
       answer: permAnswer,
+      followUps,
       resolved: ev('prompt.resolved', t0).map((e) => e.data.by),
       turnEnd: ev('turn.end', t0).map((e) => ({ status: e.data.status, endSource: e.data.endSource })),
       probeFileWritten: fs.existsSync(path.join(workDir, 'probe.txt')),
@@ -171,7 +181,7 @@ async function main() {
     await until(async () => { const x = await cls(); return x && x.kind === 'idlePrompt' && !internals.turns.isTurnOpen(sid); }, 30000, 'idle before question');
     sendPhone('Use the AskUserQuestion tool to ask me exactly one question: "Pick a color" with the options Red and Blue. After I answer, reply with only the color I chose.');
     const gotQ = await until(() => internals.prompts.openFor(sid).some((p) => p.kind === 'question' && p.source === 'screenAndTranscript'), 90000, 'question prompt');
-    const q = internals.prompts.openFor(sid)[0] || null;
+    const q = internals.prompts.openFor(sid).find((p) => p.kind === 'question') || null;
     await snap('question');
     let qHeld = null;
     if (gotQ) {

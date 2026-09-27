@@ -38,6 +38,11 @@ const expected = {
   'after-submit-1s': { kind: 'busy' },
   'fork-start': { kind: 'idlePrompt' },
   'slash-menu': { kind: 'idlePrompt', inputText: '/' },
+  // Screens read through a Workbook PTY by the live check (fakes/live-check-workbook.js).
+  'live-idle': { kind: 'idlePrompt', inputText: '' },
+  'live-permission': { kind: 'prompt', dialog: 'approval', title: 'Bash command', keys: ['1', '2', '3'], roles: ['allow', 'allowAlways', 'deny'] },
+  'live-question': { kind: 'prompt', dialog: 'question', question: 'Pick a color', labels: ['Red', 'Blue'], otherIndex: 2 },
+  'live-after-interrupt': { kind: 'idlePrompt' },
 };
 
 for (const [name, exp] of Object.entries(expected)) {

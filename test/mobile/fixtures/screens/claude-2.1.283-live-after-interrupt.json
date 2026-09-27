@@ -1,0 +1,253 @@
+{
+  "cli": "claude",
+  "version": "2.1.283",
+  "name": "live-after-interrupt",
+  "via": "Workbook PTY",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 2,
+  "cursorY": 26,
+  "altBuffer": true,
+  "lines": [
+    {
+      "text": "  192                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  193                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  194                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  195",
+      "runs": []
+    },
+    {
+      "text": "  196                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  197                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  198                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  199                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  200                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  201                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  202                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  203                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  204                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  205",
+      "runs": []
+    },
+    {
+      "text": "  206                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  207                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  208                                                                                                                   ",
+      "runs": [
+        {
+          "s": 1,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  209                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  210",
+      "runs": [
+        {
+          "s": 1,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  211                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  212                                                                                                                   ",
+      "runs": []
+    },
+    {
+      "text": "  213",
+      "runs": []
+    },
+    {
+      "text": "  214",
+      "runs": []
+    },
+    {
+      "text": "  \u23bf \u00a0Interrupted \u00b7 What should Claude do instead?",
+      "runs": [
+        {
+          "s": 0,
+          "e": 49,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 8947848
+        }
+      ]
+    },
+    {
+      "text": "\u276f\u00a0                                                                                                                      ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 8947848
+        }
+      ]
+    },
+    {
+      "text": "  \u2b06 /gsd:update \u2502 Haiku 4.5 \u2502 claude-live-wb-1790486724223 \u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591 31%",
+      "runs": [
+        {
+          "s": 2,
+          "e": 16,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 3
+        },
+        {
+          "s": 16,
+          "e": 18,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 18,
+          "e": 27,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 27,
+          "e": 30,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 30,
+          "e": 58,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 58,
+          "e": 59,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 59,
+          "e": 73,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 2
+        }
+      ]
+    },
+    {
+      "text": "  \u23f8 manual mode on \u00b7 \u2190 2 agents",
+      "runs": [
+        {
+          "s": 2,
+          "e": 31,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    }
+  ]
+}
