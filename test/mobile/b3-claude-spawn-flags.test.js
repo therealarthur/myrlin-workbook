@@ -33,7 +33,7 @@ function after(args, flag) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-kit.test('every effort value emits --effort with that value', () => {
+kit.test('every effort value emits the effort flag with that value', () => {
   kit.eq(spawn.CLAUDE_EFFORT_VALUES, ['low', 'medium', 'high', 'xhigh', 'max']);
   for (const v of spawn.CLAUDE_EFFORT_VALUES) kit.eq(after(argsOf({ effort: v }), '--effort'), v, v);
   kit.ok(!argsOf({}).includes('--effort'), 'no flag when unset');
