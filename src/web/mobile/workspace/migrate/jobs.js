@@ -682,9 +682,10 @@ function createMigrations(deps) {
       provider: job._.sourceProvider,
       snap: job._.snap,
       useWorker: deps.useWorker !== false,
-      onProgress: (p) => { step(job, 'index', { detail: Math.round(p.bytes / 1048576).toLocaleString('en-US') + ' of ' + Math.round(p.total / 1048576).toLocaleString('en-US') + ' MB' }); },
+      onProgress: (p) => { if (stopped(job)) return; step(job, 'index', { detail: Math.round(p.bytes / 1048576).toLocaleString('en-US') + ' of ' + Math.round(p.total / 1048576).toLocaleString('en-US') + ' MB' }); },
     });
     const m = await entry.promise;
+    if (stopped(job)) return;
     job._.indexDir = entry.dir;
     job._.indexKey = entry.key;
     const secs = Math.max(1, Math.round((now() - started) / 1000));

@@ -216,9 +216,13 @@ function createSearch(deps) {
     if (warmTimer.unref) warmTimer.unref();
   }
 
-  /** Forget the index (the next search rebuilds it) and warm it again soon. */
+  /**
+   * Mark the index stale (it keeps answering through the stale path in
+   * names_index) and rebuild it in the background, so a query after a change
+   * never rebuilds on the request path (PROTOCOL.md 4.9.1).
+   */
   function invalidateNames() {
-    nameIndex = { at: 0, entries: [], valid: false };
+    nameIndex = nameIndex.valid ? { at: now() - NAME_INDEX_TTL_MS, entries: nameIndex.entries, valid: true } : { at: 0, entries: [], valid: false };
     warmSoon(NAME_INDEX_WARM_DELAY_MS);
   }
 

@@ -35,6 +35,10 @@ const { createMigrationLauncher } = require('../../src/web/mobile/workspace/migr
 
 /** Longest wait for a takeover to reach a state (fake CLI turns take seconds). */
 const STATE_WAIT_MS = 90 * 1000;
+/** Drain the cancelled index completion before checking published events. */
+const INDEX_CANCEL_SETTLE_MS = 50;
+/** One MiB in the controlled index progress callback. */
+const INDEX_PROGRESS_BYTES = 1048576;
 
 const sb = kit.sandbox();
 
@@ -500,6 +504,47 @@ kit.test('late cancellation cleanup preserves a newer migration hand off', async
   } finally {
     sessions.setHandedOff = realSetHandedOff;
     realSetHandedOff(src3.phone, null);
+  }
+});
+
+kit.test('cancel during indexing keeps the index step skipped and publishes nothing after cancel', async () => {
+  const engine = env.ws.internals.migrations;
+  const pack = require('../../src/web/mobile/workspace/migrate/pack');
+  const realEnsureIndex = pack.ensureIndex;
+  const hub = env.ctx.mobile.hub;
+  const realPublish = hub.publish;
+  const realPublishNotice = hub.publishNotice;
+  const indexed = deferred();
+  const events = [];
+  const notices = [];
+  let onProgress;
+  pack.ensureIndex = (o) => {
+    onProgress = o.onProgress;
+    return { key: 'k', dir: path.join(sb.root, 'cancel-index'), state: 'building', promise: indexed.promise };
+  };
+  hub.publish = (topic, type, data) => { events.push({ type, data }); return realPublish(topic, type, data); };
+  hub.publishNotice = (notice) => { notices.push(notice); return realPublishNotice(notice); };
+  try {
+    const r = await start(src3.phone, { sourcePolicy: 'leave' });
+    kit.eq(r.status, 202, JSON.stringify(r.body));
+    const id = r.body.migrationId;
+    await kit.until(() => engine.get(id).state === 'indexing', STATE_WAIT_MS, 'the controlled index to start');
+    await engine.cancel(id, { deviceId: null });
+    const progressCount = () => events.filter((event) => event.type === 'migration.progress' && event.data.migration.migrationId === id).length;
+    const beforeProgress = progressCount();
+    const beforeNotices = notices.filter((notice) => notice.code === 'FORMAT_DRIFT').length;
+    onProgress({ bytes: INDEX_PROGRESS_BYTES, total: INDEX_PROGRESS_BYTES * 2 });
+    indexed.resolve({ turns: 1, toolCalls: 0, formatDrift: true });
+    await kit.sleep(INDEX_CANCEL_SETTLE_MS);
+    kit.eq(engine.get(id).steps[1].state, 'skipped', 'the cancelled index step stays skipped in memory');
+    const saved = JSON.parse(fs.readFileSync(path.join(process.env.CWM_DATA_DIR, 'migrations', id, 'job.json'), 'utf8'));
+    kit.eq(saved.steps[1].state, 'skipped', 'the cancelled index step stays skipped on disk');
+    kit.eq(progressCount(), beforeProgress, 'no migration progress follows cancellation');
+    kit.eq(notices.filter((notice) => notice.code === 'FORMAT_DRIFT').length, beforeNotices, 'no format drift notice follows cancellation');
+  } finally {
+    pack.ensureIndex = realEnsureIndex;
+    hub.publish = realPublish;
+    hub.publishNotice = realPublishNotice;
   }
 });
 

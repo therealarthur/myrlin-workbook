@@ -107,10 +107,7 @@ kit.test('boot with transcripts: two busy sessions, a 9 MB one, a Codex thread',
   if (codex && typeof codex.init === 'function') await codex.init();
   env.chat.internals.index.invalidate();
   env.ws.onProviderChange();
-  // Warm the completed fixture explicitly. A startup build can delay the
-  // scheduled rebuild for two seconds, so a fixed sleep is not readiness.
-  const warm = env.ws.internals.search.names({ q: 'zeb' });
-  kit.eq(warm.results[0].sessionId, 'cl_' + ids.a, 'the final fixture is indexed');
+  await kit.until(() => { const w = env.ws.internals.search.names({ q: 'zeb' }); return !!(w.results[0] && w.results[0].sessionId === 'cl_' + ids.a); }, 5000, 'the background rebuild indexed the fixture');
 });
 
 kit.test('name search answers from memory, ranked, with match ranges', async () => {
@@ -131,6 +128,13 @@ kit.test('name search answers from memory, ranked, with match ranges', async () 
   kit.eq(short.body.code, 'QUERY_TOO_SHORT');
   const lim = await env.api('GET', '/search/names?q=z&limit=101');
   kit.eq([lim.status, lim.body.code], [400, 'INVALID_FIELD']);
+});
+
+kit.test('a name query right after a change answers from the previous index without I/O', () => {
+  env.ws.onProviderChange();
+  const r = cachedNameSearch('zeb');
+  kit.eq(r.results[0].title, 'Zebra planning');
+  kit.ok(r.durationMs < NAME_SEARCH_BUDGET_MS, 'post-change name query took ' + r.durationMs + ' ms');
 });
 
 kit.test('message search pages over one cached run of 200 with the same totals on every page', async () => {
