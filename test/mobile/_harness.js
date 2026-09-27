@@ -175,6 +175,9 @@ function seedSettings(store, mobileSettings) {
  * @param {object} [opts.hub] - A stub hub to place at ctx.mobile.hub.
  * @param {string} [opts.dataDir] - The mobile data dir (default: the process sandbox);
  *   a fresh folder inside the sandbox lets a test see which files a start writes.
+ * @param {boolean} [opts.tracks=false] - Mount B2 and B3 when their folders exist.
+ *   Off by default: a B1 test runs B1 alone with stubs of the other tracks
+ *   (BUILD-CONTRACT 2.1), so a stub hub given as opts.hub stays in place.
  * @returns {Promise<object>} The harness handle.
  */
 async function startSandbox(opts) {
@@ -204,6 +207,7 @@ async function startSandbox(opts) {
     broadcastSSE: (type, data) => sse.push({ type, data }),
     now: o.clock ? o.clock.now : Date.now,
     log: (m) => logs.push(String(m)),
+    mountTracks: o.tracks === true,
     mobile: {},
   };
   if (o.hub) ctx.mobile.hub = o.hub;

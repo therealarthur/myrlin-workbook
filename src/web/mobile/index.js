@@ -29,6 +29,8 @@ const { mountDeviceRoutes } = require('./device-routes');
 
 /** WebSocket close code for a revoked device (PROTOCOL.md 5.6). */
 const CLOSE_DEVICE_REVOKED = 4401;
+/** WebSocket close code for a Workbook shutdown (PROTOCOL.md 5.6). */
+const CLOSE_GOING_AWAY = 1001;
 
 /** Module state: one runtime per process. */
 let rt = null;
@@ -119,9 +121,19 @@ function ensureCore(ctx) {
   rt.capabilities = function capabilities() {
     const chat = ctx.mobile.chat || {};
     const workspace = ctx.mobile.workspace || {};
-    const chatCaps = chat.capabilities || {};
+    // B2 exposes chat.capabilities as a function (its screen model check and
+    // its linker flag are live values); an object is still accepted.
+    let chatCaps = {};
+    try {
+      chatCaps = (typeof chat.capabilities === 'function' ? chat.capabilities() : chat.capabilities) || {};
+    } catch (err) {
+      log('[mobile] chat capabilities failed: ' + (err && err.message));
+      chatCaps = {};
+    }
     return {
-      screenModel: rt.screenModel(),
+      // With B2 mounted its answer wins: it also checks that the VT sidecar
+      // is available, not only that CWM_VT_SIDECAR asks for it (PROTOCOL.md 1.6).
+      screenModel: typeof chatCaps.screenModel === 'boolean' ? chatCaps.screenModel : rt.screenModel(),
       push: notifier.isConfigured(),
       glassApi: !!(workspace.accounts && typeof workspace.accounts.glassApiUp === 'function' && workspace.accounts.glassApiUp()),
       codexLinker: chatCaps.codexLinker === true,
@@ -185,6 +197,12 @@ function ensureCore(ctx) {
  * @param {object} ctx - Context.
  */
 function mountOtherTracks(ctx) {
+  // A test of B1 alone sets ctx.mountTracks to false, so the stub hub it
+  // placed at ctx.mobile.hub stays (BUILD-CONTRACT 2.1: a track tests with
+  // stubs of the other tracks' parts). Production never sets it.
+  if (ctx && ctx.mountTracks === false) return;
+  // Test seams for a track's mount function, by flag ({chat: {...}, workspace: {...}}).
+  const trackOptions = (ctx && ctx.trackOptions && typeof ctx.trackOptions === 'object') ? ctx.trackOptions : {};
   const tryMount = (dir, fnName, flag) => {
     if (rt.mounted[flag]) return;
     const file = path.join(__dirname, dir, 'index.js');
@@ -192,7 +210,9 @@ function mountOtherTracks(ctx) {
     try {
       const mod = require(file);
       if (typeof mod[fnName] === 'function') {
-        const r = mod[fnName](ctx.mobile.router, ctx);
+        const r = trackOptions[flag] !== undefined
+          ? mod[fnName](ctx.mobile.router, ctx, trackOptions[flag])
+          : mod[fnName](ctx.mobile.router, ctx);
         if (r && typeof r.catch === 'function') r.catch((err) => rt.log('[mobile] ' + fnName + ' failed: ' + (err && err.message)));
         rt.mounted[flag] = true;
       }
@@ -233,6 +253,14 @@ function startMobile(ctx) {
  */
 function stopMobile() {
   if (!rt) return Promise.resolve();
+  // server.js calls this from its cleanup, so Workbook is shutting down:
+  // stream sockets close with 1001 after the WORKBOOK_SHUTTING_DOWN notice
+  // (PROTOCOL.md 5.6), which B2's hub sends for that code. The listener stop
+  // below then finds no socket left to close with 1012.
+  const hub = rt.getHub();
+  if (hub && typeof hub.closeAll === 'function') {
+    try { hub.closeAll(CLOSE_GOING_AWAY, 'WORKBOOK_SHUTTING_DOWN'); } catch (err) { rt.log('[mobile] shutdown close failed: ' + (err && err.message)); }
+  }
   rt.endpoints.stop();
   rt.pairing.close();
   rt.notifier.close();

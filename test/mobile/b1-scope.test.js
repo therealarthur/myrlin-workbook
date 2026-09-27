@@ -49,7 +49,13 @@ t('scope-table.js equals the hand transcription of PROTOCOL.md 2.10', () => {
 });
 
 t('the registered routes equal the table (tracks not mounted counted by their route lists)', async () => {
-  h = await H.startSandbox();
+  h = await H.startSandbox({ tracks: true });
+  // A track whose folder exists must really mount, so the table is checked
+  // against its registered routes and not its route list (BUILD-CONTRACT 3.5.2).
+  for (const flag of ['chat', 'workspace']) {
+    const file = require('path').join(__dirname, '..', '..', 'src', 'web', 'mobile', flag, 'index.js');
+    if (require('fs').existsSync(file)) assert.ok(h.rt.mounted[flag], flag + '/index.js exists but did not mount: ' + h.logs.join(' | '));
+  }
   const registered = new Set(h.rt.router.registered().map((r) => r.method + ' ' + r.path));
   const rest = table.ROUTES.filter((r) => !r.upgrade);
   for (const r of rest) {
