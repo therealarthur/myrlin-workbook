@@ -455,6 +455,7 @@ class Store extends EventEmitter {
       this._handleShapeDriftAbort(drift);
       return;
     }
+    if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = null; }
     try {
       // Only backup current file if it contains real data (not zero-filled)
       if (fs.existsSync(STATE_FILE)) {
@@ -695,6 +696,7 @@ class Store extends EventEmitter {
   /**
    * Async save - performs all disk I/O off the event loop.
    * Falls back to sync save() on error.
+   * Not used by the debounce: it must never overlap save(), which shares its temp file and target.
    */
   async saveAsync() {
     // Shape-drift detector runs BEFORE we touch disk. Same guard as save().
@@ -747,7 +749,7 @@ class Store extends EventEmitter {
   _debouncedSave() {
     this._dirty = true;
     if (this._saveTimer) clearTimeout(this._saveTimer);
-    this._saveTimer = setTimeout(() => this.saveAsync(), 150);
+    this._saveTimer = setTimeout(() => { this._saveTimer = null; this.save(); }, 150);
   }
 
   // ─── Getters ─────────────────────────────────────────────

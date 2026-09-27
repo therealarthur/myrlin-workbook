@@ -876,6 +876,7 @@ const standaloneTests = [
   'instance-colors.test.js',
   'providers-registry.test.js', // Plan 14-01: Provider registry contract (ABST-01/02/05/06/07, COST-01)
   'migration.test.js', // Plan 14-02: State schema v1 -> v2 migration (MIG-01..MIG-06)
+  'store-save-race.test.js', // Critical saves survive a pending debounced write.
   'pty-passthrough.test.js', // Plan 14-04: PTY pass-through descriptor flow (PTY-01, PTY-03)
   'claude-session-identity.test.js', // 2026-09-22: --session-id minting, expired-resume fresh start, project-dir encoder, cwd-guess backfill off
   'cost-worker-via-claude.test.js', // Plan 14-04: claudeProvider.costAdapter wiring (COST-04)

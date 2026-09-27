@@ -635,6 +635,10 @@ function createSendQueue(deps) {
     cancelSession(sessionId, code) {
       for (const r of queueOf(sessionId)) if (r.state === 'queued') finish(r, 'cancelled', code || 'HANDED_OFF');
     },
+    /** Stop (PROTOCOL.md 7.4): the process ended, so queued sends fail instead of relaunching it. */
+    failSession(sessionId, code) {
+      for (const r of queueOf(sessionId)) if (r.state === 'queued') finish(r, 'failed', code || 'SESSION_EXITED');
+    },
     heldCount(sessionId) { return queueOf(sessionId).filter((r) => HELD_STATES.has(r.state)).length; },
     deliveredWithoutTurn(sessionId, windowMs) {
       return queueOf(sessionId).some((r) => r.state === 'delivered' && now() - r.deliveredAtMs <= windowMs && !r.turnStarted);

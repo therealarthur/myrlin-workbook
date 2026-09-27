@@ -24,6 +24,8 @@ const kit = require('./fakes/b2-kit');
 
 const LIVE_FIXTURE_TIMEOUT_MS = 5000;
 const TURN_READY_TIMEOUT_MS = 15000;
+const STOP_SEND_FAILURE_TIMEOUT_MS = 3000;
+const STOP_RELAUNCH_OBSERVE_MS = 2500;
 const sb = kit.sandbox();
 let env;
 const spawns = [];
@@ -35,13 +37,6 @@ function stateEntry(sessionId, kind, shortId) {
 }
 
 kit.test('boot', async () => {
-  // Fixture updates must not race an async save on the same temporary file.
-  const fixtureStore = require('../../src/state/store').getStore();
-  /** Keep real persistence and errors while making fixture writes serial. */
-  fixtureStore._debouncedSave = function saveFixtureImmediately() {
-    this._dirty = true;
-    this.save();
-  };
   env = await kit.bootChat({ pty: true });
 });
 
@@ -150,9 +145,57 @@ kit.test('restart now during a turn is SESSION_BUSY; stop kills the pane', async
   const s = await kit.api(env.base, 'POST', '/sessions/' + newSid + '/stop', { clientRequestId: crypto.randomUUID() }, env.device.token);
   kit.eq([s.status, s.body.status], [200, 'stopped']);
   kit.validate(s.body, 'sessions/status-result.json');
+  await kit.until(() => {
+    env.chat.internals.index.invalidate();
+    const ref = env.chat.internals.index.resolve(newSid);
+    return !!ref && ref.owner === 'none';
+  }, TURN_READY_TIMEOUT_MS, 'the stopped session reads as not running');
   const s2 = await kit.api(env.base, 'POST', '/sessions/' + newSid + '/stop', { clientRequestId: crypto.randomUUID() }, env.device.token);
-  kit.eq(s2.body.status, 'notRunning');
+  kit.eq([s2.status, s2.body && s2.body.status, s2.body && s2.body.code], [200, 'notRunning', undefined]);
   kit.eq(env.chat.internals.sends.pending(newSid), [], 'the stopped fixture has no send left to relaunch it');
+});
+
+kit.test('stop fails a send queued behind a turn and never relaunches the session', async () => {
+  const cwd = path.join(sb.work, 'stop-with-queued-send');
+  fs.mkdirSync(cwd, { recursive: true });
+  const firstMessageId = crypto.randomUUID();
+  const created = await kit.api(env.base, 'POST', '/sessions', {
+    clientRequestId: crypto.randomUUID(), provider: 'claude', workingDir: cwd,
+    projectId: env.store.getAllWorkspacesList()[0].id, name: null,
+    settings: { permissionMode: 'default' }, tabGroupId: null, afterSessionId: null,
+    message: { clientMessageId: firstMessageId, text: 'first words', attachments: [] },
+  }, env.device.token);
+  kit.eq(created.status, 201, JSON.stringify(created.body));
+  const sid = created.body.session.sessionId;
+  await kit.until(() => env.chat.internals.sends.list(sid).some((x) => x.clientMessageId === firstMessageId && x.state === 'confirmed'),
+    TURN_READY_TIMEOUT_MS, 'the first message is confirmed');
+
+  const busyMessageId = crypto.randomUUID();
+  const busy = await kit.api(env.base, 'POST', '/sessions/' + sid + '/send', { clientMessageId: busyMessageId, text: 'long: first' }, env.device.token);
+  kit.eq(busy.status, 202);
+  await kit.until(() => {
+    const send = env.chat.internals.sends.list(sid).find((x) => x.clientMessageId === busyMessageId);
+    const turn = env.chat.internals.turns.turnOf(sid);
+    return send && send.state === 'confirmed' && turn && turn.turnId === 't_' + send.messageId
+      && env.chat.internals.turns.isTurnOpen(sid);
+  }, TURN_READY_TIMEOUT_MS, 'the long prompt is confirmed and its turn is open');
+
+  const queuedMessageId = crypto.randomUUID();
+  const queued = await kit.api(env.base, 'POST', '/sessions/' + sid + '/send', { clientMessageId: queuedMessageId, text: 'second' }, env.device.token);
+  kit.eq(queued.status, 202);
+  await kit.until(() => env.chat.internals.sends.list(sid).some((x) => x.clientMessageId === queuedMessageId && x.state === 'queued' && x.reason === 'busy'),
+    TURN_READY_TIMEOUT_MS, 'the second send waits behind the open turn');
+
+  const before = spawns.length;
+  const restart = await kit.api(env.base, 'POST', '/sessions/' + sid + '/restart', { clientRequestId: crypto.randomUUID(), when: 'whenIdle' }, env.device.token);
+  kit.eq([restart.status, restart.body.status], [202, 'scheduled']);
+  const stopped = await kit.api(env.base, 'POST', '/sessions/' + sid + '/stop', { clientRequestId: crypto.randomUUID() }, env.device.token);
+  kit.eq([stopped.status, stopped.body.status], [200, 'stopped']);
+  await kit.until(() => env.chat.internals.sends.list(sid).some((x) => x.clientMessageId === queuedMessageId && x.state === 'failed' && x.error && x.error.code === 'SESSION_EXITED'),
+    STOP_SEND_FAILURE_TIMEOUT_MS, 'the queued send fails when the session stops');
+  await kit.sleep(STOP_RELAUNCH_OBSERVE_MS);
+  kit.eq(spawns.length, before, 'the stopped session never respawns');
+  kit.eq(env.chat.internals.sends.pending(sid), [], 'the stopped session has no pending sends');
 });
 
 // ── Fix round: the phone body never reaches a command line (W2, PROTOCOL.md 0.1) ──

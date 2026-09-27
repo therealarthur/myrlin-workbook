@@ -2064,7 +2064,8 @@ class PtySessionManager {
       try { again = this._liveGateFor(sessionId, baseOpts); } catch (_) { again = null; }
       if (!again || !sameGateTarget(again, gate)) {
         console.log(`[PTY] ${sessionId} changed during the live-session check; checking the new target`);
-        this.attachClient(sessionId, ws, baseOpts);
+        if (again && again.lookup && typeof again.lookup.invalidate === 'function') again.lookup.invalidate();
+        this.attachClient(sessionId, ws, { ...baseOpts, _liveFresh: true });
         replay();
         return;
       }
