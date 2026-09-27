@@ -148,6 +148,7 @@ function createRouter(deps) {
     let auth = null;
     if (entry.scope !== 'public') {
       auth = deps.auth.authenticate(req);
+      req.mobileDeviceId = auth.deviceId;
       if (entry.scope !== 'none' && !auth.scopes.includes(entry.scope)) {
         throw errors.fail('SCOPE_REQUIRED', 'This iPhone is not allowed to do that on this computer.', { scope: entry.scope });
       }

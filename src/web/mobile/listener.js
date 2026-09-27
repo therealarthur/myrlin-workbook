@@ -51,10 +51,25 @@ function rejectUpgrade(socket, status, code, message, extra) {
   try { socket.destroy(); } catch (_) { /* ignore */ }
 }
 
+/** Longest X-Myrlin-Client value logged. */
+const CLIENT_LOG_MAX = 60;
+
+/**
+ * The X-Myrlin-Client header, made safe for one log line.
+ *
+ * @param {object} req - Request.
+ * @returns {string}
+ */
+function clientOf(req) {
+  const v = req.headers && req.headers['x-myrlin-client'];
+  if (typeof v !== 'string' || !v) return '-';
+  return v.replace(/[^ -~]/g, '?').slice(0, CLIENT_LOG_MAX);
+}
+
 /**
  * Create the listener.
  *
- * @param {object} deps - {router, auth, getSettings(), getHub(), log}.
+ * @param {object} deps - {router, auth, limiters, getSettings(), getHub(), log}.
  * @returns {object} {start, stop, status, server()}
  */
 function createListener(deps) {
@@ -78,7 +93,9 @@ function createListener(deps) {
     const url = parseUrl(req);
     const pathOnly = url ? url.pathname : '/';
     res.on('finish', () => {
-      log('[mobile] ' + req.method + ' ' + pathOnly + ' ' + res.statusCode + ' ' + (Date.now() - started) + 'ms');
+      // Method, path, status, time, device id and client build: never a query
+      // string, a token or a body (W3, PROTOCOL.md 0.5).
+      log('[mobile] ' + req.method + ' ' + pathOnly + ' ' + res.statusCode + ' ' + (Date.now() - started) + 'ms ' + (req.mobileDeviceId || '-') + ' ' + clientOf(req));
     });
     const run = async () => {
       if (req.headers.origin !== undefined) throw errors.fail('WEB_ORIGIN_REFUSED');
@@ -118,6 +135,8 @@ function createListener(deps) {
     if (!hub || typeof hub.handleUpgrade !== 'function') {
       return rejectUpgrade(socket, 404, 'NOT_FOUND', 'The stream is not served by this computer yet.');
     }
+    const lim = deps.limiters ? deps.limiters.check('device', auth.deviceId) : { limited: false };
+    if (lim.limited) return rejectUpgrade(socket, 429, 'RATE_LIMITED', null, { retryAfterMs: lim.retryAfterMs });
     req.mobileAuth = auth;
     try {
       hub.handleUpgrade(req, socket, head, auth);

@@ -90,7 +90,7 @@ function ensureCore(ctx) {
     listener: null,
     mounted: { chat: false, workspace: false },
   };
-  rt.listener = createListener({ router, auth, getSettings, getHub, log });
+  rt.listener = createListener({ router, auth, limiters, getSettings, getHub, log });
 
   /**
    * Revoke a device with every effect of PROTOCOL.md 2.11, before answering.

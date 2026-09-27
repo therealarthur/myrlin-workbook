@@ -80,7 +80,10 @@
   padding: 20px 24px 24px;
 }
 
-.connect-app-modal:focus {
+/* The dialog container takes focus so Enter never lands on Allow by accident;
+   it is not itself a control, so it draws no focus ring. */
+.connect-app-modal:focus,
+.connect-app-modal:focus-visible {
   outline: none;
 }
 
