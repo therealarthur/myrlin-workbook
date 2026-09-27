@@ -34,6 +34,85 @@
 
 'use strict';
 
+// ─── Mobile v2 (BUILD-CONTRACT S10): effort, permission mode, extra args ────
+//
+// The phone's session settings (PROTOCOL.md 4.5.3) reach this descriptor as
+// `effort` and `permissionMode`. Both are closed enums, so an unknown value
+// is dropped with a warning, the same way the flag filter below drops a
+// malformed flag, and nothing a person typed can reach the command line.
+//
+// Evidence, `claude --help` of the installed Claude Code 2.1.283 (read on
+// 2026-09-27 in a scratch folder): `--effort <level>` lists low, medium,
+// high, xhigh, max; `--permission-mode <mode>` lists acceptEdits, auto,
+// bypassPermissions, manual, dontAsk, plan. There is no "default" choice in
+// that build, so the phone's "default" ("Ask before changes") is emitted as
+// the CLI's "manual", and "bypassPermissions" keeps using the existing
+// dangerously-skip-permissions path so old records behave as before.
+
+/** Effort values the settings schema offers (PROTOCOL.md 4.5.3). */
+const CLAUDE_EFFORT_VALUES = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
+/** Permission modes the settings schema offers (PROTOCOL.md 4.5.3). */
+const CLAUDE_PERMISSION_MODES = Object.freeze(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']);
+/** Schema value to the CLI's own spelling where they differ (2.1.283 help). */
+const CLI_PERMISSION_MODE = Object.freeze({ default: 'manual' });
+/**
+ * Flags an in process caller may pass through argsExtra (B3's migration
+ * launch, BUILD-CONTRACT 3.4.3 createSession). Never fed from an HTTP body.
+ */
+const ARGS_EXTRA_FLAGS = Object.freeze(['--append-system-prompt-file', '--add-dir', '--resume', '--fork-session']);
+/**
+ * A value that follows a flag in argsExtra: a path or an id with no space,
+ * quote or shell metacharacter (and no "=", "," or ";", which cmd.exe treats
+ * as argument separators), so it reads as one argument in cmd.exe and in a
+ * POSIX shell alike (W2: no free text on a command line).
+ */
+const ARGS_EXTRA_VALUE_RE = /^[A-Za-z0-9._:\\/~+@-]+$/;
+/** Most extra arguments one descriptor accepts. */
+const ARGS_EXTRA_MAX = 32;
+
+/** Values already warned about, so a bad record logs once, not per spawn. */
+const warnedValues = new Set();
+
+/**
+ * Warn once per distinct dropped value.
+ *
+ * @param {string} what - Field name.
+ * @param {*} value - The dropped value.
+ */
+function warnDropped(what, value) {
+  const key = what + ':' + String(value);
+  if (warnedValues.has(key)) return;
+  warnedValues.add(key);
+  try { console.warn('[claude spawn] dropped unknown ' + what + ' value'); } catch (_) { /* never fatal */ }
+}
+
+/**
+ * Validate argsExtra: known flags, and values that are single safe tokens.
+ * Throws on anything else, so a launch that asked for extra arguments fails
+ * loudly instead of starting without them.
+ *
+ * @param {*} argsExtra - Candidate list.
+ * @returns {string[]} The accepted tokens (empty when none).
+ * @throws {Error} on an unknown flag or an unsafe value.
+ */
+function checkArgsExtra(argsExtra) {
+  if (argsExtra === null || argsExtra === undefined) return [];
+  if (!Array.isArray(argsExtra) || argsExtra.length > ARGS_EXTRA_MAX) {
+    throw new Error('unsafe argsExtra: not a short list');
+  }
+  const out = [];
+  for (const token of argsExtra) {
+    if (typeof token !== 'string' || !token) throw new Error('unsafe argsExtra token');
+    if (token.startsWith('-')) {
+      if (!ARGS_EXTRA_FLAGS.includes(token)) throw new Error('unsafe argsExtra flag: ' + token);
+    } else if (!ARGS_EXTRA_VALUE_RE.test(token)) {
+      throw new Error('unsafe argsExtra value');
+    }
+    out.push(token);
+  }
+  return out;
+}
+
 /**
  * Build a SpawnDescriptor for the Claude CLI.
  *
@@ -60,10 +139,19 @@
  *                                              session instead of forking its transcript with --resume (2026-09-26).
  *                                              Validated against /^[A-Za-z0-9]{4,32}$/ because the id is joined into
  *                                              the pane's shell command line.
+ * @param {string|null} [init.effort]         - Mobile v2 (S10): one of CLAUDE_EFFORT_VALUES, emitted as `--effort`;
+ *                                              anything else is dropped with a warning.
+ * @param {string|null} [init.permissionMode] - Mobile v2 (S10): one of CLAUDE_PERMISSION_MODES. bypassPermissions
+ *                                              uses `--dangerously-skip-permissions`; the others `--permission-mode`
+ *                                              (default is spelled "manual" by the 2.1.283 CLI). Unknown values
+ *                                              are dropped with a warning and the legacy bypassPermissions flag rules.
+ * @param {string[]|null} [init.argsExtra]    - Mobile v2: extra arguments from an in process caller (the migration
+ *                                              charter flags). Only ARGS_EXTRA_FLAGS and single safe tokens pass.
  * @returns {{cmd: string, args: string[], cwd: (string|null), env: Object<string,(string|undefined)>}} SpawnDescriptor.
  * @throws {Error} when model fails the validation regex.
  * @throws {Error} when providerSessionId fails the validation regex.
  * @throws {Error} when attachShortId fails the validation regex.
+ * @throws {Error} when argsExtra holds an unknown flag or an unsafe value.
  */
 function spawnCommand({
   sessionId,
@@ -76,6 +164,9 @@ function spawnCommand({
   verbose = false,
   initialPrompt = null,
   attachShortId = null,
+  effort = null,
+  permissionMode = null,
+  argsExtra = null,
 } = {}) {
   // The literal 'claude' below is the CLI binary name. This file lives inside
   // src/providers/claude/, which the grep gate (Plan 14-05) skips, so the
@@ -112,6 +203,18 @@ function spawnCommand({
   if (newSessionId && !/^[a-zA-Z0-9_-]+$/.test(newSessionId)) {
     throw new Error('unsafe newSessionId: ' + newSessionId);
   }
+  // Mobile v2 (S10): extra arguments are checked before anything is built.
+  const extra = checkArgsExtra(argsExtra);
+
+  // Mobile v2 (S10): resolve the permission mode first. A known explicit
+  // mode wins over the legacy boolean (the phone's settings write both
+  // consistently); an unknown one is dropped and the legacy rule applies.
+  let mode = null;
+  if (permissionMode !== null && permissionMode !== undefined && permissionMode !== '') {
+    if (CLAUDE_PERMISSION_MODES.includes(permissionMode)) mode = permissionMode;
+    else warnDropped('permissionMode', permissionMode);
+  }
+  const skipPermissions = mode ? mode === 'bypassPermissions' : !!bypassPermissions;
 
   const args = [];
   if (providerSessionId) {
@@ -124,8 +227,20 @@ function spawnCommand({
     args.push('--session-id');
     args.push(newSessionId);
   }
-  if (bypassPermissions) {
+  if (skipPermissions) {
     args.push('--dangerously-skip-permissions');
+  }
+  if (mode && mode !== 'bypassPermissions') {
+    args.push('--permission-mode');
+    args.push(CLI_PERMISSION_MODE[mode] || mode);
+  }
+  if (effort !== null && effort !== undefined && effort !== '') {
+    if (CLAUDE_EFFORT_VALUES.includes(effort)) {
+      args.push('--effort');
+      args.push(effort);
+    } else {
+      warnDropped('effort', effort);
+    }
   }
   if (verbose) {
     args.push('--verbose');
@@ -134,7 +249,16 @@ function spawnCommand({
     // Single-quote the model value so shell glob characters in aliases like
     // sonnet[1m] are not expanded by bash before being passed to claude.
     // Escape pattern: ' becomes '\''  (close-quote, escaped quote, reopen-quote).
-    const safeModel = "'" + model.replace(/'/g, "'\\''") + "'";
+    //
+    // Mobile v2 (B3, session settings model): the check above already limits
+    // the value to [a-zA-Z0-9._:-], which no shell expands, so such a value
+    // goes bare. Workbook launches through cmd.exe on Windows, which keeps
+    // single quotes, and the CLI then refused the quoted model ("There's an
+    // issue with the selected model ('claude-haiku-4-5')", Claude Code
+    // 2.1.283 through cmd.exe /c, 2026-09-27). The quoting stays for any
+    // value that would need it.
+    const needsQuotes = /[^a-zA-Z0-9._:-]/.test(model);
+    const safeModel = needsQuotes ? "'" + model.replace(/'/g, "'\\''") + "'" : model;
     args.push('--model');
     args.push(safeModel);
   }
@@ -147,6 +271,9 @@ function spawnCommand({
       }
     }
   }
+  // Mobile v2 (S10): the checked extra arguments (migration charter flags),
+  // ahead of any positional prompt so the CLI reads them as options.
+  for (const token of extra) args.push(token);
   // Initial prompt: appended as the last positional argument on first launch.
   // Wrap in single quotes, escaping any single quotes inside the prompt.
   if (initialPrompt && typeof initialPrompt === 'string') {
@@ -168,4 +295,14 @@ function spawnCommand({
   };
 }
 
-module.exports = { spawnCommand };
+module.exports = {
+  spawnCommand,
+  // Mobile v2 (S10): the enums and the argsExtra rules, for B3's settings
+  // schema and migration launch so there is one source of truth.
+  CLAUDE_EFFORT_VALUES,
+  CLAUDE_PERMISSION_MODES,
+  CLI_PERMISSION_MODE,
+  ARGS_EXTRA_FLAGS,
+  ARGS_EXTRA_VALUE_RE,
+  checkArgsExtra,
+};

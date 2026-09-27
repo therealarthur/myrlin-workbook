@@ -7043,6 +7043,11 @@ function attachStoreEvents() {
       broadcastSSE(eventName, eventName === 'settings:updated' ? require('./mobile/redact').redactSettings(data) : data);
     });
   }
+  // Mobile v2 (BUILD-CONTRACT S9, PROTOCOL.md 4.5.1): title store renames
+  // (the phone renaming a discovered session) reach every desktop page as
+  // session:title {provider, upstreamId, title}. The store already emitted
+  // providerSessionTitles:updated; nothing forwarded it before (R02:201).
+  store.on('providerSessionTitles:updated', (d) => broadcastSSE('session:title', require('./mobile/workspace/names').titleEventFor(d)));
 }
 
 // ──────────────────────────────────────────────────────────
@@ -7054,8 +7059,19 @@ const LAYOUT_FILE = path.join(getDataDir(), 'layout.json');
 /**
  * GET /api/layout
  * Returns the saved terminal pane layout, or an empty object if none saved.
+ *
+ * Mobile v2 (BUILD-CONTRACT S8, PROTOCOL.md 4.8.1): the answer also carries
+ * the layout's top level `revision`, which the page sends back as
+ * `baseRevision` so a phone tab edit made between two saves is never lost.
+ * The layout store reads LAYOUT_FILE; the original read stays as the
+ * fallback if the mobile module cannot load.
  */
 app.get('/api/layout', requireAuth, (req, res) => {
+  try {
+    return res.json(require('./mobile/workspace/layout-store').getForDesktop());
+  } catch (layoutStoreErr) {
+    console.error('[mobile] layout store read failed: ' + (layoutStoreErr && layoutStoreErr.message));
+  }
   try {
     if (fs.existsSync(LAYOUT_FILE)) {
       const raw = fs.readFileSync(LAYOUT_FILE, 'utf-8');
@@ -7070,12 +7086,27 @@ app.get('/api/layout', requireAuth, (req, res) => {
 /**
  * PUT /api/layout
  * Body: arbitrary layout JSON to persist.
+ *
+ * Mobile v2 (BUILD-CONTRACT S8, PROTOCOL.md 4.8.1): the body goes to the
+ * layout store, which stores it with a new revision, rebases it on the
+ * phone's operations when `baseRevision` is older (answering merged: true
+ * with the stored layout), and stores a body without `baseRevision` (an old
+ * page) as before. The answer keeps `success: true` for existing callers.
  */
 app.put('/api/layout', requireAuth, (req, res) => {
   try {
     const dataDir = getDataDir();
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
+    }
+    let layoutStore = null;
+    try {
+      layoutStore = require('./mobile/workspace/layout-store');
+    } catch (loadErr) {
+      console.error('[mobile] layout store unavailable: ' + (loadErr && loadErr.message));
+    }
+    if (layoutStore) {
+      return res.json(layoutStore.putFromDesktop(req.body));
     }
     fs.writeFileSync(LAYOUT_FILE, JSON.stringify(req.body, null, 2), 'utf-8');
     return res.json({ success: true });

@@ -16834,6 +16834,23 @@ class CWMApp {
     }
 
     switch (data.type) {
+      case 'layout:updated': {
+        // Mobile v2 (BUILD-CONTRACT S20, PROTOCOL.md 4.8.1): a phone (or a
+        // second desktop page) changed the tab layout. The payload is
+        // {revision, changedBy}; this page reloads it unless it already has
+        // that revision or a save of its own is pending.
+        const layoutEvent = (data && data.data && typeof data.data === 'object') ? data.data : data;
+        if (layoutEvent && typeof layoutEvent.revision === 'number') {
+          this._fetchAndApplyRemoteLayout(layoutEvent.revision);
+        }
+        break;
+      }
+      case 'session:title':
+        // Mobile v2 (BUILD-CONTRACT S20, PROTOCOL.md 4.5.1): a phone renamed a
+        // session through Workbook's title store; refresh the names shown.
+        if (this._throttledLoadSessions) this._throttledLoadSessions();
+        if (typeof this.loadProjects === 'function') this.loadProjects();
+        break;
       case 'session:started':
         this._setAttentionState(
           data.sessionId || data.id || (data.session && data.session.id),
@@ -25793,6 +25810,9 @@ class CWMApp {
   async loadTerminalLayout() {
     try {
       const layout = await this.api('GET', '/api/layout');
+      // Mobile v2 (BUILD-CONTRACT S17): the layout's revision, sent back as
+      // baseRevision so the server can keep a phone's tab edit (4.8.1).
+      this._layoutRevision = (layout && typeof layout.revision === 'number') ? layout.revision : null;
       if (layout && layout.tabGroups && layout.tabGroups.length > 0) {
         this._tabGroups = layout.tabGroups;
         this._tabFolders = layout.tabFolders || [];
@@ -27101,15 +27121,128 @@ class CWMApp {
     }
     clearTimeout(this._layoutSaveTimer);
     this._layoutSaveTimer = setTimeout(async () => {
-      this.saveCurrentGroupPanes();
-      try {
-        await this.api('PUT', '/api/layout', {
-          tabGroups: this._tabGroups,
-          tabFolders: this._tabFolders,
-          activeGroupId: this._activeGroupId,
-        });
-      } catch (_) {}
+      // Mobile v2 (BUILD-CONTRACT S18): the debounce has fired, so no save is
+      // pending any more; the PUT below is in flight until it answers. Saves
+      // run one after another so each carries the revision the last answered.
+      this._layoutSaveTimer = null;
+      this._layoutSaveInFlight = (this._layoutSaveInFlight || 0) + 1;
+      const previousSave = this._layoutSaveChain || Promise.resolve();
+      this._layoutSaveChain = previousSave.catch(() => {}).then(async () => {
+        this.saveCurrentGroupPanes();
+        try {
+          const saved = await this.api('PUT', '/api/layout', {
+            tabGroups: this._tabGroups,
+            tabFolders: this._tabFolders,
+            activeGroupId: this._activeGroupId,
+            // Mobile v2 (S18): the revision this page last saw (PROTOCOL.md 4.8.1).
+            baseRevision: this._layoutRevision,
+          });
+          if (saved && typeof saved.revision === 'number') this._layoutRevision = saved.revision;
+          // The server re-applied a phone's tab edit on top of this save.
+          if (saved && saved.merged === true && saved.layout) this.applyRemoteLayout(saved.layout);
+        } catch (_) {}
+      }).finally(() => {
+        this._layoutSaveInFlight = Math.max(0, (this._layoutSaveInFlight || 1) - 1);
+        // A remote change announced while this save was pending or in flight.
+        const missed = this._layoutPendingRemote;
+        if (!this._layoutSaveInFlight && !this._layoutSaveTimer &&
+            typeof missed === 'number' && missed !== this._layoutRevision) {
+          this._layoutPendingRemote = null;
+          this._fetchAndApplyRemoteLayout(missed);
+        }
+      });
     }, 500);
+  }
+
+  /**
+   * Mobile v2 (BUILD-CONTRACT S19, PROTOCOL.md 4.8.1): replace the tab
+   * groups and folders with a layout the server holds (a phone edit, or this
+   * page's save rebased on one). Keeps the active group when it still
+   * exists, re-renders the tab strip, and, when the active group's panes
+   * changed, re-opens it through the same path a group switch uses, so a
+   * pane the phone added opens like any pane. Cached panes of other groups
+   * whose panes changed are dropped, so switching to them opens the new set.
+   *
+   * @param {Object} layout - {tabGroups, tabFolders, activeGroupId, revision}.
+   */
+  applyRemoteLayout(layout) {
+    if (!layout || !Array.isArray(layout.tabGroups) || layout.tabGroups.length === 0) return;
+    const paneKey = (group) => JSON.stringify(((group && group.panes) || [])
+      .map(p => [p.slot, p.sessionId || null, p.viewType || null,
+        (p.viewData && p.viewData.providerSessionId) || null])
+      .sort((a, b) => a[0] - b[0]));
+    const before = new Map((this._tabGroups || []).map(g => [g.id, paneKey(g)]));
+    const activeId = this._activeGroupId;
+    this._tabGroups = layout.tabGroups;
+    this._tabFolders = Array.isArray(layout.tabFolders) ? layout.tabFolders : [];
+    if (typeof layout.revision === 'number') this._layoutRevision = layout.revision;
+
+    // Cached (non active) groups: drop the ones that are gone or changed.
+    for (const cachedId of Object.keys(this._groupPaneCache || {})) {
+      if (cachedId === activeId) continue;
+      const g = this._tabGroups.find(x => x.id === cachedId);
+      if (!g || before.get(cachedId) !== paneKey(g)) this._disposeGroupCache(cachedId);
+    }
+
+    const active = this._tabGroups.find(g => g.id === activeId);
+    const reopen = (targetId) => {
+      // The group switch path, entered the way deleteTerminalGroup enters
+      // it: the live panes are cached under a temporary id (so they are not
+      // written back over the incoming records) and disposed after.
+      this._activeGroupId = '__switching__';
+      this.switchTerminalGroup(targetId);
+      this._disposeGroupCache('__switching__');
+    };
+    if (!active) {
+      const fallback = (layout.activeGroupId && this._tabGroups.some(g => g.id === layout.activeGroupId))
+        ? layout.activeGroupId
+        : this._tabGroups[0].id;
+      reopen(fallback);
+    } else if (before.get(activeId) !== paneKey(active)) {
+      reopen(activeId);
+    } else {
+      this.renderTerminalGroupTabs();
+      if (this.isMobile && typeof this.updateTerminalTabs === 'function') this.updateTerminalTabs();
+    }
+    if (typeof this.renderWorkspaces === 'function') this.renderWorkspaces();
+  }
+
+  /**
+   * Mobile v2 (BUILD-CONTRACT S20): react to layout:updated. Returns at once
+   * for a revision this page already has (its own save, or one it applied);
+   * while a save of its own is pending or in flight it waits, because that
+   * save's answer carries merged: true and the server's layout when anything
+   * changed underneath (and a revision still missed afterwards is fetched
+   * then); otherwise it reads GET /api/layout and applies it.
+   *
+   * @param {number} revision - The revision the server announced.
+   * @returns {Promise<void>}
+   */
+  async _fetchAndApplyRemoteLayout(revision) {
+    if (revision === this._layoutRevision) return;
+    if (typeof this._layoutRevision === 'number' && revision < this._layoutRevision) return;
+    if (this._layoutSaveTimer || this._layoutSaveInFlight) {
+      this._layoutPendingRemote = Math.max(
+        typeof this._layoutPendingRemote === 'number' ? this._layoutPendingRemote : -1,
+        revision
+      );
+      return;
+    }
+    try {
+      const layout = await this.api('GET', '/api/layout');
+      if (!layout || typeof layout.revision !== 'number') return;
+      if (layout.revision === this._layoutRevision) return;
+      // A local change started while the read was in flight: its save
+      // answer decides (it is rebased on the server's layout if needed).
+      if (this._layoutSaveTimer || this._layoutSaveInFlight) {
+        this._layoutPendingRemote = layout.revision;
+        return;
+      }
+      this._layoutRevision = layout.revision;
+      this.applyRemoteLayout(layout);
+    } catch (_) {
+      // Offline or signed out: the next event or reload catches up.
+    }
   }
 
 

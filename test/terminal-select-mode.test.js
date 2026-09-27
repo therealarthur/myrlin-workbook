@@ -193,7 +193,10 @@ check('index.html cache-busts the app pane-focus/host fix', () => {
   // holding a cached copy would show the old four-tab bar against the new
   // stylesheet. terminal.js keeps -p5, which is the independent versioning
   // working as intended.
-  assert.ok(/app\.js\?v=20260819-mobile-term/.test(indexSrc),
+  // Mobile v2 (B3): app.js gained layout revisions (baseRevision on every
+  // save, layout:updated, merged answers), so a page holding a cached copy
+  // would save without baseRevision; app.js moves to its own token again.
+  assert.ok(/app\.js\?v=20260927-mobile-v2-b3/.test(indexSrc),
     'expected the current app.js cache token');
 });
 
