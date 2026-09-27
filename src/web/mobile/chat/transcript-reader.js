@@ -526,6 +526,8 @@ function readPage(file, mapper, q, mctx) {
  */
 function findMessageOffset(file, messageId, mapper) {
   if (/^o\d+$/.test(messageId)) return Number(messageId.slice(1));
+  // Claude ids are record uuids; anything else cannot be in the file, so skip the scan.
+  if (!/^[0-9a-fA-F-]{8,64}$/.test(messageId)) return null;
   let fd;
   try {
     const size = fs.statSync(file).size;
