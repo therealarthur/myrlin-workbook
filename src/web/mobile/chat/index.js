@@ -208,6 +208,17 @@ function mountChat(router, ctx, options = {}) {
     return b || {};
   };
   const ok = (b, status) => ({ status: status || 200, body: b });
+  /**
+   * Refresh the claude agents listing (cached 10 s) before an ownership decision,
+   * so a transcript live in a terminal answers SESSION_READ_ONLY at once (PROTOCOL.md 9.1).
+   * @param {string} sid
+   */
+  const ownerFresh = async (sid) => {
+    const r = index.resolve(sid);
+    if (!r || r.provider !== 'claude' || r.owner === 'workbook') return;
+    try { await agents.onDemand(); } catch (_) { /* fail open to the launch gate */ }
+    index.invalidate();
+  };
   const requireSession = (sid) => { const r = index.resolve(sid); if (!r) { const E = require('./common').errorClass(ctx); throw new E(404, 'SESSION_NOT_FOUND', 'That session does not exist on this computer.'); } return r; };
 
   const routes = {
@@ -224,7 +235,7 @@ function mountChat(router, ctx, options = {}) {
       res.end(c.bytes);
       return undefined;
     },
-    'POST /sessions/:sessionId/send': async (req, p, q, who) => { const r = sends.accept(p.sessionId, await body(req), who); return ok(r.send, r.status); },
+    'POST /sessions/:sessionId/send': async (req, p, q, who) => { const b = await body(req); await ownerFresh(p.sessionId); const r = sends.accept(p.sessionId, b, who); return ok(r.send, r.status); },
     'GET /sessions/:sessionId/sends': async (req, p) => { const r = requireSession(p.sessionId); return ok({ sends: sends.list(r.sessionId) }); },
     'DELETE /sessions/:sessionId/sends/:clientMessageId': async (req, p, q, who) => { const r = requireSession(p.sessionId); return ok(sends.cancel(r.sessionId, p.clientMessageId, who.deviceId)); },
     'POST /sessions/:sessionId/interrupt': async (req, p, q, who) => ok(await interrupts.interrupt(p.sessionId, await body(req), who)),

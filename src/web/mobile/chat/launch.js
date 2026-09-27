@@ -438,6 +438,10 @@ function createLauncher(deps) {
     return once('branch|' + ref.sessionId, body, async () => {
       const b = body || {};
       if (!ref.upstreamId || !ref.transcriptPath) fail(409, 'TRANSCRIPT_UNAVAILABLE', 'This session has no history to branch yet.');
+      if (b.fromMessageId !== undefined && b.fromMessageId !== null && ref.provider === 'codex') {
+        // Cutting Codex history needs thread/fork with lastTurnId (phase 5): always refused.
+        fail(422, 'BRANCH_POINT_UNSUPPORTED', 'Branching a Codex session from a chosen message is not available yet.');
+      }
       if (b.fromMessageId !== undefined && b.fromMessageId !== null) {
         const reader = require('./transcript-reader');
         const mapper = ref.provider === 'claude' ? require('./claude-messages').createClaudeMapper() : require('./codex-messages').createCodexMapper();
