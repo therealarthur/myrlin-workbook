@@ -14,6 +14,7 @@ const H = require('./_harness');
 process.env.CWM_MOBILE_PORT = '0';
 const assert = require('assert');
 const fs = require('fs');
+const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const signing = require('../../src/web/mobile/signing');
@@ -61,6 +62,20 @@ t('setup: main app, desktop login, SSE stream', async () => {
   store = require('../../src/state/store').getStore();
   H.seedSettings(store, { enabled: false, detectTailscale: false, advertiseLoopback: true, legacyPairEnabled: false, publicUrls: [], qrLinkStyle: 'scheme', apns: null });
   await openSse();
+});
+
+t('admin reads that need no key create no K_c; the status the Connect app modal reads creates it (PROTOCOL.md 2.1, 11.1)', async () => {
+  const idFile = path.join(H.sandbox.dir, 'mobile', 'identity.json');
+  assert.strictEqual(fs.existsSync(idFile), false, 'loading the main app creates no key');
+  const d = await admin('GET', '/devices');
+  assert.strictEqual(d.status, 200);
+  const p = await admin('GET', '/pair-requests');
+  assert.strictEqual(p.status, 200);
+  assert.strictEqual(fs.existsSync(idFile), false, 'the device list and pending pairs need no key');
+  const s = await admin('GET', '/status');
+  assert.strictEqual(s.status, 200);
+  assert.ok(fs.existsSync(idFile), 'the status carries the identity, so it creates K_c');
+  assert.strictEqual(s.body.identity.computerId, JSON.parse(fs.readFileSync(idFile, 'utf8')).computerId);
 });
 
 t('status: listener off by default; pair offers answer 409 LISTENER_OFF', async () => {

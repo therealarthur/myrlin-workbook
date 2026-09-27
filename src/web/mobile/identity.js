@@ -129,6 +129,45 @@ function loadIdentity(opts) {
 }
 
 /**
+ * K_c behind the same interface as loadIdentity's result, loaded (or created)
+ * only on first use.
+ *
+ * WHY: PROTOCOL.md 2.1 creates K_c "on first start of the mobile listener".
+ * startMobile runs on every Workbook start, with the phone connection off by
+ * default (1.4), so an eager load would write <dataDir>/mobile/identity.json
+ * and its backup on a computer that never turns the feature on. The runtime
+ * holds this object instead: startMobile and restartListener call ensure()
+ * right before the listener binds, and every other reader (the phone routes,
+ * push, the admin status the Connect app modal reads) touches the key only
+ * when it actually needs it.
+ *
+ * @param {object} opts - As loadIdentity: {dataDir, log, now}.
+ * @returns {object} {ensure(), isLoaded(), computerId, publicKey, fingerprint, createdAtMs, source, sign, verify}.
+ */
+function createLazyIdentity(opts) {
+  let loaded = null;
+  /** Load, restore or create K_c once, then reuse it. */
+  function ensure() {
+    if (!loaded) loaded = loadIdentity(opts);
+    return loaded;
+  }
+  return {
+    ensure,
+    /** @returns {boolean} whether K_c has been read or created in this process */
+    isLoaded: () => loaded !== null,
+    get computerId() { return ensure().computerId; },
+    get publicKey() { return ensure().publicKey; },
+    get fingerprint() { return ensure().fingerprint; },
+    get createdAtMs() { return ensure().createdAtMs; },
+    get source() { return ensure().source; },
+    /** Sign a purpose's fields with K_c (loads it first). */
+    sign(purpose, fields) { return ensure().sign(purpose, fields); },
+    /** Verify a signature made by K_c (loads it first). */
+    verify(purpose, fields, sig) { return ensure().verify(purpose, fields, sig); },
+  };
+}
+
+/**
  * GET /identity handler factory (PROTOCOL.md 2.4 step 2).
  *
  * @param {object} deps - {identity, computerName(), packageVersion, now}.
@@ -153,4 +192,4 @@ function identityHandler(deps) {
   };
 }
 
-module.exports = { loadIdentity, identityHandler, validateDoc, createDoc };
+module.exports = { loadIdentity, createLazyIdentity, identityHandler, validateDoc, createDoc };

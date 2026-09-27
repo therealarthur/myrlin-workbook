@@ -15,7 +15,7 @@ const path = require('path');
 const errors = require('./errors');
 const signing = require('./signing');
 const contextMod = require('./context');
-const { loadIdentity, identityHandler } = require('./identity');
+const { createLazyIdentity, identityHandler } = require('./identity');
 const { createDevices } = require('./devices');
 const { createAudit } = require('./audit');
 const { createLimiters } = require('./rate-limit');
@@ -60,7 +60,9 @@ function ensureCore(ctx) {
   const computerName = () => contextMod.computerName(ctx.store.settings || {});
   const getHub = () => ctx.mobile.hub || null;
 
-  const identity = loadIdentity({ dataDir: ctx.dataDir, log, now });
+  // K_c is read or created on first use, normally right before the listener
+  // first binds (PROTOCOL.md 2.1), never on a start with the listener off.
+  const identity = createLazyIdentity({ dataDir: ctx.dataDir, log, now });
   const devices = createDevices({ dataDir: ctx.dataDir, now, log });
   const audit = createAudit({ dataDir: ctx.dataDir, now, log });
   const limiters = createLimiters({ now });
@@ -159,11 +161,13 @@ function ensureCore(ctx) {
     audit: { write: audit.write },
     push: { notify: (event) => notifier.notify(event), isConfigured: () => notifier.isConfigured() },
     endpoints: { list: endpoints.list },
+    // Getters, so holding ctx.mobile.identity creates no key file; the first
+    // read loads K_c like every other reader (BUILD-CONTRACT 3.4.2 shape).
     identity: {
-      computerId: identity.computerId,
-      publicKey: identity.publicKey,
-      fingerprint: identity.fingerprint,
-      sign: identity.sign,
+      get computerId() { return identity.computerId; },
+      get publicKey() { return identity.publicKey; },
+      get fingerprint() { return identity.fingerprint; },
+      sign: (purpose, fields) => identity.sign(purpose, fields),
     },
     streamEpoch: PROCESS_EPOCH,
     getStreamEpoch,
@@ -216,6 +220,7 @@ function startMobile(ctx) {
     runtime.log('[mobile] CWM_MOBILE_HOST must be 127.0.0.1 or ::1; the phone listener stays stopped');
   }
   if (!s.enabled) return Promise.resolve(runtime.listener.status());
+  runtime.identity.ensure(); // first start of the listener creates K_c (PROTOCOL.md 2.1)
   runtime.endpoints.start();
   return runtime.listener.start();
 }
@@ -248,6 +253,7 @@ async function restartListener() {
     rt.endpoints.stop();
     return rt.listener.status();
   }
+  rt.identity.ensure(); // first start of the listener creates K_c (PROTOCOL.md 2.1)
   rt.endpoints.start();
   return rt.listener.start();
 }

@@ -41,6 +41,50 @@ t('with default settings the listener does not run', async () => {
   await h.stop();
 });
 
+t('K_c is not created by a start with the listener off, only by the first listener start (PROTOCOL.md 2.1)', async () => {
+  const dir = fs.mkdtempSync(path.join(H.sandbox.dir, 'lazy-identity-'));
+  const mainFile = path.join(dir, 'mobile', 'identity.json');
+  const backupFile = path.join(dir, 'mobile', 'identity.backup.json');
+  const off = { enabled: false, host: '127.0.0.1', port: 0, detectTailscale: false, advertiseLoopback: true, legacyPairEnabled: false, publicUrls: [], qrLinkStyle: 'scheme', apns: null };
+  h = await H.startSandbox({ enabled: false, dataDir: dir });
+  assert.strictEqual(h.rt.listener.status().running, false);
+  assert.strictEqual(h.rt.identity.isLoaded(), false);
+  // Other tracks may hold ctx.mobile.identity from mount time; holding it writes nothing.
+  assert.strictEqual(typeof h.ctx.mobile.identity, 'object');
+  assert.strictEqual(typeof h.ctx.mobile.identity.sign, 'function');
+  // Device and admin reads that do not need the key write nothing either.
+  assert.deepStrictEqual(h.rt.devices.list(), []);
+  assert.strictEqual(fs.existsSync(mainFile), false, 'no identity.json with the phone connection off');
+  assert.strictEqual(fs.existsSync(backupFile), false, 'no identity.backup.json with the phone connection off');
+  // Nothing else of the phone feature lands on disk either (devices, audit, keys).
+  assert.strictEqual(fs.existsSync(path.join(dir, 'mobile')), false, 'no <dataDir>/mobile folder at all with the phone connection off');
+  // Turning the listener on (as the admin route does) creates K_c before it binds.
+  H.seedSettings(h.store, Object.assign({}, off, { enabled: true }));
+  await h.mobile.restartListener();
+  assert.strictEqual(h.rt.listener.status().running, true);
+  assert.ok(fs.existsSync(mainFile) && fs.existsSync(backupFile), 'K_c and its backup exist after the first listener start');
+  const doc = JSON.parse(fs.readFileSync(mainFile, 'utf8'));
+  assert.strictEqual(h.ctx.mobile.identity.computerId, doc.computerId);
+  assert.strictEqual(h.ctx.mobile.identity.publicKey, doc.publicKeySpki);
+  assert.strictEqual(h.ctx.mobile.identity.fingerprint, doc.fingerprint);
+  const r = await h.request('GET', '/api/m/v2/identity?nonce=' + signing.randomNonce());
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.computerId, doc.computerId);
+  assert.ok(signing.verify(doc.publicKeySpki, 'identity', r.body, r.body.sig));
+  await h.stop();
+  H.seedSettings(h.store, off);
+});
+
+t('a start with the listener on has K_c on disk before the first request', async () => {
+  const dir = fs.mkdtempSync(path.join(H.sandbox.dir, 'eager-on-'));
+  h = await H.startSandbox({ enabled: true, dataDir: dir });
+  assert.strictEqual(h.rt.listener.status().running, true);
+  assert.strictEqual(h.rt.identity.isLoaded(), true);
+  assert.ok(fs.existsSync(path.join(dir, 'mobile', 'identity.json')));
+  assert.ok(fs.existsSync(path.join(dir, 'mobile', 'identity.backup.json')));
+  await h.stop();
+});
+
 t('CWM_MOBILE_ENABLED=1 starts it; CWM_MOBILE_DISABLED=1 wins over it', async () => {
   await withEnv({ CWM_MOBILE_ENABLED: '1' }, async () => {
     h = await H.startSandbox({ enabled: false });
