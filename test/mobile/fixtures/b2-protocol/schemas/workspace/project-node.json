@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/workspace/project-node.json",
+  "title": "ProjectNode",
+  "description": "A Workbook project (workspace) or the synthetic unassigned project. PROTOCOL.md 4.6.",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "color": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "folderId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "project",
+        "synthetic"
+      ]
+    },
+    "sessionCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "workingDirCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "needsYouCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "lastActiveAtMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "projectId",
+    "name",
+    "color",
+    "folderId",
+    "kind",
+    "sessionCount",
+    "workingDirCount",
+    "needsYouCount",
+    "lastActiveAtMs"
+  ],
+  "additionalProperties": true
+}

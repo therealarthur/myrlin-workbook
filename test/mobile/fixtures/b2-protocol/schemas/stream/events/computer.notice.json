@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/stream/events/computer.notice.json",
+  "title": "Event computer.notice",
+  "description": "The computer.notice event with its envelope. PROTOCOL.md 5.4 and 3.13.",
+  "allOf": [
+    {
+      "$ref": "../envelope.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "const": "computer"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "computer.notice"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "notice": {
+              "$ref": "../notice.json"
+            }
+          },
+          "required": [
+            "notice"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "topic",
+        "seq",
+        "type",
+        "data"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

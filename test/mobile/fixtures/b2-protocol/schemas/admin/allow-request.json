@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/allow-request.json",
+  "title": "AllowRequest",
+  "description": "POST /api/mobile-admin/pair-requests/:pairId/allow. PROTOCOL.md 2.6 and 11.3.",
+  "type": "object",
+  "properties": {
+    "scopes": {
+      "type": "array",
+      "items": {
+        "$ref": "../common/defs.json#/$defs/Scope"
+      },
+      "uniqueItems": true
+    },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "scopes",
+    "name"
+  ],
+  "additionalProperties": false
+}

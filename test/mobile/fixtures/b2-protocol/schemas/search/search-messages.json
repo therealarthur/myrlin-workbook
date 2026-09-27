@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/search/search-messages.json",
+  "title": "MessageSearchResult",
+  "description": "GET /api/m/v2/search/messages, with coverage (A15). PROTOCOL.md 4.9.2.",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 2
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "$ref": "../common/defs.json#/$defs/SessionId"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "provider": {
+            "$ref": "../common/defs.json#/$defs/Provider"
+          },
+          "projectName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workingDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ts": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/TimestampMs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "assistant",
+                  "tool",
+                  "system"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snippet": {
+            "type": "string"
+          },
+          "matchRanges": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "anchor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "sessionId",
+          "title",
+          "provider",
+          "projectName",
+          "workingDir",
+          "ts",
+          "role",
+          "snippet",
+          "matchRanges",
+          "anchor"
+        ],
+        "additionalProperties": true
+      },
+      "maxItems": 100
+    },
+    "nextCursor": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/Cursor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "totalHits": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 200
+    },
+    "sessionCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "hitsCapped": {
+      "type": "boolean"
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "searchedFiles": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tailOnlyFiles": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "timedOutProviders": {
+          "type": "array",
+          "items": {
+            "$ref": "../common/defs.json#/$defs/Provider"
+          }
+        },
+        "budgetMs": {
+          "$ref": "../common/defs.json#/$defs/DurationMs"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "searchedFiles",
+        "tailOnlyFiles",
+        "partial",
+        "timedOutProviders",
+        "budgetMs",
+        "note"
+      ],
+      "additionalProperties": true
+    },
+    "durationMs": {
+      "$ref": "../common/defs.json#/$defs/DurationMs"
+    }
+  },
+  "required": [
+    "query",
+    "results",
+    "nextCursor",
+    "totalHits",
+    "sessionCount",
+    "hitsCapped",
+    "coverage",
+    "durationMs"
+  ],
+  "additionalProperties": true
+}

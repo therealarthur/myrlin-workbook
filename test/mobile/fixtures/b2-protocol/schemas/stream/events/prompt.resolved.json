@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/stream/events/prompt.resolved.json",
+  "title": "Event prompt.resolved",
+  "description": "The prompt.resolved event with its envelope. PROTOCOL.md 5.4 and 8.4.",
+  "allOf": [
+    {
+      "$ref": "../envelope.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "pattern": "^session:(cl|cx|wb)_[A-Za-z0-9._:-]{1,120}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "prompt.resolved"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "$ref": "../../common/defs.json#/$defs/SessionId"
+            },
+            "promptId": {
+              "$ref": "../../common/defs.json#/$defs/PromptId"
+            },
+            "by": {
+              "type": "string",
+              "enum": [
+                "phone",
+                "desktop",
+                "exit",
+                "unknown"
+              ]
+            },
+            "deviceId": {
+              "anyOf": [
+                {
+                  "$ref": "../../common/defs.json#/$defs/DeviceId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "resolvedAtMs": {
+              "$ref": "../../common/defs.json#/$defs/TimestampMs"
+            },
+            "summary": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "sessionId",
+            "promptId",
+            "by",
+            "deviceId",
+            "resolvedAtMs",
+            "summary"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "topic",
+        "seq",
+        "type",
+        "data"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

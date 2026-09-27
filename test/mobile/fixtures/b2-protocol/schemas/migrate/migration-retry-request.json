@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/migrate/migration-retry-request.json",
+  "title": "MigrationRetryRequest",
+  "description": "POST /api/m/v2/migrations/:migrationId/retry. PROTOCOL.md 4.12.4.",
+  "type": "object",
+  "properties": {
+    "fromStage": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "snapshot",
+            "index",
+            "standards",
+            "reading",
+            "verifying",
+            "report"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "fromStage"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/continue-here-request.json",
+  "title": "ContinueHereRequest",
+  "description": "POST /api/m/v2/sessions/:sessionId/continue-here. PROTOCOL.md 4.5.7.",
+  "type": "object",
+  "properties": {
+    "clientRequestId": {
+      "$ref": "../common/defs.json#/$defs/Uuid"
+    },
+    "confirmTwoWriters": {
+      "const": true
+    }
+  },
+  "required": [
+    "clientRequestId",
+    "confirmTwoWriters"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/workspace/tabs-patch-result.json",
+  "title": "TabsPatchResult",
+  "description": "200 answer of PATCH /tabs. PROTOCOL.md 4.8.",
+  "type": "object",
+  "properties": {
+    "tabs": {
+      "$ref": "./tabs.json"
+    },
+    "tempIds": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "rebased": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "tabs",
+    "tempIds",
+    "rebased"
+  ],
+  "additionalProperties": true
+}

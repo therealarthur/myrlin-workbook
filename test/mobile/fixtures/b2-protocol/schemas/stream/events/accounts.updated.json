@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/stream/events/accounts.updated.json",
+  "title": "Event accounts.updated",
+  "description": "The accounts.updated event with its envelope. PROTOCOL.md 5.4 and 4.11.",
+  "allOf": [
+    {
+      "$ref": "../envelope.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "const": "accounts"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "accounts.updated"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "accounts": {
+              "$ref": "../../accounts/accounts.json"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "refresh",
+                "swap",
+                "agentSwap",
+                "login",
+                "label",
+                "other"
+              ]
+            }
+          },
+          "required": [
+            "accounts",
+            "reason"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "topic",
+        "seq",
+        "type",
+        "data"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

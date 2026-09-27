@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/workspace/tabs-response.json",
+  "title": "TabsResponse",
+  "description": "GET /api/m/v2/tabs (snapshot of topic tabs). PROTOCOL.md 4.8.",
+  "type": "object",
+  "properties": {
+    "tabs": {
+      "$ref": "./tabs.json"
+    },
+    "streamEpoch": {
+      "$ref": "../common/defs.json#/$defs/StreamEpoch"
+    },
+    "streamSeq": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "tabs",
+    "streamEpoch",
+    "streamSeq"
+  ],
+  "additionalProperties": true
+}

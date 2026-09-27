@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/handshake/hello-request.json",
+  "title": "HelloRequest",
+  "description": "POST /api/m/v2/hello (public). PROTOCOL.md 2.8.",
+  "type": "object",
+  "properties": {
+    "deviceId": {
+      "$ref": "../common/defs.json#/$defs/DeviceId"
+    },
+    "clientNonce": {
+      "$ref": "../common/defs.json#/$defs/Nonce"
+    }
+  },
+  "required": [
+    "deviceId",
+    "clientNonce"
+  ],
+  "additionalProperties": false
+}

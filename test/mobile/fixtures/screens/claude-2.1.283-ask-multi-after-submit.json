@@ -1,0 +1,409 @@
+{
+  "cli": "claude",
+  "version": "2.1.283",
+  "name": "ask-multi-after-submit",
+  "capturedAt": "2026-09-27T11:25:25.598Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 2,
+  "cursorY": 26,
+  "altBuffer": true,
+  "lines": [
+    {
+      "text": "\u276f Use the AskUserQuestion tool to ask me exactly one question: \"Pick a color\" with the options Red and Blue. After I    ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  answer, reply with only the color I chose.                                                                            ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u25cf\u00a0User answered Claude's questions:                                                                                     ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf \u00a0\u00b7 Pick a color \u2192 Red                                                                                               ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u25cf Red                                                                                                                   ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u273b Brewed for 7s \u00b7 done 7:25 AM                                                                                          ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u276f Use the AskUserQuestion tool ONCE with TWO questions in the same call: question one \"Pick a color\" (header \"Color\")   ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  with options Red and Blue; question two \"Pick sizes\" (header \"Sizes\") with options Small and Large and multiSelect    ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  true. Then reply with my answers.                                                                                     ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u25cf\u00a0User answered Claude's questions:                                                                                     ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf \u00a0\u00b7 Pick a color \u2192 Red                                                                                               ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "     \u00b7 Pick sizes \u2192 Small                                                                                               ",
+      "runs": [
+        {
+          "s": 5,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u25cf Your answers:                                                                                                         ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  - Color: Red                                                                                                          ",
+      "runs": []
+    },
+    {
+      "text": "  - Sizes: Small                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u2736 Contemplating\u2026 (Design deep pass\u2026 1/2 \u00b7 4s \u00b7 \u2193 352 tokens \u00b7 thinking)",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 14120791
+        },
+        {
+          "s": 2,
+          "e": 17,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 14120791
+        },
+        {
+          "s": 17,
+          "e": 62,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 62,
+          "e": 70,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 12171705
+        },
+        {
+          "s": 70,
+          "e": 71,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf \u00a0Tip: Run /install-slack-app to use Claude in Slack                                                                 ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 55,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 8947848
+        }
+      ]
+    },
+    {
+      "text": "\u276f\u00a0                                                                                                                      ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 8947848
+        }
+      ]
+    },
+    {
+      "text": "  \u2b06 /gsd:update \u2502 Haiku 4.5 \u2502 claude-ask-1790508304497 \u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591 31%",
+      "runs": [
+        {
+          "s": 2,
+          "e": 16,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 3
+        },
+        {
+          "s": 16,
+          "e": 18,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 18,
+          "e": 27,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 27,
+          "e": 30,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 30,
+          "e": 54,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 54,
+          "e": 55,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 55,
+          "e": 69,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 2
+        }
+      ]
+    },
+    {
+      "text": "  \u23f8 manual mode on \u00b7 \u2190 2 agents",
+      "runs": [
+        {
+          "s": 2,
+          "e": 31,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    }
+  ]
+}

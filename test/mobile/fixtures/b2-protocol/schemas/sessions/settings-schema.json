@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/settings-schema.json",
+  "title": "SettingsSchema",
+  "description": "GET /api/m/v2/providers/:provider/settings-schema. PROTOCOL.md 4.5.3.",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "$ref": "../common/defs.json#/$defs/Provider"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fieldKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "fieldKeys"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9]*$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "enum",
+              "model",
+              "boolean",
+              "text"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "label",
+                "description"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "default": {
+            "type": [
+              "string",
+              "boolean",
+              "null"
+            ]
+          },
+          "appliesAt": {
+            "type": "string",
+            "enum": [
+              "nextStart",
+              "now"
+            ]
+          },
+          "help": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pattern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxLength": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "placeholder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "options",
+          "default",
+          "appliesAt",
+          "help",
+          "pattern",
+          "maxLength",
+          "placeholder"
+        ],
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": [
+    "provider",
+    "revision",
+    "groups",
+    "fields"
+  ],
+  "additionalProperties": true
+}

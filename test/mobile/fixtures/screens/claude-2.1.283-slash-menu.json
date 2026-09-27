@@ -1,0 +1,409 @@
+{
+  "cli": "claude",
+  "version": "2.1.283",
+  "name": "slash-menu",
+  "capturedAt": "2026-09-27T04:21:10.771Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 3,
+  "cursorY": 26,
+  "altBuffer": true,
+  "lines": [
+    {
+      "text": "\u276f Use the AskUserQuestion tool to ask me exactly one question: \"Pick a color\" with the options Red and Blue. After I    ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  answer, reply with only the color I chose.                                                                            ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 44,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        },
+        {
+          "s": 74,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u25cf\u00a0User answered Claude's questions:                                                                                     ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 24,
+          "e": 25,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 35,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf \u00a0\u00b7 Pick a color \u2192 Red                                                                                               ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 25,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u276f 1 hello                                                                                                               ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u25cf Red",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u273b Brewed for 4s \u00b7 done 12:20 AM                                                                                         ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u276f Reply with exactly this text and nothing else: alpha\u2014beta                                                             ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u25cf I can't output that text as written because my instructions have a hard safety rule against em dashes (U+2014). I can ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  provide it with alternatives:                                                                                         ",
+      "runs": []
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "  - alpha-beta (single hyphen)                                                                                          ",
+      "runs": [
+        {
+          "s": 1,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  - alpha, beta (comma)                                                                                                 ",
+      "runs": []
+    },
+    {
+      "text": "  - alpha; beta (semicolon)                                                                                             ",
+      "runs": [
+        {
+          "s": 1,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  /claude-api                                     Reference for the Claude API / Anthropic SDK \u2014 model ids, pricing,    ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 116,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": "                                                  params, streaming, tool use, MCP, agents, caching, token counting, \u2026  ",
+      "runs": [
+        {
+          "s": 50,
+          "e": 118,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": "  /artifact-capabilities                          Runtime capabilities a published Artifact page can be granted \u2014",
+      "runs": [
+        {
+          "s": 2,
+          "e": 113,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                  behavior static HTML cannot provide on its own, such as the page re\u2026  ",
+      "runs": [
+        {
+          "s": 50,
+          "e": 118,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 8947848
+        }
+      ]
+    },
+    {
+      "text": "\u276f\u00a0/                                                                                                                     ",
+      "runs": [
+        {
+          "s": 3,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 8947848
+        }
+      ]
+    },
+    {
+      "text": "  \u2b06 /gsd:update \u2502 Haiku 4.5 \u2502 claude-live-a-1790482680514 \u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591 31%",
+      "runs": [
+        {
+          "s": 2,
+          "e": 16,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 3
+        },
+        {
+          "s": 16,
+          "e": 18,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 18,
+          "e": 27,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 27,
+          "e": 30,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 30,
+          "e": 57,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 57,
+          "e": 58,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 58,
+          "e": 72,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 2
+        }
+      ]
+    },
+    {
+      "text": "  \u23f8 manual mode on",
+      "runs": [
+        {
+          "s": 2,
+          "e": 18,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    }
+  ]
+}

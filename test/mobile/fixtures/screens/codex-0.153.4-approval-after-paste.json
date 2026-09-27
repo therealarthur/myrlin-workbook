@@ -1,0 +1,303 @@
+{
+  "cli": "codex",
+  "version": "0.153.4",
+  "name": "approval-after-paste",
+  "capturedAt": "2026-09-27T11:20:26.414Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 8,
+  "cursorY": 22,
+  "altBuffer": false,
+  "lines": [
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2022 ok9",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a Reply with only the word ok10.",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2022 ok10",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a Run this exact shell command and nothing else: echo myrlin-check > probe.txt . The sandbox is read only, so request   ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  escalated permissions for it.",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2714 You approved codex to run echo myrlin-check > probe.txt this time",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 2
+        },
+        {
+          "s": 6,
+          "e": 14,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 28,
+          "e": 57,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 57,
+          "e": 67,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2022 Ran echo myrlin-check > probe.txt",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": 2
+        },
+        {
+          "s": 2,
+          "e": 5,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 6,
+          "e": 11,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 9024762
+        },
+        {
+          "s": 11,
+          "e": 24,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 13489908
+        },
+        {
+          "s": 24,
+          "e": 26,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 9757397
+        },
+        {
+          "s": 26,
+          "e": 35,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 13489908
+        }
+      ]
+    },
+    {
+      "text": "  \u2514 (no output)",
+      "runs": [
+        {
+          "s": 0,
+          "e": 15,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": " ",
+      "runs": []
+    },
+    {
+      "text": "\u2022 Working (5s \u2022 esc to interrupt)",
+      "runs": [
+        {
+          "s": 3,
+          "e": 8,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 10,
+          "e": 33,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a  hello",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  tab to queue message                                                                                98% context left  ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 22,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 102,
+          "e": 118,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    }
+  ]
+}

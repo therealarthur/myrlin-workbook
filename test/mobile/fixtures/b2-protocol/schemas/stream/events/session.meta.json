@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/stream/events/session.meta.json",
+  "title": "Event session.meta",
+  "description": "The session.meta event with its envelope. PROTOCOL.md 5.4 and 3.4.4.",
+  "allOf": [
+    {
+      "$ref": "../envelope.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "pattern": "^session:(cl|cx|wb)_[A-Za-z0-9._:-]{1,120}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "session.meta"
+        },
+        "data": {
+          "$ref": "../../sessions/session-meta.json"
+        }
+      },
+      "required": [
+        "topic",
+        "seq",
+        "type",
+        "data"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

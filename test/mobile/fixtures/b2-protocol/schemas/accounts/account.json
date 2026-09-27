@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/accounts/account.json",
+  "title": "Account",
+  "description": "One Claude or Codex account with Glass usage windows. PROTOCOL.md 3.11.",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "$ref": "../common/defs.json#/$defs/Provider"
+    },
+    "accountId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "email": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "label": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 60
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "active": {
+      "type": "boolean"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "needsLogin",
+        "blocked",
+        "noSubscription",
+        "suspect",
+        "stale",
+        "expiring",
+        "unknown"
+      ]
+    },
+    "stateDetail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "staleReason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "usageOld",
+            "tokenRenewing",
+            "tokenExpired"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "windows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "percent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "resetsAtMs": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/TimestampMs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "windowSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "warn",
+              "critical",
+              "limited"
+            ]
+          },
+          "ring": {
+            "type": "string",
+            "enum": [
+              "outer",
+              "inner",
+              "single",
+              "none"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "percent",
+          "resetsAtMs",
+          "windowSeconds",
+          "severity",
+          "ring"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "asOfMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "dataSource": {
+      "type": "string",
+      "enum": [
+        "endpoint",
+        "statusline",
+        "workbookCache",
+        "none"
+      ]
+    },
+    "reloginInDays": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "headroom": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "swappable": {
+      "type": "boolean"
+    },
+    "chip": {
+      "type": "string",
+      "enum": [
+        "usable",
+        "blocked",
+        "signIn"
+      ]
+    },
+    "lastActiveAtMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "provider",
+    "accountId",
+    "email",
+    "label",
+    "displayName",
+    "plan",
+    "active",
+    "state",
+    "stateDetail",
+    "staleReason",
+    "windows",
+    "asOfMs",
+    "dataSource",
+    "reloginInDays",
+    "headroom",
+    "swappable",
+    "chip",
+    "lastActiveAtMs"
+  ],
+  "additionalProperties": true
+}

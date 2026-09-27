@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/accounts/login-flow.json",
+  "title": "LoginFlow",
+  "description": "A Glass isolated sign in on the computer. PROTOCOL.md 4.11.",
+  "type": "object",
+  "properties": {
+    "flowId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider": {
+      "$ref": "../common/defs.json#/$defs/Provider"
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "starting",
+        "waitingForBrowser",
+        "importing",
+        "done",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "message": {
+      "type": "string"
+    },
+    "warning": {
+      "type": "boolean"
+    },
+    "updatedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "done": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "flowId",
+    "provider",
+    "phase",
+    "message",
+    "warning",
+    "updatedAtMs",
+    "done"
+  ],
+  "additionalProperties": true
+}

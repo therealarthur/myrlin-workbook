@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/answer-request.json",
+  "title": "AnswerRequest",
+  "description": "POST .../prompts/:promptId/answer. Per kind rules are in PROTOCOL.md 4.4.7; exactly one of dismiss, decision, optionIndex, answers is used.",
+  "type": "object",
+  "properties": {
+    "clientRequestId": {
+      "$ref": "../common/defs.json#/$defs/Uuid"
+    },
+    "decision": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "allow",
+            "allowAlways",
+            "deny",
+            "approvePlan",
+            "keepPlanning"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "optionIndex": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "answers": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "questionIndex": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "optionIndexes": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "uniqueItems": true
+              },
+              "otherText": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "questionIndex",
+              "optionIndexes",
+              "otherText"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "text": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "dismiss": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "clientRequestId"
+  ],
+  "additionalProperties": false
+}

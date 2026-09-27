@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/workspace/tree-project.json",
+  "title": "TreeProject",
+  "description": "GET /api/m/v2/tree/projects/:projectId. PROTOCOL.md 4.6.",
+  "type": "object",
+  "properties": {
+    "project": {
+      "$ref": "./project-node.json"
+    },
+    "workingDirs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sessionCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastActiveAtMs": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/TimestampMs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "../sessions/session-summary.json"
+            },
+            "maxItems": 100
+          },
+          "moreSessions": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "path",
+          "displayPath",
+          "branch",
+          "sessionCount",
+          "lastActiveAtMs",
+          "sessions",
+          "moreSessions"
+        ],
+        "additionalProperties": true
+      },
+      "maxItems": 100
+    },
+    "nextCursor": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/Cursor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "project",
+    "workingDirs",
+    "nextCursor"
+  ],
+  "additionalProperties": true
+}

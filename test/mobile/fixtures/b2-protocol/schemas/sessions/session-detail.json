@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/session-detail.json",
+  "title": "SessionDetail",
+  "description": "GET /api/m/v2/sessions/:sessionId (snapshot of topic session:<id>). PROTOCOL.md 4.4.2.",
+  "type": "object",
+  "properties": {
+    "summary": {
+      "$ref": "./session-summary.json"
+    },
+    "meta": {
+      "$ref": "./session-meta.json"
+    },
+    "state": {
+      "$ref": "./session-state.json"
+    },
+    "turn": {
+      "anyOf": [
+        {
+          "$ref": "./turn.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "openPrompts": {
+      "type": "array",
+      "items": {
+        "$ref": "./prompt.json"
+      }
+    },
+    "sends": {
+      "type": "array",
+      "items": {
+        "$ref": "./send-record.json"
+      }
+    },
+    "streamEpoch": {
+      "$ref": "../common/defs.json#/$defs/StreamEpoch"
+    },
+    "streamSeq": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "summary",
+    "meta",
+    "state",
+    "turn",
+    "openPrompts",
+    "sends",
+    "streamEpoch",
+    "streamSeq"
+  ],
+  "additionalProperties": true
+}

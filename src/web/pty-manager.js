@@ -266,6 +266,12 @@ const LIVE_HOLD_MAX_LINE = 64;
 const SIGHT_CHECK_MIN_PANE_AGE_MS = 30000;
 
 /**
+ * How many times launchDetached checks again when the record changed during
+ * a live-session lookup, before it refuses (mobile v2, P5).
+ */
+const LAUNCH_DETACHED_MAX_RECHECKS = 3;
+
+/**
  * True when two live-gate results point at the same spawn target. For a
  * `--continue` command only the folder counts: which transcript is newest in
  * it can flip while sessions write, and that must not re-trigger the check.
@@ -968,6 +974,54 @@ class PtySessionManager {
     // exited or was killed. A lookup right after a restart can still list the
     // dying process; the gate re-checks instead of calling it "live elsewhere".
     this._recentClaudeExits = new Map();
+    // Mobile v2 (BUILD-CONTRACT P1): observers of PTY output, exit and spawn
+    // for the phone's turn service, screen reader and send guard. Taps only
+    // observe; a tap that throws is caught and never reaches the PTY path.
+    this._mobileTaps = { data: new Set(), exit: new Set(), spawn: new Set() };
+  }
+
+  /**
+   * Observe PTY output of every session (mobile v2, P1).
+   * @param {(sessionId: string, data: string) => void} fn
+   * @returns {() => void} unsubscribe
+   */
+  onSessionData(fn) {
+    this._mobileTaps.data.add(fn);
+    return () => this._mobileTaps.data.delete(fn);
+  }
+
+  /**
+   * Observe PTY exits (mobile v2, P1).
+   * @param {(sessionId: string, exitCode: number) => void} fn
+   * @returns {() => void} unsubscribe
+   */
+  onSessionExit(fn) {
+    this._mobileTaps.exit.add(fn);
+    return () => this._mobileTaps.exit.delete(fn);
+  }
+
+  /**
+   * Observe PTY spawns (mobile v2, P1).
+   * @param {(sessionId: string) => void} fn
+   * @returns {() => void} unsubscribe
+   */
+  onSessionSpawn(fn) {
+    this._mobileTaps.spawn.add(fn);
+    return () => this._mobileTaps.spawn.delete(fn);
+  }
+
+  /**
+   * Call every tap of one kind, swallowing their errors (P2, P3).
+   * @private
+   * @param {'data'|'exit'|'spawn'} kind
+   * @param {...*} args
+   */
+  _callMobileTaps(kind, ...args) {
+    const taps = this._mobileTaps && this._mobileTaps[kind];
+    if (!taps || taps.size === 0) return;
+    for (const fn of taps) {
+      try { fn(...args); } catch (_) { /* a tap must never throw into the PTY path */ }
+    }
   }
 
   /**
@@ -1070,7 +1124,7 @@ class PtySessionManager {
    *        CLAUDE_SESSION_LIVE), so no future caller can fork by skipping the gate.
    * @returns {PtySession} The PTY session object
    */
-  spawnSession(sessionId, { command = 'claude', cwd, cols = 120, rows = 30, bypassPermissions = false, resumeSessionId = null, verbose = false, model = null, agentTeams = false, shell: requestedShell = null, newSession = false, initialPrompt = null, flags = [], provider: optsProvider = null, attachShortId = null, _liveChecked = false, _ptySpawnForTesting = null, _cwdFromJsonlForTesting = null } = {}) { // gsd:provider-literal-allowed (default-command sentinel paired with useProvider check below)
+  spawnSession(sessionId, { command = 'claude', cwd, cols = 120, rows = 30, bypassPermissions = false, resumeSessionId = null, verbose = false, model = null, agentTeams = false, shell: requestedShell = null, newSession = false, initialPrompt = null, flags = [], provider: optsProvider = null, attachShortId = null, effort = null, permissionMode = null, argsExtra = null, _liveChecked = false, _ptySpawnForTesting = null, _cwdFromJsonlForTesting = null } = {}) { // gsd:provider-literal-allowed (default-command sentinel paired with useProvider check below)
     // Return existing session if already alive
     const existing = this.sessions.get(sessionId);
     if (existing && existing.alive) {
@@ -1266,6 +1320,14 @@ class PtySessionManager {
           // Only the Claude descriptor knows `attach`; the gate never sets it
           // for another provider, and the null keeps other descriptors unchanged.
           attachShortId: attachShortId || null,
+          // Mobile v2 (P6): effort and permission mode reach the descriptor;
+          // the Claude descriptor emits their flags (B3, S10), others ignore them.
+          effort: effort || null,
+          permissionMode: permissionMode || null,
+          // Mobile v2: extra CLI arguments for a migration launch (B3 charter
+          // flags, BUILD-CONTRACT 3.4.3 createSession argsExtra); descriptors
+          // that do not know the field ignore it.
+          argsExtra: Array.isArray(argsExtra) ? argsExtra.slice() : null,
         });
       } catch (err) {
         console.error('[PTY] Provider ' + providerId + ' spawnCommand failed for ' + sessionId + ': ' + err.message);
@@ -1557,6 +1619,10 @@ class PtySessionManager {
         try { session.vt.write(data); } catch (_) { /* sidecar is never fatal */ }
       }
 
+      // Mobile v2 (P2): the phone's screen reader and turn service observe the
+      // same bytes, after the VT shadow was fed. Never throws into this path.
+      this._callMobileTaps('data', sessionId, data);
+
       // Broadcast immediately to all connected WebSocket clients
       for (const ws of session.clients) {
         try {
@@ -1656,6 +1722,9 @@ class PtySessionManager {
       } catch (_) {
         // Store may not have this session
       }
+
+      // Mobile v2 (P3): the phone's turn service ends open turns on exit.
+      this._callMobileTaps('exit', sessionId, exitCode);
     });
 
     // Update store with running status and PID
@@ -1776,6 +1845,9 @@ class PtySessionManager {
       );
       session._cancelWatch = cancelWatch;
     }
+
+    // Mobile v2 (P3): the phone starts watching Workbook hosted sessions.
+    this._callMobileTaps('spawn', sessionId);
 
     return session;
   }
@@ -2307,6 +2379,132 @@ class PtySessionManager {
   }
 
   /**
+   * Start or attach a session without a WebSocket client (mobile v2, P5).
+   *
+   * Runs the same live-session gate attachClient runs (_liveGateFor, then
+   * _decideLive) and the same spawn from the store record, but with no socket
+   * to hold on a notice: a refusal is returned, never shown, and a refusal
+   * never spawns. Used by the phone's send to a sleeping or background
+   * session, new session, branch, restart and continue here (PROTOCOL.md 9.3).
+   * The PTY it starts has no client, so it owns no geometry until a desktop
+   * pane attaches (PROTOCOL.md 7.1).
+   *
+   * @param {string} sessionId - Workbook session id.
+   * @param {object} [spawnOpts] - Overrides on top of the store record, as for attachClient.
+   *        _liveChecked and attachShortId are dropped: only the gate sets them.
+   * @param {number} [_recheckDepth] - @private how often the record changed during a check.
+   * @returns {Promise<{status: 'spawned'|'attached'|'alreadyRunning'|'refused', code: (string|null), message: (string|null), pid?: number}>}
+   */
+  async launchDetached(sessionId, spawnOpts = {}, _recheckDepth = 0) {
+    if (!pty && !spawnOpts._ptySpawnForTesting) {
+      return { status: 'refused', code: 'PTY_UNAVAILABLE', message: 'Terminals are unavailable on this computer.' };
+    }
+    const existing = this.sessions.get(sessionId);
+    if (existing && existing.alive) return { status: 'alreadyRunning', code: null, message: null, pid: existing.pid };
+
+    // Internal keys never travel further than one hop, as in attachClient: a
+    // caller can never pass _liveChecked to skip the gate, or attachShortId to
+    // pick an attach target. _liveFresh is only a hint to the first lookup.
+    const baseOpts = { ...spawnOpts };
+    const fresh = !!baseOpts._liveFresh;
+    delete baseOpts._liveFresh;
+    delete baseOpts._liveChecked;
+    delete baseOpts.attachShortId;
+    let opts = { ...baseOpts };
+    let status = 'spawned';
+    let gate = null;
+    try { gate = this._liveGateFor(sessionId, fresh ? { ...baseOpts, _liveFresh: true } : baseOpts); } catch (_) { gate = null; }
+    if (gate) {
+      const epoch = this._liveEpochOf(sessionId);
+      const pending = this._liveChecks.get(sessionId);
+      if (pending) {
+        await pending.catch(() => {});
+        const now = this.sessions.get(sessionId);
+        if (now && now.alive) return { status: 'alreadyRunning', code: null, message: null, pid: now.pid };
+      }
+      const run = this._decideLive(sessionId, gate).catch((err) => {
+        console.error(`[PTY] Live-session check threw for ${sessionId}: ${err && err.message}`);
+        return { action: 'notice', reason: 'lookup-failed', error: 'exception', lookup: null };
+      });
+      this._liveChecks.set(sessionId, run);
+      let decision;
+      try {
+        decision = await run;
+      } finally {
+        if (this._liveChecks.get(sessionId) === run) this._liveChecks.delete(sessionId);
+      }
+      if (this._liveEpochOf(sessionId) !== epoch) {
+        return { status: 'refused', code: 'LAUNCH_CANCELLED', message: 'The session was stopped while it was being checked.' };
+      }
+      const current = this.sessions.get(sessionId);
+      if (current && current.alive) return { status: 'alreadyRunning', code: null, message: null, pid: current.pid };
+      // The decision must be about what will actually spawn (attachClient's
+      // rule): if the record changed during the lookup (a new resume id, a
+      // new command), check again for the new target instead of spawning it
+      // unchecked. Bounded, so a record that keeps changing is refused.
+      let again = null;
+      try { again = this._liveGateFor(sessionId, baseOpts); } catch (_) { again = null; }
+      if (!again || !sameGateTarget(again, gate)) {
+        if (_recheckDepth >= LAUNCH_DETACHED_MAX_RECHECKS) {
+          return { status: 'refused', code: 'LAUNCH_CANCELLED', message: 'The session changed while it was being checked.' };
+        }
+        console.log(`[PTY] ${sessionId} changed during a detached live-session check; checking the new target`);
+        return this.launchDetached(sessionId, baseOpts, _recheckDepth + 1);
+      }
+      if (decision.action === 'resume' && gate.resumeSessionId) {
+        const other = this._otherPaneOnTranscript(sessionId, gate.resumeSessionId);
+        if (other) decision = { action: 'notice', reason: 'open-in-workbook', otherSessionId: other, lookup: decision.lookup };
+      }
+      this._logLiveDecision(sessionId, gate, decision);
+      if (decision.action === 'attach') {
+        opts = { ...opts, _liveChecked: true, attachShortId: decision.shortId };
+        if (gate.viaCommand) {
+          opts.command = gate.cliBinary;
+          if (gate.resumeSessionId) opts.resumeSessionId = gate.resumeSessionId;
+        }
+        status = 'attached';
+      } else if (decision.action === 'resume') {
+        opts = { ...opts, _liveChecked: true };
+      } else {
+        return { status: 'refused', code: 'SESSION_LIVE_ELSEWHERE', message: describeLiveNotice(decision).headline };
+      }
+    }
+
+    let session = null;
+    try {
+      const store = getStore();
+      const rec = store.getSession(sessionId);
+      session = rec
+        ? this.spawnSession(sessionId, {
+          command: rec.command || 'claude', // gsd:provider-literal-allowed (mirrors the attachClient store default)
+          cwd: rec.workingDir || undefined,
+          bypassPermissions: rec.bypassPermissions || false,
+          verbose: rec.verbose || false,
+          model: rec.model || null,
+          agentTeams: rec.agentTeams || false,
+          effort: rec.effort || null,
+          permissionMode: rec.permissionMode || null,
+          resumeSessionId: rec.resumeSessionId || null,
+          initialPrompt: rec.resumeSessionId ? null : (rec.initialPrompt || null),
+          flags: rec.resumeSessionId ? [] : (rec.flags || []),
+          ...opts,
+        })
+        : this.spawnSession(sessionId, opts);
+    } catch (err) {
+      if (err && err.code === CLAUDE_SESSION_LIVE_CODE) {
+        return { status: 'refused', code: 'SESSION_LIVE_ELSEWHERE', message: describeLiveNotice({ reason: 'known-live' }).headline };
+      }
+      if (err && err.code === PTY_UNAVAILABLE_CODE) {
+        return { status: 'refused', code: 'PTY_UNAVAILABLE', message: 'Terminals are unavailable on this computer.' };
+      }
+      return { status: 'refused', code: 'LAUNCH_FAILED', message: 'The process could not be started.' };
+    }
+    if (!session) return { status: 'refused', code: 'LAUNCH_FAILED', message: 'The process could not be started.' };
+    this._releaseLiveHolds(sessionId);
+    return { status, code: null, message: null, pid: session.pid };
+  }
+
+  /**
    * Attach a WebSocket client to a PTY session.
    * If the session doesn't exist, attempts to spawn it from store data.
    *
@@ -2364,6 +2562,9 @@ class PtySessionManager {
             verbose: storeSession.verbose || false,
             model: storeSession.model || null,
             agentTeams: storeSession.agentTeams || false,
+            // Mobile v2 (P6): stored effort and permission mode pass through.
+            effort: storeSession.effort || null,
+            permissionMode: storeSession.permissionMode || null,
             resumeSessionId: storeSession.resumeSessionId || null,
             // Only inject initialPrompt and flags on first launch (no resumeSessionId yet)
             initialPrompt: storeSession.resumeSessionId ? null : (storeSession.initialPrompt || null),
@@ -2578,6 +2779,9 @@ class PtySessionManager {
           // desktop that was being used. The write is unconditional either
           // way, so the application still receives every byte it asked for.
           if (isUserOriginatedInput(String(msg.data))) claimSizeOwnership('input');
+          // Mobile v2 (P4): the phone send guard's desktop typing check (G4)
+          // reads when a person last typed into this pane.
+          if (isUserOriginatedInput(String(msg.data))) session.lastDesktopInputAt = Date.now();
           // Write user input directly to PTY - NO BUFFERING
           session.pty.write(msg.data);
         } else if (msg.type === 'resize' && msg.cols && msg.rows) {

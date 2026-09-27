@@ -1,0 +1,349 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/part.json",
+  "title": "Part",
+  "description": "One typed part of a message. PROTOCOL.md 3.6.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "markdown",
+            "plain"
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "fullLength": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "text",
+        "format",
+        "truncated",
+        "fullLength"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "thinking"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "redacted": {
+          "type": "boolean"
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/DurationMs"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "fullLength": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "text",
+        "redacted",
+        "durationMs",
+        "truncated",
+        "fullLength"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "toolCall"
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "shell",
+            "read",
+            "edit",
+            "write",
+            "search",
+            "web",
+            "task",
+            "question",
+            "plan",
+            "todo",
+            "mcp",
+            "other"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "input": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "inputTruncated": {
+          "type": "boolean"
+        },
+        "filePath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "diffStat": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/DiffStat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "toolCallId",
+        "name",
+        "kind",
+        "title",
+        "detail",
+        "input",
+        "inputTruncated",
+        "filePath",
+        "diffStat"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "toolResult"
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "error"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "fullLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/DurationMs"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "toolCallId",
+        "status",
+        "text",
+        "truncated",
+        "fullLength",
+        "exitCode",
+        "durationMs"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "image"
+        },
+        "mediaType": {
+          "type": "string",
+          "minLength": 3
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "byteSize": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uploadId": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/UploadId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "contentPath": {
+          "type": "string",
+          "pattern": "^/"
+        }
+      },
+      "required": [
+        "type",
+        "mediaType",
+        "width",
+        "height",
+        "byteSize",
+        "uploadId",
+        "contentPath"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "system"
+        },
+        "subtype": {
+          "type": "string",
+          "enum": [
+            "turnEnd",
+            "compacted",
+            "interrupted",
+            "apiError",
+            "modeChange",
+            "titleChange",
+            "other"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/DurationMs"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "subtype",
+        "text",
+        "durationMs"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/session-patch.json",
+  "title": "SessionPatch",
+  "description": "PATCH /api/m/v2/sessions/:sessionId: rename, pin, archive. PROTOCOL.md 4.5.1.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^[^\\r\\n]*$"
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "archived": {
+      "type": "boolean"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

@@ -1,0 +1,36 @@
+[
+  {
+    "type": "file-history-snapshot"
+  },
+  {
+    "type": "user"
+  },
+  {
+    "type": "attachment"
+  },
+  {
+    "type": "assistant",
+    "blocks": [
+      "thinking"
+    ],
+    "messageId": "msg_011CfTJZ7yYh4KkcdjB5tQDh",
+    "text": ""
+  },
+  {
+    "type": "assistant",
+    "blocks": [
+      "text"
+    ],
+    "messageId": "msg_011CfTJZ7yYh4KkcdjB5tQDh",
+    "text": "I can't output that text as written because my instructions have a hard safety rule against em dashes (U+2014). I can provide it with alternatives:\n\n- alpha-beta (single hyphen)\n- alpha, beta (comma)\n"
+  },
+  {
+    "type": "system",
+    "subtype": "stop_hook_summary"
+  },
+  {
+    "type": "system",
+    "subtype": "turn_duration",
+    "durationMs": 5306
+  }
+]

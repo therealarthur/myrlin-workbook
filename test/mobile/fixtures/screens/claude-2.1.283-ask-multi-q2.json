@@ -1,0 +1,385 @@
+{
+  "cli": "claude",
+  "version": "2.1.283",
+  "name": "ask-multi-q2",
+  "capturedAt": "2026-09-27T11:25:21.768Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 119,
+  "cursorY": 25,
+  "altBuffer": true,
+  "lines": [
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "     ",
+      "runs": []
+    },
+    {
+      "text": "\u276f Use the AskUserQuestion tool to ask me exactly one question: \"Pick a color\" with the options Red and Blue. After I    ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  answer, reply with only the color I chose.                                                                            ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 44,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        },
+        {
+          "s": 117,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u25cf\u00a0User answered Claude's questions:                                                                                     ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf \u00a0\u00b7 Pick a color \u2192 Red                                                                                               ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u25cf Red                                                                                                                   ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u273b Brewed for 7s \u00b7 done 7:25 AM                                                                                          ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 2,
+          "e": 30,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u276f Use the AskUserQuestion tool ONCE with TWO questions in the same call: question one \"Pick a color\" (header \"Color\")   ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  with options Red and Blue; question two \"Pick sizes\" (header \"Sizes\") with options Small and Large and multiSelect    ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  true. Then reply with my answers.                                                                                     ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 35,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        },
+        {
+          "s": 117,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "\u2190  \u2612 Color  \u2610 Sizes  \u2714 Submit  \u2192                                                                                        ",
+      "runs": [
+        {
+          "s": 11,
+          "e": 20,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 0
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "Pick sizes                                                                                                              ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 10,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u276f 1. [ ] Small                                                                                                          ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        },
+        {
+          "s": 2,
+          "e": 4,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 9,
+          "e": 14,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": "         Small size                                                                                                     ",
+      "runs": [
+        {
+          "s": 9,
+          "e": 19,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  2. [ ] Large",
+      "runs": [
+        {
+          "s": 2,
+          "e": 4,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "         Large size                                                                                                     ",
+      "runs": [
+        {
+          "s": 4,
+          "e": 5,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 9,
+          "e": 19,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  3. [ ] Type something                                                                                                 ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 5,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 9,
+          "e": 23,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "     Submit                                                                                                             ",
+      "runs": [
+        {
+          "s": 5,
+          "e": 11,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  4. Chat about this                                                                                                    ",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "Enter to select \u00b7 Tab/Arrow keys to navigate \u00b7 Esc to cancel",
+      "runs": [
+        {
+          "s": 0,
+          "e": 60,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    }
+  ]
+}

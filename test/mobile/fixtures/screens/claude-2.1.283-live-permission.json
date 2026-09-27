@@ -1,0 +1,335 @@
+{
+  "cli": "claude",
+  "version": "2.1.283",
+  "name": "live-permission",
+  "via": "Workbook PTY",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 119,
+  "cursorY": 29,
+  "altBuffer": true,
+  "lines": [
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  \u23bf \u00a0SessionStart:startup hook error",
+      "runs": [
+        {
+          "s": 0,
+          "e": 36,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf \u00a0Failed with non-blocking status code: /usr/bin/bash: line 1: ${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd: No such file",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "     or directory",
+      "runs": [
+        {
+          "s": 5,
+          "e": 17,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u276f Reply with the single word ok.                                                                                        ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  This second line is part of the same message.                                                                         ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u25cf ok",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u273b Cogitated for 4s \u00b7 done 1:25 AM                                                                                       ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u276f Use the Bash tool to run exactly this command and nothing else: echo myrlin-check > probe.txt                         ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u25cf Writing \"myrlin-check\" to probe.txt",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf  $ echo myrlin-check > probe.txt",
+      "runs": [
+        {
+          "s": 0,
+          "e": 36,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": " Bash command",
+      "runs": [
+        {
+          "s": 1,
+          "e": 13,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "   echo myrlin-check > probe.txt",
+      "runs": []
+    },
+    {
+      "text": "   Write \"myrlin-check\" to probe.txt",
+      "runs": [
+        {
+          "s": 3,
+          "e": 36,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": " Do you want to proceed?",
+      "runs": []
+    },
+    {
+      "text": " \u276f 1. Yes                                                                                                               ",
+      "runs": [
+        {
+          "s": 1,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        },
+        {
+          "s": 3,
+          "e": 6,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 6,
+          "e": 9,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11647481
+        }
+      ]
+    },
+    {
+      "text": "   2. Yes, and always allow access to C:\\Users\\tester\\AppData\\Local\\Temp\\claude\\C--Users-tester\\00000000-0000-0000-0000-",
+      "runs": [
+        {
+          "s": 3,
+          "e": 6,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 38,
+          "e": 120,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "      000000000000\\scratchpad\\claude-live\\claude-live-wb-1790486724223 from this project",
+      "runs": [
+        {
+          "s": 6,
+          "e": 70,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "   3. No                                                                                                                ",
+      "runs": [
+        {
+          "s": 3,
+          "e": 6,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": " Esc to cancel \u00b7 Tab to amend",
+      "runs": [
+        {
+          "s": 1,
+          "e": 29,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    }
+  ]
+}

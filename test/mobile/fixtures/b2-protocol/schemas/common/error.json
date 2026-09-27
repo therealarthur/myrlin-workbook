@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/common/error.json",
+  "title": "Error",
+  "description": "Every non 2xx body: {error, code} plus the extra fields PROTOCOL.md section 13 lists for that code.",
+  "type": "object",
+  "properties": {
+    "error": {
+      "type": "string",
+      "minLength": 1
+    },
+    "code": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "field": {
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "./defs.json#/$defs/Scope"
+    },
+    "retryAfterMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "owner": {
+      "$ref": "./defs.json#/$defs/Owner"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "promptId": {
+      "$ref": "./defs.json#/$defs/PromptId"
+    },
+    "by": {
+      "type": "string"
+    },
+    "groupId": {
+      "type": "string"
+    },
+    "opIndex": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "current": {
+      "type": "object"
+    },
+    "quotaBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "usedBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "receivedBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "processes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pid": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pid",
+          "name",
+          "path"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "computerId": {
+      "$ref": "./defs.json#/$defs/ComputerId"
+    },
+    "deviceId": {
+      "$ref": "./defs.json#/$defs/DeviceId"
+    },
+    "clientNonce": {
+      "$ref": "./defs.json#/$defs/Nonce"
+    },
+    "revokedAtMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sig": {
+      "$ref": "./defs.json#/$defs/Signature"
+    },
+    "flowId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "error",
+    "code"
+  ],
+  "additionalProperties": false
+}

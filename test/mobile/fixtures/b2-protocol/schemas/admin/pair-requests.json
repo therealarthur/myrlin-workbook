@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/pair-requests.json",
+  "title": "PairRequestList",
+  "description": "GET /api/mobile-admin/pair-requests. PROTOCOL.md 11.3.",
+  "type": "object",
+  "properties": {
+    "pending": {
+      "type": "array",
+      "items": {
+        "$ref": "./pair-request-summary.json"
+      },
+      "maxItems": 3
+    }
+  },
+  "required": [
+    "pending"
+  ],
+  "additionalProperties": true
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/admin-devices.json",
+  "title": "AdminDeviceList",
+  "description": "GET /api/mobile-admin/devices. PROTOCOL.md 11.4.",
+  "type": "object",
+  "properties": {
+    "devices": {
+      "type": "array",
+      "items": {
+        "$ref": "./admin-device.json"
+      }
+    }
+  },
+  "required": [
+    "devices"
+  ],
+  "additionalProperties": true
+}

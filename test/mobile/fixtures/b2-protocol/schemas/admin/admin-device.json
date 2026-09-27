@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/admin-device.json",
+  "title": "AdminDevice",
+  "description": "A paired phone as the desktop Devices tab shows it. PROTOCOL.md 11.4.",
+  "allOf": [
+    {
+      "$ref": "../resources/device.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "publicKeyFingerprint": {
+          "$ref": "../common/defs.json#/$defs/Fingerprint"
+        },
+        "lastEndpointKind": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/EndpointKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "online": {
+          "type": "boolean"
+        },
+        "push": {
+          "type": "object",
+          "properties": {
+            "lastError": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "lastError"
+          ],
+          "additionalProperties": true
+        },
+        "liveActivityTokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "publicKeyFingerprint",
+        "lastEndpointKind",
+        "online",
+        "push",
+        "liveActivityTokens"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

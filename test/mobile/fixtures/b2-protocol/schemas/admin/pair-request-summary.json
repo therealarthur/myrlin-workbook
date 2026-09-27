@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/pair-request-summary.json",
+  "title": "PairRequestSummary",
+  "description": "A pending pair shown in the desktop Allow dialog; also the data of the mobile:pair-request SSE event. PROTOCOL.md 11.3.",
+  "type": "object",
+  "properties": {
+    "pairId": {
+      "$ref": "../common/defs.json#/$defs/PairId"
+    },
+    "deviceName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "string"
+    },
+    "osVersion": {
+      "type": "string"
+    },
+    "appVersion": {
+      "type": "string"
+    },
+    "deviceKeyFingerprint": {
+      "$ref": "../common/defs.json#/$defs/Fingerprint"
+    },
+    "matchCode": {
+      "type": "string",
+      "pattern": "^[0-9]{4}$"
+    },
+    "secretKind": {
+      "type": "string",
+      "enum": [
+        "qr",
+        "code"
+      ]
+    },
+    "requestedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "expiresAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    }
+  },
+  "required": [
+    "pairId",
+    "deviceName",
+    "model",
+    "osVersion",
+    "appVersion",
+    "deviceKeyFingerprint",
+    "matchCode",
+    "secretKind",
+    "requestedAtMs",
+    "expiresAtMs"
+  ],
+  "additionalProperties": true
+}

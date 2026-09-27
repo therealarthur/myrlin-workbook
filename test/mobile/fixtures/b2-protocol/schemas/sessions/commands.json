@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/commands.json",
+  "title": "CommandList",
+  "description": "GET /api/m/v2/sessions/:sessionId/commands: the slash commands the composer offers. PROTOCOL.md 4.4.8.",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "provider": {
+      "$ref": "../common/defs.json#/$defs/Provider"
+    },
+    "commands": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[^/\\s][^\\s]*$"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "builtin",
+              "user",
+              "project"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "source"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "generatedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    }
+  },
+  "required": [
+    "sessionId",
+    "provider",
+    "commands",
+    "generatedAtMs"
+  ],
+  "additionalProperties": true
+}

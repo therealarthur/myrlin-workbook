@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/apns-config.json",
+  "title": "ApnsConfig",
+  "description": "PUT /api/mobile-admin/apns. The p8 text is stored as a 0600 file and never returned. PROTOCOL.md 10.1 and 11.2.",
+  "type": "object",
+  "properties": {
+    "teamId": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{10}$"
+    },
+    "keyId": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{10}$"
+    },
+    "p8": {
+      "type": "string",
+      "minLength": 100,
+      "maxLength": 4096
+    },
+    "bundleId": {
+      "const": "io.myrlin.workbook"
+    }
+  },
+  "required": [
+    "teamId",
+    "keyId",
+    "p8"
+  ],
+  "additionalProperties": false
+}

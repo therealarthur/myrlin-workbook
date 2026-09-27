@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/accounts/refresh-result.json",
+  "title": "AccountsRefreshResult",
+  "description": "202 answer of POST /accounts/refresh. PROTOCOL.md 4.11.",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "ok",
+    "message"
+  ],
+  "additionalProperties": true
+}

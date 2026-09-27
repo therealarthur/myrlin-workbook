@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/part-text.json",
+  "title": "PartText",
+  "description": "GET .../messages/:messageId/parts/:partIndex/text. PROTOCOL.md 4.4.4.",
+  "type": "object",
+  "properties": {
+    "messageId": {
+      "$ref": "../common/defs.json#/$defs/MessageId"
+    },
+    "partIndex": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "length": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 262144
+    },
+    "totalLength": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "text": {
+      "type": "string"
+    },
+    "nextOffset": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "messageId",
+    "partIndex",
+    "offset",
+    "length",
+    "totalLength",
+    "text",
+    "nextOffset"
+  ],
+  "additionalProperties": true
+}

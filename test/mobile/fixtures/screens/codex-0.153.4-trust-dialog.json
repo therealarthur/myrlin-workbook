@@ -1,0 +1,160 @@
+{
+  "cli": "codex",
+  "version": "0.153.4",
+  "name": "trust-dialog",
+  "capturedAt": "2026-09-27T11:17:14.425Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 25,
+  "cursorY": 8,
+  "altBuffer": false,
+  "lines": [
+    {
+      "text": "> You are in C:\\Users\\tester\\AppData\\Local\\Temp\\claude\\C--Users-tester\\00000000-0000-0000-0000-000000000000\\scratchpad\\b",
+      "runs": [
+        {
+          "s": 2,
+          "e": 13,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt",
+      "runs": []
+    },
+    {
+      "text": "  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a 1. Yes, continue",
+      "runs": [
+        {
+          "s": 0,
+          "e": 18,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 6
+        }
+      ]
+    },
+    {
+      "text": "  2. No, quit",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  Press enter to continue",
+      "runs": [
+        {
+          "s": 2,
+          "e": 25,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    }
+  ]
+}

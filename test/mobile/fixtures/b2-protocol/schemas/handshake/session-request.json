@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/handshake/session-request.json",
+  "title": "SessionRequest",
+  "description": "POST /api/m/v2/session (public). Signed by K_d with purpose session-request. PROTOCOL.md 2.8.",
+  "type": "object",
+  "properties": {
+    "computerId": {
+      "$ref": "../common/defs.json#/$defs/ComputerId"
+    },
+    "deviceId": {
+      "$ref": "../common/defs.json#/$defs/DeviceId"
+    },
+    "serverNonce": {
+      "$ref": "../common/defs.json#/$defs/Nonce"
+    },
+    "clientNonce": {
+      "$ref": "../common/defs.json#/$defs/Nonce"
+    },
+    "ts": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "sig": {
+      "$ref": "../common/defs.json#/$defs/Signature"
+    }
+  },
+  "required": [
+    "computerId",
+    "deviceId",
+    "serverNonce",
+    "clientNonce",
+    "ts",
+    "sig"
+  ],
+  "additionalProperties": false
+}

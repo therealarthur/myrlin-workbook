@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/push/alert-payload.json",
+  "title": "AlertPayload",
+  "description": "The APNs payload Workbook sends. Keys inside aps are Apple's spelling; m is Myrlin's. PROTOCOL.md 10.3.",
+  "type": "object",
+  "properties": {
+    "aps": {
+      "type": "object",
+      "properties": {
+        "alert": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "subtitle": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "subtitle",
+            "body"
+          ],
+          "additionalProperties": true
+        },
+        "sound": {
+          "type": "string"
+        },
+        "badge": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "MYRLIN_QUESTION",
+            "MYRLIN_APPROVAL",
+            "MYRLIN_FINISHED",
+            "MYRLIN_LIMIT",
+            "MYRLIN_SWAP",
+            "MYRLIN_MIGRATION"
+          ]
+        },
+        "thread-id": {
+          "type": "string"
+        },
+        "interruption-level": {
+          "type": "string",
+          "enum": [
+            "active",
+            "time-sensitive"
+          ]
+        },
+        "content-available": {
+          "const": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "m": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "k": {
+          "type": "string",
+          "enum": [
+            "question",
+            "approval",
+            "plan",
+            "finished",
+            "limit",
+            "swap",
+            "migration",
+            "resolved"
+          ]
+        },
+        "cid": {
+          "$ref": "../common/defs.json#/$defs/ComputerId"
+        },
+        "sid": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/SessionId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pid": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/PromptId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mid": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/MigrationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "acc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "prov": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/Provider"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ts": {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        }
+      },
+      "required": [
+        "v",
+        "k",
+        "cid",
+        "sid",
+        "pid",
+        "ts"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "aps",
+    "m"
+  ],
+  "additionalProperties": true
+}

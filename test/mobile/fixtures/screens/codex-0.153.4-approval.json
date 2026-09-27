@@ -1,0 +1,297 @@
+{
+  "cli": "codex",
+  "version": "0.153.4",
+  "name": "approval",
+  "capturedAt": "2026-09-27T11:20:24.900Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 120,
+  "cursorY": 29,
+  "altBuffer": false,
+  "lines": [
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2022 ok9",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a Reply with only the word ok10.",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2022 ok10",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a Run this exact shell command and nothing else: echo myrlin-check > probe.txt . The sandbox is read only, so request   ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  escalated permissions for it.",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2022 Running echo myrlin-check > probe.txt",
+      "runs": [
+        {
+          "s": 2,
+          "e": 9,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 10,
+          "e": 15,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 9024762
+        },
+        {
+          "s": 15,
+          "e": 28,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 13489908
+        },
+        {
+          "s": 28,
+          "e": 30,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 9757397
+        },
+        {
+          "s": 30,
+          "e": 39,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 13489908
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  Would you like to run the following command?",
+      "runs": [
+        {
+          "s": 2,
+          "e": 46,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  Environment: local",
+      "runs": [
+        {
+          "s": 15,
+          "e": 20,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  Reason: Do you want to allow writing probe.txt with the exact requested command?",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  $ echo myrlin-check > probe.txt",
+      "runs": [
+        {
+          "s": 4,
+          "e": 9,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 9024762
+        },
+        {
+          "s": 9,
+          "e": 22,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 13489908
+        },
+        {
+          "s": 22,
+          "e": 24,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 9757397
+        },
+        {
+          "s": 24,
+          "e": 33,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 13489908
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a 1. Yes, proceed (y)",
+      "runs": [
+        {
+          "s": 0,
+          "e": 21,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": 6
+        }
+      ]
+    },
+    {
+      "text": "  2. Yes, and don't ask again for commands that start with `echo myrlin-check > probe.txt` (p)",
+      "runs": [
+        {
+          "s": 92,
+          "e": 93,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  3. No, and tell Codex what to do differently (esc)",
+      "runs": [
+        {
+          "s": 48,
+          "e": 51,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  Press enter to confirm or esc to cancel                                                                               ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 120,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    }
+  ]
+}
