@@ -107,6 +107,45 @@ kit.test('a dialog that opens between paste and submit fails the send with DIALO
   kit.ok(!w.writes.some((x) => x.bytes === '\r'), 'no submit');
 });
 
+kit.test('F1: a fresh screen read no more than 50 ms before the paste; a dialog seen there holds the send and writes nothing', async () => {
+  // Scratch evidence: an open codex-cli 0.153.4 approval took a pasted "1" as
+  // its option key and approved the command (F1_codexApproval).
+  const w = world(tmp());
+  const reads = [];
+  // The dialog shows only on reads taken with maxAge 0 (the one right before the paste).
+  let dialogOpen = true;
+  const origFresh = async () => ({ cls: w.cls, snap: null });
+  const q = createSendQueue({
+    ctx: { mobile: { hub: { publish: (topic, type, data) => { w.events.push({ type, data }); return 1; } } }, dataDir: tmp() },
+    index: { resolve: () => ({ sessionId: SID, owner: 'workbook', provider: 'codex', upstreamId: SID.slice(3) }), meta: () => ({}), computerName: () => 'PC' },
+    runtime: {
+      ptyOf: () => w.pty,
+      hasScreen: () => true,
+      freshScreen: async (sid, maxAge) => {
+        reads.push({ maxAge, at: Date.now() });
+        if (maxAge === 0 && dialogOpen) return { cls: { kind: 'prompt', dialog: {}, input: null, busy: false }, snap: null };
+        return origFresh();
+      },
+      bracketedPaste: () => true,
+      write: (sid, bytes) => { w.writes.push({ bytes, at: Date.now() }); return true; },
+      withLock: async (sid, fn) => fn(),
+      onScreen: () => () => {},
+    },
+    lazy: { turns: () => ({ isTurnOpen: () => false, refresh() {} }), prompts: () => ({ openFor: () => [] }), uploads: () => ({ getOwned: () => null }) },
+    timings: { gateTickMs: 40, typingGuardMs: 300 },
+  });
+  const r = q.accept(SID, { clientMessageId: crypto.randomUUID(), text: '1 hello' }, { deviceId: DEV });
+  const recOf = () => q._records.get(SID + '|' + r.send.clientMessageId);
+  await kit.until(() => w.events.some((e) => e.type === 'send.update' && e.data.send.reason === 'promptOpen'), 2000, 'held by the pre-paste read');
+  await kit.sleep(300);
+  kit.eq([w.writes.length, recOf().state, recOf().reason], [0, 'queued', 'promptOpen'], 'nothing written while the dialog showed');
+  dialogOpen = false;
+  await kit.until(() => recOf().state === 'delivered', 3000, 'delivered once the dialog is gone');
+  const paste = w.writes.find((x) => x.bytes.startsWith(PASTE_START));
+  const before = reads.filter((x) => x.maxAge === 0 && x.at <= paste.at).pop();
+  kit.ok(before && paste.at - before.at <= 50, 'a fresh read ' + (before ? paste.at - before.at : 'none') + ' ms before the paste');
+});
+
 kit.test('the text is sanitised: CRLF to LF, paste markers and controls removed', async () => {
   const w = world(tmp());
   const r = send(w, 'a\r\nb\x1b[201~c\x07');

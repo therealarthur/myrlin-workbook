@@ -38,6 +38,8 @@ const SEND_BUFFER_LIMIT = 4 * 1024 * 1024;
 const SERVER_FRAME_MAX = 1024 * 1024;
 const CLIENT_FRAME_MAX = 64 * 1024;
 const COMMAND_ID_MAX = 64;
+/** Random bytes in a minted noticeId (n_ plus hex). */
+const NOTICE_ID_BYTES = 6;
 
 const CLOSE = Object.freeze({
   NORMAL: 1000,
@@ -138,6 +140,10 @@ function createHub(ctx, opts = {}) {
   const unsubs = [];
   let sessionResolver = () => true;
   let closed = false;
+  // Notices (PROTOCOL.md 3.13): what every new connection is told, and the
+  // computer name the shutdown notice names. mountChat fills both.
+  let connectNotices = () => [];
+  let computerName = () => 'this computer';
 
   const mobile = () => (ctx && ctx.mobile) || {};
 
@@ -451,9 +457,44 @@ function createHub(ctx, opts = {}) {
         { topic: 'device', currentSeq: rings.currentSeq(keyFor(st, 'device')) },
       ],
     });
+    // One notice per stream connection for each standing condition (PROTOCOL.md
+    // 1.6: SCREEN_MODEL_OFF when the screen model is off). It goes on the
+    // computer topic like every event, so seq stays gapless for every socket;
+    // the noticeId is stable within an epoch so a phone that sees it twice
+    // (from its second socket) shows it once.
+    let notices = [];
+    try { notices = connectNotices() || []; } catch (err) { warn('connect notices failed', err && err.message); notices = []; }
+    for (const n of notices) publishNotice(n);
     if (typeof opts.onConnect === 'function') {
       try { opts.onConnect(st.deviceId); } catch (_) {}
     }
+  }
+
+  /**
+   * Build a Notice (stream/notice.json) with defaults for the optional fields.
+   * @param {{noticeId?: string, level?: string, code: string, message: string, sessionId?: (string|null), accountId?: (string|null), expiresAtMs?: (number|null)}} n
+   * @returns {object}
+   */
+  function makeNotice(n) {
+    return {
+      noticeId: n.noticeId || ('n_' + crypto.randomBytes(NOTICE_ID_BYTES).toString('hex')),
+      level: n.level || 'info',
+      code: n.code,
+      message: n.message,
+      sessionId: n.sessionId || null,
+      accountId: n.accountId || null,
+      createdAtMs: Number.isFinite(n.createdAtMs) ? n.createdAtMs : now(),
+      expiresAtMs: Number.isFinite(n.expiresAtMs) ? n.expiresAtMs : null,
+    };
+  }
+
+  /**
+   * Publish a computer.notice on the computer topic.
+   * @param {object} n - a Notice or the fields makeNotice fills
+   * @returns {number} seq
+   */
+  function publishNotice(n) {
+    return publish('computer', 'computer.notice', { notice: makeNotice(n) });
   }
 
   /** Heartbeat tick: dead peers, expired tokens, pings. */
@@ -562,6 +603,16 @@ function createHub(ctx, opts = {}) {
     /** Who follows a topic right now (device ids). */
     subscribersOf(topic) { return Array.from(sockets).filter((s) => s.topics.has(topic)).map((s) => s.deviceId); },
     setSessionResolver(fn) { if (typeof fn === 'function') sessionResolver = fn; },
+    publishNotice,
+    /**
+     * Configure notices: onConnect() returns the Notices each new connection
+     * gets (PROTOCOL.md 1.6); computerName() names this computer in them.
+     * @param {{onConnect?: () => object[], computerName?: () => string}} c
+     */
+    configureNotices(c) {
+      if (c && typeof c.onConnect === 'function') connectNotices = c.onConnect;
+      if (c && typeof c.computerName === 'function') computerName = c.computerName;
+    },
     handleUpgrade,
     /**
      * Listen for upgrades on an http.Server directly (used by tests and when
@@ -581,6 +632,15 @@ function createHub(ctx, opts = {}) {
      * @param {string} [reason]
      */
     close(code = CLOSE.GOING_AWAY, reason = 'SHUTDOWN') {
+      // PROTOCOL.md 5.6: close 1001 is preceded by the WORKBOOK_SHUTTING_DOWN
+      // notice; ws sends it before the close frame on every socket.
+      if (!closed && code === CLOSE.GOING_AWAY && sockets.size) {
+        let name = 'this computer';
+        try { name = computerName() || name; } catch (_) { /* keep the default */ }
+        try {
+          publishNotice({ noticeId: 'n_shutdown_' + epoch.slice(2), level: 'warn', code: 'WORKBOOK_SHUTTING_DOWN', message: 'Workbook is restarting on ' + name + '.' });
+        } catch (err) { warn('shutdown notice failed', err && err.message); }
+      }
       closed = true;
       clearInterval(timer);
       for (const st of Array.from(sockets)) closeSocket(st, code, reason);

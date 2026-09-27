@@ -18,7 +18,7 @@ const promptFns = [];
 const turnFns = [];
 const stateFns = [];
 const ctx = { mobile: { push: { notify: async (e) => { events.push(e); } } } };
-const index = { resolve: (id) => ({ sessionId: id, title: 'Title ' + id, provider: 'claude' }), computerName: () => 'TESTER-PC' };
+const index = { resolve: (id) => ({ sessionId: id, title: 'Title ' + id, provider: 'claude' }), computerName: () => 'TEST-PC' };
 const prompts = { onEvent: (fn) => { promptFns.push(fn); return () => {}; } };
 const turns = { onTurn: (fn) => { turnFns.push(fn); return () => {}; }, onState: (fn) => { stateFns.push(fn); return () => {}; } };
 createPushTriggers({ ctx, index, prompts, turns });
@@ -46,7 +46,7 @@ kit.test('finished on completed and failed turns with duration and error words; 
 kit.test('activity: start with one running session, waiting first, at most 4, then empty', async () => {
   state('cl_1', 'thinking', 1);
   let a = last('activity');
-  kit.eq([a.computerName, a.sessions.map((s) => s.sessionId), a.urgentSessionId, a.needsYouChanged], ['TESTER-PC', ['cl_1'], 'cl_1', false]);
+  kit.eq([a.computerName, a.sessions.map((s) => s.sessionId), a.urgentSessionId, a.needsYouChanged], ['TEST-PC', ['cl_1'], 'cl_1', false]);
   state('cl_2', 'working', 2);
   state('cl_3', 'queued', 3);
   state('cl_4', 'thinking', 4);

@@ -445,9 +445,24 @@ function createSendQueue(deps) {
   /**
    * Deliver one send (PROTOCOL.md 7.3 steps 5 to 7) under the session lock.
    * @param {object} r
+   * @returns {Promise<(boolean|void)>} false when the pre-paste read held the send (it stays queued)
    */
   async function deliver(r) {
     const c = compose(r);
+    // Critic F1, measured in the B2 fix round: an open codex-cli 0.153.4 command
+    // approval takes the characters of a bracketed paste as keys (a paste of
+    // "1 hello" approved the command, codex-0.153.4-live-evidence.json
+    // F1_codexApproval), so one more screen read, taken right here and so no
+    // more than 50 ms before the paste, must still pass the gate; otherwise
+    // the send stays queued with that reason. The gate itself is unchanged.
+    if (runtime.hasScreen(r.sessionId)) {
+      const pre = await runtime.freshScreen(r.sessionId, 0);
+      const held = pre ? gate(r, pre) : 'screenUnknown';
+      if (held) {
+        if (r.reason !== held) { r.reason = held; transition(r); }
+        return false;
+      }
+    }
     r.attachmentLines = c.attachmentLines;
     r.state = 'writing';
     r.reason = null;
@@ -544,12 +559,15 @@ function createSendQueue(deps) {
           await waitWake(sessionId, runtime.hasScreen(sessionId) ? T.gateTickMs : T.noScreenTickMs);
           continue;
         }
+        let heldBeforePaste = false;
         await runtime.withLock(sessionId, async () => {
           if (head.state !== 'queued') return;
           const s2 = runtime.hasScreen(sessionId) ? await runtime.freshScreen(sessionId, 250) : null;
           if (s2 && gate(head, s2)) return;
-          await deliver(head);
+          if ((await deliver(head)) === false) heldBeforePaste = true;
         });
+        // The pre-paste read found a dialog: wait for the next screen change or tick.
+        if (heldBeforePaste) await waitWake(sessionId, T.gateTickMs);
       }
     })().catch((err) => warn('send pump failed', err && err.message)).finally(() => { pumps.delete(sessionId); });
     pumps.set(sessionId, run);

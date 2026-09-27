@@ -5,7 +5,11 @@
  * refuses a live interactive one with SESSION_LIVE_ELSEWHERE and never
  * spawns, and never spawns twice for one transcript. POST /sessions creates
  * and starts a session and delivers its first message; restart and stop
- * follow their owner rules.
+ * follow their owner rules. Fix round: a phone body can never set argsExtra
+ * or any field outside NewSessionRequest (W2, PROTOCOL.md 0.1), a model id
+ * cannot start with a hyphen, the in process createSession of 3.4.3, the
+ * _liveChecked bypass is gone, a record that changes during the lookup is
+ * checked again, and a refused relaunch is never answered 202.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  */
@@ -124,6 +128,150 @@ kit.test('restart now during a turn is SESSION_BUSY; stop kills the pane', async
   kit.validate(s.body, 'sessions/status-result.json');
   const s2 = await kit.api(env.base, 'POST', '/sessions/' + newSid + '/stop', { clientRequestId: crypto.randomUUID() }, env.device.token);
   kit.eq(s2.body.status, 'notRunning');
+});
+
+// ── Fix round: the phone body never reaches a command line (W2, PROTOCOL.md 0.1) ──
+
+/**
+ * Record every launchDetached call's options and spawn through the argv spy.
+ * @returns {{calls: object[], restore: () => void}}
+ */
+function captureLaunches() {
+  const orig = env.pm.launchDetached;
+  const calls = [];
+  env.pm.launchDetached = function capture(id, opts, depth) {
+    calls.push(Object.assign({}, opts || {}));
+    return orig.call(env.pm, id, Object.assign({}, opts || {}, { _ptySpawnForTesting: spy }), depth);
+  };
+  return { calls, restore: () => { env.pm.launchDetached = orig; } };
+}
+
+kit.test('NEW_SESSION_FIELDS equals the NewSessionRequest schema properties', async () => {
+  const { NEW_SESSION_FIELDS } = require('../../src/web/mobile/chat/launch');
+  const schema = JSON.parse(fs.readFileSync(path.join(kit.SCHEMA_ROOT, 'sessions', 'new-session-request.json'), 'utf8'));
+  kit.eq(NEW_SESSION_FIELDS.slice().sort(), Object.keys(schema.properties).sort());
+});
+
+kit.test('a phone POST /sessions cannot set argsExtra or any other field outside the schema', async () => {
+  const cwd = path.join(sb.work, 'no-args-extra');
+  fs.mkdirSync(cwd, { recursive: true });
+  const ws = env.store.getAllWorkspacesList()[0];
+  const cap = captureLaunches();
+  const before = spawns.length;
+  let r;
+  try {
+    r = await kit.api(env.base, 'POST', '/sessions', {
+      clientRequestId: crypto.randomUUID(), provider: 'claude', workingDir: cwd, projectId: ws.id, name: null, settings: null, tabGroupId: null, afterSessionId: null,
+      argsExtra: ['--dangerously-skip-permissions', '--add-dir', 'C:\\'],
+      command: 'claude --dangerously-skip-permissions',
+      flags: ['dangerously-skip-permissions'],
+      _liveChecked: true,
+      attachShortId: 'abcd1234',
+    }, env.device.token);
+  } finally { cap.restore(); }
+  kit.eq(r.status, 201, JSON.stringify(r.body));
+  kit.eq(cap.calls.length, 1);
+  for (const k of ['argsExtra', 'command', 'flags', '_liveChecked', 'attachShortId']) kit.ok(!(k in cap.calls[0]), k + ' must not reach launchDetached: ' + JSON.stringify(cap.calls[0]));
+  kit.eq(spawns.length, before + 1);
+  const argv = spawns[spawns.length - 1];
+  kit.ok(!/dangerously|add-dir|attach/.test(argv), 'argv carries nothing from the body: ' + argv);
+  const rec = env.store.getAllSessionsList().find((x) => x.workingDir === cwd);
+  kit.eq([rec.command, !!rec.bypassPermissions, (rec.flags || []).length], ['claude', false, 0]);
+  env.pm.killSession(rec.id);
+});
+
+kit.test('a model id that starts with a hyphen is INVALID_SETTING, so it can never read as a flag', async () => {
+  const cwd = path.join(sb.work, 'hyphen-model');
+  fs.mkdirSync(cwd, { recursive: true });
+  const r = await kit.api(env.base, 'POST', '/sessions', { clientRequestId: crypto.randomUUID(), provider: 'claude', workingDir: cwd, projectId: env.store.getAllWorkspacesList()[0].id, settings: { model: '--dangerously-skip-permissions' } }, env.device.token);
+  kit.eq([r.status, r.body.code, r.body.field], [422, 'INVALID_SETTING', 'model']);
+});
+
+kit.test('in process createSession (B3) takes launchOptions and argsExtra and resolves to a SessionSummary', async () => {
+  const cwd = path.join(sb.work, 'migration-target');
+  fs.mkdirSync(cwd, { recursive: true });
+  const cap = captureLaunches();
+  let summary;
+  try {
+    summary = await env.chat.launch.createSession({
+      provider: 'claude', workingDir: cwd, projectId: env.store.getAllWorkspacesList()[0].id, name: 'Takeover target',
+      launchOptions: { model: 'haiku', effort: 'low', permissionMode: 'plan', bypassPermissions: false, codex: null },
+      argsExtra: ['--append-system-prompt-file', path.join(cwd, 'CHARTER.md'), '--add-dir', cwd],
+    });
+  } finally { cap.restore(); }
+  kit.validate(summary, 'sessions/session-summary.json');
+  kit.ok(!('session' in summary) && !('send' in summary), 'a SessionSummary, not the route body');
+  kit.eq(summary.title, 'Takeover target');
+  kit.eq(cap.calls[0].argsExtra, ['--append-system-prompt-file', path.join(cwd, 'CHARTER.md'), '--add-dir', cwd]);
+  const rec = env.store.getAllSessionsList().find((x) => x.workingDir === cwd);
+  kit.eq([rec.model, rec.effort, rec.permissionMode], ['haiku', 'low', 'plan']);
+  env.pm.killSession(rec.id);
+});
+
+kit.test('in process createSession refuses argsExtra that are not a short list of plain arguments', async () => {
+  const cwd = path.join(sb.work, 'bad-args');
+  fs.mkdirSync(cwd, { recursive: true });
+  const base = { provider: 'claude', workingDir: cwd, projectId: env.store.getAllWorkspacesList()[0].id, name: 'x' };
+  for (const bad of ['--add-dir x', ['ok', 'two\nlines'], ['a\u0007'], [42], new Array(33).fill('x')]) {
+    const err = await env.chat.launch.createSession(Object.assign({}, base, { argsExtra: bad })).then(() => null, (e) => e);
+    kit.ok(err && err.status === 400 && err.code === 'INVALID_FIELD' && err.extra && err.extra.field === 'argsExtra', 'refused ' + JSON.stringify(bad) + ': ' + (err && err.code));
+  }
+});
+
+kit.test('launchDetached ignores a caller supplied _liveChecked: a live interactive match is still refused', async () => {
+  const transcript = crypto.randomUUID();
+  kit.writeClaude(sb.projects, sb.work, transcript, kit.claudeExchange('bypass'));
+  stateEntry(transcript, 'interactive', 'by12ab34');
+  const rec = kit.trackedSession(env.store, { provider: 'claude', workingDir: sb.work, resumeSessionId: transcript });
+  const before = spawns.length;
+  const r = await env.pm.launchDetached(rec.id, { _ptySpawnForTesting: spy, _liveFresh: true, _liveChecked: true });
+  kit.eq([r.status, r.code], ['refused', 'SESSION_LIVE_ELSEWHERE']);
+  kit.eq(spawns.length, before, 'nothing spawned');
+});
+
+kit.test('launchDetached checks again when the record changes during the lookup (attachClient rule)', async () => {
+  const quiet = crypto.randomUUID();
+  const live = crypto.randomUUID();
+  kit.writeClaude(sb.projects, sb.work, quiet, kit.claudeExchange('quiet'));
+  kit.writeClaude(sb.projects, sb.work, live, kit.claudeExchange('live'));
+  stateEntry(live, 'interactive', 'lv12ab34');
+  const rec = kit.trackedSession(env.store, { provider: 'claude', workingDir: sb.work, resumeSessionId: quiet });
+  const orig = env.pm._decideLive;
+  let decisions = 0;
+  env.pm._decideLive = async function decideThenChange(id, gate) {
+    decisions += 1;
+    const d = await orig.call(env.pm, id, gate);
+    // The record moves to another transcript while the first lookup ran.
+    if (decisions === 1) env.store.updateSession(rec.id, { resumeSessionId: live });
+    return d;
+  };
+  const before = spawns.length;
+  let r;
+  try { r = await env.pm.launchDetached(rec.id, { _ptySpawnForTesting: spy, _liveFresh: true }); } finally { env.pm._decideLive = orig; }
+  kit.eq([r.status, r.code, decisions], ['refused', 'SESSION_LIVE_ELSEWHERE', 2]);
+  kit.eq(spawns.length, before, 'the changed target was checked, never spawned unchecked');
+});
+
+kit.test('restart answers the refusal instead of 202 when the relaunch is refused (owner none and workbook)', async () => {
+  const transcript = crypto.randomUUID();
+  kit.writeClaude(sb.projects, sb.work, transcript, kit.claudeExchange('restart me'));
+  const rec = kit.trackedSession(env.store, { provider: 'claude', workingDir: sb.work, resumeSessionId: transcript });
+  env.chat.internals.index.invalidate();
+  const sid = 'cl_' + transcript;
+  const orig = env.pm.launchDetached;
+  env.pm.launchDetached = async () => ({ status: 'refused', code: 'SESSION_LIVE_ELSEWHERE', message: 'It is open in a terminal.' });
+  let none;
+  try { none = await kit.api(env.base, 'POST', '/sessions/' + sid + '/restart', { clientRequestId: crypto.randomUUID(), when: 'now' }, env.device.token); } finally { env.pm.launchDetached = orig; }
+  kit.eq([none.status, none.body.code], [409, 'SESSION_LIVE_ELSEWHERE']);
+  const up = await env.pm.launchDetached(rec.id, { _ptySpawnForTesting: spy });
+  kit.eq(up.status, 'spawned');
+  env.chat.internals.index.invalidate();
+  kit.eq(env.chat.sessions.resolve(sid).owner, 'workbook');
+  env.pm.launchDetached = async () => ({ status: 'refused', code: 'LAUNCH_FAILED', message: null });
+  let wb;
+  try { wb = await kit.api(env.base, 'POST', '/sessions/' + sid + '/restart', { clientRequestId: crypto.randomUUID(), when: 'now' }, env.device.token); } finally { env.pm.launchDetached = orig; }
+  kit.eq([wb.status, wb.body.code], [500, 'INTERNAL']);
+  kit.ok(/LAUNCH_FAILED/.test(wb.body.error), wb.body.error);
 });
 
 kit.run(async () => { if (env) await env.close(); });

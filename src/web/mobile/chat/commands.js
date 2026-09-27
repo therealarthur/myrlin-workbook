@@ -15,9 +15,12 @@
  * Source of CLAUDE_BUILTINS: the "/" menu of Claude Code 2.1.283 captured in
  * the B2 scratch run (test/mobile/fixtures/scratch/claude-2.1.283-live-evidence.json,
  * the alphabetical built in block from add-dir to workflows; skills, plugins
- * and user commands of that machine are excluded). CODEX_BUILTINS: codex-cli
- * 0.153.4 was not captured (no scratch Codex run, see the B2 report); the list
- * is the TUI's documented slash commands and is marked UNVERIFIED.
+ * and user commands of that machine are excluded). CODEX_BUILTINS: the "/"
+ * popup of codex-cli 0.153.4 captured in the B2 fix round, 51 commands, sorted
+ * by name here (test/mobile/fixtures/scratch/codex-0.153.4-live-evidence.json,
+ * slashCommands; screen codex-0.153.4-slash-menu). It replaces the first
+ * round's unverified list, whose approvals and quit do not exist in 0.153.4
+ * (their commands are permissions and exit).
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  */
@@ -106,17 +109,57 @@ const CLAUDE_BUILTINS = [
 ];
 
 const CODEX_BUILTINS = [
-  ['approvals', 'Choose what Codex can do without approval'],
-  ['compact', 'Summarize the conversation to free context'],
-  ['diff', 'Show the git diff, including untracked files'],
-  ['init', 'Create an AGENTS.md file with instructions for Codex'],
-  ['mcp', 'List configured MCP tools'],
-  ['mention', 'Mention a file'],
-  ['model', 'Choose the model and reasoning effort'],
-  ['new', 'Start a new chat'],
-  ['quit', 'Exit Codex'],
-  ['review', 'Review the current changes'],
-  ['status', 'Show the session configuration and token usage'],
+  ["agents", "view and switch between all active agent sessions"],
+  ["app", "continue this session in the Desktop app"],
+  ["approve", "approve one retry of a recent auto-review denial"],
+  ["archive", "archive this session and exit"],
+  ["cd", "change the current working directory"],
+  ["clear", "clear the terminal and start a new chat"],
+  ["compact", "summarize conversation to prevent hitting the context limit"],
+  ["copy", "copy the last response, code block, or quote"],
+  ["delete", "permanently delete this session and exit"],
+  ["diff", "show git diff (including untracked files)"],
+  ["exit", "exit Codex"],
+  ["experimental", "toggle experimental features"],
+  ["export", "export the conversation as markdown"],
+  ["fast", "1.5x speed, increased usage"],
+  ["feedback", "send logs to maintainers"],
+  ["fork", "fork the current chat"],
+  ["goal", "set or view the goal for a long-running task"],
+  ["hooks", "view and manage lifecycle hooks"],
+  ["ide", "include current selection, open files, and other context from your IDE"],
+  ["import", "import setup, this project, and recent chats from Claude Code"],
+  ["init", "create an AGENTS.md file with instructions for Codex"],
+  ["keymap", "remap TUI shortcuts"],
+  ["logout", "log out of Codex"],
+  ["mcp", "list configured MCP tools; use /mcp verbose for details"],
+  ["memories", "configure memory use and generation"],
+  ["mention", "mention a file"],
+  ["model", "choose what model and reasoning effort to use"],
+  ["new", "start a new chat during a conversation"],
+  ["permissions", "choose what Codex is allowed to do"],
+  ["personality", "choose a communication style for Codex"],
+  ["pets", "choose or hide the terminal pet"],
+  ["plan", "switch to Plan mode"],
+  ["plugins", "browse plugins"],
+  ["ps", "list background terminals"],
+  ["pwd", "show the current working directory"],
+  ["raw", "toggle raw scrollback mode for copy-friendly terminal selection"],
+  ["recap", "summarize the current conversation now"],
+  ["rename", "rename the current thread"],
+  ["resume", "resume a saved chat"],
+  ["review", "review my current changes and find issues"],
+  ["sandbox-add-read-dir", "let sandbox read a directory: /sandbox-add-read-dir <absolute_path>"],
+  ["side", "start a side conversation in an ephemeral fork"],
+  ["skills", "use skills to improve how Codex performs specific tasks"],
+  ["status", "show current session configuration and token usage"],
+  ["statusline", "configure which items appear in the status line"],
+  ["stop", "stop all background terminals"],
+  ["subagents", "switch between this session's subagents"],
+  ["theme", "choose a syntax highlighting theme"],
+  ["title", "configure which items appear in the terminal title"],
+  ["usage", "view account usage or use a usage limit reset"],
+  ["vim", "toggle Vim mode for the composer"],
 ];
 
 /**

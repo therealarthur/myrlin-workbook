@@ -1,7 +1,8 @@
 /**
  * B2: prompt detection (PROTOCOL.md 8.1 to 8.4). Every golden screen
- * captured from the real Claude Code 2.1.283 (fixtures/screens) classifies
- * to its expected kind, options, roles and question; synthetic Codex,
+ * captured from the real Claude Code 2.1.283 and codex-cli 0.153.4
+ * (fixtures/screens, each one listed) classifies to its expected kind,
+ * options, roles, keys and question; synthetic Codex,
  * folder trust and multi question screens do too; the fingerprint ignores
  * the selector, the prompt id survives a highlight move and a question
  * change of the same tool call, and the transcript completes the prompt.
@@ -18,6 +19,7 @@ const { classify, roleOf, fingerprintOf, createPromptService } = require('../../
 
 const SCREENS = path.join(__dirname, 'fixtures', 'screens');
 const load = (n) => JSON.parse(fs.readFileSync(path.join(SCREENS, 'claude-2.1.283-' + n + '.json'), 'utf8'));
+const loadFile = (n) => JSON.parse(fs.readFileSync(path.join(SCREENS, n + '.json'), 'utf8'));
 const SEL = String.fromCharCode(0x276f);
 const RULE = String.fromCharCode(0x2500).repeat(80);
 const NBSP = String.fromCharCode(0xa0);
@@ -27,27 +29,61 @@ function screen(rows, runs) {
   return { cols: 120, rows: 30, cursorX: 0, cursorY: 0, altBuffer: true, lines: rows.map((text, i) => ({ text, runs: (runs && runs[i]) || [] })) };
 }
 
+// Every capture in fixtures/screens, keyed by file name: the real Claude Code
+// 2.1.283 and codex-cli 0.153.4 screens of the first run, the Workbook live
+// check and the fix round (capture-real-fixround.js). A test below fails when
+// a capture is missing from this table.
 const expected = {
-  permission: { kind: 'prompt', dialog: 'approval', title: 'Bash command', keys: ['1', '2', '3'], roles: ['allow', 'allowAlways', 'deny'], highlighted: 0 },
-  'permission-after-paste': { kind: 'prompt', dialog: 'approval' },
-  'permission-after-cr': { kind: 'busy' },
-  'ask-single-after-cr': { kind: 'prompt', dialog: 'question', question: 'Pick a color', labels: ['Red', 'Blue'], otherIndex: 2 },
-  'plan-dialog': { kind: 'prompt', dialog: 'plan', roles: ['allow', 'allow', 'keepPlanning'] },
-  'plan-after-esc': { kind: 'idlePrompt', inputText: '' },
-  'idle-draft': { kind: 'idlePrompt', inputText: 'draft from the desktop' },
-  'after-submit-1s': { kind: 'busy' },
-  'fork-start': { kind: 'idlePrompt' },
-  'slash-menu': { kind: 'idlePrompt', inputText: '/' },
+  'claude-2.1.283-permission': { kind: 'prompt', dialog: 'approval', title: 'Bash command', keys: ['1', '2', '3'], roles: ['allow', 'allowAlways', 'deny'], highlighted: 0 },
+  'claude-2.1.283-permission-after-paste': { kind: 'prompt', dialog: 'approval' },
+  'claude-2.1.283-permission-after-cr': { kind: 'busy' },
+  'claude-2.1.283-ask-single': { kind: 'prompt', dialog: 'question', question: 'Pick a color', labels: ['Red', 'Blue'], otherIndex: 2, highlighted: 0 },
+  // F1: a paste of "1 hello" into the open question dialog answered nothing.
+  'claude-2.1.283-ask-single-after-paste': { kind: 'prompt', dialog: 'question', question: 'Pick a color' },
+  // F1: a lone CR picked the highlighted option and the turn went on.
+  'claude-2.1.283-ask-single-after-cr': { kind: 'busy' },
+  'claude-2.1.283-ask-multi-q1': { kind: 'prompt', dialog: 'question', question: 'Pick a color', labels: ['Red', 'Blue'], tabs: ['Color', 'Sizes'], multi: false },
+  'claude-2.1.283-ask-multi-q2': { kind: 'prompt', dialog: 'question', question: 'Pick sizes', labels: ['Small', 'Large'], tabs: ['Color', 'Sizes'], multi: true, checked: [false, false, false] },
+  'claude-2.1.283-ask-multi-q2-checked': { kind: 'prompt', dialog: 'question', question: 'Pick sizes', multi: true, checked: [true, false, false] },
+  'claude-2.1.283-ask-multi-review': { kind: 'prompt', dialog: 'question', review: true, optionLabels: ['Submit answers', 'Cancel'] },
+  'claude-2.1.283-ask-multi-after-submit': { kind: 'busy' },
+  'claude-2.1.283-plan-dialog': { kind: 'prompt', dialog: 'plan', roles: ['allow', 'allow', 'keepPlanning'] },
+  // F1: a paste did not select a plan option; a lone CR did (the turn went on).
+  'claude-2.1.283-plan-after-paste': { kind: 'prompt', dialog: 'plan' },
+  'claude-2.1.283-plan-after-cr': { kind: 'busy' },
+  'claude-2.1.283-plan-after-esc': { kind: 'idlePrompt', inputText: '' },
+  'claude-2.1.283-idle-draft': { kind: 'idlePrompt', inputText: 'draft from the desktop' },
+  'claude-2.1.283-after-submit-1s': { kind: 'busy' },
+  'claude-2.1.283-fork-start': { kind: 'idlePrompt' },
+  'claude-2.1.283-slash-menu': { kind: 'idlePrompt', inputText: '/' },
+  // The folder trust dialog: unnumbered options, so an unknown modal with none (G2 holds sends).
+  'claude-2.1.283-trust-dialog': { kind: 'unknownModal', dialog: 'unknown', title: 'Trust this folder?', optionLabels: [] },
   // Screens read through a Workbook PTY by the live check (fakes/live-check-workbook.js).
-  'live-idle': { kind: 'idlePrompt', inputText: '' },
-  'live-permission': { kind: 'prompt', dialog: 'approval', title: 'Bash command', keys: ['1', '2', '3'], roles: ['allow', 'allowAlways', 'deny'] },
-  'live-question': { kind: 'prompt', dialog: 'question', question: 'Pick a color', labels: ['Red', 'Blue'], otherIndex: 2 },
-  'live-after-interrupt': { kind: 'idlePrompt' },
+  'claude-2.1.283-live-idle': { kind: 'idlePrompt', inputText: '' },
+  'claude-2.1.283-live-permission': { kind: 'prompt', dialog: 'approval', title: 'Bash command', keys: ['1', '2', '3'], roles: ['allow', 'allowAlways', 'deny'] },
+  'claude-2.1.283-live-question': { kind: 'prompt', dialog: 'question', question: 'Pick a color', labels: ['Red', 'Blue'], otherIndex: 2 },
+  'claude-2.1.283-live-after-interrupt': { kind: 'idlePrompt' },
+  // codex-cli 0.153.4, captured in the fix round.
+  'codex-0.153.4-idle-empty': { kind: 'idlePrompt', inputText: '', placeholder: true },
+  'codex-0.153.4-idle-draft': { kind: 'idlePrompt', inputText: 'draft from the desktop', placeholder: false },
+  'codex-0.153.4-busy': { kind: 'busy' },
+  'codex-0.153.4-approval': { kind: 'prompt', dialog: 'approval', title: 'Run command', keys: ['y', 'p', 'esc'], roles: ['allow', 'allowAlways', 'deny'], highlighted: 0, detail: 'echo myrlin-check > probe.txt' },
+  // F1: the paste's "1" approved the command; the rest landed in the composer.
+  'codex-0.153.4-approval-after-paste': { kind: 'busy', inputText: 'hello' },
+  'codex-0.153.4-after-interrupt': { kind: 'idlePrompt', inputText: '' },
+  'codex-0.153.4-slash-menu': { kind: 'idlePrompt', inputText: '/' },
+  'codex-0.153.4-trust-dialog': { kind: 'unknownModal', dialog: 'unknown', title: 'Trust this folder?', optionLabels: ['Yes, continue', 'No, quit'] },
 };
+
+kit.test('every capture in fixtures/screens has an expected classification', async () => {
+  const files = fs.readdirSync(SCREENS).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();
+  kit.eq(files, Object.keys(expected).sort());
+});
 
 for (const [name, exp] of Object.entries(expected)) {
   kit.test('real capture ' + name + ' classifies as ' + exp.kind + (exp.dialog ? ' ' + exp.dialog : ''), async () => {
-    const c = classify(load(name), 'claude');
+    const snap = loadFile(name);
+    const c = classify(snap, snap.cli || 'claude');
     kit.eq(c.kind, exp.kind);
     if (exp.dialog) kit.eq(c.dialog.kind, exp.dialog);
     if (exp.title) kit.eq(c.dialog.title, exp.title);
@@ -56,10 +92,23 @@ for (const [name, exp] of Object.entries(expected)) {
     if (exp.highlighted !== undefined) kit.eq(c.dialog.highlighted, exp.highlighted);
     if (exp.question) kit.eq(c.dialog.question, exp.question);
     if (exp.labels) kit.eq(c.dialog.modelOptions.map((o) => o.label), exp.labels);
+    if (exp.optionLabels) kit.eq(c.dialog.options.map((o) => o.label), exp.optionLabels);
     if (exp.otherIndex !== undefined) kit.eq(c.dialog.otherIndex, exp.otherIndex);
+    if (exp.tabs) kit.eq(c.dialog.tabs && c.dialog.tabs.labels, exp.tabs);
+    if (exp.multi !== undefined) kit.eq(c.dialog.multiSelect, exp.multi);
+    if (exp.checked) kit.eq(c.dialog.options.slice(0, exp.checked.length).map((o) => o.checked === true), exp.checked);
+    if (exp.review) kit.eq(c.dialog.review, true);
+    if (exp.detail) kit.eq(c.dialog.screenDetail, exp.detail);
     if (exp.inputText !== undefined) kit.eq(c.input.inputText, exp.inputText);
+    if (exp.placeholder !== undefined) kit.eq(c.input.placeholder, exp.placeholder);
   });
 }
+
+kit.test('ticking a multi select box keeps the fingerprint (the prompt keeps its id)', async () => {
+  const a = classify(loadFile('claude-2.1.283-ask-multi-q2'), 'claude');
+  const b = classify(loadFile('claude-2.1.283-ask-multi-q2-checked'), 'claude');
+  kit.eq(fingerprintOf(a.dialog.region), fingerprintOf(b.dialog.region));
+});
 
 kit.test('the permission option that wraps keeps one label', async () => {
   const c = classify(load('permission'), 'claude');
@@ -138,7 +187,7 @@ kit.test('question prompts take every question from the AskUserQuestion input', 
     index: { resolve: (id) => ({ sessionId: id, owner: 'workbook', workingDir: null, provider: 'claude' }), computerName: () => 'PC' },
     lazy: { turns: () => ({ openToolsOf: () => [['toolu_q', { name: 'AskUserQuestion', input: { questions: [{ question: 'Pick a color', header: 'Color', multiSelect: false, options: [{ label: 'Red', description: 'The color red' }, { label: 'Blue', description: 'The color blue' }] }] } }]] }) },
   });
-  svc.onClassified('cl_q', classify(load('ask-single-after-cr'), 'claude'));
+  svc.onClassified('cl_q', classify(load('ask-single'), 'claude'));
   const p = published[0].d.prompt;
   kit.validate(p, 'sessions/prompt.json');
   kit.eq([p.questions.length, p.questions[0].header, p.questions[0].allowOther, p.currentQuestionIndex], [1, 'Color', true, 0]);

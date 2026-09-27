@@ -211,7 +211,7 @@ kit.test('fake codex: composer, rollout markers, state row and letter key approv
   await waitScreen(codex, 'codex', (c) => c.kind === 'idlePrompt', 'codex idle');
   await send(codex, 'approve: tests');
   const cls = await waitScreen(codex, 'codex', (c) => c.kind === 'prompt', 'codex approval');
-  kit.eq(cls.dialog.options.map((o) => o.key), ['y', 'a', 'esc']);
+  kit.eq(cls.dialog.options.map((o) => o.key), ['y', 'p', 'esc']);
   codex.pty.write('y');
   let file = null;
   await kit.until(() => {
@@ -236,6 +236,36 @@ kit.test('fake codex: ESC while busy writes turn_aborted', async () => {
   const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (records(p).some((r) => r.payload && r.payload.type === 'turn_aborted')) found = true; } };
   walk(path.join(sb.codexHome, 'sessions'));
   kit.ok(found, 'turn_aborted');
+});
+
+kit.test('the fixture scrubber swaps user, host and scratch ids for same length placeholders', async () => {
+  const { personalPairs, scrubText } = require('./fakes/scrub-fixture');
+  const pairs = personalPairs({ users: ['Jordan'], hosts: ['WORKSTATION7'], ids: ['1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d'] });
+  const src = 'C:\\Users\\Jordan\\AppData\\Local\\Temp\\claude\\C--Users-Jordan\\1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d\\x on WORKSTATION7 jordan';
+  const out = scrubText(src, pairs);
+  kit.eq(out.length, src.length, 'same length keeps screen columns aligned');
+  kit.ok(!/Jordan|jordan|WORKSTATION7|1a2b3c4d/.test(out), out);
+});
+
+kit.test('no committed fixture carries this machine\'s user name, host name or profile path (the repository is public)', async () => {
+  const os = require('os');
+  const words = new Set();
+  try { words.add(os.userInfo().username); } catch (_) { /* no user info */ }
+  words.add(path.basename(os.homedir()));
+  words.add(os.hostname());
+  const needles = Array.from(words).filter((w) => w && w.length >= 3).map((w) => w.toLowerCase());
+  const hits = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      if (!/\.(json|jsonl|txt|md)$/i.test(e.name)) continue;
+      const text = fs.readFileSync(p, 'utf8').toLowerCase();
+      for (const n of needles) if (text.includes(n)) hits.push(path.relative(__dirname, p) + ' has ' + n.length + ' letter name');
+    }
+  };
+  walk(path.join(__dirname, 'fixtures'));
+  kit.eq(hits, []);
 });
 
 kit.run(async () => { pm.destroyAll(); });

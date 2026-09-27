@@ -57,6 +57,11 @@ kit.test('Codex: built ins then prompts:triage', async () => {
   kit.validate(r.body, 'sessions/commands.json');
   const t = r.body.commands.find((c) => c.name === 'prompts:triage');
   kit.eq([t.source, t.description], ['user', 'Triage the open issues']);
+  // The pinned built ins are exactly the "/" popup captured from codex-cli 0.153.4.
+  const captured = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'scratch', 'codex-0.153.4-live-evidence.json'), 'utf8')).results.slashCommands;
+  const builtins = r.body.commands.filter((c) => c.source === 'builtin');
+  kit.eq(builtins.map((c) => c.name).sort(), captured.map((c) => c.name).sort());
+  kit.ok(builtins.some((c) => c.name === 'permissions') && !builtins.some((c) => c.name === 'approvals' || c.name === 'quit'), 'the 0.153.4 names');
 });
 
 kit.test('an unknown session is 404', async () => {

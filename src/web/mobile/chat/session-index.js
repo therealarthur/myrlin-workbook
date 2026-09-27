@@ -21,6 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const { atomicWriteJson, readJson, mobileDir, warn } = require('./common');
 const { normalizeCwd } = require('../../../providers/claude/live-sessions');
+const { isLiveBackground } = require('./agents-poller');
 
 const PROVIDERS = new Set(['claude', 'codex']); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
 const CHANGE_BATCH_MS = 500;
@@ -358,7 +359,10 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
     if (ref.provider === 'claude' && ref.upstreamId && agents) { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const e = agents.entryFor(ref.upstreamId);
       if (agents.refreshSoon) agents.refreshSoon();
-      if (e && e.kind === 'background' && e.state !== 'stopped' && e.state !== 'done') return 'background';
+      // A background session counts only while its process runs (a pid or a
+      // status in the listing, rule 6 measured on 2.1.283): an idle running one
+      // reads state done, and one without a process is asleep, so owner none.
+      if (isLiveBackground(e)) return 'background';
       if (e && e.kind === 'interactive') return 'external';
     }
     if (ref.provider === 'codex') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)

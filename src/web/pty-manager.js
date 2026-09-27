@@ -266,6 +266,12 @@ const LIVE_HOLD_MAX_LINE = 64;
 const SIGHT_CHECK_MIN_PANE_AGE_MS = 30000;
 
 /**
+ * How many times launchDetached checks again when the record changed during
+ * a live-session lookup, before it refuses (mobile v2, P5).
+ */
+const LAUNCH_DETACHED_MAX_RECHECKS = 3;
+
+/**
  * True when two live-gate results point at the same spawn target. For a
  * `--continue` command only the folder counts: which transcript is newest in
  * it can flip while sessions write, and that must not re-trigger the check.
@@ -2385,24 +2391,29 @@ class PtySessionManager {
    *
    * @param {string} sessionId - Workbook session id.
    * @param {object} [spawnOpts] - Overrides on top of the store record, as for attachClient.
+   *        _liveChecked and attachShortId are dropped: only the gate sets them.
+   * @param {number} [_recheckDepth] - @private how often the record changed during a check.
    * @returns {Promise<{status: 'spawned'|'attached'|'alreadyRunning'|'refused', code: (string|null), message: (string|null), pid?: number}>}
    */
-  async launchDetached(sessionId, spawnOpts = {}) {
+  async launchDetached(sessionId, spawnOpts = {}, _recheckDepth = 0) {
     if (!pty && !spawnOpts._ptySpawnForTesting) {
       return { status: 'refused', code: 'PTY_UNAVAILABLE', message: 'Terminals are unavailable on this computer.' };
     }
     const existing = this.sessions.get(sessionId);
     if (existing && existing.alive) return { status: 'alreadyRunning', code: null, message: null, pid: existing.pid };
 
+    // Internal keys never travel further than one hop, as in attachClient: a
+    // caller can never pass _liveChecked to skip the gate, or attachShortId to
+    // pick an attach target. _liveFresh is only a hint to the first lookup.
     const baseOpts = { ...spawnOpts };
+    const fresh = !!baseOpts._liveFresh;
     delete baseOpts._liveFresh;
+    delete baseOpts._liveChecked;
     delete baseOpts.attachShortId;
     let opts = { ...baseOpts };
     let status = 'spawned';
     let gate = null;
-    if (!baseOpts._liveChecked) {
-      try { gate = this._liveGateFor(sessionId, baseOpts); } catch (_) { gate = null; }
-    }
+    try { gate = this._liveGateFor(sessionId, fresh ? { ...baseOpts, _liveFresh: true } : baseOpts); } catch (_) { gate = null; }
     if (gate) {
       const epoch = this._liveEpochOf(sessionId);
       const pending = this._liveChecks.get(sessionId);
@@ -2427,6 +2438,19 @@ class PtySessionManager {
       }
       const current = this.sessions.get(sessionId);
       if (current && current.alive) return { status: 'alreadyRunning', code: null, message: null, pid: current.pid };
+      // The decision must be about what will actually spawn (attachClient's
+      // rule): if the record changed during the lookup (a new resume id, a
+      // new command), check again for the new target instead of spawning it
+      // unchecked. Bounded, so a record that keeps changing is refused.
+      let again = null;
+      try { again = this._liveGateFor(sessionId, baseOpts); } catch (_) { again = null; }
+      if (!again || !sameGateTarget(again, gate)) {
+        if (_recheckDepth >= LAUNCH_DETACHED_MAX_RECHECKS) {
+          return { status: 'refused', code: 'LAUNCH_CANCELLED', message: 'The session changed while it was being checked.' };
+        }
+        console.log(`[PTY] ${sessionId} changed during a detached live-session check; checking the new target`);
+        return this.launchDetached(sessionId, baseOpts, _recheckDepth + 1);
+      }
       if (decision.action === 'resume' && gate.resumeSessionId) {
         const other = this._otherPaneOnTranscript(sessionId, gate.resumeSessionId);
         if (other) decision = { action: 'notice', reason: 'open-in-workbook', otherSessionId: other, lookup: decision.lookup };

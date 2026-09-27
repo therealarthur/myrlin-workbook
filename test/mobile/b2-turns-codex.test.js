@@ -2,7 +2,10 @@
  * B2: the Codex turn rules X1 to X7 (PROTOCOL.md 6.3) from rollout markers:
  * task_started, tool calls without output (working), outputs (tool.end),
  * task_complete, an error that fails the turn, turn_aborted (interrupted),
- * the ChatGPT owner from session_meta.originator, and a PTY exit.
+ * the ChatGPT owner from session_meta.originator, a PTY exit, X6 with the
+ * real codex-cli 0.153.4 approval and trust screens, the turn_aborted record
+ * as captured from 0.153.4, and the X3 fallback (a phone ESC, an idle
+ * composer and no end marker for 5 s).
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  */
@@ -89,6 +92,67 @@ kit.test('X7: the PTY exits while a turn is open', async () => {
   env.chat.internals.turns.onPtyExit(rec.id, 1);
   const end = events.filter((e) => e.topic === 'session:' + sid && e.type === 'turn.end').map((e) => e.data)[0];
   kit.eq([end.status, end.endSource], ['failed', 'processExit']);
+});
+
+/**
+ * A golden screen from the real codex-cli 0.153.4 capture.
+ * @param {string} name
+ * @returns {object}
+ */
+function codexScreen(name) {
+  return JSON.parse(fs.readFileSync(require('path').join(__dirname, 'fixtures', 'screens', 'codex-0.153.4-' + name + '.json'), 'utf8'));
+}
+
+kit.test('X6: the real Codex approval dialog on a pane sets needsApproval with a Prompt; an unknown dialog sets needsAnswer', async () => {
+  const { classify } = require('../../src/web/mobile/chat/prompt-detect');
+  const r = rollout();
+  r.add('event_msg', { type: 'task_started', turn_id: 'T6' });
+  r.add('response_item', { type: 'custom_tool_call', name: 'exec', input: 'echo myrlin-check > probe.txt', call_id: 'c6' });
+  const cls = classify(codexScreen('approval'), 'codex');
+  env.chat.internals.prompts.onClassified(r.sid, cls);
+  env.chat.internals.turns.onScreen(r.sid, cls);
+  const st = env.chat.internals.turns.stateOf(r.sid);
+  kit.eq([st.state, st.source], ['needsApproval', 'screen']);
+  const p = env.chat.prompts.openFor(r.sid)[0];
+  kit.validate(p, 'sessions/prompt.json');
+  kit.eq([p.kind, p.options.map((o) => o.key).join(), p.options.map((o) => o.role).join()], ['approval', 'y,p,esc', 'allow,allowAlways,deny']);
+  const trust = classify(codexScreen('trust-dialog'), 'codex');
+  kit.eq(trust.kind, 'unknownModal');
+  env.chat.internals.prompts.onClassified(r.sid, trust);
+  env.chat.internals.turns.onScreen(r.sid, trust);
+  kit.eq(env.chat.internals.turns.stateOf(r.sid).state, 'needsAnswer');
+  r.add('response_item', { type: 'custom_tool_call_output', call_id: 'c6', output: 'ok' });
+  r.add('event_msg', { type: 'task_complete', turn_id: 'T6', duration_ms: 10 });
+});
+
+kit.test('X3 as captured from codex-cli 0.153.4: turn_aborted with reason interrupted ends it turnAborted', async () => {
+  const ev = JSON.parse(fs.readFileSync(require('path').join(__dirname, 'fixtures', 'scratch', 'codex-0.153.4-live-evidence.json'), 'utf8')).results.X3;
+  kit.eq([ev.endRecord.payloadType, ev.endRecord.reason], ['turn_aborted', 'interrupted']);
+  const r = rollout();
+  r.add('event_msg', { type: 'task_started', turn_id: 'T7' });
+  r.add('event_msg', { type: 'turn_aborted', turn_id: 'T7', reason: 'interrupted', started_at: 1, completed_at: 2, duration_ms: 1 });
+  const end = r.ev('turn.end');
+  kit.eq([end.length, end[0].status, end[0].endSource], [1, 'interrupted', 'turnAborted']);
+});
+
+kit.test('X3 fallback: after a phone ESC, an idle composer and no end marker for 5 s ends it interrupted (interruptMarker, by phone); without the ESC nothing ends', async () => {
+  const idleCls = { kind: 'idlePrompt', input: { inputText: '', placeholder: true }, busy: false };
+  const esc = rollout();
+  esc.add('event_msg', { type: 'task_started', turn_id: 'T8' });
+  const plain = rollout();
+  plain.add('event_msg', { type: 'task_started', turn_id: 'T9b' });
+  env.chat.internals.interrupts.notePhoneEsc(esc.sid);
+  env.chat.internals.turns.onScreen(esc.sid, idleCls);
+  env.chat.internals.turns.onScreen(plain.sid, idleCls);
+  env.chat.internals.turns._check();
+  kit.eq(esc.ev('turn.end').length, 0, 'not before 5 s');
+  await kit.sleep(5300);
+  env.chat.internals.turns._check();
+  const end = esc.ev('turn.end');
+  kit.eq([end.length, end[0] && end[0].status, end[0] && end[0].endSource, end[0] && end[0].stoppedBy], [1, 'interrupted', 'interruptMarker', 'phone']);
+  kit.validate(end[0], 'sessions/turn.json');
+  kit.eq(plain.ev('turn.end').length, 0, 'an idle composer alone ends nothing');
+  plain.add('event_msg', { type: 'task_complete', turn_id: 'T9b', duration_ms: 1 });
 });
 
 kit.run(async () => { if (env) await env.close(); });

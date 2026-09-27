@@ -1,8 +1,10 @@
 /**
  * B2: the /ws/m/v2 stream (PROTOCOL.md 5): upgrade checks, ready, live
  * subscribe, replay within the ring, RING_EXPIRED, EPOCH_CHANGED, SEQ_AHEAD,
- * scope loss, auth renewal, 4001, 4409, 4500, 4429, 4400, topic errors, and
- * every frame validated against the envelope and its event or control schema.
+ * scope loss, auth renewal, 4001, 4409, 4500, 4429, 4400, topic errors, the
+ * SCREEN_MODEL_OFF notice once per connection (PROTOCOL.md 1.6) and the
+ * WORKBOOK_SHUTTING_DOWN notice before a 1001 close (5.6), and every frame
+ * validated against the envelope and its event or control schema.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  */
@@ -169,6 +171,48 @@ kit.test('revocation closes the device sockets with 4401', async () => {
   await s.next((f) => f.type === 'ready');
   env.b1.revoke(d.deviceId);
   kit.eq((await s.closed).code, 4401);
+});
+
+kit.test('screen model off: every stream connection gets one SCREEN_MODEL_OFF computer.notice (PROTOCOL.md 1.6)', async () => {
+  await env.close();
+  env = await kit.bootChat({ options: { screenModel: false } });
+  const a = await kit.openStream(env.base, env.device.token);
+  const n1 = await a.next((f) => f.type === 'computer.notice');
+  kit.validateFrame(n1);
+  kit.eq([n1.topic, n1.data.notice.code, n1.data.notice.level, n1.data.notice.sessionId], ['computer', 'SCREEN_MODEL_OFF', 'warn', null]);
+  kit.ok(/questions and approvals show only on /.test(n1.data.notice.message), n1.data.notice.message);
+  kit.ok(a.frames.findIndex((f) => f.type === 'ready') < a.frames.indexOf(n1), 'after ready');
+  await kit.sleep(200);
+  kit.eq(a.frames.filter((f) => f.type === 'computer.notice').length, 1, 'one for this connection');
+  const b = await kit.openStream(env.base, env.b1.addDevice().token);
+  const n2 = await b.next((f) => f.type === 'computer.notice');
+  kit.eq([n2.data.notice.noticeId, n2.seq], [n1.data.notice.noticeId, n1.seq + 1], 'stable id within the epoch, gapless seq');
+  a.close();
+  b.close();
+});
+
+kit.test('screen model on: a connection gets no SCREEN_MODEL_OFF notice', async () => {
+  await env.close();
+  env = await kit.bootChat({ options: { screenModel: true } });
+  const s = await kit.openStream(env.base, env.device.token);
+  await s.next((f) => f.type === 'ready');
+  await kit.sleep(300);
+  kit.eq(s.frames.filter((f) => f.type === 'computer.notice').length, 0);
+  kit.eq(env.chat.capabilities().screenModel, true);
+  s.close();
+});
+
+kit.test('hub close sends WORKBOOK_SHUTTING_DOWN, then closes 1001 (PROTOCOL.md 5.6)', async () => {
+  const s = await kit.openStream(env.base, env.device.token);
+  await s.next((f) => f.type === 'ready');
+  env.chat.internals.hub.close();
+  const info = await s.closed;
+  kit.eq(info.code, 1001);
+  const n = s.frames.find((f) => f.type === 'computer.notice' && f.data.notice.code === 'WORKBOOK_SHUTTING_DOWN');
+  kit.ok(n, 'shutdown notice before the close');
+  kit.validateFrame(n);
+  kit.eq(s.frames[s.frames.length - 1], n, 'the last frame before 1001');
+  kit.ok(/^Workbook is restarting on .+\.$/.test(n.data.notice.message), n.data.notice.message);
 });
 
 kit.run(async () => { if (env) await env.close(); });

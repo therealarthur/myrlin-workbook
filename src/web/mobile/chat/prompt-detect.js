@@ -30,9 +30,24 @@ const { isRangeDim } = require('./screen-reader');
 const SELECTOR = '❯';
 const CODEX_SELECTOR = '›';
 const RULE_CHARS_RE = /^[─━╌╍┄┅]{10,}$/;
+/** A rule carrying a label: ten or more rule glyphs, a label, then rule glyphs to the edge. */
+const LABELLED_RULE_RE = /^[─━]{10,} \S.{0,80}? [─━]+$/;
 const OPTION_RE = /^(\s*)(?:([❯›>])\s*)?(\d{1,2})\.\s+(.*?)\s*$/;
 const KEY_HINT_RE = /\s*\(([a-z]|esc|enter|tab)\)\s*$/i;
-const CHECKBOX_RE = /^(\[[ xX]\]|[☐☑☒◻◼□■✔✓])\s*/;
+// Claude Code 2.1.283 draws a multi select box as "[ ]" and a ticked one as
+// "[✔]" (golden screen ask-multi-q2-checked); the bare glyphs cover other layouts.
+const CHECKBOX_RE = /^(\[[ xX✔✓]\]|[☐☑☒◻◼□■✔✓])\s*/;
+/** Check box marks a fingerprint ignores, so ticking a box never changes a prompt's identity (PROTOCOL.md 8.4). */
+const CHECKBOX_MARKS_RE = /\[[ xX✔✓]\]|[☐☑☒◻◼✔✓]/g;
+/**
+ * Trust dialogs, which are unknown modals (PROTOCOL.md 8.2): Claude Code
+ * 2.1.283 asks "Is this a project you created or one you trust?" under
+ * "Quick safety check" with unnumbered options, codex-cli 0.153.4 asks "Do you
+ * trust the contents of this directory?" with numbered ones (golden screens
+ * claude-2.1.283-trust-dialog and codex-0.153.4-trust-dialog); the older
+ * wording stays for earlier builds.
+ */
+const TRUST_ANCHOR_RE = /Do you trust the files in this folder|trust this folder|Quick safety check|Is this a project you created or one you trust|Do you trust the contents of this directory/i;
 const BUSY_CLAUDE_RE = /^\s*\S?\s*[A-Z][a-zA-Z'-]{2,}(?:…|\.\.\.)(?:\s|$|\()/;
 const BUSY_HINT_RE = /esc to interrupt/i;
 const RESOLVE_READS = 2;
@@ -49,6 +64,19 @@ const PHONE_KEYS_WINDOW_MS = 5000;
  */
 function isRule(text) {
   return RULE_CHARS_RE.test(String(text || '').trim());
+}
+
+/**
+ * Whether a row is a rule of the input box. Claude Code 2.1.283 writes the
+ * session name into the upper rule once the conversation is named (golden
+ * screen plan-after-cr: a rule, the name, one more rule glyph), so a rule
+ * with a label counts too.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isInputRule(text) {
+  const t = String(text || '').trim();
+  return RULE_CHARS_RE.test(t) || LABELLED_RULE_RE.test(t);
 }
 
 /**
@@ -90,10 +118,10 @@ function detectInput(snap, provider) {
     // Claude Code 2.1.283 writes a no-break space after the glyph (golden screens).
     const isPromptRow = /^[❯>][  ]/.test(text) || text.trimEnd() === SELECTOR || text.trimEnd() === '>';
     if (!isPromptRow || OPTION_RE.test(text)) continue;
-    if (!isRule(L[i - 1].text)) continue;
+    if (!isInputRule(L[i - 1].text)) continue;
     let j = i + 1;
     const parts = [text.slice(2)];
-    while (j < L.length && !isRule(L[j].text)) { parts.push(L[j].text.replace(/^ {2}/, '')); j++; }
+    while (j < L.length && !isInputRule(L[j].text)) { parts.push(L[j].text.replace(/^ {2}/, '')); j++; }
     if (j >= L.length) continue;
     const firstStart = 2;
     const raw = parts.join('\n');
@@ -201,7 +229,7 @@ function regionText(L, from, to) {
  * @returns {string}
  */
 function fingerprintOf(region) {
-  const norm = region.split('\n').map((r) => r.replace(/[❯›]/g, ' ').replace(/\[[ xX]\]|[☐☑☒◻◼✔✓]/g, '').replace(/\s+$/, '')).join('\n');
+  const norm = region.split('\n').map((r) => r.replace(/[❯›]/g, ' ').replace(CHECKBOX_MARKS_RE, '').replace(/\s+$/, '')).join('\n');
   return sha256b64url(norm).slice(0, 16);
 }
 
@@ -319,7 +347,17 @@ function detectCodexDialog(snap) {
       const opt = parseOptions(L, j, 'approval');
       if (opt.options.length < 2) continue;
       const cmdRows = [];
-      for (let r = i + 1; r < j; r++) if (L[r].text.trim()) cmdRows.push(L[r].text.trim().replace(/^\$\s*/, ''));
+      const dollarRows = [];
+      for (let r = i + 1; r < j; r++) {
+        const t2 = L[r].text.trim();
+        if (!t2) continue;
+        cmdRows.push(t2.replace(/^\$\s*/, ''));
+        if (/^\$\s/.test(t2)) dollarRows.push(t2.replace(/^\$\s*/, ''));
+      }
+      // codex-cli 0.153.4 draws "Environment: local" and a "Reason: ..." line
+      // above the "$ command" line (golden screen codex-0.153.4-approval); the
+      // command is the detail when it is there.
+      if (dollarRows.length) cmdRows.splice(0, cmdRows.length, ...dollarRows);
       const top = ruleAbove(L, i) === -1 ? Math.max(0, i - 2) : ruleAbove(L, i);
       return { kind: 'approval', title: 'Run command', screenDetail: cmdRows.join('\n') || null, options: opt.options, highlighted: opt.highlighted, region: regionText(L, top, L.length), top };
     }
@@ -334,7 +372,7 @@ function detectCodexDialog(snap) {
  */
 function detectUnknown(snap) {
   const L = snap.lines;
-  const trust = L.findIndex((l) => /Do you trust the files in this folder|trust this folder/i.test(l.text));
+  const trust = L.findIndex((l) => TRUST_ANCHOR_RE.test(l.text));
   if (trust !== -1) {
     let j = trust + 1;
     while (j < L.length && !OPTION_RE.test(L[j].text)) j++;
@@ -537,7 +575,9 @@ function createPromptService(deps) {
       p._missing = [];
       open.set(sessionId, p);
       const changed = !prev || prev.promptId !== p.promptId || prev.currentQuestionIndex !== p.currentQuestionIndex || prev.source !== p.source || prev.fingerprint !== p.fingerprint;
-      if (prev && prev.promptId !== p.promptId) resolve(sessionId, prev, null);
+      // The dialog changed in place into another prompt: the old one resolves,
+      // and answers still aimed at it get PROMPT_CHANGED (PROTOCOL.md 8.5).
+      if (prev && prev.promptId !== p.promptId) resolve(sessionId, prev, null, p.promptId);
       if (changed) {
         pub(sessionId, 'prompt.open', { prompt: pub1(p) });
         for (const fn of listeners) { try { fn('open', pub1(p), prev ? pub1(prev) : null); } catch (_) {} }
@@ -558,8 +598,9 @@ function createPromptService(deps) {
    * @param {string} sessionId
    * @param {object} p
    * @param {string|null} byOverride
+   * @param {string|null} [replacedBy] - the prompt that took its place on screen, when it changed in place
    */
-  function resolve(sessionId, p, byOverride) {
+  function resolve(sessionId, p, byOverride, replacedBy) {
     if (open.get(sessionId) === p) open.delete(sessionId);
     const keys = phoneKeys.get(sessionId);
     let by = byOverride;
@@ -573,7 +614,7 @@ function createPromptService(deps) {
     const data = { sessionId, promptId: p.promptId, by, deviceId: by === 'phone' ? deviceId : null, resolvedAtMs: now(), summary: summary || (by === 'desktop' ? 'Answered on ' + index.computerName() : null) };
     p._resolved = data;
     pub(sessionId, 'prompt.resolved', data);
-    for (const fn of listeners) { try { fn('resolved', pub1(p), data); } catch (_) {} }
+    for (const fn of listeners) { try { fn('resolved', pub1(p), data, { replacedBy: replacedBy || null }); } catch (_) {} }
   }
 
   return {

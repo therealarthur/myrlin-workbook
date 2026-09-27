@@ -3,8 +3,11 @@
  * fixtures, a scripted clock, injected screens and agents listings: the em
  * dash case of critic F6 (exactly one turn.end, after turn_duration), the
  * interrupt marker, API errors, a process exit, the confirmed idle fallback
- * for a pane and for an external session, and 11 minutes of silence that
- * ends nothing.
+ * for a pane and for an external session, 11 minutes of silence that ends
+ * nothing, C6 (queue-operation records), rule 6 as measured on 2.1.283
+ * (asleep background sessions, and C5 when one loses its process), and the
+ * agents poller: live-sessions' runner (profile env, account home, tree kill
+ * by PID, the next candidate) and the blind listing check.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  */
@@ -202,6 +205,112 @@ kit.test('11 minutes of silence ends nothing and says No activity for 10 minutes
   const st = env.chat.internals.turns.stateOf(s.sid);
   kit.eq([st.state, st.detail], ['working', 'No activity for 10 minutes']);
   kit.validate(st, 'sessions/session-state.json');
+});
+
+kit.test('C6: queue-operation records change no turn; the queued prompt then starts its own turn by C1', async () => {
+  const s = session();
+  s.prompt('first');
+  s.add({ type: 'queue-operation', operation: 'enqueue', content: 'second' });
+  kit.eq([s.ev('turn.start').length, s.ev('turn.end').length], [1, 0], 'enqueue neither starts nor ends a turn');
+  s.text('done with first');
+  s.sys('turn_duration', { durationMs: 20 });
+  s.add({ type: 'queue-operation', operation: 'dequeue' });
+  kit.eq([s.ev('turn.start').length, s.ev('turn.end').length], [1, 1], 'dequeue starts nothing');
+  const p2 = s.prompt('second');
+  const starts = s.ev('turn.start');
+  kit.eq([starts.length, starts[1].turnId], [2, 't_' + p2.uuid]);
+  s.sys('turn_duration', { durationMs: 30 });
+  kit.eq(s.ev('turn.end').length, 2);
+});
+
+kit.test('rule 6 as measured on 2.1.283: a running background entry (pid, status idle, state done) is owner background; one without pid and status is asleep, owner none, state sleeping', async () => {
+  const s = session();
+  agentEntries.set(s.id, { sessionId: s.id, id: 'bg12ab34', kind: 'background', status: 'idle', waitingFor: null, state: 'done', pid: 4242 });
+  env.chat.internals.index.invalidate();
+  kit.eq(env.chat.sessions.resolve(s.sid).owner, 'background');
+  agentEntries.set(s.id, { sessionId: s.id, id: 'bg12ab34', kind: 'background', status: null, waitingFor: null, state: 'blocked', pid: null });
+  env.chat.internals.index.invalidate();
+  kit.eq(env.chat.sessions.resolve(s.sid).owner, 'none');
+  env.chat.internals.turns.refresh(s.sid);
+  const st = env.chat.internals.turns.stateOf(s.sid);
+  kit.eq([st.state, st.source], ['sleeping', 'agents']);
+  kit.validate(st, 'sessions/session-state.json');
+  agentEntries.delete(s.id);
+});
+
+kit.test('rule 6 and C5: a watched background session that loses its process while a turn is open ends failed processExit', async () => {
+  const s = session();
+  agentEntries.set(s.id, { sessionId: s.id, id: 'bg56cd78', kind: 'background', status: 'busy', waitingFor: null, state: 'working', pid: 5151 });
+  env.chat.internals.index.invalidate();
+  env.chat.internals.turns.unwatch(s.sid, 'subscriber');
+  env.chat.internals.turns.watch(s.sid, 'subscriber');
+  const w = env.chat.internals.turns._watcher(s.sid);
+  w.unwatchAgents = w.unwatchAgents || (() => {});
+  s.prompt('go');
+  for (const fn of agentFns) fn({ at: now(), entries: Array.from(agentEntries.values()) });
+  kit.eq(s.ev('turn.end').length, 0);
+  agentEntries.set(s.id, { sessionId: s.id, id: 'bg56cd78', kind: 'background', status: null, waitingFor: null, state: 'working', pid: null });
+  for (const fn of agentFns) fn({ at: now(), entries: Array.from(agentEntries.values()) });
+  const end = s.ev('turn.end');
+  kit.eq([end.length, end[0] && end[0].status, end[0] && end[0].endSource], [1, 'failed', 'processExit']);
+  agentEntries.delete(s.id);
+});
+
+// ── The agents poller (PROTOCOL.md 6.1): live-sessions' runner, the blind listing check ──
+
+kit.test('the agents runner goes through runAgentsJsonOnce: profile env, account home cwd, keeps waitingFor, tries the next binary when one fails to start', async () => {
+  const { runAgentsListing } = require('../../src/web/mobile/chat/agents-poller');
+  const home = fs.mkdtempSync(path.join(require('os').tmpdir(), 'b2-home-'));
+  const calls = [];
+  const execFileImpl = (file, args, opts, cb) => {
+    calls.push({ file, args, cwd: opts.cwd, env: opts.env });
+    if (/first/.test(file)) { const e = new Error('spawn ENOENT'); e.code = 'ENOENT'; setImmediate(() => cb(e, '', '')); }
+    else setImmediate(() => cb(null, JSON.stringify([{ id: 'ab12cd34', sessionId: 's1', kind: 'background', status: 'waiting', waitingFor: 'permission prompt', state: 'blocked', pid: 7 }]), ''));
+    return { pid: 99, stdin: { end() {} } };
+  };
+  const r = await runAgentsListing(5000, {
+    execFileImpl,
+    resolveCandidates: () => [{ path: 'C:\\bin\\first\\claude.exe', viaCmd: false }, { path: 'C:\\bin\\second\\claude.exe', viaCmd: false }],
+    env: { PATH: 'x', CLAUDECODE: '1' },
+    platform: 'win32',
+    homedir: home,
+  });
+  kit.eq(r.ok, true, JSON.stringify(r));
+  kit.eq([r.entries[0].waitingFor, r.entries[0].id, r.entries[0].pid], ['permission prompt', 'ab12cd34', 7]);
+  kit.eq(calls.map((c) => c.file), ['C:\\bin\\first\\claude.exe', 'C:\\bin\\second\\claude.exe']);
+  kit.eq(calls[1].args, ['agents', '--json']);
+  kit.eq([calls[1].cwd, calls[1].env.USERPROFILE, 'CLAUDECODE' in calls[1].env], [home, home, false]);
+});
+
+kit.test('the agents runner kills the whole tree by PID on a timeout (the K3 case), never by name', async () => {
+  const { runAgentsListing } = require('../../src/web/mobile/chat/agents-poller');
+  const calls = [];
+  const execFileImpl = (file, args, opts, cb) => {
+    calls.push({ file, args });
+    if (file === 'taskkill') { setImmediate(() => cb(null, '', '')); return { pid: 1 }; }
+    return { pid: 4242, stdin: { end() {} } };
+  };
+  const r = await runAgentsListing(150, { execFileImpl, resolveCandidates: () => [{ path: 'C:\\bin\\claude.cmd', viaCmd: true }], env: { ComSpec: 'cmd.exe' }, platform: 'win32', homedir: require('os').tmpdir() });
+  kit.eq([r.ok, r.error], [false, 'timeout']);
+  const kill = calls.find((c) => c.file === 'taskkill');
+  kit.eq(kill && kill.args, ['/PID', '4242', '/T', '/F']);
+  kit.ok(!calls.some((c) => c.args.some((a) => /\/IM/i.test(a))), 'no kill by image name');
+});
+
+kit.test('a blind listing (empty while this Workbook runs a Claude pane) is a failed poll; an empty one without panes is accepted', async () => {
+  const { createAgentsPoller, blindListingCheck } = require('../../src/web/mobile/chat/agents-poller');
+  const t0 = Date.now();
+  const pm = { sessions: new Map([['wb1', { alive: true, claudeTranscriptId: 'x', attachShortId: null, createdAt: t0 - 60000 }]]) };
+  const blind = createAgentsPoller({ runOnce: async () => ({ ok: true, entries: [] }), sightCheck: blindListingCheck(() => pm) });
+  kit.eq(await blind.onDemand(), null, 'not taken as the truth');
+  const young = { sessions: new Map([['wb2', { alive: true, claudeTranscriptId: 'y', attachShortId: null, createdAt: t0 }]]) };
+  const fine = createAgentsPoller({ runOnce: async () => ({ ok: true, entries: [] }), sightCheck: blindListingCheck(() => young) });
+  const l = await fine.onDemand();
+  kit.eq(l && l.entries, []);
+  const bg = createAgentsPoller({ runOnce: async () => ({ ok: true, entries: [{ sessionId: 'S9', kind: 'background', pid: 3, status: 'idle', state: 'done' }] }) });
+  await bg.onDemand();
+  kit.eq([bg.wasBackground('s9'), bg.wasBackground('other')], [true, false]);
+  blind.stop(); fine.stop(); bg.stop();
 });
 
 kit.test('message.add events carry typed messages and validate', async () => {

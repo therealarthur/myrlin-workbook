@@ -27,13 +27,29 @@ const FORK_MAX_BYTES = 200 * 1024 * 1024;
 const IDEMPOTENCY_MS = 10 * 60 * 1000;
 const NAME_MAX = 200;
 const WORKDIR_UNSAFE_RE = /[;&|`$(){}[\]<>!#*?\n\r]/;
-const MODEL_RE = /^[a-zA-Z0-9._:-]{1,128}$/;
+// A model id starts with a letter or digit: a leading hyphen would let a phone
+// supplied value read as a CLI flag once it reaches the command line (W2).
+const MODEL_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const CLAUDE_MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'];
 const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'ultra', 'max'];
 const CODEX_SANDBOX = ['read-only', 'workspace-write', 'danger-full-access', 'disabled', 'managed'];
 const CODEX_APPROVAL = ['untrusted', 'on-failure', 'on-request', 'never'];
 const PHONE_WORKSPACE_NAME = 'From the phone';
+/**
+ * The fields of NewSessionRequest (protocol/schemas/sessions/new-session-request.json).
+ * A phone's POST /sessions body is reduced to these before anything reads it:
+ * PROTOCOL.md 0.1 says unknown request fields are ignored, and nothing in an
+ * HTTP body may ever reach a command line (W2).
+ */
+const NEW_SESSION_FIELDS = Object.freeze(['clientRequestId', 'provider', 'workingDir', 'projectId', 'name', 'settings', 'tabGroupId', 'afterSessionId', 'message']);
+/** Extra CLI arguments an in process caller (B3's migration launch) may pass. */
+const ARGS_EXTRA_MAX = 32;
+const ARG_EXTRA_MAX_LEN = 4096;
+/** Control characters never belong in a CLI argument. */
+const ARG_CONTROL_RE = /[\u0000-\u001f\u007f]/;
+/** Why a restart refused: the launch codes that mean a live copy elsewhere. */
+const LIVE_ELSEWHERE_CODES = new Set(['SESSION_LIVE_ELSEWHERE']);
 
 /**
  * Workbook's working directory screen (server.js sanitizeWorkingDir), repeated here.
@@ -57,6 +73,7 @@ function createLauncher(deps) {
   const lazy = deps.lazy || {};
   const done = new Map();
   const pendingRestarts = new Map();
+  const unknownLogged = new Set();
   let groupWarned = false;
   const fail = (status, code, message, extra) => { const E = require('./common').errorClass(ctx); throw new E(status, code, message, extra); };
   const store = () => ctx.store;
@@ -221,12 +238,115 @@ function createLauncher(deps) {
   }
 
   /**
-   * POST /sessions (PROTOCOL.md 4.5.6); also B3's migration launch with argsExtra.
+   * Reduce a phone's POST /sessions body to the NewSessionRequest fields.
+   * Unknown fields are dropped and logged once per route (PROTOCOL.md 0.1),
+   * so a field such as argsExtra, command or flags in an HTTP body can never
+   * reach launchDetached or a command line.
+   * @param {*} body
+   * @returns {object}
+   */
+  function pickRequestFields(body) {
+    const b = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+    const out = {};
+    const unknown = [];
+    for (const k of Object.keys(b)) {
+      if (NEW_SESSION_FIELDS.includes(k)) out[k] = b[k]; else unknown.push(k);
+    }
+    if (unknown.length && !unknownLogged.has('POST /sessions')) {
+      unknownLogged.add('POST /sessions');
+      log('POST /sessions ignored unknown request fields: ' + unknown.slice(0, 10).join(', '));
+    }
+    return out;
+  }
+
+  /**
+   * Check extra CLI arguments from an in process caller: an array of at most
+   * 32 plain strings with no control characters. Never fed from HTTP.
+   * @param {*} argsExtra
+   * @returns {string[]|null}
+   */
+  function checkArgsExtra(argsExtra) {
+    if (argsExtra === undefined || argsExtra === null) return null;
+    if (!Array.isArray(argsExtra) || argsExtra.length > ARGS_EXTRA_MAX) fail(400, 'INVALID_FIELD', 'argsExtra must be a short list of strings.', { field: 'argsExtra' });
+    for (const a of argsExtra) {
+      if (typeof a !== 'string' || !a || a.length > ARG_EXTRA_MAX_LEN || ARG_CONTROL_RE.test(a)) fail(400, 'INVALID_FIELD', 'argsExtra holds a value that is not a plain argument.', { field: 'argsExtra' });
+    }
+    return argsExtra.slice();
+  }
+
+  /**
+   * Map B3's launch options shape (BUILD-CONTRACT 3.4.4 launchOptionsFor:
+   * {model, effort, permissionMode, bypassPermissions, codex: {...}}) to the
+   * NewSessionRequest settings shape; nulls mean unset.
+   * @param {string} provider
+   * @param {*} lo
+   * @returns {object}
+   */
+  function settingsFromLaunchOptions(provider, lo) {
+    const o = lo && typeof lo === 'object' ? lo : {};
+    const out = {};
+    const put = (k, v) => { if (v !== null && v !== undefined) out[k] = v; };
+    if (provider === 'claude') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
+      put('model', o.model);
+      put('effort', o.effort);
+      put('permissionMode', o.permissionMode || (o.bypassPermissions === true ? 'bypassPermissions' : null));
+    } else {
+      const c = o.codex && typeof o.codex === 'object' ? o.codex : o;
+      put('model', c.model !== undefined ? c.model : o.model);
+      put('reasoningEffort', c.reasoningEffort);
+      put('sandbox', c.sandbox);
+      put('approvalPolicy', c.approvalPolicy);
+      put('bypassApprovalsAndSandbox', c.bypassApprovalsAndSandbox);
+    }
+    return out;
+  }
+
+  /**
+   * POST /sessions (PROTOCOL.md 4.5.6): the phone's request, reduced to its
+   * schema fields first. It can never carry argsExtra.
    * @param {object} body
    * @param {{deviceId: (string|null)}} who
    * @returns {Promise<{session: object, send: (object|null)}>}
    */
-  async function createSession(body, who) {
+  function createSessionFromRequest(body, who) {
+    return launchNew(pickRequestFields(body), who, { argsExtra: null });
+  }
+
+  /**
+   * chat.launch.createSession for in process callers (BUILD-CONTRACT 3.4.3):
+   * ({provider, workingDir, projectId, name, launchOptions, argsExtra}) =>
+   * Promise<SessionSummary>. B3's migration launch passes its charter flags
+   * as argsExtra; this is the only path that can set them.
+   * @param {object} o
+   * @param {{deviceId: (string|null)}} [who]
+   * @returns {Promise<object>} SessionSummary
+   */
+  async function createSession(o, who) {
+    const opts = o && typeof o === 'object' ? o : {};
+    const argsExtra = checkArgsExtra(opts.argsExtra);
+    const fields = {
+      clientRequestId: typeof opts.clientRequestId === 'string' ? opts.clientRequestId : undefined,
+      provider: opts.provider,
+      workingDir: opts.workingDir,
+      projectId: opts.projectId || null,
+      name: opts.name || null,
+      settings: opts.settings && typeof opts.settings === 'object' ? opts.settings : settingsFromLaunchOptions(opts.provider, opts.launchOptions),
+      tabGroupId: opts.tabGroupId || null,
+      afterSessionId: opts.afterSessionId || null,
+      message: null,
+    };
+    const r = await launchNew(fields, who || { deviceId: null }, { argsExtra });
+    return r.session;
+  }
+
+  /**
+   * Create a tracked session and start it (the shared body of both entry points).
+   * @param {object} body - NewSessionRequest fields only
+   * @param {{deviceId: (string|null)}} who
+   * @param {{argsExtra: (string[]|null)}} trusted - set only by in process callers
+   * @returns {Promise<{session: object, send: (object|null)}>}
+   */
+  async function launchNew(body, who, trusted) {
     return once('new', body, async () => {
       const b = body || {};
       if (!['claude', 'codex'].includes(b.provider)) fail(400, 'INVALID_FIELD', 'provider must be claude or codex.', { field: 'provider' }); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
@@ -252,7 +372,7 @@ function createLauncher(deps) {
       applySettings(rec.id, b.provider, st);
       const m = pm();
       const spawnOpts = {};
-      if (Array.isArray(b.argsExtra)) spawnOpts.argsExtra = b.argsExtra.slice();
+      if (trusted && Array.isArray(trusted.argsExtra)) spawnOpts.argsExtra = trusted.argsExtra.slice();
       const launchAt = now();
       const res = m ? await m.launchDetached(rec.id, spawnOpts) : { status: 'refused', code: 'LAUNCH_FAILED' };
       if (res.status === 'refused') {
@@ -285,7 +405,15 @@ function createLauncher(deps) {
     if (!ref) fail(404, 'SESSION_NOT_FOUND', 'That session does not exist on this computer.');
     return once('restart|' + ref.sessionId, body, async () => {
       const when = body && body.when === 'whenIdle' ? 'whenIdle' : 'now';
-      if (ref.owner === 'none') { await start(ref.sessionId, {}); audit(who.deviceId, 'restart', ref.sessionId, 'start', true); return { status: 'restarting' }; }
+      if (ref.owner === 'none') {
+        const started = await start(ref.sessionId, {});
+        if (started.status === 'refused') {
+          audit(who.deviceId, 'restart', ref.sessionId, 'refused ' + (started.code || ''), false);
+          failRefusal(started);
+        }
+        audit(who.deviceId, 'restart', ref.sessionId, 'start', true);
+        return { status: 'restarting' };
+      }
       if (ref.owner !== 'workbook') fail(409, 'SESSION_READ_ONLY', 'This session cannot be restarted from the phone.', { owner: ref.owner, reason: (index.meta(ref.sessionId) || {}).readOnlyReason || null });
       const turns = lazy.turns && lazy.turns();
       const busy = turns && turns.isTurnOpen(ref.sessionId);
@@ -295,23 +423,43 @@ function createLauncher(deps) {
         audit(who.deviceId, 'restart', ref.sessionId, 'scheduled', true);
         return { status: 'scheduled' };
       }
-      await doRestart(ref);
+      const res = await doRestart(ref);
+      if (res.status === 'refused') {
+        audit(who.deviceId, 'restart', ref.sessionId, 'refused ' + (res.code || ''), false);
+        failRefusal(res);
+      }
       audit(who.deviceId, 'restart', ref.sessionId, 'now', true);
       return { status: 'restarting' };
     });
   }
 
   /**
+   * Turn a launch refusal into the route's error: 409 SESSION_LIVE_ELSEWHERE
+   * when the live gate found the transcript open elsewhere, else 500, so the
+   * phone never hears "restarting" when nothing runs.
+   * @param {{status: string, code: (string|null), message?: (string|null)}} res
+   */
+  function failRefusal(res) {
+    if (res && LIVE_ELSEWHERE_CODES.has(res.code)) fail(409, 'SESSION_LIVE_ELSEWHERE', res.message || 'That conversation is open elsewhere.');
+    fail(500, 'INTERNAL', 'The session could not be started' + (res && res.code ? ' (' + res.code + ').' : '.'));
+  }
+
+  /**
    * Kill and relaunch a Workbook hosted session with its stored settings.
    * @param {object} ref
+   * @returns {Promise<{status: string, code: (string|null), message: (string|null)}>} the relaunch result
    */
   async function doRestart(ref) {
     const m = pm();
     m.killSession(ref.workbookSessionId);
     await new Promise((r) => setTimeout(r, 300));
-    await m.launchDetached(ref.workbookSessionId, {});
+    let res;
+    try { res = await m.launchDetached(ref.workbookSessionId, {}); } catch (err) { res = { status: 'refused', code: 'LAUNCH_FAILED', message: err && err.message ? String(err.message) : null }; }
+    if (!res || typeof res.status !== 'string') res = { status: 'refused', code: 'LAUNCH_FAILED', message: null };
     index.invalidate();
+    index.noteChanged(ref.sessionId, 'updated');
     if (lazy.turns && lazy.turns()) lazy.turns().publishMeta(ref.sessionId);
+    return res;
   }
 
   /**
@@ -329,7 +477,12 @@ function createLauncher(deps) {
           clearInterval(timer);
           pendingRestarts.delete(sessionId);
           const ref = index.resolve(sessionId);
-          if (ref && ref.owner === 'workbook') { try { await doRestart(ref); } catch (err) { warn('idle restart failed', err && err.message); } }
+          if (ref && ref.owner === 'workbook') {
+            try {
+              const res = await doRestart(ref);
+              if (res.status === 'refused') warn('idle restart refused', sessionId, res.code);
+            } catch (err) { warn('idle restart failed', err && err.message); }
+          }
         }
       } else {
         idleSince = 0;
@@ -482,7 +635,7 @@ function createLauncher(deps) {
     });
   }
 
-  return { start, createSession, restart, stop, continueHere, resumeAnyway, branch, ensureStoreSession, sanitizeWorkingDir };
+  return { start, createSession, createSessionFromRequest, restart, stop, continueHere, resumeAnyway, branch, ensureStoreSession, sanitizeWorkingDir };
 }
 
-module.exports = { createLauncher, sanitizeWorkingDir, FORK_MAX_BYTES };
+module.exports = { createLauncher, sanitizeWorkingDir, FORK_MAX_BYTES, NEW_SESSION_FIELDS };

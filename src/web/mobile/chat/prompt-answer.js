@@ -44,9 +44,10 @@ function createAnswers(deps) {
   const prompts = () => lazy.prompts && lazy.prompts();
 
   if (prompts() && prompts().onEvent) {
-    prompts().onEvent((kind, p, data) => {
+    prompts().onEvent((kind, p, data, extra) => {
       if (kind !== 'resolved') return;
-      resolved.set(p.promptId, data);
+      // replacedBy: the dialog changed in place into another prompt (not closed).
+      resolved.set(p.promptId, extra && extra.replacedBy ? Object.assign({}, data, { replacedBy: extra.replacedBy }) : data);
       if (resolved.size > RESOLVED_MEMORY) resolved.delete(resolved.keys().next().value);
     });
   }
@@ -287,6 +288,9 @@ function createAnswers(deps) {
       let p = pr ? pr.internal(sid) : null;
       if (!p || p.promptId !== promptId) {
         const r = resolved.get(promptId);
+        // PROTOCOL.md 8.5 step 1: a dialog still on screen whose fingerprint
+        // differs is PROMPT_CHANGED; only a prompt that closed is already resolved.
+        if (r && r.replacedBy && p && p.promptId === r.replacedBy) fail(409, 'PROMPT_CHANGED', 'The dialog changed on the computer.');
         if (r) fail(409, 'PROMPT_ALREADY_RESOLVED', 'Someone answered this already.', { by: r.by });
         fail(404, 'PROMPT_NOT_FOUND', 'That question or approval is not open.');
       }

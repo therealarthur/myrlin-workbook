@@ -20,7 +20,7 @@
 const fs = require('fs');
 const { createHub } = require('../stream/hub');
 const { createDiscoveryCache } = require('./discovery-cache');
-const { createAgentsPoller } = require('./agents-poller');
+const { createAgentsPoller, blindListingCheck } = require('./agents-poller');
 const { createSessionIndex } = require('./session-index');
 const { createRuntime } = require('./runtime');
 const { createPromptService } = require('./prompt-detect');
@@ -113,7 +113,7 @@ function screenModelAvailable() {
  * Mount the chat track.
  * @param {object} router - B1's router ({route(method, path, handler)}) or null
  * @param {object} ctx - the mobile context (BUILD-CONTRACT 3.4.1)
- * @param {object} [options] - test seams: {hub, agents, now, timings, uploadsRoot, homeDir}
+ * @param {object} [options] - test seams: {hub, agents, now, timings, uploadsRoot, homeDir, screenModel (boolean override of capabilities.screenModel)}
  * @returns {object} ctx.mobile.chat
  */
 function mountChat(router, ctx, options = {}) {
@@ -122,10 +122,24 @@ function mountChat(router, ctx, options = {}) {
   const hub = createHub(ctx, Object.assign({}, options.hub || {}));
   ctx.mobile.hub = hub;
   const discovery = options.discovery || createDiscoveryCache({ registry: ctx.registry });
-  const agents = options.agents || createAgentsPoller();
+  // The blind listing check is the one pty-manager gives its own lookup: an empty
+  // listing while this Workbook runs Claude panes is a failed poll, not "nothing runs".
+  const agents = options.agents || createAgentsPoller({ sightCheck: blindListingCheck(ctx.getPtyManager) });
   const index = createSessionIndex({ ctx, discovery, agents, now });
   const runtime = createRuntime({ ctx, index, now });
-  const caps = () => ({ screenModel: screenModelAvailable(), codexLinker: true, branchFromMessage: [] });
+  const screenModelOn = () => (typeof options.screenModel === 'boolean' ? options.screenModel : screenModelAvailable());
+  const caps = () => ({ screenModel: screenModelOn(), codexLinker: true, branchFromMessage: [] });
+  // PROTOCOL.md 1.6: with the screen model off, every stream connection gets
+  // one SCREEN_MODEL_OFF notice; the shutdown notice names this computer.
+  hub.configureNotices({
+    computerName: () => index.computerName(),
+    onConnect: () => (screenModelOn() ? [] : [{
+      noticeId: 'n_screenmodel_' + hub.epoch.slice(2),
+      level: 'warn',
+      code: 'SCREEN_MODEL_OFF',
+      message: 'Workbook cannot read terminal screens, so questions and approvals show only on ' + index.computerName() + '.',
+    }]),
+  });
   let turns;
   let prompts;
   let sends;
@@ -247,7 +261,9 @@ function mountChat(router, ctx, options = {}) {
     'POST /sessions/:sessionId/resume-anyway': async (req, p, q, who) => ok(launch.resumeAnyway(p.sessionId, await body(req), who)),
     'POST /sessions/:sessionId/branch': async (req, p, q, who) => ok(await launch.branch(p.sessionId, await body(req), who), 201),
     'GET /sessions/:sessionId/commands': async (req, p) => { const r = requireSession(p.sessionId); return ok({ sessionId: r.sessionId, provider: r.provider, commands: commands.listFor(r.provider, r.workingDir), generatedAtMs: now() }); },
-    'POST /sessions': async (req, p, q, who) => ok(await launch.createSession(await body(req), who), 201),
+    // The phone's body goes through createSessionFromRequest, which keeps only the
+    // NewSessionRequest fields: an HTTP body can never set argsExtra (W2, PROTOCOL.md 0.1).
+    'POST /sessions': async (req, p, q, who) => ok(await launch.createSessionFromRequest(await body(req), who), 201),
     'POST /uploads': async (req, p, q, who) => ok(uploads.create(await body(req), who.deviceId), 201),
     'GET /uploads/:uploadId': async (req, p, q, who) => ok(uploads.get(p.uploadId, who.deviceId)),
     'PUT /uploads/:uploadId/chunks': async (req, p, q, who) => {
@@ -293,7 +309,7 @@ function mountChat(router, ctx, options = {}) {
     turns: { stateOf: (id) => turns.stateOf(id), onTurn: (fn) => turns.onTurn(fn), turnOf: (id) => turns.turnOf(id) },
     prompts: { openFor: (id) => prompts.openFor(id), answer: (id, promptId, req, who) => answers.answer(id, promptId, req, who || { deviceId: null }) },
     sends: { enqueueSystem: (id, text, o) => sends.enqueueSystem(id, text, o) },
-    launch: { start: (id, o) => launch.start(id, o), createSession: (o, who) => launch.createSession(o, who || { deviceId: null }), restart: (id, o) => launch.restart(id, o || {}, { deviceId: null }), stop: (id, o) => launch.stop(id, o || {}, { deviceId: null }) },
+    launch: { start: (id, o) => launch.start(id, o), createSession: (o, who) => launch.createSession(o, who || { deviceId: null }), /* in process only: resolves to a SessionSummary; the only path that may carry argsExtra */ restart: (id, o) => launch.restart(id, o || {}, { deviceId: null }), stop: (id, o) => launch.stop(id, o || {}, { deviceId: null }) },
     readTranscriptRange: (id, o) => { const r = index.resolve(id); if (!r || !r.transcriptPath) return (async function* empty() {})(); return reader.readRange(r.transcriptPath, (o && o.fromOffset) || 0, o && o.toOffset); },
     onProviderChange: (providerId) => discovery.onProviderChange(providerId),
     internals: { hub, index, runtime, prompts, turns, sends, interrupts, answers, launch, linker, uploads, commands, pushes, discovery, agents },

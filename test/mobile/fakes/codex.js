@@ -4,7 +4,9 @@
  *
  * What: a scriptable stand in for `codex` with a composer row, a
  * "Working (... esc to interrupt)" status line and the command approval
- * dialog with letter keys (y, a, esc). It writes rollouts under
+ * dialog with letter keys (y, p, esc), laid out as the real codex-cli
+ * 0.153.4 draws it (golden screen codex-0.153.4-approval; the contract's
+ * provisional (a) key is (p) there). It writes rollouts under
  * $CODEX_HOME/sessions/YYYY/MM/DD/rollout-<timestamp>-<threadId>.jsonl
  * (session_meta, turn_context, task_started, task_complete, messages,
  * encrypted reasoning, function calls and outputs, turn_aborted on ESC) and a
@@ -113,7 +115,8 @@ function render() {
   const bottom = [];
   if (ui.dialog) {
     const d = ui.dialog;
-    bottom.push('', 'Would you like to run the following command?', '', '  $ ' + d.command, '');
+    // The layout of codex-cli 0.153.4 (golden screen codex-0.153.4-approval).
+    bottom.push('', 'Would you like to run the following command?', '', 'Environment: local', '', 'Reason: Do you want to allow running ' + d.command + '?', '', '  $ ' + d.command, '');
     d.options.forEach((opt, i) => bottom.push((i === d.hl ? COMPOSER + ' ' : '  ') + (i + 1) + '. ' + opt.label + ' (' + opt.key + ')'));
     bottom.push('', 'Press enter to confirm or esc to cancel');
   } else {
@@ -135,7 +138,7 @@ async function wait(ms) {
 
 function approval(command) {
   return new Promise((resolve) => {
-    ui.dialog = { command, hl: 0, resolve, options: [{ label: 'Yes, proceed', key: 'y' }, { label: "Yes, and don't ask again for this command", key: 'a' }, { label: 'No, and tell Codex what to do differently', key: 'esc' }] };
+    ui.dialog = { command, hl: 0, resolve, options: [{ label: 'Yes, proceed', key: 'y' }, { label: "Yes, and don't ask again for commands that start with `" + command + '`', key: 'p' }, { label: 'No, and tell Codex what to do differently', key: 'esc' }] };
     render();
   });
 }

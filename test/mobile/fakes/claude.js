@@ -83,7 +83,17 @@ function stateEntries() {
       const e = JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), 'utf8'));
       let alive = true;
       try { process.kill(e.pid, 0); } catch (_) { alive = false; }
-      if (alive || e.kind === 'background') out.push(e);
+      if (alive) out.push(e);
+      else if (e.kind === 'background') {
+        // Rule 6 as measured on Claude Code 2.1.283 (claude-2.1.283-live-evidence.json,
+        // rule6): a background session whose process is gone stays listed
+        // without pid, status and waitingFor, keeping its id, name and state.
+        const asleep = Object.assign({}, e);
+        delete asleep.pid;
+        delete asleep.status;
+        delete asleep.waitingFor;
+        out.push(asleep);
+      }
     } catch (_) { /* skip */ }
   }
   return out;

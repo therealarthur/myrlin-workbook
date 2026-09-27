@@ -65,6 +65,67 @@ async function waitIdle() {
   await kit.until(async () => { const s = await env.chat.internals.runtime.freshScreen(sid, 0); return s && s.cls.kind === 'idlePrompt' && !env.chat.internals.turns.isTurnOpen(sid); }, 20000, 'idle');
 }
 
+// ── PROMPT_CHANGED with real golden screens and a scripted screen (PROTOCOL.md 8.5 step 1) ──
+
+/**
+ * The answer service over the real prompt service and a scripted screen.
+ * @returns {object}
+ */
+function scriptedAnswers() {
+  const { classify, createPromptService } = require('../../src/web/mobile/chat/prompt-detect');
+  const { createAnswers } = require('../../src/web/mobile/chat/prompt-answer');
+  const screens = path.join(__dirname, 'fixtures', 'screens');
+  const load = (n) => JSON.parse(fs.readFileSync(path.join(screens, 'claude-2.1.283-' + n + '.json'), 'utf8'));
+  const w = { snap: null, writes: [] };
+  const SID = 'cl_' + crypto.randomUUID();
+  const index = { resolve: () => ({ sessionId: SID, owner: 'workbook', provider: 'claude', workingDir: null }), computerName: () => 'PC' };
+  const prompts = createPromptService({ ctx: { mobile: {} }, index, lazy: { turns: () => ({ openToolsOf: () => [] }) } });
+  const runtime = {
+    hasScreen: () => true,
+    freshScreen: async () => (w.snap ? { cls: classify(w.snap, 'claude'), snap: w.snap } : null),
+    withLock: async (sid, fn) => fn(),
+    write: (sid, bytes) => { w.writes.push(bytes); return true; },
+  };
+  const answers = createAnswers({ ctx: { mobile: {} }, index, runtime, lazy: { prompts: () => prompts, interrupts: () => null }, timings: { resolveWaitMs: 200, keyGapMs: 1 } });
+  /** Show a golden screen and let the prompt service read it. */
+  w.show = (name) => { w.snap = load(name); prompts.onClassified(SID, classify(w.snap, 'claude')); };
+  return Object.assign(w, { SID, prompts, answers });
+}
+
+kit.test('PROMPT_CHANGED: the dialog on screen was replaced in place by another dialog before the answer arrived', async () => {
+  const w = scriptedAnswers();
+  w.show('permission');
+  const p = w.prompts.openFor(w.SID)[0];
+  w.show('plan-dialog');
+  kit.ok(w.prompts.openFor(w.SID)[0].promptId !== p.promptId, 'a new prompt');
+  const err = await w.answers.answer(w.SID, p.promptId, { decision: 'allow' }, { deviceId: 'd_x' }).then(() => null, (e) => e);
+  kit.eq([err && err.status, err && err.code], [409, 'PROMPT_CHANGED']);
+  kit.eq(w.writes, [], 'no key reached the other dialog');
+});
+
+kit.test('PROMPT_CHANGED: the dialog changed between the card and the answer route\'s own screen read', async () => {
+  const w = scriptedAnswers();
+  w.show('permission');
+  const p = w.prompts.openFor(w.SID)[0];
+  // The screen reader has not noticed yet; the route's fresh read sees the other dialog.
+  w.snap = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'screens', 'claude-2.1.283-plan-dialog.json'), 'utf8'));
+  const err = await w.answers.answer(w.SID, p.promptId, { decision: 'allow' }, { deviceId: 'd_x' }).then(() => null, (e) => e);
+  kit.eq([err && err.status, err && err.code], [409, 'PROMPT_CHANGED']);
+  kit.eq(w.writes, []);
+});
+
+kit.test('a dialog that closed (no dialog on screen) is PROMPT_ALREADY_RESOLVED by desktop, not PROMPT_CHANGED', async () => {
+  const w = scriptedAnswers();
+  w.show('permission');
+  const p = w.prompts.openFor(w.SID)[0];
+  w.show('permission-after-cr');
+  await kit.sleep(160);
+  w.show('permission-after-cr');
+  kit.eq(w.prompts.openFor(w.SID).length, 0);
+  const err = await w.answers.answer(w.SID, p.promptId, { decision: 'allow' }, { deviceId: 'd_x' }).then(() => null, (e) => e);
+  kit.eq([err && err.status, err && err.code, err && err.extra && err.extra.by], [409, 'PROMPT_ALREADY_RESOLVED', 'desktop']);
+});
+
 kit.test('boot with a fake Claude pane', async () => {
   env = await kit.bootChat({ pty: true });
   const s = await startSession('claude');
@@ -186,7 +247,7 @@ kit.test('Codex approval answers with the letter key', async () => {
   stream.send({ type: 'subscribe', id: 'c', epoch: null, topics: [{ topic: 'session:' + sid, sinceSeq: null }] });
   await sendText('approve: codex');
   const p = await openPrompt('approval');
-  kit.eq(p.options.map((o) => o.key), ['y', 'a', 'esc']);
+  kit.eq(p.options.map((o) => o.key), ['y', 'p', 'esc']);
   const r = await answer(p, { decision: 'allow' });
   kit.eq(r.status, 200, JSON.stringify(r.body));
   kit.eq(writes, ['y']);

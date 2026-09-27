@@ -25,6 +25,7 @@ const reader = require('./transcript-reader');
 const claudeMsg = require('./claude-messages');
 const { createClaudeMapper } = claudeMsg;
 const { createCodexMapper } = require('./codex-messages');
+const { isSleepingBackground } = require('./agents-poller');
 
 const MAX_TAILERS = 24;
 const TAIL_DEBOUNCE_MS = 200;
@@ -39,6 +40,8 @@ const IDLE_GRACE_MS = 30000;
 const API_ERROR_IDLE_MS = 10000;
 const NO_ACTIVITY_MS = 10 * 60 * 1000;
 const STOPPED_BY_PHONE_WINDOW_MS = 5000;
+/** X3 fallback (PROTOCOL.md 6.3): idle composer this long after a phone ESC with no end marker. */
+const CODEX_INTERRUPT_FALLBACK_MS = 5000;
 const CHECK_TICK_MS = 1000;
 const USAGE_LIMIT_RE = /usage limit|rate limit|limit reached|limit will reset|resets? (at|in)/i;
 
@@ -227,10 +230,16 @@ function createTurnService(deps) {
 
   /**
    * Whether a Claude session was a background session the supervisor reaped (rule 6).
+   * Measured on 2.1.283 (claude-2.1.283-live-evidence.json, rule6): a background
+   * entry without pid and status is asleep; one that left the listing is asleep
+   * when the poller or the desktop gate saw it running in the background.
    * @param {object} w
    * @returns {boolean}
    */
   function isSleeping(w) {
+    const e = agents && w.upstreamId && agents.entryFor ? agents.entryFor(w.upstreamId) : null;
+    if (e) return isSleepingBackground(e);
+    if (agents && w.upstreamId && typeof agents.wasBackground === 'function' && agents.wasBackground(w.upstreamId)) return true;
     try {
       const lookup = require('../../../providers/claude/live-sessions').getDefaultLookup();
       const marker = lookup && lookup.seenStore && lookup.seenStore.get ? lookup.seenStore.get(w.upstreamId) : null;
@@ -325,8 +334,9 @@ function createTurnService(deps) {
    * @param {string|null} endSource
    * @param {number|null} durationMs
    * @param {object|null} error
+   * @param {{stoppedBy?: ('phone'|'desktop')}} [o] - who stopped an interrupted turn, when the caller knows
    */
-  function endTurn(w, status, endSource, durationMs, error) {
+  function endTurn(w, status, endSource, durationMs, error, o) {
     const t = w.turn;
     if (!t) return;
     const endedAtMs = now();
@@ -341,7 +351,7 @@ function createTurnService(deps) {
     if (st === 'interrupted') {
       const i = interrupts();
       const escAt = i && i.lastPhoneEscAt ? i.lastPhoneEscAt(w.sessionId) : 0;
-      t.stoppedBy = escAt && endedAtMs - escAt <= STOPPED_BY_PHONE_WINDOW_MS ? 'phone' : 'desktop';
+      t.stoppedBy = o && o.stoppedBy ? o.stoppedBy : (escAt && endedAtMs - escAt <= STOPPED_BY_PHONE_WINDOW_MS ? 'phone' : 'desktop');
     }
     for (const [id, tool] of w.openTools) {
       pub(w.sessionId, 'tool.end', { sessionId: w.sessionId, turnId: t.turnId, toolCallId: id, status: 'interrupted', durationMs: Math.max(0, endedAtMs - tool.startedAtMs), summary: null, exitCode: null, diffStat: null });
@@ -798,8 +808,11 @@ function createTurnService(deps) {
     for (const w of watchers.values()) {
       if (w.provider !== 'claude' || !w.upstreamId || !w.unwatchAgents) continue; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const e = (listing.entries || []).find((x) => String(x.sessionId).toLowerCase() === String(w.upstreamId).toLowerCase());
-      if (w.turn && !e && w.seenInAgents) endTurn(w, 'failed', 'processExit', null, { code: 'PROCESS_EXITED', error: 'Claude Code exited' });
-      if (e) w.seenInAgents = true;
+      // C5: the session left the listing, or (rule 6) is still listed as a
+      // background session but without its process, while a turn is open.
+      const gone = !e || isSleepingBackground(e);
+      if (w.turn && gone && w.seenInAgents) endTurn(w, 'failed', 'processExit', null, { code: 'PROCESS_EXITED', error: 'Claude Code exited' });
+      if (!gone) w.seenInAgents = true;
       if (e && e.status === 'idle' && !e.waitingFor) w.agentsIdle.push(now()); else w.agentsIdle = [];
       refresh(w);
     }
@@ -833,6 +846,20 @@ function createTurnService(deps) {
         endTurn(w, 'failed', 'apiError', null, w.turn._failed);
         refresh(w);
         continue;
+      }
+      // X3 fallback (PROTOCOL.md 6.3): after an interrupt this phone sent, the
+      // Codex screen shows the idle composer and neither task_complete nor
+      // turn_aborted arrives within 5 s: the turn ended interrupted. Without
+      // it a Codex whose abort record is named differently would end as
+      // completed through C7 about 36 s later.
+      if (w.provider === 'codex' && w.screen && w.screen.kind === 'idlePrompt' && w.screenIdleSince) { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
+        const i = interrupts();
+        const escAt = i && i.lastPhoneEscAt ? i.lastPhoneEscAt(w.sessionId) : 0;
+        if (escAt && escAt >= w.turn.startedAtMs && t - Math.max(escAt, w.screenIdleSince) >= CODEX_INTERRUPT_FALLBACK_MS) {
+          endTurn(w, 'interrupted', 'interruptMarker', null, null, { stoppedBy: 'phone' });
+          refresh(w);
+          continue;
+        }
       }
       // C7 for a Workbook pane: idle screen held 6 s over 3 reads (or unchanged since), then 30 s.
       const screenHeld = w.screen && w.screen.kind === 'idlePrompt' && w.screenIdleSince && t - w.screenIdleSince >= IDLE_CONFIRM_SPAN_MS;
