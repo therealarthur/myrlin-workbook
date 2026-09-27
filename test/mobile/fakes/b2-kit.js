@@ -2,13 +2,20 @@
  * Shared kit for the b2-*.test.js suites.
  *
  * What: a minimal test runner (one printed line per test, non zero exit on
- * failure), a JSON Schema validator for exactly the keyword subset listed in
- * protocol/README.md (against the private copy of the schemas under
- * fixtures/b2-protocol until B1's _schema-check.js lands), a bootstrap that
- * mounts the chat track on the B1 stub with a sandboxed store, HTTP and
- * WebSocket clients for loopback listeners, transcript fixture writers for
- * both providers, and helpers to run the fake CLIs in real PTYs with the VT
- * sidecar on.
+ * failure), schema validation through B1's test/mobile/_schema-check.js over
+ * the vendored fixtures/protocol/schemas (BUILD-CONTRACT 3.1: B2 switches
+ * from its private copy under fixtures/b2-protocol at the B1 merge; the
+ * kit's own subset validator, check(), stays exported), a bootstrap that
+ * starts B1's real mobile runtime and listener with the chat track mounted
+ * through startMobile, devices paired and minted by B1's real pairing,
+ * devices and token modules, HTTP and WebSocket clients for loopback
+ * listeners, transcript fixture writers for both providers, and helpers to
+ * run the fake CLIs in real PTYs with the VT sidecar on.
+ *
+ * Sandbox: the kit requires ../_harness before any Workbook module, so every
+ * B2 suite passes B1's sandbox guard (a fresh CWM_DATA_DIR under the system
+ * temp folder, CWM_PASSWORD set, nothing under src/ loaded first); run the
+ * suites through test/mobile/run-all.js, which provides that environment.
  *
  * Why: eighteen suites share the same setup; one kit keeps them short and
  * identical in how they sandbox (CWM_DATA_DIR, CWM_CLAUDE_PROJECTS_DIR,
@@ -24,8 +31,22 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 
-const SCHEMA_ROOT = path.join(__dirname, '..', 'fixtures', 'b2-protocol', 'schemas');
+// B1's harness first: its sandbox guard runs before any Workbook module loads.
+const harness = require('../_harness');
+const { createChecker } = require('../_schema-check');
+
+/** The schemas B1 vendored from the iOS repo (fixtures/protocol/SOURCE.txt). */
+const SCHEMA_ROOT = path.join(__dirname, '..', 'fixtures', 'protocol', 'schemas');
+/** The private copy B2 used before the B1 merge (kept; no suite reads it now). */
+const PRIVATE_SCHEMA_ROOT = path.join(__dirname, '..', 'fixtures', 'b2-protocol', 'schemas');
 const FAKES_BIN = path.join(__dirname, 'bin');
+
+let schemaChecker = null;
+/** @returns {object} B1's checker over SCHEMA_ROOT, built once. */
+function checker() {
+  if (!schemaChecker) schemaChecker = createChecker(SCHEMA_ROOT);
+  return schemaChecker;
+}
 
 // ── Runner ─────────────────────────────────────────────────────────────────
 
@@ -183,8 +204,7 @@ function check(v, s, file, at) {
  * @param {string} rel - for example "sessions/message-page.json"
  */
 function validate(value, rel) {
-  const file = path.join(SCHEMA_ROOT, rel);
-  const errs = check(value, loadSchema(file), file, '$');
+  const errs = checker().validate(rel, value);
   if (errs.length) throw new Error('schema ' + rel + ': ' + errs.slice(0, 6).join('; '));
 }
 
@@ -224,24 +244,60 @@ function sandbox() {
   return s;
 }
 
+/** The scopes a test device gets unless a test names others (PROTOCOL.md 2.6). */
+const DEFAULT_SCOPES = ['accounts.read', 'accounts.swap', 'chat', 'media.upload', 'search', 'sessions.manage'];
+
 /**
- * Mount the chat track on the B1 stub with the sandboxed store.
- * @param {object} [o] - {pty: boolean, options: mountChat options, sandbox}
+ * Start B1's real mobile runtime with the chat track mounted, on a loopback
+ * listener at port 0, with the sandboxed store.
+ *
+ * The chat track mounts through B1's startMobile (index.js mountOtherTracks)
+ * with the test's options passed as ctx.trackOptions.chat, so the suites run
+ * the production mount path, B1's router (scope table, authentication,
+ * limiters, body parsing, error bodies), B1's upgrade authentication, and
+ * B1's devices and tokens. The first device pairs through the real pair,
+ * hello and session routes; addDevice creates further records with B1's
+ * devices.create and mints with its token module, as the Allow step does.
+ *
+ * @param {object} [o] - {pty: boolean, options: mountChat options}
  * @returns {Promise<object>}
  */
 async function bootChat(o = {}) {
   await initProviders();
-  const { createB1Stub } = require('./b1-stub');
+  const mobileMod = require('../../../src/web/mobile');
+  const { TOKEN_LIFE_MS } = require('../../../src/web/mobile/session-tokens');
   const { getStore } = require('../../../src/state/store');
   const registry = require('../../../src/providers');
-  const { mountChat } = require('../../../src/web/mobile/chat');
   const store = getStore();
-  const b1 = createB1Stub();
+  await mobileMod.stopMobile();
+  mobileMod._resetForTests();
+  harness.seedSettings(store, {
+    enabled: true,
+    host: '127.0.0.1',
+    port: 0,
+    detectTailscale: false,
+    advertiseLoopback: true,
+    legacyPairEnabled: false,
+    publicUrls: [],
+    qrLinkStyle: 'scheme',
+    apns: null,
+  });
+  // updateSettings schedules a debounced async save. The store's sync save()
+  // (createSession and friends) writes the same <file>.<pid>.tmp, so a sync
+  // save during that async one fails its rename (EPERM on Windows) and the
+  // store emits an unhandled 'error'. Write the seeded settings now instead.
+  if (store._saveTimer) { clearTimeout(store._saveTimer); store._saveTimer = null; }
+  store.save();
   let pm = null;
   if (o.pty) {
     const { PtySessionManager } = require('../../../src/web/pty-manager');
     pm = new PtySessionManager();
   }
+  // B1's clock. mintToken moves it back for one call so a token can be minted
+  // with a shorter life than B1's fixed 15 minutes (the 4001 test).
+  let skewMs = 0;
+  const logs = [];
+  const sse = [];
   const ctx = {
     app: null,
     store,
@@ -250,17 +306,79 @@ async function bootChat(o = {}) {
     getProviderForSession: () => null,
     dataDir: process.env.CWM_DATA_DIR,
     packageVersion: 'test',
-    mobile: Object.assign({}, b1.mobile),
+    broadcastSSE: (type, data) => sse.push({ type, data }),
+    now: () => Date.now() + skewMs,
+    log: (m) => logs.push(String(m)),
+    trackOptions: { chat: o.options || {} },
+    mobile: {},
   };
-  const chat = mountChat(b1.mobile.router, ctx, o.options || {});
-  const listener = await b1.listen(ctx);
-  const device = b1.addDevice();
+  const rt = mobileMod.ensureCore(ctx);
+  // Record what B2 hands B1's push and audit, then call the real ones.
+  const pushEvents = [];
+  const auditEntries = [];
+  const realNotify = ctx.mobile.push.notify;
+  ctx.mobile.push.notify = (e) => { pushEvents.push(e); return realNotify(e); };
+  const realAudit = ctx.mobile.audit.write;
+  ctx.mobile.audit.write = (e) => { auditEntries.push(Object.assign({ ts: Date.now() }, e)); return realAudit(e); };
+  const status = await mobileMod.startMobile(ctx);
+  if (!rt.mounted.chat || !ctx.mobile.chat) throw new Error('the chat track did not mount: ' + logs.join(' | '));
+  if (!status || !status.running) throw new Error('the mobile listener did not start: ' + JSON.stringify(status));
+  const chat = ctx.mobile.chat;
+  const port = rt.listener.status().port;
+  const base = 'http://127.0.0.1:' + port;
+  const h = { rt, request: (method, p, ro) => harness.request(port, method, p, ro) };
+
+  const b1 = {
+    rt,
+    mobile: ctx.mobile,
+    pushEvents,
+    auditEntries,
+    logs,
+    sse,
+    /**
+     * Mint a session token with B1's token module.
+     * @param {string} deviceId
+     * @param {number} [lifeMs] - shorter than 15 minutes for expiry tests
+     * @returns {string}
+     */
+    mintToken(deviceId, lifeMs) {
+      skewMs = Number.isFinite(lifeMs) ? lifeMs - TOKEN_LIFE_MS : 0;
+      try { return rt.auth.mint(deviceId).token; } finally { skewMs = 0; }
+    },
+    /**
+     * A device record created as the Allow step creates it, with a live token.
+     * @param {string[]|null} [scopes]
+     * @param {number} [lifeMs]
+     * @returns {{deviceId: string, token: string}}
+     */
+    addDevice(scopes, lifeMs) {
+      const dev = harness.softwareDevice('B2 test iPhone');
+      const rec = rt.devices.create({
+        publicKey: dev.publicKey, name: dev.name, model: 'iPhone17,2', osVersion: '26.1', appVersion: '1.0.0 (1)',
+        scopes: (scopes || DEFAULT_SCOPES).slice(), pairedAtMs: Date.now(),
+      });
+      return { deviceId: rec.deviceId, token: this.mintToken(rec.deviceId, lifeMs) };
+    },
+    /** Change a device's scopes through B1 (fires devices.onScopesChanged). */
+    setScopes(deviceId, scopes) { return rt.devices.setScopes(deviceId, scopes); },
+    /** Revoke a device through B1 with every effect of PROTOCOL.md 2.11. */
+    revoke(deviceId) { return rt.revokeDevice(deviceId, 'desktop'); },
+  };
+
+  // The first device pairs through the real routes: offer, pair, Allow, hello, session.
+  const phone = harness.softwareDevice('B2 test iPhone');
+  await harness.pairDevice(h, phone, { scopes: DEFAULT_SCOPES });
+  const session = await harness.openSession(h, phone);
+  const device = { deviceId: phone.deviceId, token: session.sessionToken };
+  const listener = { port, base, close: async () => { await mobileMod.stopMobile(); } };
+
   return {
-    ctx, chat, b1, pm, store, listener, device, base: listener.base,
+    ctx, chat, b1, pm, store, listener, device, base,
     async close() {
       try { chat.stop(); } catch (_) {}
       if (pm) { try { pm.destroyAll(); } catch (_) {} }
-      await listener.close();
+      await mobileMod.stopMobile();
+      mobileMod._resetForTests();
     },
   };
 }
@@ -277,8 +395,18 @@ async function initProviders() {
 
 // ── Clients ───────────────────────────────────────────────────────────────
 
+/** Most 429 answers api() waits out before it returns one. */
+const RATE_LIMIT_RETRIES = 40;
+/** Longest single wait api() accepts from a retryAfterMs. */
+const RATE_LIMIT_WAIT_MAX_MS = 5000;
+
 /**
- * JSON HTTP request to the listener.
+ * JSON HTTP request to the listener, as the phone's client makes it: a 429
+ * RATE_LIMITED answer is waited out for its retryAfterMs and the request is
+ * sent again (PROTOCOL.md 2.12). B1's real limiters run under the B2 suites
+ * since the wave B merge (the device bucket holds 100 requests, then 20 a
+ * second), and a suite that pages a 200 MB transcript back to its first
+ * message sends a few hundred requests in a row.
  * @param {string} base
  * @param {string} method
  * @param {string} p - path under /api/m/v2
@@ -287,7 +415,26 @@ async function initProviders() {
  * @param {object} [headers]
  * @returns {Promise<{status: number, body: *, headers: object, raw: Buffer}>}
  */
-function api(base, method, p, body, token, headers) {
+async function api(base, method, p, body, token, headers) {
+  let r = await apiOnce(base, method, p, body, token, headers);
+  for (let i = 0; i < RATE_LIMIT_RETRIES && r.status === 429 && r.body && r.body.code === 'RATE_LIMITED'; i++) {
+    await sleep(Math.min(RATE_LIMIT_WAIT_MAX_MS, Math.max(10, Number(r.body.retryAfterMs) || 100)));
+    r = await apiOnce(base, method, p, body, token, headers);
+  }
+  return r;
+}
+
+/**
+ * One JSON HTTP request to the listener (no retry).
+ * @param {string} base
+ * @param {string} method
+ * @param {string} p - path under /api/m/v2
+ * @param {object|Buffer|null} body
+ * @param {string|null} token
+ * @param {object} [headers]
+ * @returns {Promise<{status: number, body: *, headers: object, raw: Buffer}>}
+ */
+function apiOnce(base, method, p, body, token, headers) {
   return new Promise((resolve, reject) => {
     const u = new URL('/api/m/v2' + p, base);
     const h = Object.assign({}, headers || {});
@@ -449,6 +596,7 @@ function trackedSession(store, o) {
 }
 
 module.exports = {
-  test, run, ok, eq, until, sleep, initProviders, validate, validateFrame, check, sandbox, bootChat, api, openStream,
+  test, run, ok, eq, until, sleep, initProviders, validate, validateFrame, check, sandbox, bootChat, api, apiOnce, openStream,
   writeClaude, claudeExchange, writeCodex, codexExchange, trackedSession, SCHEMA_ROOT, FAKES_BIN,
+  PRIVATE_SCHEMA_ROOT, DEFAULT_SCOPES,
 };

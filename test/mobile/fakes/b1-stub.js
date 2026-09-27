@@ -11,6 +11,12 @@
  * Why: B1 and B2 are built in parallel (wave B); B2's tests code against the
  * interface and switch to B1's harness at rebase.
  *
+ * Since the wave B merge no b2-*.test.js suite uses this stub: b2-kit.js
+ * bootChat starts B1's real runtime (router, auth, devices, listener). Only
+ * the hand run fakes/live-check-workbook.js still mounts the chat track on it,
+ * because that script drives the real claude CLI in a scratch folder with no
+ * listener and was left as recorded evidence tooling.
+ *
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 'use strict';
