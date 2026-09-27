@@ -141,18 +141,75 @@ kit.test('failed initial layout reads hold saves until recovery loads the phone 
   kit.eq(h.page._layoutRevision, 8);
 });
 
-kit.test('a layout response without a revision cannot release held saves', async () => {
-  let writes = 0;
-  const h = layoutPage(async (method) => {
-    if (method === 'PUT') writes += 1;
+kit.test('a revisionless layout permits a legacy save without a retry', async () => {
+  const writes = [];
+  const h = layoutPage(async (method, route, body) => {
+    if (method === 'PUT') writes.push(body);
     return { tabGroups: [] };
   });
   await h.page.loadTerminalLayout();
-  await h.fire();
+  kit.eq(h.timers.size, 0);
   h.page.saveTerminalLayout();
+  await h.fire();
+  kit.eq(writes.length, 1);
+  kit.eq(writes[0].baseRevision, null);
+  kit.eq(h.page._layoutRevision, null);
+  kit.eq(h.timers.size, 0);
+});
+
+kit.test('a layout retry can recover against a revisionless server', async () => {
+  let reads = 0;
+  const h = layoutPage(async () => {
+    reads += 1;
+    if (reads === 1) throw new Error('offline');
+    return { tabGroups: [{ id: 'tg_legacy', name: 'Legacy', panes: [] }] };
+  });
+  await h.page.loadTerminalLayout();
+  await h.fire();
+  kit.eq(h.page._layoutRevisionUnsupported, true);
+  kit.eq(h.page._tabGroups[0].name, 'Legacy');
+  kit.eq(h.timers.size, 0);
+});
+
+kit.test('a 503 layout error keeps saves held', async () => {
+  let writes = 0;
+  const h = layoutPage(async (method) => {
+    if (method === 'PUT') writes += 1;
+    const error = new Error('Layout is unavailable');
+    error.status = 503;
+    error.code = 'LAYOUT_UNAVAILABLE';
+    throw error;
+  });
+  await h.page.loadTerminalLayout();
+  h.page.saveTerminalLayout();
+  await h.fire();
   kit.eq(writes, 0);
   kit.eq(h.page._layoutRevision, null);
+  kit.ok(!h.page._layoutRevisionUnsupported);
   kit.eq(h.timers.size, 1);
+});
+
+kit.test('the layout route reserves legacy fallback for module load failure', () => {
+  const start = server.indexOf("app.get('/api/layout',");
+  const route = server.slice(start, server.indexOf('\n});', start) + '\n});'.length);
+  for (const moduleAvailable of [true, false]) {
+    let handler;
+    let fileReads = 0;
+    vm.runInNewContext(route, {
+      app: { get(name, auth, fn) { handler = fn; } }, requireAuth() {},
+      require() {
+        if (!moduleAvailable) throw new Error('module unavailable');
+        return { getForDesktop() { throw new Error('read unavailable'); } };
+      },
+      console: { error() {} }, LAYOUT_FILE: 'layout.json',
+      fs: { existsSync() { return true; }, readFileSync() { fileReads += 1; return '{}'; } },
+    });
+    const response = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+    handler({}, response);
+    kit.eq(response.statusCode, moduleAvailable ? 503 : 200);
+    kit.eq(fileReads, moduleAvailable ? 0 : 1);
+    if (moduleAvailable) kit.eq(response.body.code, 'LAYOUT_UNAVAILABLE');
+  }
 });
 
 kit.test('a remote snapshot wins over an older initial layout retry in flight', async () => {

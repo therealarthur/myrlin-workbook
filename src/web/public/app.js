@@ -25814,7 +25814,9 @@ class CWMApp {
       // baseRevision so the server can keep a phone's tab edit (4.8.1).
       this._layoutRevision = (layout && typeof layout.revision === 'number') ? layout.revision : null;
       if (typeof this._layoutRevision === 'number') this._layoutLoadRetryAttempt = 0;
-      if (this._layoutRevision === null) this._retryTerminalLayoutLoad();
+      if (layout && typeof layout === 'object' && typeof layout.revision !== 'number') {
+        this._layoutRevisionUnsupported = true;
+      } else if (this._layoutRevision === null) this._retryTerminalLayoutLoad();
       if (layout && layout.tabGroups && layout.tabGroups.length > 0) {
         this._tabGroups = layout.tabGroups;
         this._tabFolders = layout.tabFolders || [];
@@ -27125,7 +27127,7 @@ class CWMApp {
     }
     // A failed initial load leaves only a provisional local layout. Fetch
     // the server snapshot before allowing a save to overwrite any of it.
-    if (typeof this._layoutRevision !== 'number') {
+    if (typeof this._layoutRevision !== 'number' && !this._layoutRevisionUnsupported) {
       this._retryTerminalLayoutLoad();
       return;
     }
@@ -27138,7 +27140,7 @@ class CWMApp {
       this._layoutSaveInFlight = (this._layoutSaveInFlight || 0) + 1;
       const previousSave = this._layoutSaveChain || Promise.resolve();
       this._layoutSaveChain = previousSave.catch(() => {}).then(async () => {
-        if (typeof this._layoutRevision !== 'number') {
+        if (typeof this._layoutRevision !== 'number' && !this._layoutRevisionUnsupported) {
           this._retryTerminalLayoutLoad();
           return;
         }
@@ -27184,7 +27186,12 @@ class CWMApp {
         if (!this.state || !this.state.token) return;
         const layout = await this.api('GET', '/api/layout');
         if (typeof this._layoutRevision === 'number') return;
-        if (!layout || typeof layout.revision !== 'number') return;
+        if (!layout) return;
+        if (typeof layout.revision !== 'number') {
+          this._layoutRevisionUnsupported = true;
+          if (Array.isArray(layout.tabGroups) && layout.tabGroups.length) this.applyRemoteLayout(layout);
+          return;
+        }
         const recovered = Array.isArray(layout.tabGroups) && layout.tabGroups.length
           ? layout
           : { ...layout, tabGroups: [{ id: 'tg_default', name: 'Main', panes: [] }], tabFolders: [], activeGroupId: 'tg_default' };
@@ -27194,7 +27201,7 @@ class CWMApp {
         // Offline or signed out: keep holding saves and retry the load.
       } finally {
         this._layoutLoadRetryTimer = null;
-        if (typeof this._layoutRevision !== 'number' && this.state && this.state.token) this._retryTerminalLayoutLoad();
+        if (typeof this._layoutRevision !== 'number' && !this._layoutRevisionUnsupported && this.state && this.state.token) this._retryTerminalLayoutLoad();
       }
     }, Math.min(LAYOUT_LOAD_RETRY_BASE_MS * 2 ** (this._layoutLoadRetryAttempt || 0), LAYOUT_LOAD_RETRY_MAX_MS));
     this._layoutLoadRetryAttempt = (this._layoutLoadRetryAttempt || 0) + 1;

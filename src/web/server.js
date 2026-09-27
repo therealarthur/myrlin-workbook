@@ -7071,10 +7071,19 @@ const LAYOUT_FILE = path.join(getDataDir(), 'layout.json');
  * fallback if the mobile module cannot load.
  */
 app.get('/api/layout', requireAuth, (req, res) => {
+  let layoutStore = null;
   try {
-    return res.json(require('./mobile/workspace/layout-store').getForDesktop());
-  } catch (layoutStoreErr) {
-    console.error('[mobile] layout store read failed: ' + (layoutStoreErr && layoutStoreErr.message));
+    layoutStore = require('./mobile/workspace/layout-store');
+  } catch (loadErr) {
+    console.error('[mobile] layout store unavailable: ' + (loadErr && loadErr.message));
+  }
+  if (layoutStore) {
+    try {
+      return res.json(layoutStore.getForDesktop());
+    } catch (layoutStoreErr) {
+      console.error('[mobile] layout store read failed: ' + (layoutStoreErr && layoutStoreErr.message));
+      return res.status(503).json({ error: 'Layout is unavailable', code: 'LAYOUT_UNAVAILABLE' });
+    }
   }
   try {
     if (fs.existsSync(LAYOUT_FILE)) {
