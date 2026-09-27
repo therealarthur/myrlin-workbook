@@ -1,0 +1,102 @@
+{
+  "topic": "migrations",
+  "seq": 3,
+  "epoch": "e_kJGSk5SVlpeYmZqb",
+  "ts": 1790000170000,
+  "type": "migration.progress",
+  "data": {
+    "migration": {
+      "migrationId": "mg_c2VjcmV0c2FyZW5vdGhlcm",
+      "sourceSessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+      "targetSessionId": "cl_9a1f2e3d-4c5b-6a79-8e0f-1a2b3c4d5e6f",
+      "target": {
+        "provider": "claude",
+        "model": "claude-opus-5-5",
+        "effort": "high",
+        "accountId": "acc-uuid-1"
+      },
+      "mode": "takeover",
+      "depth": "standard",
+      "sourcePolicy": "pause",
+      "state": "reading",
+      "steps": [
+        {
+          "key": "snapshot",
+          "label": "Snapshot frozen",
+          "state": "done",
+          "detail": null,
+          "done": null,
+          "total": null,
+          "startedAtMs": 1790000200000,
+          "endedAtMs": 1790000201000
+        },
+        {
+          "key": "index",
+          "label": "Index built",
+          "state": "done",
+          "detail": null,
+          "done": null,
+          "total": null,
+          "startedAtMs": 1790000201000,
+          "endedAtMs": 1790000246000
+        },
+        {
+          "key": "standards",
+          "label": "Standards and git state",
+          "state": "done",
+          "detail": null,
+          "done": null,
+          "total": null,
+          "startedAtMs": 1790000246000,
+          "endedAtMs": 1790000247000
+        },
+        {
+          "key": "reading",
+          "label": "Reading history",
+          "state": "running",
+          "detail": "34 of 96 ranges",
+          "done": 34,
+          "total": 96,
+          "startedAtMs": 1790000260000,
+          "endedAtMs": null
+        },
+        {
+          "key": "verifying",
+          "label": "Checking claims against the repo",
+          "state": "pending",
+          "detail": null,
+          "done": null,
+          "total": null,
+          "startedAtMs": null,
+          "endedAtMs": null
+        },
+        {
+          "key": "report",
+          "label": "Takeover report",
+          "state": "pending",
+          "detail": null,
+          "done": null,
+          "total": null,
+          "startedAtMs": null,
+          "endedAtMs": null
+        }
+      ],
+      "plan": {
+        "tier": "L",
+        "ranges": 96,
+        "maxReaders": 6,
+        "readerModel": "claude-sonnet-5"
+      },
+      "coverage": null,
+      "stale": false,
+      "report": {
+        "ready": false,
+        "header": null
+      },
+      "tripwire": null,
+      "error": null,
+      "createdAtMs": 1790000200000,
+      "updatedAtMs": 1790000300000
+    }
+  }
+}

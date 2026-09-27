@@ -1,0 +1,37 @@
+{
+  "topic": "tabs",
+  "seq": 12,
+  "epoch": "e_kJGSk5SVlpeYmZqb",
+  "ts": 1790000170000,
+  "type": "tabs.updated",
+  "data": {
+    "tabs": {
+      "revision": 42,
+      "groups": [
+        {
+          "id": "tg_default",
+          "name": "Main",
+          "folderId": null,
+          "sessionIds": [
+            "cl_733b51a7-b861-4e1c-98b2-5af241fede0f"
+          ],
+          "capacity": 6,
+          "hiddenPanes": 0
+        }
+      ],
+      "folders": [
+        {
+          "id": "tf_1",
+          "name": "Clients",
+          "color": null,
+          "collapsed": false
+        }
+      ],
+      "desktopActiveGroupId": "tg_default"
+    },
+    "changedBy": {
+      "kind": "device",
+      "deviceId": "d_TViQs70r__UO4o8s844E"
+    }
+  }
+}

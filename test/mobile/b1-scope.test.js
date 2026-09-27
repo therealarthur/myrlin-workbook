@@ -112,11 +112,18 @@ t('a desktop token (activeTokens) gets 401 on every mobile route and on the stre
   const desktopToken = desktopAuth.generateToken();
   desktopAuth.addToken(desktopToken);
   assert.ok(desktopAuth.isValidToken(desktopToken));
+  let checked = 0;
   for (const r of table.ROUTES.filter((x) => x.scope !== 'public' && !x.upgrade)) {
     const res = await h.request(r.method, concrete(r.path), { token: desktopToken, body: r.method === 'GET' ? undefined : {} });
     assert.strictEqual(res.status, 401, r.method + ' ' + r.path);
+    // The code PROTOCOL.md 2.9 gives an unknown token, in the protocol's error shape.
+    assert.strictEqual(res.body && res.body.code, 'AUTH_REQUIRED', r.method + ' ' + r.path + ' answered ' + res.text);
+    assert.strictEqual(typeof res.body.error, 'string', r.method + ' ' + r.path);
+    assert.strictEqual(res.headers['x-myrlin-api'], '2.0', r.method + ' ' + r.path);
+    checked += 1;
   }
-  await assert.rejects(H.openStream(h, desktopToken), (e) => e.status === 401);
+  assert.ok(checked > 0, 'the scope table lists authenticated routes');
+  await assert.rejects(H.openStream(h, desktopToken), (e) => e.status === 401 && e.body && e.body.code === 'AUTH_REQUIRED');
   desktopAuth.removeToken(desktopToken);
 });
 

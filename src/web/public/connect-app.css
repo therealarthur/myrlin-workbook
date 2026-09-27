@@ -4,10 +4,11 @@
  *
  * WHY: A23 and E11. These surfaces live inside Workbook, so they use the
  * focused shell's own tokens (OS font stack, warm inks, the #2383e2 blue via
- * --accent) and add no palette of their own. Status is carried by words and
- * colour, never by a pill with a dot (a standing product rule, gate G16). The
- * one fixed colour pair is the QR code's ground: dark modules on white in
- * every theme, so it scans (PROTOCOL.md 2.3, R03:106).
+ * the shell's accent custom property) and add no palette of their own.
+ * Status is carried by words and colour, never by a pill with a dot (a
+ * standing product rule, gate G16). The one fixed colour pair is the QR
+ * code's ground: dark modules on white in every theme, so it scans
+ * (PROTOCOL.md 2.3, R03:106).
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  */

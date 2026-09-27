@@ -1,0 +1,7 @@
+{
+  "name": "Sam’s iPhone",
+  "scopes": [
+    "chat",
+    "sessions.manage"
+  ]
+}

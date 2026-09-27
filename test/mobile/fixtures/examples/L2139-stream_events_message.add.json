@@ -1,0 +1,35 @@
+{
+  "topic": "session:cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+  "seq": 1206,
+  "epoch": "e_kJGSk5SVlpeYmZqb",
+  "ts": 1790000170000,
+  "type": "message.add",
+  "data": {
+    "message": {
+      "id": "5b7c0d2e-1f3a-4c55-9e0a-7d2b1c9f8e61",
+      "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+      "turnId": "t_5b7c0d2e-1f3a-4c55-9e0a-7d2b1c9f8e61",
+      "role": "user",
+      "ts": 1790000088000,
+      "model": null,
+      "status": "final",
+      "origin": {
+        "kind": "phone",
+        "deviceId": "d_TViQs70r__UO4o8s844E",
+        "clientMessageId": "0f8f2d8e-5d0b-4c47-9a3e-2b6f5c9d1e7a"
+      },
+      "parts": [
+        {
+          "type": "text",
+          "text": "Run the tests again.",
+          "format": "plain",
+          "truncated": false,
+          "fullLength": 20
+        }
+      ],
+      "attachments": [],
+      "usage": null,
+      "cursor": "eyJ2IjoxLCJmIjoiYSIsIm8iOjEyMzQ1Nn0"
+    }
+  }
+}

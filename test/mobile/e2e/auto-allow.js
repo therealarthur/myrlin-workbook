@@ -10,14 +10,20 @@
  * the Allow dialog uses. It refuses to run against a real Workbook: it needs
  * CWM_DATA_DIR and a port other than 3457 (or 3456).
  *
- * Usage (mac.sh wb-start e2e):
- *   CWM_DATA_DIR=... CWM_PASSWORD=... node test/mobile/e2e/auto-allow.js [--port 4457] [--prefix "Myrlin E2E"] [--once]
- *   --password-file <path> reads the password from a file instead of CWM_PASSWORD.
+ * Usage (mac.sh wb-start e2e): see the USAGE constant below, which the script
+ * also prints when it refuses to run. The flags stay in that code string
+ * because the repository's text rules keep two hyphen flags out of comments.
  */
 'use strict';
 
 const fs = require('fs');
 const http = require('http');
+
+/** Command line usage, printed with every refusal. */
+const USAGE = [
+  'usage: CWM_DATA_DIR=... CWM_PASSWORD=... node test/mobile/e2e/auto-allow.js [--port 4457] [--prefix "Myrlin E2E"] [--once]',
+  '       --password-file <path> reads the password from a file instead of CWM_PASSWORD',
+].join('\n');
 
 /** Poll interval (section 6.1). */
 const POLL_MS = 500;
@@ -135,6 +141,7 @@ async function main() {
   const cfg = resolveConfig(parseArgs(process.argv.slice(2)), process.env);
   if (!cfg.ok) {
     console.error('[auto-allow] ' + cfg.reason);
+    console.error(USAGE);
     process.exit(2);
   }
   const state = { token: null };
@@ -158,4 +165,4 @@ if (require.main === module) {
   main().catch((err) => { console.error('[auto-allow] ' + err.message); process.exit(1); });
 }
 
-module.exports = { resolveConfig, parseArgs, tick, DEFAULT_SCOPES };
+module.exports = { resolveConfig, parseArgs, tick, DEFAULT_SCOPES, USAGE };

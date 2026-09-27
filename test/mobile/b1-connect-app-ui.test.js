@@ -138,6 +138,28 @@ t('index.html: visible Connect app entry (S12) and one versioned reference each,
   assert.ok(stripped.indexOf('connect-app.css?v=1') > stripped.indexOf('focused-shell.css?v='), 'after the focused shell sheet');
 });
 
+t('S13 order: connect-app.js is the very next script after app.js, and app.js never needs it at load time', () => {
+  const stripped = html.replace(/<!--[\s\S]*?-->/g, '');
+  const scripts = [...stripped.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1]);
+  const appIdx = scripts.findIndex((s) => /^app\.js\?v=/.test(s));
+  assert.ok(appIdx >= 0, 'app.js is loaded');
+  assert.strictEqual(scripts[appIdx + 1], 'connect-app.js?v=1', 'immediately after app.js (G10 reads the first "app.js?v=" match, which "connect-app.js?v=1" would win if it came first)');
+  assert.strictEqual(scripts.filter((s) => s.startsWith('connect-app.js')).length, 1);
+  // Neither tag defers or runs async, so both run in document order before any event.
+  for (const src of [scripts[appIdx], 'connect-app.js?v=1']) {
+    const tag = new RegExp('<script\\b[^>]*src="' + src.replace(/[.?]/g, '\\$&') + '"[^>]*>').exec(stripped)[0];
+    assert.ok(!/\b(defer|async|type="module")\b/.test(tag), tag);
+  }
+  // Every app.js read of window.MyrlinConnectApp is guarded and sits in a click
+  // or SSE handler, so the order of the two tags cannot matter (the deviation's reason).
+  const reads = [...appJs.matchAll(/window\.MyrlinConnectApp/g)].map((m) => appJs.slice(Math.max(0, m.index - 12), m.index + 60));
+  assert.strictEqual(reads.length, 4, 'two guards and two calls: ' + JSON.stringify(reads));
+  assert.ok(appJs.includes('(window.MyrlinConnectApp ? window.MyrlinConnectApp.open(this) : this.showPairMobileModal())'));
+  assert.ok(appJs.includes('if (window.MyrlinConnectApp) window.MyrlinConnectApp.onEvent(data);'));
+  // connect-app.js reads nothing of app.js at load: it only defines its API.
+  assert.ok(!/\bCWMApp\b|\bwindow\.app\b/.test(js.replace(/\/\*[\s\S]*?\*\//g, '')), 'no load time dependency on the app object');
+});
+
 t('focused-shell.css keeps the hide rule and adds the more specific visible rule (S14)', () => {
   assert.ok(focused.includes(':root[data-ui-shell="focused"] #pair-mobile-btn,\n'), 'the original hide rule is untouched');
   assert.ok(focused.includes(':root[data-ui-shell="focused"] #pair-mobile-btn.connect-app-btn {\n  display: inline-flex !important;\n}'));

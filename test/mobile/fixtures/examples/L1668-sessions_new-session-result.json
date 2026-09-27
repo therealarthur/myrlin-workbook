@@ -1,0 +1,31 @@
+{
+  "session": {
+    "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+    "provider": "claude",
+    "title": "Fix sidebar jitter",
+    "titleSource": "workbook",
+    "projectId": "ws_mm9x2",
+    "folderId": null,
+    "workingDir": "C:\\Users\\dev\\Projects\\myrlin-ios",
+    "branch": "main",
+    "owner": "workbook",
+    "state": "working",
+    "stateEnteredAtMs": 1790000100000,
+    "needsYou": false,
+    "lastActiveAtMs": 1790000100000,
+    "createdAtMs": 1789990000000,
+    "model": "claude-opus-5-5",
+    "tracked": true,
+    "workbookSessionId": "mm9x2k",
+    "upstreamId": "733b51a7-b861-4e1c-98b2-5af241fede0f",
+    "pinned": false,
+    "archived": false,
+    "tabGroupIds": [
+      "tg_default"
+    ],
+    "lineage": null,
+    "preview": "Running the unit tests again after the fix.",
+    "sizeBytes": 5900000
+  },
+  "send": null
+}
