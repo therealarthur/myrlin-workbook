@@ -107,6 +107,7 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
   const claudePathCache = new Map();
   const headCache = new Map();
   let codexWalk = { at: 0, map: new Map() };
+  const codexMisses = new Map();
   const handoffsFile = path.join(mobileDir(ctx), 'handoffs.json');
   const handoffs = readJson(handoffsFile, {}) || {};
   const aliases = new Map();
@@ -171,7 +172,10 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
     if (d && d.rolloutPath && fs.existsSync(d.rolloutPath)) return d.rolloutPath;
     const hit = codexWalk.map.get(id);
     if (hit && fs.existsSync(hit)) return hit;
-    if (now() - codexWalk.at > CODEX_WALK_TTL_MS) {
+    // A miss re-walks at once (new rollouts appear all the time), but one id
+    // that keeps missing is only looked for again after the TTL.
+    const missedAt = codexMisses.get(id) || 0;
+    if (now() - missedAt > CODEX_WALK_TTL_MS) {
       const map = new Map();
       const walk = (dir, depth) => {
         let ents = [];
@@ -187,6 +191,7 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
       };
       walk(path.join(codexHome(), 'sessions'), 0);
       codexWalk = { at: now(), map };
+      if (!map.has(id)) codexMisses.set(id, now()); else codexMisses.delete(id);
       return map.get(id) || null;
     }
     return null;
