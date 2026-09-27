@@ -265,7 +265,7 @@ function toolResultText(b) {
  */
 function createClaudeMapper() {
   return {
-    provider: 'claude',
+    provider: 'claude', // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     format: 'claudeJsonl',
 
     /**

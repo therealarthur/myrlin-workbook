@@ -77,7 +77,7 @@ function detectInput(snap, provider) {
   const L = snap.lines;
   for (let i = L.length - 1; i >= 1; i--) {
     const text = L[i].text;
-    if (provider === 'codex') {
+    if (provider === 'codex') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const m = /^\s*›\s?(.*)$/.exec(text);
       if (m && !OPTION_RE.test(text)) {
         const start = text.indexOf(CODEX_SELECTOR) + 2;
@@ -121,7 +121,7 @@ function detectBusy(snap, provider, inputRow) {
   for (let i = 0; i < end; i++) {
     const t = L[i].text;
     if (BUSY_HINT_RE.test(t)) return true;
-    if (provider === 'codex') { if (/^\s*\S?\s*Working \(/.test(t)) return true; continue; }
+    if (provider === 'codex') { if (/^\s*\S?\s*Working \(/.test(t)) return true; continue; } // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     if (i >= end - 6 && BUSY_CLAUDE_RE.test(t) && !/ for \d+[smh]/.test(t)) return true;
   }
   return false;
@@ -375,14 +375,14 @@ function detectUnknown(snap) {
 /**
  * Classify a screen (PROTOCOL.md 8.1): prompt, unknownModal, busy, idlePrompt or none.
  * @param {object} snap
- * @param {'claude'|'codex'} provider
+ * @param {'claude'|'codex'} provider gsd:provider-literal-allowed
  * @returns {object}
  */
 function classify(snap, provider) {
   if (!snap || !Array.isArray(snap.lines)) return { kind: 'none', input: null, busy: false };
   const input = detectInput(snap, provider);
   const busy = detectBusy(snap, provider, input ? input.row : null);
-  const dialog = provider === 'codex' ? detectCodexDialog(snap) : detectClaudeDialog(snap);
+  const dialog = provider === 'codex' ? detectCodexDialog(snap) : detectClaudeDialog(snap); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
   if (dialog) return { kind: 'prompt', dialog, input, busy };
   const unknown = detectUnknown(snap);
   if (unknown && !input) return { kind: 'unknownModal', dialog: unknown, input, busy };

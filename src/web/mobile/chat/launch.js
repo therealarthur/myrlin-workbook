@@ -163,7 +163,7 @@ function createLauncher(deps) {
     for (const [k, val] of Object.entries(v)) {
       if (val === null || val === undefined) continue;
       if (k === 'model') { if (typeof val !== 'string' || !MODEL_RE.test(val)) bad(k); out.model = val; continue; }
-      if (provider === 'claude') {
+      if (provider === 'claude') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
         if (k === 'effort') { if (!CLAUDE_EFFORTS.includes(val)) bad(k); out.effort = val; continue; }
         if (k === 'permissionMode') { if (!CLAUDE_MODES.includes(val)) bad(k); out.permissionMode = val; continue; }
       } else {
@@ -186,13 +186,13 @@ function createLauncher(deps) {
   function applySettings(wbId, provider, st) {
     const upd = { provider };
     if (st.model) upd.model = st.model;
-    if (provider === 'claude') {
+    if (provider === 'claude') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       if (st.effort) upd.effort = st.effort;
       if (st.permissionMode) { upd.permissionMode = st.permissionMode; upd.bypassPermissions = st.permissionMode === 'bypassPermissions'; }
     } else {
       const ps = {};
       for (const k of ['model', 'reasoningEffort', 'sandbox', 'approvalPolicy', 'bypassApprovalsAndSandbox']) if (st[k] !== undefined) ps[k] = st[k];
-      if (Object.keys(ps).length && store().updateSessionProviderSettings) store().updateSessionProviderSettings(wbId, 'codex', ps);
+      if (Object.keys(ps).length && store().updateSessionProviderSettings) store().updateSessionProviderSettings(wbId, 'codex', ps); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     }
     store().updateSession(wbId, upd);
   }
@@ -229,7 +229,7 @@ function createLauncher(deps) {
   async function createSession(body, who) {
     return once('new', body, async () => {
       const b = body || {};
-      if (!['claude', 'codex'].includes(b.provider)) fail(400, 'INVALID_FIELD', 'provider must be claude or codex.', { field: 'provider' });
+      if (!['claude', 'codex'].includes(b.provider)) fail(400, 'INVALID_FIELD', 'provider must be claude or codex.', { field: 'provider' }); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const dir = sanitizeWorkingDir(b.workingDir);
       if (!dir || !path.isAbsolute(dir)) fail(400, 'INVALID_FIELD', 'workingDir must be an absolute folder path.', { field: 'workingDir' });
       let isDir = false;
@@ -260,7 +260,7 @@ function createLauncher(deps) {
         fail(500, 'INTERNAL', 'The session could not be started.');
       }
       const sid = phoneIdOf(rec.id);
-      if (b.provider === 'codex' && lazy.linker && lazy.linker()) lazy.linker().track(rec.id, { cwd: dir, launchAt, firstText: b.message && b.message.text ? b.message.text : null });
+      if (b.provider === 'codex' && lazy.linker && lazy.linker()) lazy.linker().track(rec.id, { cwd: dir, launchAt, firstText: b.message && b.message.text ? b.message.text : null }); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       place(b.tabGroupId || null, sid, b.afterSessionId || null);
       let send = null;
       if (b.message && lazy.sends && lazy.sends()) {
@@ -376,7 +376,7 @@ function createLauncher(deps) {
       const env = Object.assign({}, process.env);
       delete env.CLAUDECODE;
       const isWin = process.platform === 'win32';
-      const cmd = isWin ? (env.ComSpec || 'cmd.exe') : 'claude';
+      const cmd = isWin ? (env.ComSpec || 'cmd.exe') : 'claude'; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const args = isWin ? ['/d', '/s', '/c', 'claude stop ' + upstreamId] : ['stop', upstreamId];
       try {
         childProcess.execFile(cmd, args, { env, windowsHide: true, timeout: 15000 }, () => resolve());
@@ -395,15 +395,15 @@ function createLauncher(deps) {
     const ref = index.resolve(sessionId);
     if (!ref) fail(404, 'SESSION_NOT_FOUND', 'That session does not exist on this computer.');
     return once('continue|' + ref.sessionId, body, async () => {
-      if (ref.provider !== 'codex' || ref.owner !== 'chatgpt') fail(409, 'NOT_CHATGPT_THREAD', 'This session is not a ChatGPT thread.');
+      if (ref.provider !== 'codex' || ref.owner !== 'chatgpt') fail(409, 'NOT_CHATGPT_THREAD', 'This session is not a ChatGPT thread.'); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       if (!body || body.confirmTwoWriters !== true) fail(422, 'CONFIRM_REQUIRED', 'Confirm that ChatGPT may also write to this thread.');
       const s = store();
-      const rec = s.createSession({ name: ref.title, workspaceId: workspaceFor(ref.projectId), workingDir: ref.workingDir || '', command: 'codex', resumeSessionId: ref.upstreamId });
-      s.updateSession(rec.id, { provider: 'codex' });
+      const rec = s.createSession({ name: ref.title, workspaceId: workspaceFor(ref.projectId), workingDir: ref.workingDir || '', command: 'codex', resumeSessionId: ref.upstreamId }); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
+      s.updateSession(rec.id, { provider: 'codex' }); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const res = await pm().launchDetached(rec.id, {});
       if (res.status === 'refused') fail(409, 'SESSION_LIVE_ELSEWHERE', res.message || 'Workbook could not open this thread.');
       index.invalidate();
-      audit(who.deviceId, 'continueHere', ref.sessionId, 'codex', true);
+      audit(who.deviceId, 'continueHere', ref.sessionId, 'codex', true); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       return { session: index.summary(phoneIdOf(rec.id)) };
     });
   }
@@ -438,13 +438,13 @@ function createLauncher(deps) {
     return once('branch|' + ref.sessionId, body, async () => {
       const b = body || {};
       if (!ref.upstreamId || !ref.transcriptPath) fail(409, 'TRANSCRIPT_UNAVAILABLE', 'This session has no history to branch yet.');
-      if (b.fromMessageId !== undefined && b.fromMessageId !== null && ref.provider === 'codex') {
+      if (b.fromMessageId !== undefined && b.fromMessageId !== null && ref.provider === 'codex') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
         // Cutting Codex history needs thread/fork with lastTurnId (phase 5): always refused.
         fail(422, 'BRANCH_POINT_UNSUPPORTED', 'Branching a Codex session from a chosen message is not available yet.');
       }
       if (b.fromMessageId !== undefined && b.fromMessageId !== null) {
         const reader = require('./transcript-reader');
-        const mapper = ref.provider === 'claude' ? require('./claude-messages').createClaudeMapper() : require('./codex-messages').createCodexMapper();
+        const mapper = ref.provider === 'claude' ? require('./claude-messages').createClaudeMapper() : require('./codex-messages').createCodexMapper(); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
         const off = reader.findMessageOffset(ref.transcriptPath, String(b.fromMessageId), mapper);
         const msg = off === null ? null : reader.readMessageAt(ref.transcriptPath, off, mapper, { sessionId: ref.sessionId });
         if (!msg) fail(404, 'MESSAGE_NOT_FOUND', 'That message does not exist in this session.');
@@ -460,15 +460,15 @@ function createLauncher(deps) {
       if (!rec) fail(500, 'INTERNAL', 'Workbook could not create a session record.');
       let spawnOpts;
       const launchAt = now();
-      if (ref.provider === 'claude') {
+      if (ref.provider === 'claude') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
         const minted = crypto.randomUUID();
-        s.updateSession(rec.id, { provider: 'claude' });
+        s.updateSession(rec.id, { provider: 'claude' }); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
         spawnOpts = { command: 'claude --resume ' + ref.upstreamId + ' --fork-session --session-id ' + minted };
         const res = await pm().launchDetached(rec.id, spawnOpts);
         if (res.status === 'refused') fail(409, 'SESSION_LIVE_ELSEWHERE', res.message || 'The branch could not be started.');
         s.updateSession(rec.id, { resumeSessionId: minted });
       } else {
-        s.updateSession(rec.id, { provider: 'codex' });
+        s.updateSession(rec.id, { provider: 'codex' }); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
         spawnOpts = { command: 'codex fork ' + ref.upstreamId };
         const res = await pm().launchDetached(rec.id, spawnOpts);
         if (res.status === 'refused') fail(409, 'SESSION_LIVE_ELSEWHERE', res.message || 'The branch could not be started.');

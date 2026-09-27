@@ -76,7 +76,7 @@ function outputText(out) {
  */
 function createCodexMapper() {
   return {
-    provider: 'codex',
+    provider: 'codex', // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     format: 'codexRollout',
 
     /**

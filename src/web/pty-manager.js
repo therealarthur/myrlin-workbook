@@ -2754,11 +2754,10 @@ class PtySessionManager {
           // pane sent one `\x1b[O` focus report and took the geometry off a
           // desktop that was being used. The write is unconditional either
           // way, so the application still receives every byte it asked for.
-          if (isUserOriginatedInput(String(msg.data))) {
-            claimSizeOwnership('input');
-            // Mobile v2 (P4): the send guard's desktop typing check (G4).
-            session.lastDesktopInputAt = Date.now();
-          }
+          if (isUserOriginatedInput(String(msg.data))) claimSizeOwnership('input');
+          // Mobile v2 (P4): the phone send guard's desktop typing check (G4)
+          // reads when a person last typed into this pane.
+          if (isUserOriginatedInput(String(msg.data))) session.lastDesktopInputAt = Date.now();
           // Write user input directly to PTY - NO BUFFERING
           session.pty.write(msg.data);
         } else if (msg.type === 'resize' && msg.cols && msg.rows) {

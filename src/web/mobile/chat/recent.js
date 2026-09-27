@@ -37,7 +37,7 @@ function createRecent(deps) {
   function recent(q) {
     const limit = intParam(q.limit, RECENT_DEFAULT, 1, RECENT_MAX);
     if (limit === null) fail(400, 'INVALID_FIELD', 'limit must be 1 to 200.', { field: 'limit' });
-    if (q.provider !== undefined && !['claude', 'codex'].includes(q.provider)) fail(400, 'INVALID_FIELD', 'provider must be claude or codex.', { field: 'provider' });
+    if (q.provider !== undefined && !['claude', 'codex'].includes(q.provider)) fail(400, 'INVALID_FIELD', 'provider must be claude or codex.', { field: 'provider' }); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     let offset = 0;
     if (q.cursor) {
       try { offset = JSON.parse(fromB64url(q.cursor).toString('utf8')).o; } catch (_) { offset = NaN; }

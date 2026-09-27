@@ -17,7 +17,7 @@
 const { warn } = require('./common');
 
 const TTL_MS = 30000;
-const PROVIDERS = ['claude', 'codex'];
+const PROVIDERS = ['claude', 'codex']; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
 
 /**
  * @param {object} opts

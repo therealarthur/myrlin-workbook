@@ -182,7 +182,7 @@ function createCommands(opts = {}) {
 
   /**
    * The command list of a provider and working directory.
-   * @param {'claude'|'codex'} provider
+   * @param {'claude'|'codex'} provider gsd:provider-literal-allowed
    * @param {string|null} workingDir
    * @returns {Array<object>}
    */
@@ -191,7 +191,7 @@ function createCommands(opts = {}) {
     const hit = cache.get(k);
     if (hit && now() - hit.at < CACHE_TTL_MS) return hit.list;
     let list;
-    if (provider === 'claude') {
+    if (provider === 'claude') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const builtins = CLAUDE_BUILTINS.map(([name, description]) => ({ name, description, source: 'builtin' }));
       const user = scan(path.join(homeDir(), '.claude', 'commands'), 'user');
       const project = workingDir ? scan(path.join(workingDir, '.claude', 'commands'), 'project') : [];

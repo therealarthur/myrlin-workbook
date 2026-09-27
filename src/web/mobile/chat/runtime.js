@@ -64,7 +64,7 @@ function createRuntime(deps) {
           const phoneId = index.idForWorkbookSession(workbookSessionId);
           if (!phoneId) return;
           const ref = index.resolve(phoneId);
-          const cls = classify(snap, ref ? ref.provider : 'claude');
+          const cls = classify(snap, ref ? ref.provider : 'claude'); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
           for (const fn of screenListeners) { try { fn(phoneId, cls, snap); } catch (_) {} }
         },
       });
@@ -99,7 +99,7 @@ function createRuntime(deps) {
       const snap = await r.fresh(maxAgeMs);
       if (!snap) return null;
       const ref = index.resolve(sessionId);
-      const cls = classify(snap, ref ? ref.provider : 'claude');
+      const cls = classify(snap, ref ? ref.provider : 'claude'); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       for (const fn of screenListeners) { try { fn(sessionId, cls, snap); } catch (_) {} }
       return { cls, snap };
     },

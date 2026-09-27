@@ -394,7 +394,7 @@ function createSendQueue(deps) {
     const pty = runtime.ptyOf(r.sessionId);
     if (turns && turns.isTurnOpen(r.sessionId)) return 'busy';
     if (pty && pty.lastDesktopInputAt && now() - pty.lastDesktopInputAt < T.typingGuardMs) return 'desktopTyping';
-    if (r.provider === 'claude' && lazy.agents) {
+    if (r.provider === 'claude' && lazy.agents) { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const ag = lazy.agents();
       const ref = index.resolve(r.sessionId);
       if (ag && ref && ref.upstreamId) {
@@ -425,7 +425,7 @@ function createSendQueue(deps) {
         videoBlocks.push(block);
       }
     }
-    if (r.provider === 'codex') {
+    if (r.provider === 'codex') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       for (const a of atts) if (a.role === 'image' || a.role === 'keyframe') pre.push(a.path);
       let body = text;
       if (videoBlocks.length) body = (body ? body + '\n\n' : '') + videoBlocks.join('\n\n');

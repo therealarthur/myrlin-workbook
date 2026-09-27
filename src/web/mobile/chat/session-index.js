@@ -22,7 +22,7 @@ const path = require('path');
 const { atomicWriteJson, readJson, mobileDir, warn } = require('./common');
 const { normalizeCwd } = require('../../../providers/claude/live-sessions');
 
-const PROVIDERS = new Set(['claude', 'codex']);
+const PROVIDERS = new Set(['claude', 'codex']); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
 const CHANGE_BATCH_MS = 500;
 const ACTIVE_UPDATE_MIN_MS = 10000;
 const REBUILD_TTL_MS = 1000;
@@ -35,13 +35,13 @@ const UNTITLED = 'Untitled session';
 /**
  * The agent provider of a tracked store session, or null for shells and anything else.
  * @param {object} s - store session
- * @returns {'claude'|'codex'|null}
+ * @returns {'claude'|'codex'|null} gsd:provider-literal-allowed
  */
 function agentProviderOf(s) {
   if (!s) return null;
   const cmd = String(s.command || '').trim();
   const firstTok = cmd ? path.basename(cmd.split(/\s+/)[0]).toLowerCase().replace(/\.(cmd|exe|bat|ps1)$/, '') : '';
-  const p = s.provider || (PROVIDERS.has(firstTok) ? firstTok : (cmd ? null : 'claude'));
+  const p = s.provider || (PROVIDERS.has(firstTok) ? firstTok : (cmd ? null : 'claude')); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
   if (!PROVIDERS.has(p)) return null;
   if (cmd && firstTok !== p) return null;
   return p;
@@ -52,7 +52,7 @@ function agentProviderOf(s) {
  * @param {string} provider
  * @returns {string}
  */
-function prefixOf(provider) { return provider === 'codex' ? 'cx_' : 'cl_'; }
+function prefixOf(provider) { return provider === 'codex' ? 'cx_' : 'cl_'; } // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
 
 /**
  * Parse a phone id.
@@ -168,7 +168,7 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
       const p = require('../../../providers/codex/state-db').resolveRolloutPathSync(id);
       if (p) return p;
     } catch (_) { /* fall through */ }
-    const d = (discovery ? discovery.entries('codex') : []).find((e) => String(e.providerSessionId).toLowerCase() === id);
+    const d = (discovery ? discovery.entries('codex') : []).find((e) => String(e.providerSessionId).toLowerCase() === id); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     if (d && d.rolloutPath && fs.existsSync(d.rolloutPath)) return d.rolloutPath;
     const hit = codexWalk.map.get(id);
     if (hit && fs.existsSync(hit)) return hit;
@@ -222,7 +222,7 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
       for (const l of lines) {
         let r;
         try { r = JSON.parse(l); } catch (_) { continue; }
-        if (provider === 'claude') {
+        if (provider === 'claude') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
           if (!facts.cwd && typeof r.cwd === 'string') facts.cwd = r.cwd;
           if (r.type === 'custom-title' && r.customTitle) facts.title = String(r.customTitle);
           if (r.type === 'ai-title' && r.aiTitle && !facts.title) facts.title = String(r.aiTitle);
@@ -290,7 +290,7 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
         discovered: null,
       });
     }
-    for (const provider of ['claude', 'codex']) {
+    for (const provider of ['claude', 'codex']) { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const entries = discovery ? discovery.entries(provider) : [];
       for (const e of entries) {
         if (!e || !e.providerSessionId) continue;
@@ -339,7 +339,7 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
   function transcriptPathOf(ref) {
     if (!ref || !ref.upstreamId) return null;
     if (ref._path && fs.existsSync(ref._path)) return ref._path;
-    ref._path = ref.provider === 'claude' ? claudeTranscriptPath(ref.upstreamId, ref.workingDir) : codexRolloutPath(ref.upstreamId);
+    ref._path = ref.provider === 'claude' ? claudeTranscriptPath(ref.upstreamId, ref.workingDir) : codexRolloutPath(ref.upstreamId); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     return ref._path;
   }
 
@@ -355,15 +355,15 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
       const ps = pm && pm.getSession ? pm.getSession(ref.workbookSessionId) : null;
       if (ps && ps.alive) return 'workbook';
     }
-    if (ref.provider === 'claude' && ref.upstreamId && agents) {
+    if (ref.provider === 'claude' && ref.upstreamId && agents) { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const e = agents.entryFor(ref.upstreamId);
       if (agents.refreshSoon) agents.refreshSoon();
       if (e && e.kind === 'background' && e.state !== 'stopped' && e.state !== 'done') return 'background';
       if (e && e.kind === 'interactive') return 'external';
     }
-    if (ref.provider === 'codex') {
+    if (ref.provider === 'codex') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const file = transcriptPathOf(ref);
-      if (file && headFacts(file, 'codex').originator === 'Codex Desktop') return 'chatgpt';
+      if (file && headFacts(file, 'codex').originator === 'Codex Desktop') return 'chatgpt'; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     }
     return 'none';
   }
@@ -413,7 +413,7 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
     }
     if (!ref && parsed.kind !== 'wb') {
       // A transcript that exists but is not in the discovery cache yet.
-      const provider = parsed.kind === 'cl' ? 'claude' : 'codex';
+      const provider = parsed.kind === 'cl' ? 'claude' : 'codex'; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const probe = { sessionId, provider, upstreamId: parsed.raw, workbookSessionId: null, tracked: false, workingDir: null, projectId: 'unassigned', name: null, model: null, lastActiveAtMs: null, createdAtMs: null, live: false, discovered: null };
       const file = transcriptPathOf(probe);
       if (!file) return null;

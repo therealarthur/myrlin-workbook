@@ -215,7 +215,7 @@ function mountChat(router, ctx, options = {}) {
    */
   const ownerFresh = async (sid) => {
     const r = index.resolve(sid);
-    if (!r || r.provider !== 'claude' || r.owner === 'workbook') return;
+    if (!r || r.provider !== 'claude' || r.owner === 'workbook') return; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     try { await agents.onDemand(); } catch (_) { /* fail open to the launch gate */ }
     index.invalidate();
   };

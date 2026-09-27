@@ -211,7 +211,7 @@ function createAnswers(deps) {
     }
     if (plan.type === 'option') {
       const opt = p._screen.options[plan.index] || null;
-      const letter = ref && ref.provider === 'codex' && opt && opt.key && /^[a-z]$/.test(opt.key) ? opt.key : null;
+      const letter = ref && ref.provider === 'codex' && opt && opt.key && /^[a-z]$/.test(opt.key) ? opt.key : null; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       if (letter) {
         mark();
         await key(sessionId, letter);

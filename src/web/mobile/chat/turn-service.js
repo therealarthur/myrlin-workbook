@@ -177,7 +177,7 @@ function createTurnService(deps) {
     let toolName = null;
     let detail = null;
     let source = 'none';
-    const agentEntry = agents && w.provider === 'claude' && w.upstreamId && (owner === 'external' || owner === 'background') ? agents.entryFor(w.upstreamId) : null;
+    const agentEntry = agents && w.provider === 'claude' && w.upstreamId && (owner === 'external' || owner === 'background') ? agents.entryFor(w.upstreamId) : null; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     if (p && (p.kind === 'approval' || p.kind === 'plan')) {
       state = 'needsApproval'; detail = p.title; toolName = p.toolName || null; source = 'screen';
     } else if (p) {
@@ -192,17 +192,17 @@ function createTurnService(deps) {
       const tools = Array.from(w.openTools.values());
       if (tools.length) {
         const t = tools[tools.length - 1];
-        state = 'working'; toolName = t.name; detail = t.detail || t.title; source = w.provider === 'codex' ? 'rollout' : 'transcript';
+        state = 'working'; toolName = t.name; detail = t.detail || t.title; source = w.provider === 'codex' ? 'rollout' : 'transcript'; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       } else {
-        state = 'thinking'; source = w.provider === 'codex' ? 'rollout' : 'transcript';
+        state = 'thinking'; source = w.provider === 'codex' ? 'rollout' : 'transcript'; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       }
       if (now() - Math.max(w.lastRecordAt, w.turn.startedAtMs) >= NO_ACTIVITY_MS) detail = 'No activity for 10 minutes';
     } else if (w.c1aAt && now() - w.c1aAt < QUEUED_AFTER_DELIVERY_MS * 20) {
       state = 'thinking'; source = 'screen';
-    } else if (owner === 'none' && w.provider === 'claude' && isSleeping(w)) {
+    } else if (owner === 'none' && w.provider === 'claude' && isSleeping(w)) { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       state = 'sleeping'; source = 'agents';
     } else if (w.lastTurn && w.lastTurn.status === 'interrupted') {
-      state = 'interrupted'; source = w.provider === 'codex' ? 'rollout' : 'transcript';
+      state = 'interrupted'; source = w.provider === 'codex' ? 'rollout' : 'transcript'; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     } else if (w.lastTurn && w.lastTurn.status === 'failed') {
       state = 'failed'; detail = w.lastTurn.error ? w.lastTurn.error.error : null; source = w.lastTurn.endSource === 'processExit' ? 'process' : 'transcript';
     } else if (queuedSends > 0 || (s && s.deliveredWithoutTurn && s.deliveredWithoutTurn(w.sessionId, QUEUED_AFTER_DELIVERY_MS))) {
@@ -565,7 +565,7 @@ function createTurnService(deps) {
         if (line.offset < limitOffset) break;
         const { record } = reader.parseLine(line);
         if (!record) continue;
-        if (w.provider === 'claude') {
+        if (w.provider === 'claude') { // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
           if (record.type === 'permission-mode' && !w.permissionMode) w.permissionMode = record.permissionMode || null;
           if (record.type === 'assistant' && record.message && record.message.model && !w.model) w.model = record.message.model;
           if (record.type === 'system' && record.subtype === 'turn_duration') break;
@@ -631,7 +631,7 @@ function createTurnService(deps) {
       for (const line of reader.forwardLines(fd, w.offset, size, null)) {
         const { record, oversize } = reader.parseLine(line);
         try {
-          if (w.provider === 'claude') onClaudeRecord(w, record, line, oversize);
+          if (w.provider === 'claude') onClaudeRecord(w, record, line, oversize); // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
           else onCodexRecord(w, record, line, oversize);
         } catch (err) { warn('record handling failed', err && err.message); }
         w.offset = line.offset + line.length + 1;
@@ -721,7 +721,7 @@ function createTurnService(deps) {
    * @param {object} w
    */
   function updateAgentsWatch(w) {
-    if (!agents || w.provider !== 'claude' || !w.upstreamId) return;
+    if (!agents || w.provider !== 'claude' || !w.upstreamId) return; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
     const ref = index.resolve(w.sessionId);
     const want = w.subscribers > 0 && ref && (ref.owner === 'external' || ref.owner === 'background');
     if (want && !w.unwatchAgents) w.unwatchAgents = agents.watch(w.upstreamId);
@@ -796,7 +796,7 @@ function createTurnService(deps) {
    */
   function onAgents(listing) {
     for (const w of watchers.values()) {
-      if (w.provider !== 'claude' || !w.upstreamId || !w.unwatchAgents) continue;
+      if (w.provider !== 'claude' || !w.upstreamId || !w.unwatchAgents) continue; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
       const e = (listing.entries || []).find((x) => String(x.sessionId).toLowerCase() === String(w.upstreamId).toLowerCase());
       if (w.turn && !e && w.seenInAgents) endTurn(w, 'failed', 'processExit', null, { code: 'PROCESS_EXITED', error: 'Claude Code exited' });
       if (e) w.seenInAgents = true;
