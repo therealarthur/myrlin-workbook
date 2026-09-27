@@ -6,7 +6,7 @@
  *
  * What: starts a sandbox Workbook in this process (startServer on an
  * ephemeral port, the mobile listener on another), opens the real desktop
- * page in headless Chromium, and drives five cases while reading the page's
+ * page in headless Chromium, and drives six cases while reading the page's
  * own state (window.cwm) and layout.json on disk:
  *   A. the phone renames a tab group while the page is idle: the page hears
  *      layout:updated, reloads the layout and shows the phone's name;
@@ -21,6 +21,8 @@
  *      the server rebases that save and the phone's rename survives;
  *   E. the initial layout read fails: saves wait for a successful retry,
  *      which restores the phone's latest edit before saving is allowed;
+ *   F. a phone edit arrives while a desktop PUT is held in flight: the
+ *      stale PUT is merged and both edits survive on disk and on the page;
  * then reloads the page and checks the merged layout is what loads.
  *
  * Why: the unit tests prove the store and the page's source; this proves the
@@ -133,6 +135,13 @@ function check(cond, msg) {
   console.log('  ok   ' + msg);
 }
 
+/** Hold a browser request until the concurrent phone edit has completed. */
+function deferred() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+
 /** Run the proof. */
 async function main() {
   const pwPath = process.env.PLAYWRIGHT_MODULE;
@@ -215,6 +224,13 @@ async function main() {
 
     // B. A desktop rename, and inside its save debounce a phone rename of the other group.
     const base = (await pageState()).revision;
+    const putsB = [];
+    await page.route('**/api/layout', async (route) => {
+      if (route.request().method() !== 'PUT') return route.continue();
+      const response = await route.fetch();
+      putsB.push({ body: route.request().postDataJSON(), answer: await response.json() });
+      return route.fulfill({ response });
+    });
     await page.dblclick('.terminal-group-tab[data-group-id="tg_research"]');
     await page.waitForSelector('.inline-rename-input', { timeout: PAGE_WAIT_MS });
     await page.fill('.inline-rename-input', 'Desk B');
@@ -227,17 +243,29 @@ async function main() {
     await untilPage(async () => { const st = await pageState(); return st.revision === disk().revision && st.names.includes('Phone B') && st.names.includes('Desk B'); }, 'the page to hold the merged layout');
     const sB = await pageState();
     check(sB.tabs.includes('Phone B') && sB.tabs.includes('Desk B'), 'B: the page shows both names and holds the server revision (' + sB.revision + ')');
+    check(putsB.length >= 1 && putsB[0].body.baseRevision === base && putsB[0].answer.merged === true, 'B: the page saved from its older revision and the server merged the phone edit');
+    await page.unroute('**/api/layout');
 
     // C. The phone creates a group while a desktop save is pending.
+    const putsC = [];
+    await page.route('**/api/layout', async (route) => {
+      if (route.request().method() !== 'PUT') return route.continue();
+      const response = await route.fetch();
+      putsC.push({ body: route.request().postDataJSON(), answer: await response.json() });
+      return route.fulfill({ response });
+    });
     await page.dblclick('.terminal-group-tab[data-group-id="tg_research"]');
     await page.waitForSelector('.inline-rename-input', { timeout: PAGE_WAIT_MS });
     await page.fill('.inline-rename-input', 'Desk C');
     await page.keyboard.press('Enter');
-    const c = await phone([{ op: 'createGroup', tempId: 't1', name: 'Phone C', folderId: null, afterGroupId: null }], (await pageState()).revision);
+    const baseC = (await pageState()).revision;
+    const c = await phone([{ op: 'createGroup', tempId: 't1', name: 'Phone C', folderId: null, afterGroupId: null }], baseC);
     check(c.status === 200 && c.body.tempIds && /^tg_/.test(c.body.tempIds.t1), 'the phone created a group inside the save window');
     await until(async () => { const d = disk(); return names(d).includes('Desk C') && names(d).includes('Phone C'); }, PAGE_WAIT_MS, 'the new group and the rename on disk');
     await untilPage(async () => { const st = await pageState(); return st.names.includes('Phone C') && st.names.includes('Desk C') && st.revision === disk().revision; }, 'the page to show the new group');
     check(names(disk()).join(',') === 'Phone B,Desk C,Phone C', 'C: the phone\'s new group survived the desktop save: ' + names(disk()).join(', '));
+    check(putsC.length >= 1 && putsC[0].body.baseRevision === baseC && putsC[0].answer.merged === true, 'C: the page saved from its older revision and the server merged the phone group');
+    await page.unroute('**/api/layout');
 
     // D. The worst case: the page misses the phone's event entirely (its
     // stream is down), then saves a change of its own from an old revision.
@@ -261,6 +289,33 @@ async function main() {
     check(sR.names.join(',') === 'Phone D,Desk D,Phone C' && sR.revision === disk().revision, 'after a reload the page loads the merged layout (revision ' + sR.revision + ')');
     const tabs = (await request(phonePort, 'GET', '/api/m/v2/tabs', null, phoneToken)).body.tabs;
     check(tabs.groups.map((g) => g.name).join(',') === 'Phone D,Desk D,Phone C' && tabs.revision === sR.revision, 'the phone reads the same tabs and revision');
+
+    // F. A phone edit arrives after a desktop PUT is already in flight.
+    const putSeen = deferred();
+    const putRelease = deferred();
+    const putsF = [];
+    await page.route('**/api/layout', async (route) => {
+      if (route.request().method() !== 'PUT') return route.continue();
+      putsF.push({ body: route.request().postDataJSON() });
+      putSeen.resolve();
+      await putRelease.promise;
+      const response = await route.fetch();
+      putsF[putsF.length - 1].answer = await response.json();
+      return route.fulfill({ response });
+    });
+    const baseF = (await pageState()).revision;
+    await page.dblclick('.terminal-group-tab[data-group-id="tg_research"]');
+    await page.waitForSelector('.inline-rename-input', { timeout: PAGE_WAIT_MS });
+    await page.fill('.inline-rename-input', 'Desk F');
+    await page.keyboard.press('Enter');
+    await putSeen.promise;
+    const f = await phone([{ op: 'renameGroup', groupId: 'tg_main', name: 'Phone F' }], disk().revision);
+    check(f.status === 200, 'F: the phone edit landed while the desktop PUT was in flight');
+    putRelease.resolve();
+    await untilPage(async () => { const st = await pageState(); return st.names.includes('Phone F') && st.names.includes('Desk F') && st.revision === disk().revision; }, 'the in flight save to merge both edits');
+    check(putsF[0].body.baseRevision === baseF && putsF[0].answer.merged === true, 'F: the in flight save carried its older revision and received a merge');
+    check(names(disk()).includes('Phone F') && names(disk()).includes('Desk F'), 'F: both edits survive on disk');
+    await page.unroute('**/api/layout');
 
     // E. Initial reads fail while the phone keeps editing the real layout.
     let blockLayoutReads = true;
