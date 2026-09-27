@@ -23,6 +23,7 @@ const crypto = require('crypto');
 const kit = require('./fakes/b2-kit');
 
 const LIVE_FIXTURE_TIMEOUT_MS = 5000;
+const TURN_READY_TIMEOUT_MS = 15000;
 const sb = kit.sandbox();
 let env;
 const spawns = [];
@@ -33,7 +34,16 @@ function stateEntry(sessionId, kind, shortId) {
   fs.writeFileSync(path.join(sb.state, 'claude-' + sessionId + '.json'), JSON.stringify({ id: shortId, sessionId, pid: process.pid, kind, status: 'idle', waitingFor: null, cwd: sb.work, name: 'x', startedAt: Date.now(), state: kind === 'background' ? 'working' : null }));
 }
 
-kit.test('boot', async () => { env = await kit.bootChat({ pty: true }); });
+kit.test('boot', async () => {
+  // Fixture updates must not race an async save on the same temporary file.
+  const fixtureStore = require('../../src/state/store').getStore();
+  /** Keep real persistence and errors while making fixture writes serial. */
+  fixtureStore._debouncedSave = function saveFixtureImmediately() {
+    this._dirty = true;
+    this.save();
+  };
+  env = await kit.bootChat({ pty: true });
+});
 
 kit.test('launchDetached spawns a fresh tracked session from its record', async () => {
   const rec = kit.trackedSession(env.store, { provider: 'claude', workingDir: sb.work });
@@ -123,8 +133,16 @@ kit.test('new session errors: WORKING_DIR_NOT_FOUND, PROJECT_REQUIRED, INVALID_S
 });
 
 kit.test('restart now during a turn is SESSION_BUSY; stop kills the pane', async () => {
-  await kit.api(env.base, 'POST', '/sessions/' + newSid + '/send', { clientMessageId: crypto.randomUUID(), text: 'long: busy' }, env.device.token);
-  await kit.until(() => env.chat.internals.turns.isTurnOpen(newSid), 15000, 'turn open');
+  const busyMessageId = crypto.randomUUID();
+  await kit.api(env.base, 'POST', '/sessions/' + newSid + '/send', { clientMessageId: busyMessageId, text: 'long: busy' }, env.device.token);
+  // The first prompt may still have an open turn. Wait for this send's turn,
+  // so stopping it cannot leave a queued prompt that relaunches the fixture.
+  await kit.until(() => {
+    const send = env.chat.internals.sends.list(newSid).find((x) => x.clientMessageId === busyMessageId);
+    const turn = env.chat.internals.turns.turnOf(newSid);
+    return send && send.state === 'confirmed' && turn && turn.turnId === 't_' + send.messageId
+      && env.chat.internals.turns.isTurnOpen(newSid);
+  }, TURN_READY_TIMEOUT_MS, 'the long prompt is confirmed and its turn is open');
   const r = await kit.api(env.base, 'POST', '/sessions/' + newSid + '/restart', { clientRequestId: crypto.randomUUID(), when: 'now' }, env.device.token);
   kit.eq([r.status, r.body.code], [409, 'SESSION_BUSY']);
   const w = await kit.api(env.base, 'POST', '/sessions/' + newSid + '/restart', { clientRequestId: crypto.randomUUID(), when: 'whenIdle' }, env.device.token);
@@ -134,6 +152,7 @@ kit.test('restart now during a turn is SESSION_BUSY; stop kills the pane', async
   kit.validate(s.body, 'sessions/status-result.json');
   const s2 = await kit.api(env.base, 'POST', '/sessions/' + newSid + '/stop', { clientRequestId: crypto.randomUUID() }, env.device.token);
   kit.eq(s2.body.status, 'notRunning');
+  kit.eq(env.chat.internals.sends.pending(newSid), [], 'the stopped fixture has no send left to relaunch it');
 });
 
 // ── Fix round: the phone body never reaches a command line (W2, PROTOCOL.md 0.1) ──
