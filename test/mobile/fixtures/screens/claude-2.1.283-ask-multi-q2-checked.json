@@ -1,134 +1,20 @@
 {
   "cli": "claude",
   "version": "2.1.283",
-  "name": "ask-single-after-paste",
-  "capturedAt": "2026-09-27T11:25:12.973Z",
+  "name": "ask-multi-q2-checked",
+  "capturedAt": "2026-09-27T11:25:22.673Z",
   "cols": 120,
   "rows": 30,
-  "cursorX": 119,
-  "cursorY": 29,
+  "cursorX": 8,
+  "cursorY": 20,
   "altBuffer": true,
   "lines": [
     {
-      "text": "",
+      "text": "                                                                                                                        ",
       "runs": []
     },
     {
-      "text": " \u2590\u259b\u2588\u2588\u2588\u259b\u2588   Claude Code v2.1.283",
-      "runs": [
-        {
-          "s": 0,
-          "e": 8,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 14120791
-        },
-        {
-          "s": 11,
-          "e": 22,
-          "dim": false,
-          "bold": true,
-          "inverse": false,
-          "fg": null
-        },
-        {
-          "s": 23,
-          "e": 31,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "\u259d\u259c\u2588\u2588\u2588\u2588\u2588\u2588\u2580  Haiku 4.5 \u00b7 Claude Max",
-      "runs": [
-        {
-          "s": 0,
-          "e": 11,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 14120791
-        },
-        {
-          "s": 11,
-          "e": 33,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": " \u259d\u259d   \u259d\u259d   ~\\AppData\\Local\\Temp\\claude\\C--Users-tester\\00000000-0000-0000-0000-000000000000\\scratchpad\\b2-fix2-capt\u2026    ",
-      "runs": [
-        {
-          "s": 0,
-          "e": 11,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 14120791
-        },
-        {
-          "s": 11,
-          "e": 120,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "",
-      "runs": []
-    },
-    {
-      "text": "  \u23bf \u00a0SessionStart:startup hook error",
-      "runs": [
-        {
-          "s": 0,
-          "e": 36,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "  \u23bf \u00a0Failed with non-blocking status code: /usr/bin/bash: line 1: ${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd: No such file",
-      "runs": [
-        {
-          "s": 0,
-          "e": 120,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "     or directory",
-      "runs": [
-        {
-          "s": 5,
-          "e": 17,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "",
+      "text": "     ",
       "runs": []
     },
     {
@@ -144,19 +30,11 @@
         },
         {
           "s": 2,
-          "e": 117,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 16777215
-        },
-        {
-          "s": 117,
           "e": 120,
           "dim": false,
           "bold": false,
           "inverse": false,
-          "fg": 10066329
+          "fg": 16777215
         }
       ]
     },
@@ -172,12 +50,143 @@
           "fg": 16777215
         },
         {
-          "s": 44,
+          "s": 117,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u25cf\u00a0User answered Claude's questions:                                                                                     ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf \u00a0\u00b7 Pick a color \u2192 Red                                                                                               ",
+      "runs": [
+        {
+          "s": 0,
           "e": 120,
           "dim": false,
           "bold": false,
           "inverse": false,
           "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u25cf Red                                                                                                                   ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u273b Brewed for 7s \u00b7 done 7:25 AM                                                                                          ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 2,
+          "e": 30,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u276f Use the AskUserQuestion tool ONCE with TWO questions in the same call: question one \"Pick a color\" (header \"Color\")   ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5263440
+        },
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  with options Red and Blue; question two \"Pick sizes\" (header \"Sizes\") with options Small and Large and multiSelect    ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        }
+      ]
+    },
+    {
+      "text": "  true. Then reply with my answers.                                                                                     ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 35,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        },
+        {
+          "s": 117,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
         }
       ]
     },
@@ -195,11 +204,11 @@
       ]
     },
     {
-      "text": " \u2610 Color ",
+      "text": "\u2190  \u2612 Color  \u2612 Sizes  \u2714 Submit  \u2192                                                                                        ",
       "runs": [
         {
-          "s": 0,
-          "e": 9,
+          "s": 11,
+          "e": 20,
           "dim": false,
           "bold": false,
           "inverse": false,
@@ -212,11 +221,11 @@
       "runs": []
     },
     {
-      "text": "Pick a color",
+      "text": "Pick sizes                                                                                                              ",
       "runs": [
         {
           "s": 0,
-          "e": 12,
+          "e": 10,
           "dim": false,
           "bold": true,
           "inverse": false,
@@ -225,11 +234,11 @@
       ]
     },
     {
-      "text": "",
+      "text": "                                                                                                                        ",
       "runs": []
     },
     {
-      "text": "\u276f 1. Red",
+      "text": "\u276f 1. [\u2714] Small                                                                                                          ",
       "runs": [
         {
           "s": 0,
@@ -253,16 +262,24 @@
           "dim": false,
           "bold": false,
           "inverse": false,
+          "fg": 5159525
+        },
+        {
+          "s": 9,
+          "e": 14,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
           "fg": 11647481
         }
       ]
     },
     {
-      "text": "     The color red",
+      "text": "         Small size                                                                                                     ",
       "runs": [
         {
-          "s": 5,
-          "e": 18,
+          "s": 9,
+          "e": 19,
           "dim": false,
           "bold": false,
           "inverse": false,
@@ -271,7 +288,7 @@
       ]
     },
     {
-      "text": "  2. Blue",
+      "text": "  2. [ ] Large",
       "runs": [
         {
           "s": 2,
@@ -284,10 +301,18 @@
       ]
     },
     {
-      "text": "     The color blue",
+      "text": "         Large size                                                                                                     ",
       "runs": [
         {
-          "s": 5,
+          "s": 4,
+          "e": 5,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 9,
           "e": 19,
           "dim": false,
           "bold": false,
@@ -297,15 +322,36 @@
       ]
     },
     {
-      "text": "  3. Type something.",
+      "text": "  3. [ ] Type something                                                                                                 ",
       "runs": [
         {
           "s": 2,
-          "e": 20,
+          "e": 5,
           "dim": false,
           "bold": false,
           "inverse": false,
           "fg": 10066329
+        },
+        {
+          "s": 9,
+          "e": 23,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "     Submit                                                                                                             ",
+      "runs": [
+        {
+          "s": 5,
+          "e": 11,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
         }
       ]
     },
@@ -323,7 +369,7 @@
       ]
     },
     {
-      "text": "  4. Chat about this",
+      "text": "  4. Chat about this                                                                                                    ",
       "runs": []
     },
     {
@@ -331,37 +377,17 @@
       "runs": []
     },
     {
-      "text": "Enter to select \u00b7 \u2191/\u2193 to navigate \u00b7 Esc to cancel                                                                       ",
+      "text": "Enter to select \u00b7 Tab/Arrow keys to navigate \u00b7 Esc to cancel",
       "runs": [
         {
           "s": 0,
-          "e": 49,
+          "e": 60,
           "dim": false,
           "bold": false,
           "inverse": false,
           "fg": 10066329
         }
       ]
-    },
-    {
-      "text": "                                                                                                                        ",
-      "runs": []
-    },
-    {
-      "text": "",
-      "runs": []
-    },
-    {
-      "text": "                                                                                                                        ",
-      "runs": []
-    },
-    {
-      "text": "",
-      "runs": []
-    },
-    {
-      "text": "  ",
-      "runs": []
     }
   ]
 }

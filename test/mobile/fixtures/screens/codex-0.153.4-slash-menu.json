@@ -1,0 +1,350 @@
+{
+  "cli": "codex",
+  "version": "0.153.4",
+  "name": "slash-menu",
+  "capturedAt": "2026-09-27T11:20:31.024Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 3,
+  "cursorY": 20,
+  "altBuffer": false,
+  "lines": [
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a Run this exact shell command and nothing else: echo myrlin-check > probe.txt . The sandbox is read only, so request   ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  escalated permissions for it.",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2714 You approved codex to run echo myrlin-check > probe.txt this time",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 2
+        },
+        {
+          "s": 6,
+          "e": 14,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 28,
+          "e": 57,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 57,
+          "e": 67,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2022 Ran echo myrlin-check > probe.txt",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": 2
+        },
+        {
+          "s": 2,
+          "e": 5,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 6,
+          "e": 11,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 9024762
+        },
+        {
+          "s": 11,
+          "e": 24,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 13489908
+        },
+        {
+          "s": 24,
+          "e": 26,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 9757397
+        },
+        {
+          "s": 26,
+          "e": 35,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 13489908
+        }
+      ]
+    },
+    {
+      "text": "  \u2514 (no output)",
+      "runs": [
+        {
+          "s": 0,
+          "e": 15,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a helloCount from 1 to 300, one number per line, and explain each number in a full sentence.",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u25a0 Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 1
+        }
+      ]
+    },
+    {
+      "text": "issue.",
+      "runs": [
+        {
+          "s": 0,
+          "e": 6,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 1
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a /",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  /model                 choose what model and reasoning effort to use",
+      "runs": [
+        {
+          "s": 2,
+          "e": 70,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": 6
+        }
+      ]
+    },
+    {
+      "text": "  /fast                  1.5x speed, increased usage",
+      "runs": [
+        {
+          "s": 25,
+          "e": 52,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  /ide                   include current selection, open files, and other context from your IDE",
+      "runs": [
+        {
+          "s": 25,
+          "e": 95,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  /permissions           choose what Codex is allowed to do",
+      "runs": [
+        {
+          "s": 25,
+          "e": 59,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  /keymap                remap TUI shortcuts",
+      "runs": [
+        {
+          "s": 25,
+          "e": 44,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  /vim                   toggle Vim mode for the composer",
+      "runs": [
+        {
+          "s": 25,
+          "e": 57,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  /sandbox-add-read-dir  let sandbox read a directory: /sandbox-add-read-dir <absolute_path>",
+      "runs": [
+        {
+          "s": 25,
+          "e": 92,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  /experimental          toggle experimental features                                                                   ",
+      "runs": [
+        {
+          "s": 25,
+          "e": 53,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    }
+  ]
+}

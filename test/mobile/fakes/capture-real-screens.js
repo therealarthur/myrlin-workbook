@@ -15,7 +15,30 @@
  * an open dialog, how a blocked Stop hook ends a turn).
  *
  * Usage (never inside a Workbook, never in a real project):
- *   node test/mobile/fakes/capture-real-screens.js <scratchDir>
+ *   node test/mobile/fakes/capture-real-screens.js <scratchDir> [scenes]
+ *
+ * scenes is a comma list; the default "A,B,C" is the first run's Claude set.
+ * The fix round added: ask (a clean AskUserQuestion single and multi question
+ * capture with F1 measured on the open dialog), plancr (F1 lone CR on the
+ * plan dialog), trust (the Claude folder trust dialog, in the folder named by
+ * B2_TRUST_DIR, which must lie outside the user profile because a trusted
+ * home trusts every folder below it; the dialog is left without trusting),
+ * rule6 (how stopped and killed background sessions appear in the agents
+ * listing; only sessions started in the scene's own folder are touched),
+ * codextrust (the Codex folder trust dialog, captured and never answered)
+ * and codex (codex-cli 0.153.4: idle composer, draft, Workbook's paste then
+ * CR timing, busy status, command approval with F1, F31 marker delays over
+ * 10 turns, the interrupt record for X3, the slash command list).
+ * Codex runs with its normal home (its own login) on the cheapest model, low
+ * reasoning effort, the read only sandbox and approval on request; the
+ * binary is B2_CODEX_BIN (a scratch install of the pinned version) or codex
+ * on PATH. Command line overrides keep the run from changing anything: no
+ * update check (the update dialog's default option runs a global npm
+ * install), the config's MCP servers off, the scratch folder trusted in
+ * memory only. Text is typed only into a composer that is up with no dialog.
+ *
+ * Every saved JSON goes through scrub-fixture.js: the user name, host name
+ * and scratch id become same length placeholders (the repository is public).
  *
  * Every non ASCII character is written as a \u escape so no fixture can carry
  * a literal em dash (gate G12a).
@@ -32,11 +55,17 @@ const pty = require('node-pty');
 const { Terminal } = require('@xterm/headless');
 const { snapshotFromTerminal, screenText } = require('../../../src/web/mobile/chat/screen-reader');
 const { encodeClaudeProjectDir } = require('../../../src/providers/claude/path-decode');
+const { personalPairs, scrubValue } = require('./scrub-fixture');
 
 const COLS = 120;
 const ROWS = 30;
 const SUBMIT_DELAY_MS = 80;
 const CLI_VERSION = '2.1.283';
+const CODEX_VERSION = '0.153.4';
+/** The cheapest model this Codex login lists (its models cache), run with low effort. */
+const CODEX_MODEL = 'gpt-5.6-luna';
+const F31_SAMPLES = 10;
+const POLL_MS = 50;
 const ROOT = path.join(__dirname, '..');
 const SCREENS_DIR = path.join(ROOT, 'fixtures', 'screens');
 const SCRATCH_DIR = path.join(ROOT, 'fixtures', 'scratch');
@@ -62,7 +91,7 @@ function asciiJson(value) {
  */
 function save(dir, name, value) {
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, name), asciiJson(value) + '\n');
+  fs.writeFileSync(path.join(dir, name), asciiJson(scrubValue(value, personalPairs())) + '\n');
 }
 
 /** @param {number} ms */
@@ -72,13 +101,19 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
  * A driven CLI in a PTY with a headless screen.
  */
 class Driven {
-  constructor(args, cwd, env) {
+  /**
+   * @param {string[]} args
+   * @param {string} cwd
+   * @param {object} env
+   * @param {string} [bin] - 'claude' (default) or 'codex'
+   */
+  constructor(args, cwd, env, bin = 'claude') {
     this.term = new Terminal({ cols: COLS, rows: ROWS, scrollback: 500, allowProposedApi: true });
     this.pending = 0;
     this.raw = [];
     this.exited = false;
     const isWin = process.platform === 'win32';
-    this.p = pty.spawn(isWin ? 'cmd.exe' : '/bin/bash', isWin ? ['/c', 'claude ' + args.join(' ')] : ['-lc', 'claude ' + args.join(' ')], {
+    this.p = pty.spawn(isWin ? 'cmd.exe' : '/bin/bash', isWin ? ['/c', bin + ' ' + args.join(' ')] : ['-lc', bin + ' ' + args.join(' ')], {
       name: 'xterm-256color', cols: COLS, rows: ROWS, cwd, env, useConpty: isWin ? true : undefined,
     });
     this.p.onData((d) => {
@@ -119,7 +154,13 @@ class Driven {
     return null;
   }
 
-  kill() { try { this.p.kill(); } catch (_) {} }
+  /** Kill the CLI and its whole tree by PID (never by image name). */
+  kill() {
+    if (process.platform === 'win32' && Number.isInteger(this.p.pid)) {
+      try { require('child_process').execFileSync('taskkill', ['/PID', String(this.p.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch (_) { /* already gone */ }
+    }
+    try { this.p.kill(); } catch (_) {}
+  }
 }
 
 /**
@@ -128,10 +169,10 @@ class Driven {
  * @param {object} snap
  * @param {object} [meta]
  */
-function saveScreen(name, snap, meta) {
+function saveScreen(name, snap, meta, cli = 'claude', version = CLI_VERSION) {
   if (!snap) return;
-  save(SCREENS_DIR, 'claude-' + CLI_VERSION + '-' + name + '.json', Object.assign({ cli: 'claude', version: CLI_VERSION, name, capturedAt: new Date().toISOString() }, meta || {}, snap));
-  console.log('  saved screen ' + name);
+  save(SCREENS_DIR, cli + '-' + version + '-' + name + '.json', Object.assign({ cli, version, name, capturedAt: new Date().toISOString() }, meta || {}, snap));
+  console.log('  saved screen ' + cli + ' ' + name);
 }
 
 /**
@@ -192,6 +233,15 @@ const isIdleText = (t) => {
   return false;
 };
 const hasDialog = (t) => /Do you want to|Would you like to proceed|Enter to select|❯\s*\d+\./.test(t);
+/**
+ * An open AskUserQuestion dialog: the footer only the dialog draws, the
+ * question text, and a numbered option. The prompt that asked for it holds
+ * the same words, so the words alone are not enough (the first run's error).
+ * @param {string} t
+ * @param {string} question
+ * @returns {boolean}
+ */
+const isQuestionDialog = (t, question) => /Enter to select/.test(t) && t.includes(question) && /^\s*(?:❯\s*)?1\.\s/m.test(t);
 
 async function main() {
   const scratch = path.resolve(process.argv[2] || path.join(os.tmpdir(), 'b2-claude-scratch'));
@@ -205,6 +255,16 @@ async function main() {
   const projects = path.join(os.homedir(), '.claude', 'projects', encodeClaudeProjectDir(dirA));
   const evidence = { cli: 'claude', version: CLI_VERSION, scratchDir: dirA, startedAt: new Date().toISOString(), results: {} };
   const guard = setTimeout(() => { console.log('overall timeout'); process.exit(3); }, OVERALL_TIMEOUT_MS);
+  process.env.B2_SCRATCH_DIR = scratch;
+  const scenes = new Set(String(process.argv[3] || 'A,B,C').split(',').map((x) => x.trim()).filter(Boolean));
+  if (!scenes.has('A') && !scenes.has('B') && !scenes.has('C')) {
+    // The fix round scenes live in their own file; they share this file's driver and savers.
+    const { fixRoundScenes } = require('./capture-real-fixround');
+    try {
+      await fixRoundScenes(scratch, env, scenes, { Driven, save, saveScreen, recordsAfter, waitTurnEnd, shape, fileSize, isQuestionDialog, KEYS, sleep, SCRATCH_DIR, SUBMIT_DELAY_MS, CLI_VERSION, CODEX_VERSION, CODEX_MODEL, F31_SAMPLES, POLL_MS });
+    } finally { clearTimeout(guard); }
+    process.exit(0);
+  }
 
   // Scene A: default permission mode.
   const u1 = crypto.randomUUID();
@@ -259,7 +319,7 @@ async function main() {
 
     off = fileSize(t1);
     await a.send('Use the AskUserQuestion tool to ask me exactly one question: "Pick a color" with the options Red and Blue. After I answer, reply with only the color I chose.');
-    const ask = await a.waitFor((t) => /Pick a color/.test(t) && /Red/.test(t) && /Blue/.test(t) && !isBusy(t), 60000, 'ask dialog');
+    const ask = await a.waitFor((t) => isQuestionDialog(t, 'Pick a color'), 60000, 'ask dialog');
     saveScreen('ask-single', ask);
     if (ask) {
       await a.paste('1 hello');
@@ -284,7 +344,7 @@ async function main() {
 
     off = fileSize(t1);
     await a.send('Use the AskUserQuestion tool once with two questions at the same time: the first "Pick a color" with options Red and Blue; the second "Pick sizes" with options Small and Large and multiSelect true. Then reply with my answers.');
-    const m1 = await a.waitFor((t) => /Pick a color/.test(t) && /Red/.test(t) && !isBusy(t), 60000, 'multi dialog');
+    const m1 = await a.waitFor((t) => isQuestionDialog(t, 'Pick a color'), 60000, 'multi dialog');
     saveScreen('ask-multi-q1', m1);
     if (m1) {
       a.write(KEYS.enter);

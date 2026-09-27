@@ -1,0 +1,736 @@
+{
+  "cli": "codex",
+  "version": "0.153.4",
+  "model": "gpt-5.6-luna",
+  "reasoningEffort": "low",
+  "sandbox": "read-only",
+  "approvalPolicy": "on-request",
+  "capturedAt": "2026-09-27T11:20:37.285Z",
+  "results": {
+    "trustDialog": {
+      "captured": true,
+      "classifiedAs": "unknownModal",
+      "title": null,
+      "options": [
+        "Yes, continue",
+        "No, quit"
+      ],
+      "answered": false,
+      "classifiedAsAtCapture": "none",
+      "note": "The detector did not know this wording at capture time; it was taught the anchor in the same fix round (b2-prompts golden table)."
+    },
+    "idleComposer": {
+      "captured": true,
+      "classifiedAs": "idlePrompt"
+    },
+    "idleDraft": {
+      "classifiedAs": "idlePrompt",
+      "inputText": "draft from the desktop",
+      "placeholder": false
+    },
+    "draftCleared": true,
+    "F31": {
+      "pollMs": 50,
+      "samples": [
+        {
+          "i": 1,
+          "taskStartedSeenMs": 62,
+          "screenBusyMs": 123,
+          "assistantMessageSeenMs": 2447,
+          "screenIdleMs": 2522,
+          "screenReplyMs": 2522,
+          "taskCompleteSeenMs": 2522,
+          "recordNames": [
+            "thread_settings_applied",
+            "task_started",
+            "turn_context",
+            "message",
+            "item_completed",
+            "item_completed",
+            "message",
+            "token_usage_record",
+            "token_count",
+            "task_complete"
+          ],
+          "startedMinusBusyOnScreenMs": -61,
+          "completeMinusReplyOnScreenMs": 0,
+          "completeMinusIdleOnScreenMs": 0,
+          "completeMinusMessageRecordMs": 75
+        },
+        {
+          "i": 2,
+          "taskStartedSeenMs": 61,
+          "screenBusyMs": 122,
+          "assistantMessageSeenMs": 1294,
+          "screenIdleMs": 1356,
+          "screenReplyMs": 1356,
+          "taskCompleteSeenMs": 1356,
+          "recordNames": [
+            "thread_settings_applied",
+            "task_started",
+            "turn_context",
+            "message",
+            "item_completed",
+            "item_completed",
+            "message",
+            "token_usage_record",
+            "token_count",
+            "task_complete"
+          ],
+          "startedMinusBusyOnScreenMs": -61,
+          "completeMinusReplyOnScreenMs": 0,
+          "completeMinusIdleOnScreenMs": 0,
+          "completeMinusMessageRecordMs": 62
+        },
+        {
+          "i": 3,
+          "taskStartedSeenMs": 61,
+          "screenBusyMs": 122,
+          "screenIdleMs": 1176,
+          "screenReplyMs": 1176,
+          "assistantMessageSeenMs": 1176,
+          "taskCompleteSeenMs": 1236,
+          "recordNames": [
+            "thread_settings_applied",
+            "task_started",
+            "turn_context",
+            "message",
+            "item_completed",
+            "item_completed",
+            "message",
+            "token_usage_record",
+            "token_count",
+            "task_complete"
+          ],
+          "startedMinusBusyOnScreenMs": -61,
+          "completeMinusReplyOnScreenMs": 60,
+          "completeMinusIdleOnScreenMs": 60,
+          "completeMinusMessageRecordMs": 60
+        },
+        {
+          "i": 4,
+          "screenBusyMs": 61,
+          "taskStartedSeenMs": 61,
+          "assistantMessageSeenMs": 2145,
+          "screenIdleMs": 2204,
+          "screenReplyMs": 2204,
+          "taskCompleteSeenMs": 2279,
+          "recordNames": [
+            "thread_settings_applied",
+            "task_started",
+            "turn_context",
+            "message",
+            "item_completed",
+            "item_completed",
+            "message",
+            "token_usage_record",
+            "token_count",
+            "task_complete"
+          ],
+          "startedMinusBusyOnScreenMs": 0,
+          "completeMinusReplyOnScreenMs": 75,
+          "completeMinusIdleOnScreenMs": 75,
+          "completeMinusMessageRecordMs": 134
+        },
+        {
+          "i": 5,
+          "taskStartedSeenMs": 61,
+          "screenBusyMs": 121,
+          "screenIdleMs": 3748,
+          "screenReplyMs": 3748,
+          "assistantMessageSeenMs": 3748,
+          "taskCompleteSeenMs": 4173,
+          "recordNames": [
+            "thread_settings_applied",
+            "task_started",
+            "turn_context",
+            "message",
+            "item_completed",
+            "item_completed",
+            "message",
+            "token_usage_record",
+            "token_count",
+            "task_complete"
+          ],
+          "startedMinusBusyOnScreenMs": -60,
+          "completeMinusReplyOnScreenMs": 425,
+          "completeMinusIdleOnScreenMs": 425,
+          "completeMinusMessageRecordMs": 425
+        },
+        {
+          "i": 6,
+          "taskStartedSeenMs": 60,
+          "screenBusyMs": 122,
+          "screenIdleMs": 1349,
+          "screenReplyMs": 1349,
+          "assistantMessageSeenMs": 1349,
+          "taskCompleteSeenMs": 1410,
+          "recordNames": [
+            "thread_settings_applied",
+            "task_started",
+            "turn_context",
+            "message",
+            "item_completed",
+            "item_completed",
+            "message",
+            "token_usage_record",
+            "token_count",
+            "task_complete"
+          ],
+          "startedMinusBusyOnScreenMs": -62,
+          "completeMinusReplyOnScreenMs": 61,
+          "completeMinusIdleOnScreenMs": 61,
+          "completeMinusMessageRecordMs": 61
+        },
+        {
+          "i": 7,
+          "taskStartedSeenMs": 61,
+          "screenBusyMs": 123,
+          "screenIdleMs": 1968,
+          "screenReplyMs": 1968,
+          "assistantMessageSeenMs": 1968,
+          "taskCompleteSeenMs": 2029,
+          "recordNames": [
+            "thread_settings_applied",
+            "task_started",
+            "turn_context",
+            "message",
+            "item_completed",
+            "item_completed",
+            "message",
+            "token_usage_record",
+            "token_count",
+            "task_complete"
+          ],
+          "startedMinusBusyOnScreenMs": -62,
+          "completeMinusReplyOnScreenMs": 61,
+          "completeMinusIdleOnScreenMs": 61,
+          "completeMinusMessageRecordMs": 61
+        },
+        {
+          "i": 8,
+          "screenBusyMs": 61,
+          "taskStartedSeenMs": 61,
+          "screenIdleMs": 3546,
+          "screenReplyMs": 3546,
+          "assistantMessageSeenMs": 3546,
+          "taskCompleteSeenMs": 3607,
+          "recordNames": [
+            "thread_settings_applied",
+            "task_started",
+            "turn_context",
+            "message",
+            "item_completed",
+            "item_completed",
+            "message",
+            "token_usage_record",
+            "token_count",
+            "task_complete"
+          ],
+          "startedMinusBusyOnScreenMs": 0,
+          "completeMinusReplyOnScreenMs": 61,
+          "completeMinusIdleOnScreenMs": 61,
+          "completeMinusMessageRecordMs": 61
+        },
+        {
+          "i": 9,
+          "taskStartedSeenMs": 60,
+          "screenBusyMs": 116,
+          "assistantMessageSeenMs": 1550,
+          "screenIdleMs": 1611,
+          "screenReplyMs": 1611,
+          "taskCompleteSeenMs": 1673,
+          "recordNames": [
+            "thread_settings_applied",
+            "task_started",
+            "turn_context",
+            "message",
+            "item_completed",
+            "item_completed",
+            "message",
+            "token_usage_record",
+            "token_count",
+            "task_complete"
+          ],
+          "startedMinusBusyOnScreenMs": -56,
+          "completeMinusReplyOnScreenMs": 62,
+          "completeMinusIdleOnScreenMs": 62,
+          "completeMinusMessageRecordMs": 123
+        },
+        {
+          "i": 10,
+          "taskStartedSeenMs": 62,
+          "screenBusyMs": 122,
+          "screenIdleMs": 1487,
+          "screenReplyMs": 1487,
+          "assistantMessageSeenMs": 1487,
+          "taskCompleteSeenMs": 1547,
+          "recordNames": [
+            "thread_settings_applied",
+            "task_started",
+            "turn_context",
+            "message",
+            "item_completed",
+            "item_completed",
+            "message",
+            "token_usage_record",
+            "token_count",
+            "task_complete"
+          ],
+          "startedMinusBusyOnScreenMs": -60,
+          "completeMinusReplyOnScreenMs": 60,
+          "completeMinusIdleOnScreenMs": 60,
+          "completeMinusMessageRecordMs": 60
+        }
+      ]
+    },
+    "F1_codexApproval": {
+      "captured": true,
+      "classifiedAs": "prompt",
+      "title": "Run command",
+      "options": [
+        {
+          "key": "y",
+          "label": "Yes, proceed"
+        },
+        {
+          "key": "p",
+          "label": "Yes, and don't ask again for commands that start with `echo myrlin-check > probe.txt`"
+        },
+        {
+          "key": "esc",
+          "label": "No, and tell Codex what to do differently"
+        }
+      ],
+      "highlighted": 0,
+      "anchorLine": "Would you like to run the following command?",
+      "dialogOpenAfterPaste1Hello": false,
+      "recordsAfterPaste": [
+        {
+          "type": "event_msg",
+          "payloadType": "thread_settings_applied"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "task_started"
+        },
+        {
+          "type": "turn_context"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "message",
+          "role": "user"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "item_completed"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "item_completed"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "reasoning"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "custom_tool_call",
+          "name": "exec"
+        },
+        {
+          "type": "token_usage_record"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "item_completed"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "custom_tool_call_output"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "token_count"
+        }
+      ],
+      "turnRecords": [
+        {
+          "type": "event_msg",
+          "payloadType": "thread_settings_applied"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "task_started"
+        },
+        {
+          "type": "turn_context"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "message",
+          "role": "user"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "item_completed"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "item_completed"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "reasoning"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "custom_tool_call",
+          "name": "exec"
+        },
+        {
+          "type": "token_usage_record"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "item_completed"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "custom_tool_call_output"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "token_count"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "item_completed"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "reasoning"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "item_completed"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "message",
+          "role": "assistant"
+        },
+        {
+          "type": "token_usage_record"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "token_count"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "task_complete"
+        }
+      ]
+    },
+    "X3": {
+      "sawBusy": true,
+      "screenIdleAfterEscMs": 77,
+      "endRecord": {
+        "payloadType": "turn_aborted",
+        "reason": "interrupted",
+        "keys": [
+          "completed_at",
+          "duration_ms",
+          "reason",
+          "started_at",
+          "turn_id",
+          "type"
+        ]
+      },
+      "endRecordSeenAfterEscMs": 77,
+      "records": [
+        {
+          "type": "event_msg",
+          "payloadType": "thread_settings_applied"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "task_started"
+        },
+        {
+          "type": "turn_context"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "message",
+          "role": "user"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "item_completed"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "token_count"
+        },
+        {
+          "type": "response_item",
+          "payloadType": "message",
+          "role": "user"
+        },
+        {
+          "type": "event_msg",
+          "payloadType": "turn_aborted",
+          "reason": "interrupted"
+        }
+      ]
+    },
+    "slashCommands": [
+      {
+        "name": "model",
+        "description": "choose what model and reasoning effort to use"
+      },
+      {
+        "name": "fast",
+        "description": "1.5x speed, increased usage"
+      },
+      {
+        "name": "ide",
+        "description": "include current selection, open files, and other context from your IDE"
+      },
+      {
+        "name": "permissions",
+        "description": "choose what Codex is allowed to do"
+      },
+      {
+        "name": "keymap",
+        "description": "remap TUI shortcuts"
+      },
+      {
+        "name": "vim",
+        "description": "toggle Vim mode for the composer"
+      },
+      {
+        "name": "sandbox-add-read-dir",
+        "description": "let sandbox read a directory: /sandbox-add-read-dir <absolute_path>"
+      },
+      {
+        "name": "experimental",
+        "description": "toggle experimental features"
+      },
+      {
+        "name": "approve",
+        "description": "approve one retry of a recent auto-review denial"
+      },
+      {
+        "name": "memories",
+        "description": "configure memory use and generation"
+      },
+      {
+        "name": "skills",
+        "description": "use skills to improve how Codex performs specific tasks"
+      },
+      {
+        "name": "import",
+        "description": "import setup, this project, and recent chats from Claude Code"
+      },
+      {
+        "name": "hooks",
+        "description": "view and manage lifecycle hooks"
+      },
+      {
+        "name": "review",
+        "description": "review my current changes and find issues"
+      },
+      {
+        "name": "rename",
+        "description": "rename the current thread"
+      },
+      {
+        "name": "new",
+        "description": "start a new chat during a conversation"
+      },
+      {
+        "name": "archive",
+        "description": "archive this session and exit"
+      },
+      {
+        "name": "delete",
+        "description": "permanently delete this session and exit"
+      },
+      {
+        "name": "resume",
+        "description": "resume a saved chat"
+      },
+      {
+        "name": "fork",
+        "description": "fork the current chat"
+      },
+      {
+        "name": "app",
+        "description": "continue this session in the Desktop app"
+      },
+      {
+        "name": "init",
+        "description": "create an AGENTS.md file with instructions for Codex"
+      },
+      {
+        "name": "compact",
+        "description": "summarize conversation to prevent hitting the context limit"
+      },
+      {
+        "name": "recap",
+        "description": "summarize the current conversation now"
+      },
+      {
+        "name": "plan",
+        "description": "switch to Plan mode"
+      },
+      {
+        "name": "goal",
+        "description": "set or view the goal for a long-running task"
+      },
+      {
+        "name": "agents",
+        "description": "view and switch between all active agent sessions"
+      },
+      {
+        "name": "side",
+        "description": "start a side conversation in an ephemeral fork"
+      },
+      {
+        "name": "copy",
+        "description": "copy the last response, code block, or quote"
+      },
+      {
+        "name": "export",
+        "description": "export the conversation as markdown"
+      },
+      {
+        "name": "raw",
+        "description": "toggle raw scrollback mode for copy-friendly terminal selection"
+      },
+      {
+        "name": "diff",
+        "description": "show git diff (including untracked files)"
+      },
+      {
+        "name": "mention",
+        "description": "mention a file"
+      },
+      {
+        "name": "status",
+        "description": "show current session configuration and token usage"
+      },
+      {
+        "name": "cd",
+        "description": "change the current working directory"
+      },
+      {
+        "name": "pwd",
+        "description": "show the current working directory"
+      },
+      {
+        "name": "usage",
+        "description": "view account usage or use a usage limit reset"
+      },
+      {
+        "name": "title",
+        "description": "configure which items appear in the terminal title"
+      },
+      {
+        "name": "statusline",
+        "description": "configure which items appear in the status line"
+      },
+      {
+        "name": "theme",
+        "description": "choose a syntax highlighting theme"
+      },
+      {
+        "name": "pets",
+        "description": "choose or hide the terminal pet"
+      },
+      {
+        "name": "mcp",
+        "description": "list configured MCP tools; use /mcp verbose for details"
+      },
+      {
+        "name": "plugins",
+        "description": "browse plugins"
+      },
+      {
+        "name": "logout",
+        "description": "log out of Codex"
+      },
+      {
+        "name": "exit",
+        "description": "exit Codex"
+      },
+      {
+        "name": "feedback",
+        "description": "send logs to maintainers"
+      },
+      {
+        "name": "ps",
+        "description": "list background terminals"
+      },
+      {
+        "name": "stop",
+        "description": "stop all background terminals"
+      },
+      {
+        "name": "clear",
+        "description": "clear the terminal and start a new chat"
+      },
+      {
+        "name": "personality",
+        "description": "choose a communication style for Codex"
+      },
+      {
+        "name": "subagents",
+        "description": "switch between this session's subagents"
+      }
+    ],
+    "rollout": "rollout-2026-09-27T07-19-31-01a0e297-720a-7e12-af3f-de3ef5da6c5f.jsonl",
+    "workbookDeliveryTiming": {
+      "taskStartedAfterMs": 265,
+      "busyAfterMs": 325,
+      "completed": true,
+      "submitted": true,
+      "composerAfter": {
+        "inputText": "",
+        "placeholder": true
+      }
+    },
+    "pasteRenderMs": [
+      122,
+      121,
+      122,
+      121,
+      121,
+      122,
+      119,
+      122,
+      123,
+      121,
+      184,
+      122
+    ]
+  },
+  "method": {
+    "binary": "codex-cli 0.153.4 installed with npm into a scratch folder (not global); the global install on this PC had already moved to 0.157.1",
+    "flags": "model gpt-5.6-luna, reasoning effort low, approval on-request, sandbox read-only; config overrides on the command line only: no update check, the user config MCP servers switched off, the scratch folder trusted in memory",
+    "home": "the normal CODEX_HOME (its own login); nothing written to its config except the TUI model notice counter every start writes",
+    "driver": "test/mobile/fakes/capture-real-screens.js <scratch> codex and codextrust (capture-real-fixround.js), node-pty at 120 by 30, the same bytes Workbook writes"
+  },
+  "findings": {
+    "F1": "An open command approval takes a bracketed paste as keys: the paste of \"1 hello\" approved the command and \" hello\" landed in the composer. Workbook therefore reads the screen once more right before every paste (send-queue deliver).",
+    "F31": "task_started appears in the rollout about 60 ms after the submit, before the busy line (about 120 ms); task_complete appears 0 to 425 ms after the reply is on screen (10 samples).",
+    "X3": "One ESC while busy writes event_msg turn_aborted with reason interrupted about 77 ms later; the X3 rule stays on turn_aborted, and the 5 s fallback covers a missing record.",
+    "delivery": "Paste, 80 ms, then a lone CR submits (the turn started 265 ms after the CR); the paste draws about 120 ms after it is written.",
+    "commands": "51 built in slash commands (results.slashCommands), pinned in chat/commands.js.",
+    "bracketedPaste": "The idle composer turns bracketed paste mode on (ESC [?2004h seen, xterm mode on), so gate G7 passes for Codex panes."
+  }
+}

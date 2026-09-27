@@ -1,3 +1,3 @@
 Private B2 copy of myrlin-ios protocol/schemas (BUILD-CONTRACT 3.1: B2 may keep a private copy until B1 merges test/mobile/_schema-check.js and fixtures/protocol/).
-Copied from C:\Users\tester\Projects\myrlin-ios\protocol\schemas on 2026-09-27.
+Copied from the protocol/schemas folder of the myrlin-ios repository on 2026-09-27.
 Source revision: e5e2db6b775e0b06c18ead1d30ee7b8781d4ccb6 2026-09-27

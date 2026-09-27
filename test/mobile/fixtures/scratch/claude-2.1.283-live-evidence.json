@@ -157,8 +157,14 @@
       }
     ],
     "F1_question": {
+      "measuredOnOpenDialog": true,
       "dialogOpenAfterPaste1Hello": true,
-      "dialogOpenAfterLoneCr": true
+      "answeredByPaste": false,
+      "dialogOpenAfterLoneCr": false,
+      "screenKindAfterLoneCr": "busy",
+      "toolResultSample": "{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"content\":\"Your questions have been answered: \\\"Pick a color\\\"=\\\"Red\\\". You can now continue with these answers in mind.\",\"tool_use_id\":\"toolu_01Td7RFSjeAdDN9XDsuSetkF\"}]}",
+      "turnEnded": true,
+      "note": "Replaces the first run, whose wait matched the typed prompt and pasted while Claude was still busy."
     },
     "askTurnRecords": null,
     "askToolInput": null,
@@ -704,12 +710,483 @@
     },
     "helpHasForkSession": true,
     "helpHasResumeSessionAt": false,
-    "helpHasSessionId": true
+    "helpHasSessionId": true,
+    "trustDialog": {
+      "captured": true,
+      "classifiedAs": "unknownModal",
+      "title": "Trust this folder?",
+      "trusted": false
+    },
+    "askMulti": {
+      "q1": true,
+      "q2": true,
+      "spaceTicksBox": true,
+      "review": true,
+      "reviewClassifiedAs": "prompt question",
+      "turnEnded": true,
+      "records": [
+        {
+          "type": "file-history-snapshot"
+        },
+        {
+          "type": "user"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "thinking"
+          ],
+          "messageId": "msg_011CfTruZ4BtkpaaCJe9njLT"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "tool_use"
+          ],
+          "messageId": "msg_011CfTruZ4BtkpaaCJe9njLT"
+        },
+        {
+          "type": "user",
+          "blocks": [
+            "tool_result"
+          ]
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "thinking"
+          ],
+          "messageId": "msg_011CfTruuML3uA91wUuc8Daw"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "text"
+          ],
+          "messageId": "msg_011CfTruuML3uA91wUuc8Daw"
+        },
+        {
+          "type": "system",
+          "subtype": "stop_hook_summary"
+        },
+        {
+          "type": "system",
+          "subtype": "turn_duration",
+          "durationMs": 4459
+        }
+      ],
+      "toolInput": {
+        "questions": [
+          {
+            "question": "Pick a color",
+            "header": "Color",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Red",
+                "description": "The color red"
+              },
+              {
+                "label": "Blue",
+                "description": "The color blue"
+              }
+            ]
+          },
+          {
+            "question": "Pick sizes",
+            "header": "Sizes",
+            "multiSelect": true,
+            "options": [
+              {
+                "label": "Small",
+                "description": "Small size"
+              },
+              {
+                "label": "Large",
+                "description": "Large size"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "F1_planLoneCr": {
+      "captured": true,
+      "dialogOpenAfterPaste1Hello": true,
+      "dialogOpenAfterLoneCr": false,
+      "screenKindAfterLoneCr": "none",
+      "turnEnded": true,
+      "records": [
+        {
+          "type": "last-prompt"
+        },
+        {
+          "type": "mode"
+        },
+        {
+          "type": "permission-mode"
+        },
+        {
+          "type": "atis-latch"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "file-history-snapshot"
+        },
+        {
+          "type": "user"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "last-prompt"
+        },
+        {
+          "type": "mode"
+        },
+        {
+          "type": "permission-mode"
+        },
+        {
+          "type": "atis-latch"
+        },
+        {
+          "type": "ai-title"
+        },
+        {
+          "type": "file-history-delta"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "thinking"
+          ],
+          "messageId": "msg_011CfTr2kPtwvMusSyNSA5So"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "tool_use"
+          ],
+          "messageId": "msg_011CfTr2kPtwvMusSyNSA5So"
+        },
+        {
+          "type": "user",
+          "blocks": [
+            "tool_result"
+          ]
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "last-prompt"
+        },
+        {
+          "type": "ai-title"
+        },
+        {
+          "type": "mode"
+        },
+        {
+          "type": "permission-mode"
+        },
+        {
+          "type": "atis-latch"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "thinking"
+          ],
+          "messageId": "msg_011CfTr3DjxAsz2mNmdhE86k"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "tool_use"
+          ],
+          "messageId": "msg_011CfTr3DjxAsz2mNmdhE86k"
+        },
+        {
+          "type": "user",
+          "blocks": [
+            "tool_result"
+          ]
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "tool_use"
+          ],
+          "messageId": "msg_011CfTr3QU7nNGGmWDERat5b"
+        },
+        {
+          "type": "user",
+          "blocks": [
+            "tool_result"
+          ]
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "ai-title"
+        },
+        {
+          "type": "agent-name"
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "text"
+          ],
+          "messageId": "msg_011CfTr3eR1iCnewTv76Q7ZG"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "tool_use"
+          ],
+          "messageId": "msg_011CfTr3eR1iCnewTv76Q7ZG"
+        },
+        {
+          "type": "file-history-delta"
+        },
+        {
+          "type": "user",
+          "blocks": [
+            "tool_result"
+          ]
+        },
+        {
+          "type": "attachment"
+        },
+        {
+          "type": "assistant",
+          "blocks": [
+            "text"
+          ],
+          "messageId": "msg_011CfTr3x97wo9L21QBj1FWe"
+        },
+        {
+          "type": "system",
+          "subtype": "stop_hook_summary"
+        },
+        {
+          "type": "system",
+          "subtype": "turn_duration",
+          "durationMs": 16292
+        }
+      ]
+    },
+    "rule6": {
+      "method": "two background sessions on haiku: one stopped with the stop subcommand, one killed by PID",
+      "steps": {
+        "stopped": {
+          "startOutput": [
+            "backgrounded \u00b7 f9b59e34",
+            "  claude agents             list sessions",
+            "  claude attach f9b59e34    open in this terminal"
+          ],
+          "shortId": "f9b59e34",
+          "whileRunning": {
+            "keys": [
+              "cwd",
+              "id",
+              "kind",
+              "name",
+              "pid",
+              "sessionId",
+              "startedAt",
+              "state",
+              "status"
+            ],
+            "kind": "background",
+            "status": "idle",
+            "state": "done",
+            "waitingFor": "(absent)"
+          },
+          "afterStop": {
+            "listed": false,
+            "withAll": {
+              "keys": [
+                "cwd",
+                "id",
+                "kind",
+                "name",
+                "sessionId",
+                "startedAt",
+                "state"
+              ],
+              "kind": "background",
+              "state": "done",
+              "waitingFor": "(absent)"
+            }
+          }
+        },
+        "killed": {
+          "startOutput": [
+            "backgrounded \u00b7 244a417a",
+            "  claude agents             list sessions",
+            "  claude attach 244a417a    open in this terminal"
+          ],
+          "shortId": "244a417a",
+          "whileRunning": {
+            "keys": [
+              "cwd",
+              "id",
+              "kind",
+              "name",
+              "pid",
+              "sessionId",
+              "startedAt",
+              "state",
+              "status"
+            ],
+            "kind": "background",
+            "status": "idle",
+            "state": "done",
+            "waitingFor": "(absent)"
+          },
+          "killedByPid": true,
+          "afterKill": [
+            {
+              "afterMs": 4000,
+              "listed": false,
+              "entry": null
+            },
+            {
+              "afterMs": 8000,
+              "listed": false,
+              "entry": null
+            },
+            {
+              "afterMs": 12000,
+              "listed": false,
+              "entry": null
+            },
+            {
+              "afterMs": 16000,
+              "listed": false,
+              "entry": null
+            }
+          ],
+          "withAll": {
+            "keys": [
+              "cwd",
+              "id",
+              "kind",
+              "name",
+              "sessionId",
+              "startedAt",
+              "state"
+            ],
+            "kind": "background",
+            "state": "done",
+            "waitingFor": "(absent)"
+          }
+        }
+      },
+      "cleanup": {
+        "stillListedWithAll": []
+      }
+    }
   },
   "finishedAt": "2026-09-27T04:22:34.466Z",
   "transcripts": {
     "sessionA": "112a58d7-76b3-4480-bd2f-6e28896b603e",
     "planSession": "45045a9e-2915-4a7f-8f7e-d4b9df0be227",
     "forkSession": "9ea3bcab-2cd4-4cbf-b336-a67b5942a07e"
+  },
+  "fixRoundAt": "2026-09-27T11:25:27.101Z",
+  "fixRoundFindings": {
+    "F1_question": "Measured on the open AskUserQuestion dialog: a paste of \"1 hello\" answered nothing and left the dialog open; a lone CR picked the highlighted option.",
+    "F1_plan": "A paste did not select a plan option (F1_plan); a lone CR picked the highlighted option and the plan ran (F1_planLoneCr).",
+    "multiSelect": "Space ticks a multi select box on the real dialog (askMulti.spaceTicksBox); Right moves to the review step; Enter on \"Submit answers\" submits.",
+    "trust": "The folder trust dialog of 2.1.283 asks \"Is this a project you created or one you trust?\" with unnumbered options \"No, exit\" (highlighted) and \"Yes, I trust this folder\"; it was captured in a folder outside the user profile and left with Esc, so nothing was trusted.",
+    "rule6": "A running background session is listed with a pid and a status; after the stop subcommand or a kill of its process it leaves the default listing and shows only with the all flag, without pid and status; one whose process is gone while it waits on a person stays listed without pid and status. Workbook reads a background entry without both as asleep (owner none, state sleeping).",
+    "firstRunScreens": "The first run saved ask-single, ask-single-after-paste and ask-multi-q1 from the wrong moments (its wait matched the typed prompt); the fix round replaced all three with captures of the open dialogs."
   }
 }

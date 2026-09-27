@@ -6,8 +6,9 @@
  * running Workbook.
  *
  * What: mounts the chat track in this process (no listener) with a sandbox
- * CWM_DATA_DIR, starts `claude --model haiku --permission-mode default` in a
- * Workbook PTY with the VT sidecar through launchDetached, and then: sends a
+ * CWM_DATA_DIR, starts the claude CLI on the haiku model in the default
+ * permission mode in a Workbook PTY with the VT sidecar through
+ * launchDetached, and then: sends a
  * two line message through the send queue (bracketed paste, a separate CR)
  * and checks it arrives as one prompt and that turn_duration closes the turn;
  * opens a real permission prompt and a real AskUserQuestion dialog, checks

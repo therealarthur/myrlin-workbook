@@ -1,0 +1,286 @@
+{
+  "cli": "codex",
+  "version": "0.153.4",
+  "name": "idle-empty",
+  "capturedAt": "2026-09-27T11:19:31.927Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 2,
+  "cursorY": 12,
+  "altBuffer": false,
+  "lines": [
+    {
+      "text": "\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e",
+      "runs": [
+        {
+          "s": 0,
+          "e": 60,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "\u2502 >_ OpenAI Codex (v0.153.4)                               \u2502",
+      "runs": [
+        {
+          "s": 0,
+          "e": 5,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 5,
+          "e": 17,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 17,
+          "e": 60,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "\u2502                                                          \u2502",
+      "runs": [
+        {
+          "s": 0,
+          "e": 60,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "\u2502 model:     gpt-5.6-luna low   /model to change           \u2502",
+      "runs": [
+        {
+          "s": 0,
+          "e": 13,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 29,
+          "e": 32,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 32,
+          "e": 38,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 6
+        },
+        {
+          "s": 38,
+          "e": 60,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "\u2502 directory: ~\\\u2026\\b2-fix2-captures\\codex-live-1790507970603 \u2502",
+      "runs": [
+        {
+          "s": 0,
+          "e": 13,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 58,
+          "e": 60,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f",
+      "runs": [
+        {
+          "s": 0,
+          "e": 60,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  Tip: This is GPT-6, a new generation of intelligence. Astra is state-of-the-art in coding, computer use, science, and ",
+      "runs": [
+        {
+          "s": 2,
+          "e": 6,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  professional work. Give it a hard problem, a half-formed idea, or anything you've been meaning to build. See where it ",
+      "runs": []
+    },
+    {
+      "text": "  takes you.                                                                                                            ",
+      "runs": []
+    },
+    {
+      "text": " ",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a Ask Codex to do anything",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 2,
+          "e": 26,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "  gpt-5.6-luna low \u00b7 ~\\AppData\\Local\\Temp\\claude\\C--Users-tester\\00000000-0000-0000-0000-000000000000\\scratchpad\\b2-fix\u2026",
+      "runs": [
+        {
+          "s": 2,
+          "e": 18,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16179895
+        },
+        {
+          "s": 18,
+          "e": 21,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 21,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11263911
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    }
+  ]
+}

@@ -1,0 +1,329 @@
+{
+  "cli": "codex",
+  "version": "0.153.4",
+  "name": "after-interrupt",
+  "capturedAt": "2026-09-27T11:20:29.513Z",
+  "cols": 120,
+  "rows": 30,
+  "cursorX": 2,
+  "cursorY": 27,
+  "altBuffer": false,
+  "lines": [
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a Reply with only the word ok10.",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2022 ok10",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a Run this exact shell command and nothing else: echo myrlin-check > probe.txt . The sandbox is read only, so request   ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "  escalated permissions for it.",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2714 You approved codex to run echo myrlin-check > probe.txt this time",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 2
+        },
+        {
+          "s": 6,
+          "e": 14,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 28,
+          "e": 57,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 57,
+          "e": 67,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2022 Ran echo myrlin-check > probe.txt",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": 2
+        },
+        {
+          "s": 2,
+          "e": 5,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 6,
+          "e": 11,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 9024762
+        },
+        {
+          "s": 11,
+          "e": 24,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 13489908
+        },
+        {
+          "s": 24,
+          "e": 26,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 9757397
+        },
+        {
+          "s": 26,
+          "e": 35,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 13489908
+        }
+      ]
+    },
+    {
+      "text": "  \u2514 (no output)",
+      "runs": [
+        {
+          "s": 0,
+          "e": 15,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u203a helloCount from 1 to 300, one number per line, and explain each number in a full sentence.",
+      "runs": [
+        {
+          "s": 0,
+          "e": 2,
+          "dim": true,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "",
+      "runs": []
+    },
+    {
+      "text": "\u25a0 Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 1
+        }
+      ]
+    },
+    {
+      "text": "issue.                                                                                                                  ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 1
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u203a Ask Codex to do anything                                                                                              ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 1,
+          "dim": false,
+          "bold": true,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 2,
+          "e": 26,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "  gpt-5.6-luna low \u00b7 ~\\AppData\\Local\\Temp\\claude\\C--Users-tester\\00000000-0000-0000-0000-000000000000\\scratchpad\\b2-fix\u2026",
+      "runs": [
+        {
+          "s": 2,
+          "e": 18,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16179895
+        },
+        {
+          "s": 18,
+          "e": 21,
+          "dim": true,
+          "bold": false,
+          "inverse": false,
+          "fg": null
+        },
+        {
+          "s": 21,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 11263911
+        }
+      ]
+    }
+  ]
+}

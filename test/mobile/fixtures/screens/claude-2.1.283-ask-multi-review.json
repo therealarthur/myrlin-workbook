@@ -1,42 +1,20 @@
 {
   "cli": "claude",
   "version": "2.1.283",
-  "name": "ask-multi-q1",
-  "capturedAt": "2026-09-27T11:25:21.508Z",
+  "name": "ask-multi-review",
+  "capturedAt": "2026-09-27T11:25:23.589Z",
   "cols": 120,
   "rows": 30,
-  "cursorX": 60,
+  "cursorX": 119,
   "cursorY": 29,
   "altBuffer": true,
   "lines": [
     {
-      "text": "  \u23bf \u00a0Failed with non-blocking status code: /usr/bin/bash: line 1: ${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd: No such file",
-      "runs": [
-        {
-          "s": 0,
-          "e": 120,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
+      "text": "                                                                                                                        ",
+      "runs": []
     },
     {
-      "text": "     or directory",
-      "runs": [
-        {
-          "s": 5,
-          "e": 17,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "",
+      "text": "     ",
       "runs": []
     },
     {
@@ -65,6 +43,14 @@
       "runs": [
         {
           "s": 2,
+          "e": 44,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        },
+        {
+          "s": 117,
           "e": 120,
           "dim": false,
           "bold": false,
@@ -87,17 +73,14 @@
           "bold": false,
           "inverse": false,
           "fg": 10066329
-        },
+        }
+      ]
+    },
+    {
+      "text": "  \u23bf \u00a0\u00b7 Pick a color \u2192 Red                                                                                               ",
+      "runs": [
         {
-          "s": 24,
-          "e": 25,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        },
-        {
-          "s": 35,
+          "s": 0,
           "e": 120,
           "dim": false,
           "bold": false,
@@ -107,20 +90,7 @@
       ]
     },
     {
-      "text": "  \u23bf \u00a0\u00b7 Pick a color \u2192 Red",
-      "runs": [
-        {
-          "s": 0,
-          "e": 25,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "                                                                                                                        ",
+      "text": "",
       "runs": []
     },
     {
@@ -128,7 +98,7 @@
       "runs": [
         {
           "s": 0,
-          "e": 2,
+          "e": 1,
           "dim": false,
           "bold": false,
           "inverse": false,
@@ -145,7 +115,15 @@
       "runs": [
         {
           "s": 0,
-          "e": 120,
+          "e": 1,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        },
+        {
+          "s": 2,
+          "e": 30,
           "dim": false,
           "bold": false,
           "inverse": false,
@@ -154,7 +132,7 @@
       ]
     },
     {
-      "text": "",
+      "text": "                                                                                                                        ",
       "runs": []
     },
     {
@@ -196,6 +174,14 @@
       "runs": [
         {
           "s": 2,
+          "e": 35,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 16777215
+        },
+        {
+          "s": 117,
           "e": 120,
           "dim": false,
           "bold": false,
@@ -203,6 +189,10 @@
           "fg": 16777215
         }
       ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
     },
     {
       "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
@@ -218,23 +208,23 @@
       ]
     },
     {
-      "text": "\u2190  \u2610 Color  \u2610 Sizes  \u2714 Submit  \u2192",
+      "text": "\u2190  \u2612 Color  \u2612 Sizes  \u2714 Submit  \u2192",
       "runs": [
         {
-          "s": 0,
-          "e": 2,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        },
-        {
-          "s": 2,
-          "e": 11,
+          "s": 20,
+          "e": 30,
           "dim": false,
           "bold": false,
           "inverse": false,
           "fg": 0
+        },
+        {
+          "s": 30,
+          "e": 32,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
         }
       ]
     },
@@ -243,11 +233,11 @@
       "runs": []
     },
     {
-      "text": "Pick a color                                                                                                            ",
+      "text": "Review your answers                                                                                                     ",
       "runs": [
         {
           "s": 0,
-          "e": 12,
+          "e": 19,
           "dim": false,
           "bold": true,
           "inverse": false,
@@ -260,7 +250,62 @@
       "runs": []
     },
     {
-      "text": "\u276f 1. Red                                                                                                                ",
+      "text": " \u25cf Pick a color                                                                                                         ",
+      "runs": []
+    },
+    {
+      "text": "   \u2192 Red ",
+      "runs": [
+        {
+          "s": 3,
+          "e": 8,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5159525
+        }
+      ]
+    },
+    {
+      "text": " \u25cf Pick sizes                                                                                                           ",
+      "runs": []
+    },
+    {
+      "text": "   \u2192 Small                                                                                                              ",
+      "runs": [
+        {
+          "s": 3,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 5159525
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "Ready to submit your answers?                                                                                           ",
+      "runs": [
+        {
+          "s": 0,
+          "e": 120,
+          "dim": false,
+          "bold": false,
+          "inverse": false,
+          "fg": 10066329
+        }
+      ]
+    },
+    {
+      "text": "                                                                                                                        ",
+      "runs": []
+    },
+    {
+      "text": "\u276f 1. Submit answers",
       "runs": [
         {
           "s": 0,
@@ -272,7 +317,7 @@
         },
         {
           "s": 2,
-          "e": 4,
+          "e": 5,
           "dim": false,
           "bold": false,
           "inverse": false,
@@ -280,7 +325,7 @@
         },
         {
           "s": 5,
-          "e": 8,
+          "e": 19,
           "dim": false,
           "bold": false,
           "inverse": false,
@@ -289,84 +334,11 @@
       ]
     },
     {
-      "text": "     The color red",
-      "runs": [
-        {
-          "s": 5,
-          "e": 18,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "  2. Blue                                                                                                               ",
+      "text": "  2. Cancel",
       "runs": [
         {
           "s": 2,
           "e": 5,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "     The color blue                                                                                                     ",
-      "runs": [
-        {
-          "s": 5,
-          "e": 19,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "  3. Type something.                                                                                                    ",
-      "runs": [
-        {
-          "s": 2,
-          "e": 120,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
-      "runs": [
-        {
-          "s": 0,
-          "e": 120,
-          "dim": false,
-          "bold": false,
-          "inverse": false,
-          "fg": 10066329
-        }
-      ]
-    },
-    {
-      "text": "  4. Chat about this                                                                                                    ",
-      "runs": []
-    },
-    {
-      "text": "",
-      "runs": []
-    },
-    {
-      "text": "Enter to select \u00b7 Tab/Arrow keys to navigate \u00b7 Esc to cancel",
-      "runs": [
-        {
-          "s": 0,
-          "e": 60,
           "dim": false,
           "bold": false,
           "inverse": false,
