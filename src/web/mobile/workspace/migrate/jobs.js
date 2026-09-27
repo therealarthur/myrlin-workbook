@@ -742,13 +742,47 @@ function createMigrations(deps) {
     let placement = job._.placement || { tabGroupId: null, afterSessionId: null };
     if (placement.tabGroupId && !deps.tabs.hasRoom(placement.tabGroupId)) placement = { tabGroupId: null, afterSessionId: null };
     await launcher.launch(job, ref, placement);
+    // Cancelled while the target was starting: stop it, never link or kick off.
+    if (stopped(job)) { await stopCancelledTarget(job); return; }
     link(job);
     if (job.sourcePolicy === 'pause') {
       try { chat().sessions.setHandedOff(job.sourceSessionId, { targetSessionId: job.targetSessionId, targetTitle: job._.name, migrationId: job.migrationId }); } catch (_) { /* best effort */ }
     }
     await launcher.kickoff(job);
+    if (stopped(job)) { await stopCancelledTarget(job); return; }
     job.state = 'reading';
     step(job, 'reading', { state: 'running', detail: null, done: job.plan.tier === 'S' ? 0 : 0, total: job.plan.ranges });
+  }
+
+  /**
+   * Stop the target of a cancelled job: cancel its queued sends first (B2
+   * starts an owner none session to deliver a queued send, so a kickoff
+   * still waiting would start the stopped target again), stop its process
+   * and archive it (PROTOCOL.md 4.12.4). Used when a launch finishes after
+   * the cancel.
+   *
+   * @param {object} job - Job (cancelled, with targetSessionId).
+   * @returns {Promise<void>}
+   */
+  async function stopCancelledTarget(job) {
+    const c = chat();
+    if (!c || !job.targetSessionId) return;
+    cancelTargetSends(job);
+    try { await c.launch.stop(job.targetSessionId, { clientRequestId: crypto.randomUUID() }); } catch (_) { /* not running */ }
+    try { deps.flags.set(job.targetSessionId, { archived: true }); } catch (_) { /* best effort */ }
+    save(job);
+  }
+
+  /**
+   * Cancel the target's queued sends (the kickoff, a nudge, a note).
+   *
+   * @param {object} job - Job with targetSessionId.
+   */
+  function cancelTargetSends(job) {
+    const c = chat();
+    try {
+      if (c && c.internals && c.internals.sends && typeof c.internals.sends.cancelSession === 'function') c.internals.sends.cancelSession(job.targetSessionId, 'CANCELLED_BY_USER');
+    } catch (_) { /* best effort */ }
   }
 
   // ── Watching the target ─────────────────────────────────────────────────
@@ -996,6 +1030,8 @@ function createMigrations(deps) {
     unwatch(job);
     const c = chat();
     if (job.targetSessionId && c) {
+      // A queued kickoff would otherwise start the stopped target again.
+      cancelTargetSends(job);
       try { await c.launch.stop(job.targetSessionId, { clientRequestId: crypto.randomUUID() }); } catch (_) { /* not running */ }
       try { deps.flags.set(job.targetSessionId, { archived: true }); } catch (_) { /* best effort */ }
     }

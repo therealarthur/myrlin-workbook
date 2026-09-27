@@ -376,7 +376,7 @@ kit.test('a fromMessageId start packs only the history up to that message', asyn
   const r = await start(src3.phone, { fromMessageId: assistants[0].id, sourcePolicy: 'leave' });
   kit.eq(r.status, 202, JSON.stringify(r.body));
   const id = r.body.migrationId;
-  await waitState(id, ['reading', 'verifying', 'reporting', 'awaitingApproval']);
+  const running = await waitState(id, ['reading', 'verifying', 'reporting', 'awaitingApproval']);
   const packDir = path.join(process.env.CWM_DATA_DIR, 'migrations', id);
   const um = fs.readFileSync(path.join(packDir, 'user-messages.md'), 'utf8');
   kit.ok(um.includes('alpha question') && um.includes('beta question'), 'up to the message');
@@ -384,7 +384,15 @@ kit.test('a fromMessageId start packs only the history up to that message', asyn
   const manifest = JSON.parse(fs.readFileSync(path.join(packDir, 'manifest.json'), 'utf8'));
   kit.ok(manifest.snapshot.bytes < fs.statSync(src3.file).size && manifest.snapshot.cutAtMessage === assistants[0].id, JSON.stringify(manifest.snapshot));
   kit.ok((await env.api('GET', '/sessions/' + src3.phone)).body.meta.owner !== 'handedOff', 'leave running: no hand off');
-  await env.api('POST', '/migrations/' + id + '/cancel');
+  // Cancelled right after the launch, while the kickoff may still wait in
+  // B2's send queue: the stopped target must not start again to deliver it.
+  const c = await env.api('POST', '/migrations/' + id + '/cancel');
+  kit.eq(c.body.state, 'cancelled');
+  const tRef = env.chat.sessions.resolve(running.targetSessionId);
+  await kit.sleep(3000);
+  const live = env.pm.getSession(tRef.workbookSessionId);
+  kit.ok(!live || !live.alive, 'a cancelled takeover never starts again to deliver its kickoff');
+  kit.ok(env.chat.internals.sends.list(running.targetSessionId).every((x) => x.state !== 'queued'), 'no send stays queued for the cancelled target');
 });
 
 kit.run(async () => { if (env) await env.close(); });

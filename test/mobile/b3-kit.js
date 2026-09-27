@@ -101,8 +101,46 @@ async function bootWorkspace(o = {}) {
       if (pm) { try { pm.destroyAll(); } catch (_) { /* ignore */ } }
       await mobileMod.stopMobile();
       mobileMod._resetForTests();
+      reapFakes();
     },
   };
+}
+
+/** How long the process listing of the reaper may take (a loaded machine is slow). */
+const REAP_TIMEOUT_MS = 60 * 1000;
+
+/**
+ * Stop the fake CLIs this test process started that are still running.
+ * A fake ends on SIGTERM but not when its Windows console closes, so a
+ * killed PTY can leave it behind (and the live gate then sees a session
+ * live elsewhere). The fake Claude lists itself, with its pid, in the
+ * sandbox's FAKE_CLI_STATE folder and removes the file when it exits; a
+ * pid is stopped only when its command line names this worktree's fakes
+ * folder, so a reused pid of an unrelated process is never touched.
+ */
+function reapFakes() {
+  const dir = process.env.FAKE_CLI_STATE;
+  if (!dir) return;
+  let pids = [];
+  try {
+    pids = fs.readdirSync(dir).filter((f) => /^claude-.*\.json$/.test(f)).map((f) => {
+      try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).pid; } catch (_) { return null; }
+    }).filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+  } catch (_) { return; }
+  if (!pids.length) return;
+  const fakesDir = path.join(__dirname, 'fakes').toLowerCase();
+  const cp = require('child_process');
+  let listing = '';
+  try {
+    listing = process.platform === 'win32'
+      ? cp.execFileSync('powershell.exe', ['-NoProfile', '-Command', 'Get-CimInstance Win32_Process -Filter "' + pids.map((pid) => 'ProcessId=' + pid).join(' OR ') + '" | ForEach-Object { "$($_.ProcessId)`t$($_.CommandLine)" }'], { encoding: 'utf8', windowsHide: true, timeout: REAP_TIMEOUT_MS })
+      : cp.execFileSync('ps', ['-o', 'pid=,command=', '-p', pids.join(',')], { encoding: 'utf8', timeout: REAP_TIMEOUT_MS });
+  } catch (_) { return; }
+  for (const line of listing.split(String.fromCharCode(10))) {
+    const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!m || !m[2].toLowerCase().includes(fakesDir)) continue;
+    try { process.kill(Number(m[1])); } catch (_) { /* already gone */ }
+  }
 }
 
 /**
