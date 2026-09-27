@@ -1,0 +1,18 @@
+{
+  "uploadId": "u_q1w2e3r4t5y6u7i8o9p0aa",
+  "kind": "image",
+  "filename": "IMG_0421.jpg",
+  "mediaType": "image/jpeg",
+  "totalBytes": 812345,
+  "receivedBytes": 812345,
+  "state": "ready",
+  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "path": "C:\\Users\\dev\\.myrlin\\uploads\\m\\d_TViQs70r__UO4o8s844E\\u_q1w2e3r4t5y6u7i8o9p0aa\\IMG_0421.jpg",
+  "width": 2576,
+  "height": 1932,
+  "durationMs": null,
+  "sessionId": null,
+  "chunkBytes": 8388608,
+  "createdAtMs": 1790000140000,
+  "expiresAtMs": 1790604940000
+}

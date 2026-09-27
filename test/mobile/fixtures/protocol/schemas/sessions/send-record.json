@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/send-record.json",
+  "title": "SendRecord",
+  "description": "One phone send and its lifecycle; also the data of send.update. PROTOCOL.md 3.8 and 7.",
+  "type": "object",
+  "properties": {
+    "clientMessageId": {
+      "$ref": "../common/defs.json#/$defs/Uuid"
+    },
+    "sessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "deviceId": {
+      "$ref": "../common/defs.json#/$defs/DeviceId"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "writing",
+        "delivered",
+        "confirmed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "busy",
+            "promptOpen",
+            "desktopDraft",
+            "desktopTyping",
+            "starting",
+            "pasteModeOff",
+            "behindEarlier",
+            "screenUnknown"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "position": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "textPreview": {
+      "type": "string",
+      "maxLength": 140
+    },
+    "attachmentCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 20
+    },
+    "queuedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "writtenAtMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "deliveredAtMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "confirmedAtMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "messageId": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/MessageId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/CodeAndError"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "clientMessageId",
+    "sessionId",
+    "deviceId",
+    "state",
+    "reason",
+    "position",
+    "textPreview",
+    "attachmentCount",
+    "queuedAtMs",
+    "writtenAtMs",
+    "deliveredAtMs",
+    "confirmedAtMs",
+    "messageId",
+    "error"
+  ],
+  "additionalProperties": true
+}

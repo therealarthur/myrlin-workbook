@@ -1,0 +1,117 @@
+{
+  "provider": "claude",
+  "revision": 1,
+  "groups": [
+    {
+      "id": "model",
+      "title": "Model",
+      "fieldKeys": [
+        "model",
+        "effort"
+      ]
+    },
+    {
+      "id": "permissions",
+      "title": "Permissions",
+      "fieldKeys": [
+        "permissionMode"
+      ]
+    }
+  ],
+  "fields": [
+    {
+      "key": "model",
+      "label": "Model",
+      "kind": "model",
+      "options": [
+        {
+          "value": "claude-opus-5-5",
+          "label": "Opus 5.5",
+          "description": "1M context"
+        }
+      ],
+      "default": null,
+      "appliesAt": "nextStart",
+      "help": null,
+      "pattern": "^[a-zA-Z0-9._:-]{1,128}$",
+      "maxLength": 128,
+      "placeholder": "Default"
+    },
+    {
+      "key": "effort",
+      "label": "Effort",
+      "kind": "enum",
+      "options": [
+        {
+          "value": "low",
+          "label": "Low",
+          "description": null
+        },
+        {
+          "value": "medium",
+          "label": "Medium",
+          "description": null
+        },
+        {
+          "value": "high",
+          "label": "High",
+          "description": null
+        },
+        {
+          "value": "xhigh",
+          "label": "Extra high",
+          "description": null
+        },
+        {
+          "value": "max",
+          "label": "Max",
+          "description": null
+        }
+      ],
+      "default": null,
+      "appliesAt": "nextStart",
+      "help": null,
+      "pattern": null,
+      "maxLength": null,
+      "placeholder": "Default"
+    },
+    {
+      "key": "permissionMode",
+      "label": "Permission mode",
+      "kind": "enum",
+      "options": [
+        {
+          "value": "default",
+          "label": "Ask before changes",
+          "description": null
+        },
+        {
+          "value": "acceptEdits",
+          "label": "Accept edits",
+          "description": null
+        },
+        {
+          "value": "plan",
+          "label": "Plan only",
+          "description": null
+        },
+        {
+          "value": "auto",
+          "label": "Auto",
+          "description": null
+        },
+        {
+          "value": "bypassPermissions",
+          "label": "Bypass permissions",
+          "description": "Runs every command without asking."
+        }
+      ],
+      "default": null,
+      "appliesAt": "nextStart",
+      "help": null,
+      "pattern": null,
+      "maxLength": null,
+      "placeholder": "Default"
+    }
+  ]
+}

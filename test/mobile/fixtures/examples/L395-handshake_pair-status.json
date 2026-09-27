@@ -1,0 +1,30 @@
+{
+  "pairId": "pr_gIGCg4SFhoeIiYqLjI2Ojw",
+  "status": "allowed",
+  "computerId": "c_ff392dwfMAEdmqePZGay",
+  "computerName": "STUDIO-PC",
+  "workbookVersion": "1.4.0-alpha.1",
+  "apiVersion": 2,
+  "apiRevision": 0,
+  "deviceId": "d_TViQs70r__UO4o8s844E",
+  "devicePublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og",
+  "deviceName": "Sam’s iPhone",
+  "scopes": [
+    "accounts.read",
+    "accounts.swap",
+    "chat",
+    "media.upload",
+    "search",
+    "sessions.manage"
+  ],
+  "endpoints": [
+    {
+      "url": "https://studio-1.tailnet-example.ts.net",
+      "kind": "tailscale",
+      "priority": 0
+    }
+  ],
+  "deviceNonce": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+  "pairedAtMs": 1790000015000,
+  "sig": "4nRIswozFhV_jvF-InCRzM7PkL2hCrmmemMe1u9pYJiqXSdxuWyiuw9EXKDTxvlwJ7OjWiwyefkao8-qRR07cQ"
+}

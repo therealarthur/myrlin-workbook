@@ -1,0 +1,12 @@
+{
+  "pairId": "pr_gIGCg4SFhoeIiYqLjI2Ojw",
+  "deviceName": "Sam’s iPhone",
+  "model": "iPhone17,2",
+  "osVersion": "26.1",
+  "appVersion": "1.0.0 (1)",
+  "deviceKeyFingerprint": "ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78",
+  "matchCode": "5463",
+  "secretKind": "qr",
+  "requestedAtMs": 1790000001000,
+  "expiresAtMs": 1790000121000
+}

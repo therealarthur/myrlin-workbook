@@ -358,8 +358,10 @@ app.use(express.static(path.join(__dirname, 'public'), {
 
 app.use((req, res, next) => {
   // Log API requests (skip static files) without exposing auth details
+  // Mobile v2 W3 (S4): log the path only, never the query string, so a
+  // token carried in a query (SSE, legacy WebSocket) never lands in a log.
   if (req.originalUrl.startsWith('/api/')) {
-    console.log(`[REQ] ${req.method} ${req.originalUrl}`);
+    console.log(`[REQ] ${req.method} ${req.path}`);
   }
   next();
 });
@@ -423,6 +425,11 @@ setupDeviceRoutes(app, {
   sendPush: require('./push').sendPush,
   getSSEClients: () => sseClients,
 });
+
+// ─── Mobile v2 admin routes (desktop Connect app and Devices tab) ─
+// BUILD-CONTRACT S1: /api/mobile-admin/* behind requireAuth. Phone session
+// tokens never enter activeTokens, so a phone gets 401 here (critic F3).
+require('./mobile/admin-routes').mountAdminRoutes(app, { requireAuth, getStore, broadcastSSE: (type, data) => broadcastSSE(type, data) });
 
 // ─── Credential Switcher Routes (Claude account swap) ────────
 // Design: docs/plans/2026-07-02-credential-switcher-design.md. The manager
@@ -606,7 +613,8 @@ app.get('/api/mobile/sync', requireAuth, (req, res) => {
     sessions,
     recentSessions,
     templates: Object.values(state.templates || {}),
-    settings: state.settings || {},
+    // Mobile v2 W3 (S5): never send the API key, APNs config or any secret.
+    settings: require('./mobile/redact').redactSettings(state.settings || {}),
     device: deviceInfo,
     stats: {
       runningCount,
@@ -7031,7 +7039,8 @@ function attachStoreEvents() {
 
   for (const eventName of events) {
     store.on(eventName, (data) => {
-      broadcastSSE(eventName, data);
+      // Mobile v2 W3 (S6): settings:updated carries a redacted copy.
+      broadcastSSE(eventName, eventName === 'settings:updated' ? require('./mobile/redact').redactSettings(data) : data);
     });
   }
 }
@@ -9547,6 +9556,30 @@ function backfillResumeSessionIds() {
   }
 }
 
+/**
+ * Mobile v2 (BUILD-CONTRACT S2): the context startMobile(ctx) receives
+ * (BUILD-CONTRACT 3.4.1), built from the values in scope here.
+ *
+ * @returns {object} ctx
+ */
+function buildMobileContext() {
+  return {
+    app,
+    store: getStore(),
+    getPtyManager,
+    registry,
+    getProviderForSession,
+    mirrorService,
+    search: { racedSearch, SEARCH_TOTAL_BUDGET_MS, SEARCH_TIMEOUT_GRACE_MS },
+    credentialManager,
+    codexAccountManager,
+    broadcastSSE: (type, data) => broadcastSSE(type, data),
+    dataDir: getDataDir(),
+    packageVersion: require('../../package.json').version,
+    mobile: {},
+  };
+}
+
 function startServer(port = 3456, host = '127.0.0.1') {
   // Wire store events to SSE before accepting connections
   attachStoreEvents();
@@ -9601,6 +9634,11 @@ function startServer(port = 3456, host = '127.0.0.1') {
   _scheduler = new Scheduler({ ptyManager: _ptyManager, store: getStore() });
   _scheduler.start();
   mountScheduleRoutes(app, { requireAuth, scheduler: _scheduler, store: getStore() });
+
+  // ─── Mobile v2 phone listener (BUILD-CONTRACT S3) ────────────────
+  // Additive to this server and off by default (PROTOCOL.md 1.4): it listens
+  // only when settings.mobile.enabled or CWM_MOBILE_ENABLED=1, on loopback.
+  try { require('./mobile').startMobile(buildMobileContext()); } catch (err) { console.error('[mobile] failed to start:', err && err.message); }
 
   // One-time claude-swap roster import, queued BEFORE the watcher starts so
   // the watcher's initial sync (which self-captures the ACTIVE account into
@@ -9705,6 +9743,7 @@ function startServer(port = 3456, host = '127.0.0.1') {
 
   // Cleanup tunnels, scheduler, and PTY sessions on shutdown
   const cleanup = () => {
+    try { require('./mobile').stopMobile(); } catch (_) {}
     if (_scheduler) {
       try { _scheduler.stop(); } catch (_) {}
     }
@@ -9751,6 +9790,7 @@ function onProviderDiscoverChange(providerId) {
   if (!providerId || typeof providerId !== 'string') return;
   try { _discoverCache.delete(providerId); } catch (_) {}
   try { broadcastSSE('discover:refreshed', { provider: providerId }); } catch (_) {}
+  try { require('./mobile').onProviderChange(providerId); } catch (_) {}
 }
 
 module.exports = {

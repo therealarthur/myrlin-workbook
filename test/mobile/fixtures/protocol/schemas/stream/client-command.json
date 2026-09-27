@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/stream/client-command.json",
+  "title": "ClientCommand",
+  "description": "Every client frame on /ws/m/v2. PROTOCOL.md 5.3.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "epoch": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/StreamEpoch"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "topic": {
+                "type": "string",
+                "pattern": "^(computer|device|sessions|tabs|accounts|migrations|session:(cl|cx|wb)_[A-Za-z0-9._:-]{1,120})$"
+              },
+              "sinceSeq": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "topic"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "epoch",
+        "topics"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "unsubscribe"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(computer|device|sessions|tabs|accounts|migrations|session:(cl|cx|wb)_[A-Za-z0-9._:-]{1,120})$"
+          },
+          "minItems": 1,
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "topics"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ping"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "ts": {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "ts"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "auth"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "token": {
+          "$ref": "../common/defs.json#/$defs/Nonce"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "token"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

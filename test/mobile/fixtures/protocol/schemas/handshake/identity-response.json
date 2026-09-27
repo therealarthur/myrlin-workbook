@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/handshake/identity-response.json",
+  "title": "IdentityResponse",
+  "description": "GET /api/m/v2/identity?nonce= (public). Signed with purpose identity. PROTOCOL.md 2.4 step 2.",
+  "type": "object",
+  "properties": {
+    "computerId": {
+      "$ref": "../common/defs.json#/$defs/ComputerId"
+    },
+    "computerPublicKey": {
+      "$ref": "../common/defs.json#/$defs/PublicKey"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "workbookVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "apiVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "apiRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "clientNonce": {
+      "$ref": "../common/defs.json#/$defs/Nonce"
+    },
+    "ts": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "sig": {
+      "$ref": "../common/defs.json#/$defs/Signature"
+    }
+  },
+  "required": [
+    "computerId",
+    "computerPublicKey",
+    "name",
+    "workbookVersion",
+    "apiVersion",
+    "apiRevision",
+    "clientNonce",
+    "ts",
+    "sig"
+  ],
+  "additionalProperties": true
+}

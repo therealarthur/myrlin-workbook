@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/media/upload-create.json",
+  "title": "UploadCreate",
+  "description": "POST /api/m/v2/uploads. PROTOCOL.md 4.10.",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "image",
+        "video"
+      ]
+    },
+    "filename": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "mediaType": {
+      "type": "string",
+      "enum": [
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "video/mp4",
+        "video/quicktime"
+      ]
+    },
+    "totalBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1073741824
+    },
+    "sessionId": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/SessionId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "width": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "height": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "durationMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/DurationMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "kind",
+    "filename",
+    "mediaType",
+    "totalBytes",
+    "sessionId",
+    "width",
+    "height",
+    "durationMs"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "image"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "mediaType": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/gif",
+              "image/webp"
+            ]
+          },
+          "totalBytes": {
+            "type": "integer",
+            "maximum": 20971520
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "video"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "mediaType": {
+            "type": "string",
+            "enum": [
+              "video/mp4",
+              "video/quicktime"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

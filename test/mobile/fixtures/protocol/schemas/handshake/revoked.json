@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/handshake/revoked.json",
+  "title": "RevokedResponse",
+  "description": "403 DEVICE_REVOKED from hello or session, signed by K_c with purpose revoked. The phone forgets the computer only when sig verifies. PROTOCOL.md 2.11.",
+  "type": "object",
+  "properties": {
+    "error": {
+      "type": "string",
+      "minLength": 1
+    },
+    "code": {
+      "const": "DEVICE_REVOKED"
+    },
+    "computerId": {
+      "$ref": "../common/defs.json#/$defs/ComputerId"
+    },
+    "deviceId": {
+      "$ref": "../common/defs.json#/$defs/DeviceId"
+    },
+    "clientNonce": {
+      "$ref": "../common/defs.json#/$defs/Nonce"
+    },
+    "revokedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "sig": {
+      "$ref": "../common/defs.json#/$defs/Signature"
+    }
+  },
+  "required": [
+    "error",
+    "code",
+    "computerId",
+    "deviceId",
+    "clientNonce",
+    "revokedAtMs",
+    "sig"
+  ],
+  "additionalProperties": false
+}

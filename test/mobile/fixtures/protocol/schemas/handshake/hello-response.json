@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/handshake/hello-response.json",
+  "title": "HelloResponse",
+  "description": "Answer to POST /hello. Signed by K_c with purpose hello-response (workbookVersion is not signed). PROTOCOL.md 2.8.",
+  "type": "object",
+  "properties": {
+    "computerId": {
+      "$ref": "../common/defs.json#/$defs/ComputerId"
+    },
+    "deviceId": {
+      "$ref": "../common/defs.json#/$defs/DeviceId"
+    },
+    "clientNonce": {
+      "$ref": "../common/defs.json#/$defs/Nonce"
+    },
+    "serverNonce": {
+      "$ref": "../common/defs.json#/$defs/Nonce"
+    },
+    "streamEpoch": {
+      "$ref": "../common/defs.json#/$defs/StreamEpoch"
+    },
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "$ref": "../common/defs.json#/$defs/Endpoint"
+      },
+      "maxItems": 5
+    },
+    "apiVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "apiRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "workbookVersion": {
+      "type": "string"
+    },
+    "ts": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "sig": {
+      "$ref": "../common/defs.json#/$defs/Signature"
+    }
+  },
+  "required": [
+    "computerId",
+    "deviceId",
+    "clientNonce",
+    "serverNonce",
+    "streamEpoch",
+    "endpoints",
+    "apiVersion",
+    "apiRevision",
+    "workbookVersion",
+    "ts",
+    "sig"
+  ],
+  "additionalProperties": true
+}

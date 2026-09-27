@@ -1,0 +1,958 @@
+{
+  "source": "Every JSON example of PROTOCOL.md sections 2 to 11 (myrlin-ios commit e5e2db6b775e0b06c18ead1d30ee7b8781d4ccb6), one file each: the fenced blocks, and the inline examples of the text and the 5.4 table (entries marked inline). Placeholders are replaced by concrete values (vector keys, nonces and signatures; full ids for truncated ones; the example objects of other sections for type names; neutral placeholders for personal names, since this repository is public). Inline notes that only list field names (for example {\"error\", \"code\"} for the Turn error of 3.5) are shape notes, not examples, except where a schema exists for exactly that shape. schema null marks a Workbook file format or an Apple payload that has no wire schema; b1-examples checks those against the code that builds them. \"at\" names the member a schema applies to.",
+  "examples": [
+    {
+      "file": "L186-file-format.json",
+      "schema": null,
+      "section": "2.1",
+      "protocolLine": 186,
+      "notes": null
+    },
+    {
+      "file": "L318-handshake_identity-response.json",
+      "schema": "handshake/identity-response.json",
+      "section": "2.4",
+      "protocolLine": 318,
+      "notes": null
+    },
+    {
+      "file": "L336-handshake_pair-request.json",
+      "schema": "handshake/pair-request.json",
+      "section": "2.4",
+      "protocolLine": 336,
+      "notes": null
+    },
+    {
+      "file": "L368-handshake_pair-challenge.json",
+      "schema": "handshake/pair-challenge.json",
+      "section": "2.4",
+      "protocolLine": 368,
+      "notes": null
+    },
+    {
+      "file": "L389-handshake_pair-status.json",
+      "schema": "handshake/pair-status.json",
+      "section": "2.4",
+      "protocolLine": 389,
+      "notes": null
+    },
+    {
+      "file": "L395-handshake_pair-status.json",
+      "schema": "handshake/pair-status.json",
+      "section": "2.4",
+      "protocolLine": 395,
+      "notes": null
+    },
+    {
+      "file": "L441-file-format.json",
+      "schema": null,
+      "section": "2.7",
+      "protocolLine": 441,
+      "notes": null
+    },
+    {
+      "file": "L480-handshake_hello-request.json",
+      "schema": "handshake/hello-request.json",
+      "section": "2.8",
+      "protocolLine": 480,
+      "notes": "Inline example. deviceId and clientNonce: the vector values.",
+      "inline": true
+    },
+    {
+      "file": "L484-handshake_hello-response.json",
+      "schema": "handshake/hello-response.json",
+      "section": "2.8",
+      "protocolLine": 484,
+      "notes": null
+    },
+    {
+      "file": "L506-handshake_session-request.json",
+      "schema": "handshake/session-request.json",
+      "section": "2.8",
+      "protocolLine": 506,
+      "notes": null
+    },
+    {
+      "file": "L521-handshake_session-response.json",
+      "schema": "handshake/session-response.json",
+      "section": "2.8",
+      "protocolLine": 521,
+      "notes": "device: the Device example of section 3.3."
+    },
+    {
+      "file": "L641-handshake_revoked.json",
+      "schema": "handshake/revoked.json",
+      "section": "2.11",
+      "protocolLine": 641,
+      "notes": null
+    },
+    {
+      "file": "L658-common_error.json",
+      "schema": "common/error.json",
+      "section": "2.12",
+      "protocolLine": 658,
+      "notes": "Inline field list {error, code, retryAfterMs} with concrete values.",
+      "inline": true
+    },
+    {
+      "file": "L679-common_error.json",
+      "schema": "common/error.json",
+      "section": "2.13",
+      "protocolLine": 679,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L711-resources_computer.json",
+      "schema": "resources/computer.json",
+      "section": "3.2",
+      "protocolLine": 711,
+      "notes": null
+    },
+    {
+      "file": "L759-resources_device.json",
+      "schema": "resources/device.json",
+      "section": "3.3",
+      "protocolLine": 759,
+      "notes": null
+    },
+    {
+      "file": "L777-resources_preferences.json",
+      "schema": "resources/preferences.json",
+      "section": "3.3",
+      "protocolLine": 777,
+      "notes": null
+    },
+    {
+      "file": "L830-sessions_session-summary.json",
+      "schema": "sessions/session-summary.json",
+      "section": "3.4.3",
+      "protocolLine": 830,
+      "notes": null
+    },
+    {
+      "file": "L874-sessions_session-meta.json",
+      "schema": "sessions/session-meta.json",
+      "section": "3.4.4",
+      "protocolLine": 874,
+      "notes": null
+    },
+    {
+      "file": "L917-sessions_session-state.json",
+      "schema": "sessions/session-state.json",
+      "section": "3.4.5",
+      "protocolLine": 917,
+      "notes": null
+    },
+    {
+      "file": "L965-sessions_lineage.json",
+      "schema": "sessions/lineage.json",
+      "section": "3.4.7",
+      "protocolLine": 965,
+      "notes": null
+    },
+    {
+      "file": "L976-sessions_turn.json",
+      "schema": "sessions/turn.json",
+      "section": "3.5",
+      "protocolLine": 976,
+      "notes": null
+    },
+    {
+      "file": "L1003-sessions_message.json",
+      "schema": "sessions/message.json",
+      "section": "3.6",
+      "protocolLine": 1003,
+      "notes": null
+    },
+    {
+      "file": "L1053-sessions_attachment-ref.json",
+      "schema": "sessions/attachment-ref.json",
+      "section": "3.6",
+      "protocolLine": 1053,
+      "notes": null
+    },
+    {
+      "file": "L1063-sessions_prompt.json",
+      "schema": "sessions/prompt.json",
+      "section": "3.7",
+      "protocolLine": 1063,
+      "notes": null
+    },
+    {
+      "file": "L1113-sessions_send-record.json",
+      "schema": "sessions/send-record.json",
+      "section": "3.8",
+      "protocolLine": 1113,
+      "notes": null
+    },
+    {
+      "file": "L1138-workspace_tabs.json",
+      "schema": "workspace/tabs.json",
+      "section": "3.9",
+      "protocolLine": 1138,
+      "notes": null
+    },
+    {
+      "file": "L1163-media_upload.json",
+      "schema": "media/upload.json",
+      "section": "3.10",
+      "protocolLine": 1163,
+      "notes": "sha256: a concrete 64 hex digest."
+    },
+    {
+      "file": "L1190-accounts_accounts.json",
+      "schema": "accounts/accounts.json",
+      "section": "3.11",
+      "protocolLine": 1190,
+      "notes": "providers: the Claude entry of the example plus a Codex copy, since the schema requires both providers."
+    },
+    {
+      "file": "L1267-migrate_migration.json",
+      "schema": "migrate/migration.json",
+      "section": "3.12",
+      "protocolLine": 1267,
+      "notes": null
+    },
+    {
+      "file": "L1313-stream_notice.json",
+      "schema": "stream/notice.json",
+      "section": "3.13",
+      "protocolLine": 1313,
+      "notes": null
+    },
+    {
+      "file": "L1337-resources_browse.json",
+      "schema": "resources/browse.json",
+      "section": "4.2",
+      "protocolLine": 1337,
+      "notes": null
+    },
+    {
+      "file": "L1351-resources_device-patch.json",
+      "schema": "resources/device-patch.json",
+      "section": "4.3",
+      "protocolLine": 1351,
+      "notes": "Inline example; the device name is the neutral placeholder of this repository.",
+      "inline": true
+    },
+    {
+      "file": "L1357-resources_push-registration.json",
+      "schema": "resources/push-registration.json",
+      "section": "4.3.3",
+      "protocolLine": 1357,
+      "notes": null
+    },
+    {
+      "file": "L1369-resources_live-activity-token.json",
+      "schema": "resources/live-activity-token.json",
+      "section": "4.3.3",
+      "protocolLine": 1369,
+      "notes": "Inline example. pushToken: a concrete 64 hex token.",
+      "inline": true
+    },
+    {
+      "file": "L1381-sessions_recent-sessions.json",
+      "schema": "sessions/recent-sessions.json",
+      "section": "4.4.1",
+      "protocolLine": 1381,
+      "notes": null
+    },
+    {
+      "file": "L1393-sessions_session-detail.json",
+      "schema": "sessions/session-detail.json",
+      "section": "4.4.2",
+      "protocolLine": 1393,
+      "notes": "turn, openPrompts, sends: the Turn, Prompt and SendRecord examples of section 3."
+    },
+    {
+      "file": "L1421-sessions_message-page.json",
+      "schema": "sessions/message-page.json",
+      "section": "4.4.3",
+      "protocolLine": 1421,
+      "notes": "messages: the Message example of section 3.6."
+    },
+    {
+      "file": "L1448-sessions_part-text.json",
+      "schema": "sessions/part-text.json",
+      "section": "4.4.4",
+      "protocolLine": 1448,
+      "notes": null
+    },
+    {
+      "file": "L1460-sessions_send-request.json",
+      "schema": "sessions/send-request.json",
+      "section": "4.4.5",
+      "protocolLine": 1460,
+      "notes": null
+    },
+    {
+      "file": "L1476-sessions_sends.json",
+      "schema": "sessions/sends.json",
+      "section": "4.4.5",
+      "protocolLine": 1476,
+      "notes": "Inline example. sends: the SendRecord example of section 3.8.",
+      "inline": true
+    },
+    {
+      "file": "L1482-1-sessions_client-request.json",
+      "schema": "sessions/client-request.json",
+      "section": "4.4.6",
+      "protocolLine": 1482,
+      "notes": "Inline example (interrupt body). clientRequestId: a concrete uuid.",
+      "inline": true
+    },
+    {
+      "file": "L1482-2-sessions_interrupt-result.json",
+      "schema": "sessions/interrupt-result.json",
+      "section": "4.4.6",
+      "protocolLine": 1482,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1482-3-sessions_interrupt-result.json",
+      "schema": "sessions/interrupt-result.json",
+      "section": "4.4.6",
+      "protocolLine": 1482,
+      "notes": "Inline example. sentAtMs: the earlier send, one second before.",
+      "inline": true
+    },
+    {
+      "file": "L1486-sessions_prompts.json",
+      "schema": "sessions/prompts.json",
+      "section": "4.4.7",
+      "protocolLine": 1486,
+      "notes": "Inline example. prompts: the Prompt example of section 3.7; streamEpoch: the envelope example value.",
+      "inline": true
+    },
+    {
+      "file": "L1490-sessions_answer-request.json",
+      "schema": "sessions/answer-request.json",
+      "section": "4.4.7",
+      "protocolLine": 1490,
+      "notes": null
+    },
+    {
+      "file": "L1514-sessions_answer-result.json",
+      "schema": "sessions/answer-result.json",
+      "section": "4.4.7",
+      "protocolLine": 1514,
+      "notes": "Inline example. promptId: the Prompt example of section 3.7.",
+      "inline": true
+    },
+    {
+      "file": "L1522-sessions_commands.json",
+      "schema": "sessions/commands.json",
+      "section": "4.4.8",
+      "protocolLine": 1522,
+      "notes": null
+    },
+    {
+      "file": "L1536-sessions_session-patch.json",
+      "schema": "sessions/session-patch.json",
+      "section": "4.5.1",
+      "protocolLine": 1536,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1546-1-workspace_name-patch.json",
+      "schema": "workspace/name-patch.json",
+      "section": "4.5.2",
+      "protocolLine": 1546,
+      "notes": "Inline example (project rename), verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1546-2-workspace_name-patch.json",
+      "schema": "workspace/name-patch.json",
+      "section": "4.5.2",
+      "protocolLine": 1546,
+      "notes": "Inline example (folder rename), verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1552-sessions_settings-schema.json",
+      "schema": "sessions/settings-schema.json",
+      "section": "4.5.3",
+      "protocolLine": 1552,
+      "notes": null
+    },
+    {
+      "file": "L1594-sessions_session-settings.json",
+      "schema": "sessions/session-settings.json",
+      "section": "4.5.3",
+      "protocolLine": 1594,
+      "notes": null
+    },
+    {
+      "file": "L1598-sessions_session-settings-patch.json",
+      "schema": "sessions/session-settings-patch.json",
+      "section": "4.5.3",
+      "protocolLine": 1598,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1604-1-sessions_restart-request.json",
+      "schema": "sessions/restart-request.json",
+      "section": "4.5.4",
+      "protocolLine": 1604,
+      "notes": "Inline example. clientRequestId: a concrete uuid.",
+      "inline": true
+    },
+    {
+      "file": "L1604-2-sessions_restart-request.json",
+      "schema": "sessions/restart-request.json",
+      "section": "4.5.4",
+      "protocolLine": 1604,
+      "notes": "Inline example, the \"whenIdle\" form. clientRequestId: a concrete uuid.",
+      "inline": true
+    },
+    {
+      "file": "L1610-1-sessions_status-result.json",
+      "schema": "sessions/status-result.json",
+      "section": "4.5.4",
+      "protocolLine": 1610,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1610-2-sessions_status-result.json",
+      "schema": "sessions/status-result.json",
+      "section": "4.5.4",
+      "protocolLine": 1610,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1614-1-sessions_client-request.json",
+      "schema": "sessions/client-request.json",
+      "section": "4.5.5",
+      "protocolLine": 1614,
+      "notes": "Inline example (stop body). clientRequestId: a concrete uuid.",
+      "inline": true
+    },
+    {
+      "file": "L1614-2-sessions_status-result.json",
+      "schema": "sessions/status-result.json",
+      "section": "4.5.5",
+      "protocolLine": 1614,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1614-3-sessions_status-result.json",
+      "schema": "sessions/status-result.json",
+      "section": "4.5.5",
+      "protocolLine": 1614,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1620-sessions_new-session-request.json",
+      "schema": "sessions/new-session-request.json",
+      "section": "4.5.6",
+      "protocolLine": 1620,
+      "notes": null
+    },
+    {
+      "file": "L1644-sessions_new-session-result.json",
+      "schema": "sessions/new-session-result.json",
+      "section": "4.5.6",
+      "protocolLine": 1644,
+      "notes": "Inline example. session and send: the SessionSummary and SendRecord examples of section 3.",
+      "inline": true
+    },
+    {
+      "file": "L1648-sessions_continue-here-request.json",
+      "schema": "sessions/continue-here-request.json",
+      "section": "4.5.7",
+      "protocolLine": 1648,
+      "notes": "Inline example. clientRequestId: a concrete uuid.",
+      "inline": true
+    },
+    {
+      "file": "L1650-sessions_resume-anyway-request.json",
+      "schema": "sessions/resume-anyway-request.json",
+      "section": "4.5.7",
+      "protocolLine": 1650,
+      "notes": "Inline example. clientRequestId: a concrete uuid.",
+      "inline": true
+    },
+    {
+      "file": "L1658-sessions_branch-request.json",
+      "schema": "sessions/branch-request.json",
+      "section": "4.5.8",
+      "protocolLine": 1658,
+      "notes": null
+    },
+    {
+      "file": "L1668-sessions_new-session-result.json",
+      "schema": "sessions/new-session-result.json",
+      "section": "4.5.8",
+      "protocolLine": 1668,
+      "notes": "Inline example (branch). session: the SessionSummary example of section 3.4.",
+      "inline": true
+    },
+    {
+      "file": "L1675-workspace_tree.json",
+      "schema": "workspace/tree.json",
+      "section": "4.6",
+      "protocolLine": 1675,
+      "notes": null
+    },
+    {
+      "file": "L1687-workspace_tree-project.json",
+      "schema": "workspace/tree-project.json",
+      "section": "4.6",
+      "protocolLine": 1687,
+      "notes": "project: the first ProjectNode of the tree example; sessions: the SessionSummary example."
+    },
+    {
+      "file": "L1730-workspace_tabs-response.json",
+      "schema": "workspace/tabs-response.json",
+      "section": "4.8",
+      "protocolLine": 1730,
+      "notes": "Inline example. tabs: the TabsState example of section 3.9.",
+      "inline": true
+    },
+    {
+      "file": "L1734-workspace_tabs-patch.json",
+      "schema": "workspace/tabs-patch.json",
+      "section": "4.8",
+      "protocolLine": 1734,
+      "notes": null
+    },
+    {
+      "file": "L1761-workspace_tabs-patch-result.json",
+      "schema": "workspace/tabs-patch-result.json",
+      "section": "4.8",
+      "protocolLine": 1761,
+      "notes": null
+    },
+    {
+      "file": "L1787-search_search-names.json",
+      "schema": "search/search-names.json",
+      "section": "4.9.1",
+      "protocolLine": 1787,
+      "notes": null
+    },
+    {
+      "file": "L1801-search_search-messages.json",
+      "schema": "search/search-messages.json",
+      "section": "4.9.2",
+      "protocolLine": 1801,
+      "notes": null
+    },
+    {
+      "file": "L1846-media_upload-create.json",
+      "schema": "media/upload-create.json",
+      "section": "4.10",
+      "protocolLine": 1846,
+      "notes": null
+    },
+    {
+      "file": "L1857-media_upload-chunk-result.json",
+      "schema": "media/upload-chunk-result.json",
+      "section": "4.10",
+      "protocolLine": 1857,
+      "notes": "Inline example. uploadId: the Upload example of section 3.10.",
+      "inline": true
+    },
+    {
+      "file": "L1861-media_upload-complete.json",
+      "schema": "media/upload-complete.json",
+      "section": "4.10",
+      "protocolLine": 1861,
+      "notes": "Inline example. sha256: a concrete 64 hex digest.",
+      "inline": true
+    },
+    {
+      "file": "L1877-accounts_accounts-response.json",
+      "schema": "accounts/accounts-response.json",
+      "section": "4.11",
+      "protocolLine": 1877,
+      "notes": "Inline example. accounts: the AccountsSnapshot example of section 3.11.",
+      "inline": true
+    },
+    {
+      "file": "L1887-1-accounts_refresh-request.json",
+      "schema": "accounts/refresh-request.json",
+      "section": "4.11",
+      "protocolLine": 1887,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1887-2-accounts_refresh-result.json",
+      "schema": "accounts/refresh-result.json",
+      "section": "4.11",
+      "protocolLine": 1887,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1891-accounts_swap-request.json",
+      "schema": "accounts/swap-request.json",
+      "section": "4.11",
+      "protocolLine": 1891,
+      "notes": null
+    },
+    {
+      "file": "L1897-accounts_swap-result.json",
+      "schema": "accounts/swap-result.json",
+      "section": "4.11",
+      "protocolLine": 1897,
+      "notes": null
+    },
+    {
+      "file": "L1919-accounts_login-request.json",
+      "schema": "accounts/login-request.json",
+      "section": "4.11",
+      "protocolLine": 1919,
+      "notes": "Inline example. clientRequestId: a concrete uuid.",
+      "inline": true
+    },
+    {
+      "file": "L1921-accounts_login-flow.json",
+      "schema": "accounts/login-flow.json",
+      "section": "4.11",
+      "protocolLine": 1921,
+      "notes": null
+    },
+    {
+      "file": "L1931-accounts_label-request.json",
+      "schema": "accounts/label-request.json",
+      "section": "4.11",
+      "protocolLine": 1931,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1939-migrate_migration-preview-request.json",
+      "schema": "migrate/migration-preview-request.json",
+      "section": "4.12",
+      "protocolLine": 1939,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L1943-migrate_migration-preview.json",
+      "schema": "migrate/migration-preview.json",
+      "section": "4.12.1",
+      "protocolLine": 1943,
+      "notes": null
+    },
+    {
+      "file": "L1963-migrate_migration-start-request.json",
+      "schema": "migrate/migration-start-request.json",
+      "section": "4.12.2",
+      "protocolLine": 1963,
+      "notes": null
+    },
+    {
+      "file": "L1992-migrate_migrations-list.json",
+      "schema": "migrate/migrations-list.json",
+      "section": "4.12",
+      "protocolLine": 1992,
+      "notes": "Inline example. migrations: the MigrationSnapshot example of section 3.12.",
+      "inline": true
+    },
+    {
+      "file": "L1996-migrate_migration-approve-request.json",
+      "schema": "migrate/migration-approve-request.json",
+      "section": "4.12",
+      "protocolLine": 1996,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L2015-migrate_migration-report.json",
+      "schema": "migrate/migration-report.json",
+      "section": "4.12.6",
+      "protocolLine": 2015,
+      "notes": null
+    },
+    {
+      "file": "L2047-migrate_migration-turn.json",
+      "schema": "migrate/migration-turn.json",
+      "section": "4.12.7",
+      "protocolLine": 2047,
+      "notes": null
+    },
+    {
+      "file": "L2088-stream_envelope.json",
+      "schema": "stream/envelope.json",
+      "section": "5.3",
+      "protocolLine": 2088,
+      "notes": null
+    },
+    {
+      "file": "L2105-1-stream_client-command.json",
+      "schema": "stream/client-command.json",
+      "section": "5.3",
+      "protocolLine": 2105,
+      "notes": null
+    },
+    {
+      "file": "L2105-2-stream_client-command.json",
+      "schema": "stream/client-command.json",
+      "section": "5.3",
+      "protocolLine": 2105,
+      "notes": null
+    },
+    {
+      "file": "L2105-3-stream_client-command.json",
+      "schema": "stream/client-command.json",
+      "section": "5.3",
+      "protocolLine": 2105,
+      "notes": null
+    },
+    {
+      "file": "L2105-4-stream_client-command.json",
+      "schema": "stream/client-command.json",
+      "section": "5.3",
+      "protocolLine": 2105,
+      "notes": null
+    },
+    {
+      "file": "L2139-stream_events_message.add.json",
+      "schema": "stream/events/message.add.json",
+      "section": "5.4",
+      "protocolLine": 2139,
+      "notes": "The data shape of the 5.4 table in an envelope. message: the Message example of section 3.6.",
+      "inline": true
+    },
+    {
+      "file": "L2140-stream_events_message.update.json",
+      "schema": "stream/events/message.update.json",
+      "section": "5.4",
+      "protocolLine": 2140,
+      "notes": "The data shape of the 5.4 table in an envelope. message: the Message example of section 3.6.",
+      "inline": true
+    },
+    {
+      "file": "L2143-stream_events_prompt.open.json",
+      "schema": "stream/events/prompt.open.json",
+      "section": "5.4",
+      "protocolLine": 2143,
+      "notes": "The data shape of the 5.4 table in an envelope. prompt: the Prompt example of section 3.7.",
+      "inline": true
+    },
+    {
+      "file": "L2145-stream_events_send.update.json",
+      "schema": "stream/events/send.update.json",
+      "section": "5.4",
+      "protocolLine": 2145,
+      "notes": "The data shape of the 5.4 table in an envelope. send: the SendRecord example of section 3.8.",
+      "inline": true
+    },
+    {
+      "file": "L2146-stream_events_sessions.changed.json",
+      "schema": "stream/events/sessions.changed.json",
+      "section": "5.4",
+      "protocolLine": 2146,
+      "notes": "The data shape of the 5.4 table in an envelope. summary: the SessionSummary example of section 3.4.",
+      "inline": true
+    },
+    {
+      "file": "L2147-stream_events_tabs.updated.json",
+      "schema": "stream/events/tabs.updated.json",
+      "section": "5.4",
+      "protocolLine": 2147,
+      "notes": "The data shape of the 5.4 table in an envelope. tabs: the TabsState example of section 3.9.",
+      "inline": true
+    },
+    {
+      "file": "L2148-stream_events_accounts.updated.json",
+      "schema": "stream/events/accounts.updated.json",
+      "section": "5.4",
+      "protocolLine": 2148,
+      "notes": "The data shape of the 5.4 table in an envelope. accounts: the AccountsSnapshot example of section 3.11.",
+      "inline": true
+    },
+    {
+      "file": "L2149-stream_events_migration.progress.json",
+      "schema": "stream/events/migration.progress.json",
+      "section": "5.4",
+      "protocolLine": 2149,
+      "notes": "The data shape of the 5.4 table in an envelope. migration: the MigrationSnapshot example of section 3.12.",
+      "inline": true
+    },
+    {
+      "file": "L2150-stream_events_upload.progress.json",
+      "schema": "stream/events/upload.progress.json",
+      "section": "5.4",
+      "protocolLine": 2150,
+      "notes": "The data shape of the 5.4 table in an envelope. upload: the Upload example of section 3.10.",
+      "inline": true
+    },
+    {
+      "file": "L2151-stream_events_computer.notice.json",
+      "schema": "stream/events/computer.notice.json",
+      "section": "5.4",
+      "protocolLine": 2151,
+      "notes": "The data shape of the 5.4 table in an envelope. notice: the Notice example of section 3.13.",
+      "inline": true
+    },
+    {
+      "file": "L2478-1-push_jwt-header.json",
+      "schema": null,
+      "section": "10.1",
+      "protocolLine": 2478,
+      "notes": "APNs provider token header (JWT, no wire schema). kid: a concrete key id. b1-examples compares it with apns.js.",
+      "inline": true
+    },
+    {
+      "file": "L2478-2-push_jwt-claims.json",
+      "schema": null,
+      "section": "10.1",
+      "protocolLine": 2478,
+      "notes": "APNs provider token claims (JWT, no wire schema). iss: a neutral placeholder team id. b1-examples compares it with apns.js.",
+      "inline": true
+    },
+    {
+      "file": "L2479-settings_mobile-apns.json",
+      "schema": null,
+      "section": "10.1",
+      "protocolLine": 2479,
+      "notes": "settings.mobile.apns (a Workbook setting, no wire schema). teamId: a neutral placeholder; keyFile: under the example data dir. b1-admin compares its keys with what the admin route stores.",
+      "inline": true
+    },
+    {
+      "file": "L2500-push_alert-payload.json",
+      "schema": "push/alert-payload.json",
+      "section": "10.3",
+      "protocolLine": 2500,
+      "notes": null
+    },
+    {
+      "file": "L2539-push_background-payload.json",
+      "schema": null,
+      "section": "10.3",
+      "protocolLine": 2539,
+      "notes": "APNs background payload (Apple format, no wire schema). m: completed with every field section 10.3 defines for m. b1-examples compares it with payloads.js.",
+      "inline": true
+    },
+    {
+      "file": "L2549-1-push_liveactivity-update.json",
+      "schema": null,
+      "section": "10.4",
+      "protocolLine": 2549,
+      "notes": "Live Activity update payload (Apple format, no wire schema). dismissal-date belongs to end only (10.4 first bullet). b1-examples compares it with payloads.js.",
+      "inline": true
+    },
+    {
+      "file": "L2549-2-push_liveactivity-end.json",
+      "schema": null,
+      "section": "10.4",
+      "protocolLine": 2549,
+      "notes": "Live Activity end payload (Apple format, no wire schema). b1-examples compares it with payloads.js.",
+      "inline": true
+    },
+    {
+      "file": "L2549-3-push_liveactivity-start.json",
+      "schema": null,
+      "section": "10.4",
+      "protocolLine": 2549,
+      "notes": "Live Activity push to start payload (Apple format, no wire schema). b1-examples compares it with payloads.js.",
+      "inline": true
+    },
+    {
+      "file": "L2550-push_widgets-payload.json",
+      "schema": null,
+      "section": "10.4",
+      "protocolLine": 2550,
+      "notes": "WidgetKit reload payload (Apple format, no wire schema), verbatim. b1-examples compares it with payloads.js.",
+      "inline": true
+    },
+    {
+      "file": "L2562-admin_status.json",
+      "schema": "admin/status.json",
+      "section": "11.1",
+      "protocolLine": 2562,
+      "notes": null
+    },
+    {
+      "file": "L2579-admin_apns-config.json",
+      "schema": "admin/apns-config.json",
+      "section": "11.2",
+      "protocolLine": 2579,
+      "notes": "Inline example. teamId: a neutral placeholder. p8: the base64 body of the vectors' TEST ONLY computer key, without its armour lines (the repository text rules keep their hyphen runs out); the admin route needs the whole file text.",
+      "inline": true
+    },
+    {
+      "file": "L2585-admin_pair-offer.json",
+      "schema": "admin/pair-offer.json",
+      "section": "11.3",
+      "protocolLine": 2585,
+      "notes": null
+    },
+    {
+      "file": "L2591-admin_pair-requests.json",
+      "schema": "admin/pair-requests.json",
+      "section": "11.3",
+      "protocolLine": 2591,
+      "notes": "Inline example. pending: the PairRequestSummary example of section 11.3.",
+      "inline": true
+    },
+    {
+      "file": "L2593-admin_pair-request-summary.json",
+      "schema": "admin/pair-request-summary.json",
+      "section": "11.3",
+      "protocolLine": 2593,
+      "notes": null
+    },
+    {
+      "file": "L2597-1-admin_allow-request.json",
+      "schema": "admin/allow-request.json",
+      "section": "11.3",
+      "protocolLine": 2597,
+      "notes": "Inline example, verbatim.",
+      "inline": true
+    },
+    {
+      "file": "L2597-2-admin_admin-device.json",
+      "schema": "admin/admin-device.json",
+      "section": "11.3",
+      "protocolLine": 2597,
+      "notes": "Inline example {\"device\": AdminDevice}; the schema check applies to the device member (index field \"at\"). AdminDevice: the Device example of section 3.3 plus the fields of 11.4.",
+      "at": "device",
+      "inline": true
+    },
+    {
+      "file": "L2613-admin_admin-devices.json",
+      "schema": "admin/admin-devices.json",
+      "section": "11.4",
+      "protocolLine": 2613,
+      "notes": "Inline example. devices: the Device example of section 3.3 plus the AdminDevice fields of 11.4.",
+      "inline": true
+    },
+    {
+      "file": "L2615-admin_admin-device-patch.json",
+      "schema": "admin/admin-device-patch.json",
+      "section": "11.4",
+      "protocolLine": 2615,
+      "notes": "Inline example. name and scopes: concrete values.",
+      "inline": true
+    },
+    {
+      "file": "L2617-1-admin_test-push-result.json",
+      "schema": "admin/test-push-result.json",
+      "section": "11.4",
+      "protocolLine": 2617,
+      "notes": "Inline example. apnsId: a concrete apns-id.",
+      "inline": true
+    },
+    {
+      "file": "L2617-2-admin_audit.json",
+      "schema": "admin/audit.json",
+      "section": "11.4",
+      "protocolLine": 2617,
+      "notes": "Inline field list {ts, deviceId, action, sessionId, detail, ok} with concrete values.",
+      "inline": true
+    }
+  ]
+}

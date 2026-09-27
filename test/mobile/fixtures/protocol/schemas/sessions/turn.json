@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/turn.json",
+  "title": "Turn",
+  "description": "A turn; also the data of turn.start and turn.end. PROTOCOL.md 3.5 and 6.",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "turnId": {
+      "$ref": "../common/defs.json#/$defs/TurnId"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "phone",
+        "desktop",
+        "terminal",
+        "scheduler",
+        "migration",
+        "unknown"
+      ]
+    },
+    "deviceId": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/DeviceId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "clientMessageId": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/Uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "startedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "endedAtMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "running",
+        "completed",
+        "interrupted",
+        "failed"
+      ]
+    },
+    "durationMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/DurationMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "endSource": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "turnDuration",
+            "taskComplete",
+            "interruptMarker",
+            "turnAborted",
+            "apiError",
+            "screenIdle",
+            "agentsIdle",
+            "processExit"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stoppedBy": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "phone",
+            "desktop"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "USAGE_LIMIT",
+                "API_ERROR",
+                "PROCESS_EXITED"
+              ]
+            },
+            "error": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "code",
+            "error"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "sessionId",
+    "turnId",
+    "source",
+    "deviceId",
+    "clientMessageId",
+    "startedAtMs",
+    "endedAtMs",
+    "status",
+    "durationMs",
+    "endSource",
+    "stoppedBy",
+    "error"
+  ],
+  "additionalProperties": true
+}

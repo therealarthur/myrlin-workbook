@@ -1,0 +1,7 @@
+{
+  "apnsToken": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "environment": "production",
+  "bundleId": "io.myrlin.workbook",
+  "liveActivityPushToStartToken": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "widgetPushToken": null
+}

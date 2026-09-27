@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/new-session-result.json",
+  "title": "NewSessionResult",
+  "description": "201 answer of POST /sessions, of continue-here and of branch (send is then absent or null). PROTOCOL.md 4.5.6 to 4.5.8.",
+  "type": "object",
+  "properties": {
+    "session": {
+      "$ref": "./session-summary.json"
+    },
+    "send": {
+      "anyOf": [
+        {
+          "$ref": "./send-record.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "session"
+  ],
+  "additionalProperties": true
+}

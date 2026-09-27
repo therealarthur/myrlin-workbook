@@ -1,0 +1,44 @@
+{
+  "promptId": "p_Yh3kPz0qLm8vN2cR5tW9",
+  "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+  "kind": "question",
+  "openedAtMs": 1790000120000,
+  "source": "screenAndTranscript",
+  "title": "Claude has a question",
+  "detail": null,
+  "toolName": "AskUserQuestion",
+  "toolCallId": "toolu_01ABC",
+  "questions": [
+    {
+      "index": 0,
+      "header": "Search",
+      "question": "Build a full text index for search?",
+      "multiSelect": false,
+      "allowOther": true,
+      "options": [
+        {
+          "index": 0,
+          "key": "1",
+          "label": "Build the index (Recommended)",
+          "description": "Worker thread, SQLite FTS5.",
+          "recommended": true,
+          "role": "neutral"
+        },
+        {
+          "index": 1,
+          "key": "2",
+          "label": "Tail only",
+          "description": "Keep today's search.",
+          "recommended": false,
+          "role": "neutral"
+        }
+      ]
+    }
+  ],
+  "options": [],
+  "currentQuestionIndex": 0,
+  "consequence": null,
+  "answerable": true,
+  "rawScreen": null,
+  "fingerprint": "Q2xhdWRlIGhhcyBh"
+}

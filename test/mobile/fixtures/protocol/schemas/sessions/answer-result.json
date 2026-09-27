@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/answer-result.json",
+  "title": "AnswerResult",
+  "description": "200 answer of POST .../answer. PROTOCOL.md 4.4.7.",
+  "type": "object",
+  "properties": {
+    "promptId": {
+      "$ref": "../common/defs.json#/$defs/PromptId"
+    },
+    "status": {
+      "const": "resolved"
+    },
+    "by": {
+      "const": "phone"
+    },
+    "resolvedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    }
+  },
+  "required": [
+    "promptId",
+    "status",
+    "by",
+    "resolvedAtMs"
+  ],
+  "additionalProperties": true
+}

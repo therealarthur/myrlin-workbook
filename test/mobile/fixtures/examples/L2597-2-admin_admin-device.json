@@ -1,0 +1,30 @@
+{
+  "device": {
+    "deviceId": "d_TViQs70r__UO4o8s844E",
+    "name": "Sam’s iPhone",
+    "model": "iPhone17,2",
+    "osVersion": "26.1",
+    "appVersion": "1.0.0 (1)",
+    "scopes": [
+      "accounts.read",
+      "accounts.swap",
+      "chat",
+      "media.upload",
+      "search",
+      "sessions.manage"
+    ],
+    "pairedAtMs": 1790000015000,
+    "lastSeenAtMs": 1790000060500,
+    "push": {
+      "registered": false,
+      "environment": null,
+      "updatedAtMs": null,
+      "liveActivityTokens": 0,
+      "lastError": null
+    },
+    "publicKeyFingerprint": "TViQs70r__UO4o8s844ELOi_WqkBCrMEPqsiq0Cn1CQ",
+    "lastEndpointKind": "tailscale",
+    "online": true,
+    "liveActivityTokens": 0
+  }
+}

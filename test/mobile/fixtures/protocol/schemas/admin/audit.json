@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/audit.json",
+  "title": "AuditList",
+  "description": "GET /api/mobile-admin/devices/:deviceId/audit. PROTOCOL.md 11.4.",
+  "type": "object",
+  "properties": {
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ts": {
+            "$ref": "../common/defs.json#/$defs/TimestampMs"
+          },
+          "deviceId": {
+            "$ref": "../common/defs.json#/$defs/DeviceId"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "pair",
+              "revoke",
+              "scopeChange",
+              "sessionSignatureFailed",
+              "send",
+              "interrupt",
+              "answer",
+              "rename",
+              "settings",
+              "restart",
+              "stop",
+              "newSession",
+              "continueHere",
+              "resumeAnyway",
+              "tabsPatch",
+              "swap",
+              "accountLogin",
+              "accountLabel",
+              "upload",
+              "migrationStart",
+              "migrationApprove",
+              "migrationCancel"
+            ]
+          },
+          "sessionId": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/SessionId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ts",
+          "deviceId",
+          "action",
+          "sessionId",
+          "detail",
+          "ok"
+        ],
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": [
+    "entries"
+  ],
+  "additionalProperties": true
+}

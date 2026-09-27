@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/handshake/pair-status.json",
+  "title": "PairStatus",
+  "description": "GET /api/m/v2/pair/:pairId?wait= (public). When allowed, signed by K_c with purpose pair-response. PROTOCOL.md 2.4 step 5.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "pairId": {
+          "$ref": "../common/defs.json#/$defs/PairId"
+        },
+        "status": {
+          "const": "pending"
+        },
+        "expiresAtMs": {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        }
+      },
+      "required": [
+        "pairId",
+        "status",
+        "expiresAtMs"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "pairId": {
+          "$ref": "../common/defs.json#/$defs/PairId"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "denied",
+            "expired"
+          ]
+        }
+      },
+      "required": [
+        "pairId",
+        "status"
+      ],
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "properties": {
+        "pairId": {
+          "$ref": "../common/defs.json#/$defs/PairId"
+        },
+        "status": {
+          "const": "allowed"
+        },
+        "computerId": {
+          "$ref": "../common/defs.json#/$defs/ComputerId"
+        },
+        "computerName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workbookVersion": {
+          "type": "string"
+        },
+        "apiVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "apiRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deviceId": {
+          "$ref": "../common/defs.json#/$defs/DeviceId"
+        },
+        "devicePublicKey": {
+          "$ref": "../common/defs.json#/$defs/PublicKey"
+        },
+        "deviceName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "$ref": "../common/defs.json#/$defs/Scope"
+          },
+          "uniqueItems": true
+        },
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "../common/defs.json#/$defs/Endpoint"
+          },
+          "maxItems": 5
+        },
+        "deviceNonce": {
+          "$ref": "../common/defs.json#/$defs/Nonce"
+        },
+        "pairedAtMs": {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        "sig": {
+          "$ref": "../common/defs.json#/$defs/Signature"
+        }
+      },
+      "required": [
+        "pairId",
+        "status",
+        "computerId",
+        "computerName",
+        "workbookVersion",
+        "apiVersion",
+        "apiRevision",
+        "deviceId",
+        "devicePublicKey",
+        "deviceName",
+        "scopes",
+        "endpoints",
+        "deviceNonce",
+        "pairedAtMs",
+        "sig"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

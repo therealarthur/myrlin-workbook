@@ -1,0 +1,39 @@
+{
+  "computerId": "c_ff392dwfMAEdmqePZGay",
+  "name": "STUDIO-PC",
+  "hostname": "studio-1",
+  "platform": "win32",
+  "workbookVersion": "1.4.0-alpha.1",
+  "apiVersion": 2,
+  "apiRevision": 0,
+  "computerPublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKu21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOOP_L-qLSosb-FQB1eePv_WFQTISoDMmDfAUerb3FHQ6Q",
+  "streamEpoch": "e_kJGSk5SVlpeYmZqb",
+  "ts": 1790000060000,
+  "capabilities": {
+    "screenModel": true,
+    "push": false,
+    "glassApi": false,
+    "codexLinker": true,
+    "migrations": true,
+    "contentSearch": "tailOfLargeFiles",
+    "branchFromMessage": [
+      "claude"
+    ]
+  },
+  "endpoints": [
+    {
+      "url": "https://studio-1.tailnet-example.ts.net",
+      "kind": "tailscale",
+      "priority": 0
+    }
+  ],
+  "limits": {
+    "sendMaxChars": 100000,
+    "attachmentsMax": 20,
+    "sendQueueMax": 10,
+    "uploadChunkBytes": 8388608,
+    "uploadMaxImageBytes": 20971520,
+    "uploadMaxVideoBytes": 1073741824,
+    "uploadQuotaBytes": 4294967296
+  }
+}

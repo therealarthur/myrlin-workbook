@@ -1,0 +1,10 @@
+{
+  "target": {
+    "provider": "claude",
+    "model": null,
+    "effort": null
+  },
+  "depth": null,
+  "mode": null,
+  "fromMessageId": null
+}

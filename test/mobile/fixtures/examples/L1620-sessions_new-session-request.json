@@ -1,0 +1,18 @@
+{
+  "clientRequestId": "7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+  "provider": "claude",
+  "workingDir": "C:\\Users\\dev\\Projects\\myrlin-ios",
+  "projectId": null,
+  "name": null,
+  "settings": {
+    "model": "claude-opus-5-5",
+    "permissionMode": "bypassPermissions"
+  },
+  "tabGroupId": "tg_default",
+  "afterSessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+  "message": {
+    "clientMessageId": "5b7c0d2e-1f3a-4c55-9e0a-7d2b1c9f8e61",
+    "text": "Look at the failing test.",
+    "attachments": []
+  }
+}

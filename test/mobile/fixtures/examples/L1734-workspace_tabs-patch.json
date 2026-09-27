@@ -1,0 +1,16 @@
+{
+  "baseRevision": 42,
+  "ops": [
+    {
+      "op": "moveSession",
+      "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+      "toGroupId": "tg_default",
+      "index": null
+    },
+    {
+      "op": "renameGroup",
+      "groupId": "tg_default",
+      "name": "Main"
+    }
+  ]
+}

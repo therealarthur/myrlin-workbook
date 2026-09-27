@@ -1,0 +1,6 @@
+{
+  "teamId": "A1B2C3D4E5",
+  "keyId": "ABC123DEFG",
+  "keyFile": "C:\\Users\\dev\\.myrlin\\mobile\\apns\\AuthKey_ABC123DEFG.p8",
+  "bundleId": "io.myrlin.workbook"
+}

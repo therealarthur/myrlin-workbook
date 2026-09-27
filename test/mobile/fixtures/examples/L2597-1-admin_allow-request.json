@@ -1,0 +1,11 @@
+{
+  "scopes": [
+    "chat",
+    "sessions.manage",
+    "accounts.read",
+    "accounts.swap",
+    "media.upload",
+    "search"
+  ],
+  "name": null
+}

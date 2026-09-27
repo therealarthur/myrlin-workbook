@@ -1,0 +1,9 @@
+{
+  "flowId": "f_91c2",
+  "provider": "claude",
+  "phase": "waitingForBrowser",
+  "message": "Finish signing in to Claude in your browser on STUDIO-PC.",
+  "warning": false,
+  "updatedAtMs": 1790000210000,
+  "done": false
+}

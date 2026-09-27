@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/resources/device-patch.json",
+  "title": "DevicePatch",
+  "description": "PATCH /api/m/v2/devices/me. PROTOCOL.md 4.3.2.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\r\\n]+$"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}

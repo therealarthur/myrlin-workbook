@@ -1,0 +1,35 @@
+{
+  "query": "bracketed paste",
+  "results": [
+    {
+      "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+      "title": "Fix sidebar jitter",
+      "provider": "claude",
+      "projectName": "Myrlin iOS",
+      "workingDir": "C:\\Users\\dev\\Projects\\myrlin-ios",
+      "ts": 1790000100000,
+      "role": "assistant",
+      "snippet": "... writes the text as a bracketed paste and the submit ...",
+      "matchRanges": [
+        [
+          26,
+          41
+        ]
+      ],
+      "anchor": "opaque"
+    }
+  ],
+  "nextCursor": "opaque or null",
+  "totalHits": 142,
+  "sessionCount": 23,
+  "hitsCapped": false,
+  "coverage": {
+    "searchedFiles": 817,
+    "tailOnlyFiles": 64,
+    "partial": false,
+    "timedOutProviders": [],
+    "budgetMs": 5000,
+    "note": "Files over 8 MB are searched in their last 2 MB."
+  },
+  "durationMs": 2380
+}

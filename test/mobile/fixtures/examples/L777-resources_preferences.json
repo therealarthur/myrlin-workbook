@@ -1,0 +1,18 @@
+{
+  "notifications": {
+    "question": true,
+    "approval": true,
+    "finished": true,
+    "finishedMinMinutes": 2,
+    "accountThresholds": true,
+    "agentSwaps": true,
+    "migrationReady": true
+  },
+  "privacy": {
+    "hideSessionNames": false,
+    "showMessageText": false
+  },
+  "liveActivity": {
+    "enabled": true
+  }
+}

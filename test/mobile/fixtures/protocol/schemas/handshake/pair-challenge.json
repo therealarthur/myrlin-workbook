@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/handshake/pair-challenge.json",
+  "title": "PairChallenge",
+  "description": "202 answer to POST /pair. Signed by K_c with purpose pair-challenge. PROTOCOL.md 2.4 step 3.",
+  "type": "object",
+  "properties": {
+    "pairId": {
+      "$ref": "../common/defs.json#/$defs/PairId"
+    },
+    "offerId": {
+      "$ref": "../common/defs.json#/$defs/OfferId"
+    },
+    "computerId": {
+      "$ref": "../common/defs.json#/$defs/ComputerId"
+    },
+    "computerPublicKey": {
+      "$ref": "../common/defs.json#/$defs/PublicKey"
+    },
+    "devicePublicKey": {
+      "$ref": "../common/defs.json#/$defs/PublicKey"
+    },
+    "deviceNonce": {
+      "$ref": "../common/defs.json#/$defs/Nonce"
+    },
+    "serverNonce": {
+      "$ref": "../common/defs.json#/$defs/Nonce"
+    },
+    "expiresAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "status": {
+      "const": "pending"
+    },
+    "sig": {
+      "$ref": "../common/defs.json#/$defs/Signature"
+    }
+  },
+  "required": [
+    "pairId",
+    "offerId",
+    "computerId",
+    "computerPublicKey",
+    "devicePublicKey",
+    "deviceNonce",
+    "serverNonce",
+    "expiresAtMs",
+    "status",
+    "sig"
+  ],
+  "additionalProperties": true
+}

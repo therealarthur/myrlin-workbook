@@ -1,0 +1,25 @@
+{
+  "aps": {
+    "timestamp": 1790000170,
+    "event": "start",
+    "content-state": {
+      "computerName": "STUDIO-PC",
+      "sessions": [
+        {
+          "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+          "title": "Fix sidebar jitter",
+          "provider": "claude",
+          "state": "needsApproval",
+          "enteredAtMs": 1790000160000
+        }
+      ],
+      "urgentSessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+      "updatedAtMs": 1790000170000
+    },
+    "stale-date": 1790001070,
+    "attributes-type": "MyrlinActivityAttributes",
+    "attributes": {
+      "computerId": "c_ff392dwfMAEdmqePZGay"
+    }
+  }
+}

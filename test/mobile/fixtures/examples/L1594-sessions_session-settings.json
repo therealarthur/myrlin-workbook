@@ -1,0 +1,12 @@
+{
+  "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+  "provider": "claude",
+  "schemaRevision": 1,
+  "values": {
+    "model": "claude-opus-5-5",
+    "effort": null,
+    "permissionMode": "bypassPermissions"
+  },
+  "pendingRestart": false,
+  "canRestartNow": true
+}

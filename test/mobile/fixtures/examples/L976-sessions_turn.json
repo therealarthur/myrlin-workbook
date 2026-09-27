@@ -1,0 +1,14 @@
+{
+  "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+  "turnId": "t_5b7c0d2e-1f3a-4c55-9e0a-7d2b1c9f8e61",
+  "source": "phone",
+  "deviceId": "d_TViQs70r__UO4o8s844E",
+  "clientMessageId": "0f8f2d8e-5d0b-4c47-9a3e-2b6f5c9d1e7a",
+  "startedAtMs": 1790000088000,
+  "endedAtMs": null,
+  "status": "running",
+  "durationMs": null,
+  "endSource": null,
+  "stoppedBy": null,
+  "error": null
+}

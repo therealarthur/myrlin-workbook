@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/pair-offer.json",
+  "title": "PairOffer",
+  "description": "201 answer of POST /api/mobile-admin/pair-offers. PROTOCOL.md 11.3.",
+  "type": "object",
+  "properties": {
+    "offerId": {
+      "$ref": "../common/defs.json#/$defs/OfferId"
+    },
+    "qrLink": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "schemeLink": {
+      "type": "string",
+      "pattern": "^myrlin://pair#",
+      "maxLength": 300
+    },
+    "universalLink": {
+      "type": "string",
+      "pattern": "^https://myrlin\\.io/p#",
+      "maxLength": 300
+    },
+    "manualCode": {
+      "type": "string",
+      "pattern": "^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{4}-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{4}$"
+    },
+    "computerName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tailscaleName": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "expiresAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "refreshAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    }
+  },
+  "required": [
+    "offerId",
+    "qrLink",
+    "schemeLink",
+    "universalLink",
+    "manualCode",
+    "computerName",
+    "tailscaleName",
+    "expiresAtMs",
+    "refreshAtMs"
+  ],
+  "additionalProperties": true
+}

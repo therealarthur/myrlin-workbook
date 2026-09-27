@@ -1,0 +1,25 @@
+{
+  "aps": {
+    "alert": {
+      "title": "Fix sidebar jitter",
+      "subtitle": "Claude on STUDIO-PC",
+      "body": "Needs your approval."
+    },
+    "sound": "default",
+    "badge": 1,
+    "category": "MYRLIN_APPROVAL",
+    "thread-id": "c_ff392dwfMAEdmqePZGay:cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+    "interruption-level": "time-sensitive"
+  },
+  "m": {
+    "v": 1,
+    "k": "approval",
+    "cid": "c_ff392dwfMAEdmqePZGay",
+    "sid": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+    "pid": "p_Yh3kPz0qLm8vN2cR5tW9",
+    "mid": null,
+    "acc": null,
+    "prov": "claude",
+    "ts": 1790000170000
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/settings-update.json",
+  "title": "AdminSettingsUpdate",
+  "description": "PUT /api/mobile-admin/settings. PROTOCOL.md 1.4 and 11.1.",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "legacyPairEnabled": {
+      "type": "boolean"
+    },
+    "publicUrls": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(https|http)://[^/\\s]+$"
+      },
+      "maxItems": 5
+    },
+    "detectTailscale": {
+      "type": "boolean"
+    },
+    "advertiseLoopback": {
+      "type": "boolean"
+    },
+    "qrLinkStyle": {
+      "type": "string",
+      "enum": [
+        "scheme",
+        "universal"
+      ]
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

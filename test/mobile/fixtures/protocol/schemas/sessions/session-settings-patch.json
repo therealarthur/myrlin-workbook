@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/session-settings-patch.json",
+  "title": "SessionSettingsPatch",
+  "description": "PATCH /api/m/v2/sessions/:sessionId/settings: only keys to change; null resets. PROTOCOL.md 4.5.3.",
+  "type": "object",
+  "properties": {
+    "values": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": [
+          "string",
+          "boolean",
+          "null"
+        ]
+      }
+    }
+  },
+  "required": [
+    "values"
+  ],
+  "additionalProperties": false
+}

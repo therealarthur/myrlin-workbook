@@ -1,0 +1,421 @@
+{
+  "source": "Hand transcription of PROTOCOL.md section 2.10 (myrlin-ios docs/plans/PROTOCOL.md at commit e5e2db6b775e0b06c18ead1d30ee7b8781d4ccb6), made by track B1 from the document table, not from scope-table.js. Paths are relative to /api/m/v2 except the stream upgrade. The orchestrator reviews it against the document.",
+  "count": 69,
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/identity",
+      "scope": "public",
+      "limiter": "identity"
+    },
+    {
+      "method": "POST",
+      "path": "/pair",
+      "scope": "public",
+      "limiter": "pair"
+    },
+    {
+      "method": "GET",
+      "path": "/pair/:pairId",
+      "scope": "public",
+      "limiter": "pairPoll"
+    },
+    {
+      "method": "POST",
+      "path": "/hello",
+      "scope": "public",
+      "limiter": "hello"
+    },
+    {
+      "method": "POST",
+      "path": "/session",
+      "scope": "public",
+      "limiter": "session"
+    },
+    {
+      "method": "GET",
+      "path": "/computer",
+      "scope": "none",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/browse",
+      "scope": "sessions.manage",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/devices/me",
+      "scope": "none",
+      "limiter": "device"
+    },
+    {
+      "method": "PATCH",
+      "path": "/devices/me",
+      "scope": "none",
+      "limiter": "device"
+    },
+    {
+      "method": "DELETE",
+      "path": "/devices/me",
+      "scope": "none",
+      "limiter": "device"
+    },
+    {
+      "method": "PUT",
+      "path": "/devices/me/push",
+      "scope": "none",
+      "limiter": "device"
+    },
+    {
+      "method": "DELETE",
+      "path": "/devices/me/push",
+      "scope": "none",
+      "limiter": "device"
+    },
+    {
+      "method": "PUT",
+      "path": "/devices/me/live-activities/:activityId",
+      "scope": "none",
+      "limiter": "device"
+    },
+    {
+      "method": "DELETE",
+      "path": "/devices/me/live-activities/:activityId",
+      "scope": "none",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/devices/me/preferences",
+      "scope": "none",
+      "limiter": "device"
+    },
+    {
+      "method": "PATCH",
+      "path": "/devices/me/preferences",
+      "scope": "none",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/sessions/recent",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/tree",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/tree/projects/:projectId",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "PATCH",
+      "path": "/projects/:projectId",
+      "scope": "sessions.manage",
+      "limiter": "device"
+    },
+    {
+      "method": "PATCH",
+      "path": "/folders/:folderId",
+      "scope": "sessions.manage",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/sessions/:sessionId",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "PATCH",
+      "path": "/sessions/:sessionId",
+      "scope": "sessions.manage",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/sessions/:sessionId/messages",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/sessions/:sessionId/messages/:messageId/parts/:partIndex/text",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/sessions/:sessionId/messages/:messageId/parts/:partIndex/content",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions/:sessionId/send",
+      "scope": "chat",
+      "limiter": "send"
+    },
+    {
+      "method": "GET",
+      "path": "/sessions/:sessionId/sends",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "DELETE",
+      "path": "/sessions/:sessionId/sends/:clientMessageId",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions/:sessionId/interrupt",
+      "scope": "chat",
+      "limiter": "send"
+    },
+    {
+      "method": "GET",
+      "path": "/sessions/:sessionId/prompts",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions/:sessionId/prompts/:promptId/answer",
+      "scope": "chat",
+      "limiter": "send"
+    },
+    {
+      "method": "GET",
+      "path": "/sessions/:sessionId/settings",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "PATCH",
+      "path": "/sessions/:sessionId/settings",
+      "scope": "sessions.manage",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions/:sessionId/restart",
+      "scope": "sessions.manage",
+      "limiter": "send"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions/:sessionId/stop",
+      "scope": "sessions.manage",
+      "limiter": "send"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions/:sessionId/continue-here",
+      "scope": "sessions.manage",
+      "limiter": "send"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions/:sessionId/resume-anyway",
+      "scope": "sessions.manage",
+      "limiter": "send"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions/:sessionId/branch",
+      "scope": "sessions.manage",
+      "limiter": "send"
+    },
+    {
+      "method": "GET",
+      "path": "/sessions/:sessionId/commands",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions",
+      "scope": "sessions.manage",
+      "limiter": "send"
+    },
+    {
+      "method": "GET",
+      "path": "/providers/:provider/settings-schema",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/tabs",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "PATCH",
+      "path": "/tabs",
+      "scope": "sessions.manage",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/search/names",
+      "scope": "search",
+      "limiter": "search"
+    },
+    {
+      "method": "GET",
+      "path": "/search/messages",
+      "scope": "search",
+      "limiter": "search"
+    },
+    {
+      "method": "POST",
+      "path": "/uploads",
+      "scope": "media.upload",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/uploads/:uploadId",
+      "scope": "media.upload",
+      "limiter": "device"
+    },
+    {
+      "method": "PUT",
+      "path": "/uploads/:uploadId/chunks",
+      "scope": "media.upload",
+      "limiter": "upload"
+    },
+    {
+      "method": "POST",
+      "path": "/uploads/:uploadId/complete",
+      "scope": "media.upload",
+      "limiter": "device"
+    },
+    {
+      "method": "DELETE",
+      "path": "/uploads/:uploadId",
+      "scope": "media.upload",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/uploads/:uploadId/content",
+      "scope": "media.upload",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/accounts",
+      "scope": "accounts.read",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/accounts/refresh",
+      "scope": "accounts.swap",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/accounts/swap",
+      "scope": "accounts.swap",
+      "limiter": "send"
+    },
+    {
+      "method": "POST",
+      "path": "/accounts/login",
+      "scope": "accounts.swap",
+      "limiter": "send"
+    },
+    {
+      "method": "GET",
+      "path": "/accounts/login/:flowId",
+      "scope": "accounts.swap",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/accounts/login/:flowId/cancel",
+      "scope": "accounts.swap",
+      "limiter": "send"
+    },
+    {
+      "method": "PUT",
+      "path": "/accounts/:provider/:accountId/label",
+      "scope": "accounts.swap",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions/:sessionId/migrations/preview",
+      "scope": "sessions.manage",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/sessions/:sessionId/migrations",
+      "scope": "sessions.manage",
+      "limiter": "send"
+    },
+    {
+      "method": "GET",
+      "path": "/migrations",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/migrations/:migrationId",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/migrations/:migrationId/approve",
+      "scope": "sessions.manage",
+      "limiter": "send"
+    },
+    {
+      "method": "POST",
+      "path": "/migrations/:migrationId/cancel",
+      "scope": "sessions.manage",
+      "limiter": "send"
+    },
+    {
+      "method": "POST",
+      "path": "/migrations/:migrationId/retry",
+      "scope": "sessions.manage",
+      "limiter": "send"
+    },
+    {
+      "method": "GET",
+      "path": "/migrations/:migrationId/report",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/migrations/:migrationId/turns/:turnNumber",
+      "scope": "chat",
+      "limiter": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/ws/m/v2",
+      "scope": "none",
+      "limiter": "device",
+      "upgrade": true
+    }
+  ]
+}

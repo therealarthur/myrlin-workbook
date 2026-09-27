@@ -1,0 +1,15 @@
+{
+  "type": "subscribe",
+  "id": "c1",
+  "epoch": "e_kJGSk5SVlpeYmZqb",
+  "topics": [
+    {
+      "topic": "session:cl_733b...",
+      "sinceSeq": 1204
+    },
+    {
+      "topic": "tabs",
+      "sinceSeq": null
+    }
+  ]
+}

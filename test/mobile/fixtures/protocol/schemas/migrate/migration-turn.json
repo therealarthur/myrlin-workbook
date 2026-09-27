@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/migrate/migration-turn.json",
+  "title": "MigrationTurn",
+  "description": "GET /api/m/v2/migrations/:migrationId/turns/:turnNumber. PROTOCOL.md 4.12.7.",
+  "type": "object",
+  "properties": {
+    "turn": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ts": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "user": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "assistant",
+              "tool",
+              "result",
+              "system"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "ts": {
+            "anyOf": [
+              {
+                "$ref": "../common/defs.json#/$defs/TimestampMs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "ts"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "rawPath": {
+      "type": "string"
+    },
+    "rawOffset": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "turn",
+    "ts",
+    "user",
+    "events",
+    "rawPath",
+    "rawOffset"
+  ],
+  "additionalProperties": true
+}

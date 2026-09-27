@@ -1,0 +1,708 @@
+{
+  "testOnly": true,
+  "warning": "TEST ONLY. Every key in this file is public and must never be used by a real computer or phone.",
+  "format": "myrlin-sig/2",
+  "spec": "docs/plans/PROTOCOL.md section 2",
+  "generator": "protocol/tools/make-vectors.js",
+  "verifier": "protocol/tools/verify-vectors.js",
+  "notes": [
+    "ECDSA signatures are randomized: signature bytes change on every run of the generator; every other value is deterministic.",
+    "Signatures are raw r||s (IEEE P1363), 64 bytes, base64url without padding.",
+    "Public keys are SPKI DER, base64url without padding (91 bytes for P-256 uncompressed).",
+    "Field values in \"fields\" are typed JSON: strings, integers, booleans, null, or arrays of strings."
+  ],
+  "purposes": {
+    "identity": [
+      "computerId",
+      "computerPublicKey",
+      "name",
+      "workbookVersion",
+      "apiVersion",
+      "apiRevision",
+      "clientNonce",
+      "ts"
+    ],
+    "pair-request": [
+      "offerId",
+      "secretKind",
+      "secret",
+      "devicePublicKey",
+      "deviceName",
+      "model",
+      "osVersion",
+      "appVersion",
+      "deviceNonce",
+      "ts"
+    ],
+    "pair-challenge": [
+      "pairId",
+      "offerId",
+      "computerId",
+      "computerPublicKey",
+      "devicePublicKey",
+      "deviceNonce",
+      "serverNonce",
+      "expiresAtMs"
+    ],
+    "match-code": [
+      "computerPublicKey",
+      "devicePublicKey",
+      "deviceNonce",
+      "serverNonce"
+    ],
+    "pair-response": [
+      "pairId",
+      "computerId",
+      "deviceId",
+      "devicePublicKey",
+      "deviceName",
+      "scopes",
+      "computerName",
+      "endpoints",
+      "deviceNonce",
+      "pairedAtMs"
+    ],
+    "hello-response": [
+      "computerId",
+      "deviceId",
+      "clientNonce",
+      "serverNonce",
+      "streamEpoch",
+      "endpoints",
+      "apiVersion",
+      "apiRevision",
+      "ts"
+    ],
+    "session-request": [
+      "computerId",
+      "deviceId",
+      "serverNonce",
+      "clientNonce",
+      "ts"
+    ],
+    "revoked": [
+      "computerId",
+      "deviceId",
+      "clientNonce",
+      "revokedAtMs"
+    ]
+  },
+  "keys": {
+    "computer": {
+      "testOnly": true,
+      "jwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "Ku21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOM",
+        "y": "j_y_qi0qLG_hUAdXnj7_1hUEyEqAzJg3wFHq29xR0Ok",
+        "d": "mFR3OnZJ4rCzSM2_gQICarUoEWwKOEGe7tuhFbe-m9Q"
+      },
+      "spkiDerB64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKu21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOOP_L-qLSosb-FQB1eePv_WFQTISoDMmDfAUerb3FHQ6Q",
+      "fingerprint": "ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78",
+      "computerId": "c_ff392dwfMAEdmqePZGay"
+    },
+    "device": {
+      "testOnly": true,
+      "jwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "VPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6k",
+        "y": "S65YFZbFqVQarBhnLfMckigf7eKGCw4yNue3-yFg-jo",
+        "d": "vfw8E0RydSoqfGkCiTdnkunbgz9kvokkCFm7WcjNfeA"
+      },
+      "spkiDerB64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og",
+      "fingerprint": "TViQs70r__UO4o8s844ELOi_WqkBCrMEPqsiq0Cn1CQ",
+      "deviceId": "d_TViQs70r__UO4o8s844E"
+    },
+    "attacker": {
+      "testOnly": true,
+      "jwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "i8lP3cqJvHDY66HtWXp6uU3im3eYRCFr_0nO7AdPLNU",
+        "y": "0Vq3rWMad91O62Xtbs-eGYfeEcGFh6Ju5l6lm_BIIbg",
+        "d": "vx8i4PQLi-ZN23KJAcRbDBQpFu3mLH58FHEDGxR1YDU"
+      },
+      "spkiDerB64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEi8lP3cqJvHDY66HtWXp6uU3im3eYRCFr_0nO7AdPLNXRWretYxp33U7rZe1uz54Zh94RwYWHom7mXqWb8EghuA",
+      "fingerprint": "zJKKvUPsuxGRzYVcjeUYzLg5wO_XDii4perRuGSRDJM"
+    }
+  },
+  "values": {
+    "offerId": "oKGio6Sl",
+    "qrSecret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "deviceNonce": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+    "serverNonce": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8",
+    "clientNonce": "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8",
+    "pairId": "pr_gIGCg4SFhoeIiYqLjI2Ojw",
+    "streamEpoch": "e_kJGSk5SVlpeYmZqb",
+    "manualCode": "P2RV5CXM",
+    "ts": 1790000000000,
+    "endpoints": [
+      "https://studio-1.tailnet-example.ts.net",
+      "http://127.0.0.1:3458"
+    ],
+    "scopes": [
+      "accounts.read",
+      "accounts.swap",
+      "chat",
+      "media.upload",
+      "search",
+      "sessions.manage"
+    ],
+    "deviceName": "Sam’s iPhone",
+    "computerName": "STUDIO-PC"
+  },
+  "vectors": [
+    {
+      "name": "identity-response",
+      "purpose": "identity",
+      "signer": "computer",
+      "verifyWith": "computer",
+      "expectValid": true,
+      "fields": [
+        [
+          "computerId",
+          "c_ff392dwfMAEdmqePZGay"
+        ],
+        [
+          "computerPublicKey",
+          "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKu21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOOP_L-qLSosb-FQB1eePv_WFQTISoDMmDfAUerb3FHQ6Q"
+        ],
+        [
+          "name",
+          "STUDIO-PC"
+        ],
+        [
+          "workbookVersion",
+          "1.4.0-alpha.1"
+        ],
+        [
+          "apiVersion",
+          2
+        ],
+        [
+          "apiRevision",
+          0
+        ],
+        [
+          "clientNonce",
+          "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8"
+        ],
+        [
+          "ts",
+          1790000000000
+        ]
+      ],
+      "signingInputUtf8": "myrlin-sig/2\nidentity\ncomputerId=c_ff392dwfMAEdmqePZGay\ncomputerPublicKey=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKu21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOOP_L-qLSosb-FQB1eePv_WFQTISoDMmDfAUerb3FHQ6Q\nname=STUDIO-PC\nworkbookVersion=1.4.0-alpha.1\napiVersion=2\napiRevision=0\nclientNonce=YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8\nts=1790000000000",
+      "signingInputB64u": "bXlybGluLXNpZy8yCmlkZW50aXR5CmNvbXB1dGVySWQ9Y19mZjM5MmR3Zk1BRWRtcWVQWkdheQpjb21wdXRlclB1YmxpY0tleT1NRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUVLdTIxSGUxRFF4SWFaMWg2OEpJMnpobEluNk02MURHbEw5cG1fNWtfb09PUF9MLXFMU29zYi1GUUIxZWVQdl9XRlFUSVNvRE1tRGZBVWVyYjNGSFE2UQpuYW1lPVNUVURJTy1QQwp3b3JrYm9va1ZlcnNpb249MS40LjAtYWxwaGEuMQphcGlWZXJzaW9uPTIKYXBpUmV2aXNpb249MApjbGllbnROb25jZT1ZR0ZpWTJSbFptZG9hV3ByYkcxdWIzQnhjbk4wZFhaM2VIbDZlM3g5Zm44CnRzPTE3OTAwMDAwMDAwMDA",
+      "signingInputLength": 341,
+      "sha256Hex": "7b03b4e05b1fedb8146b70e1e5fcb4a285956e3580d48cd62ac0020f4272c77a",
+      "signature": "kmvZ9v8B6L55hcPbpMYv8jiYCCebkxpDINHrhMwHQi59LTDAIXpcOlCB3l8ME71WbaScg3OMlUzNApzB5Z4oxw"
+    },
+    {
+      "name": "pair-request-qr",
+      "purpose": "pair-request",
+      "signer": "device",
+      "verifyWith": "device",
+      "expectValid": true,
+      "fields": [
+        [
+          "offerId",
+          "oKGio6Sl"
+        ],
+        [
+          "secretKind",
+          "qr"
+        ],
+        [
+          "secret",
+          "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+        ],
+        [
+          "devicePublicKey",
+          "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og"
+        ],
+        [
+          "deviceName",
+          "Sam’s iPhone"
+        ],
+        [
+          "model",
+          "iPhone17,2"
+        ],
+        [
+          "osVersion",
+          "26.1"
+        ],
+        [
+          "appVersion",
+          "1.0.0 (1)"
+        ],
+        [
+          "deviceNonce",
+          "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+        ],
+        [
+          "ts",
+          1790000001000
+        ]
+      ],
+      "signingInputUtf8": "myrlin-sig/2\npair-request\nofferId=oKGio6Sl\nsecretKind=qr\nsecret=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\ndevicePublicKey=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og\ndeviceName=Sam’s iPhone\nmodel=iPhone17,2\nosVersion=26.1\nappVersion=1.0.0 (1)\ndeviceNonce=ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8\nts=1790000001000",
+      "signingInputB64u": "bXlybGluLXNpZy8yCnBhaXItcmVxdWVzdApvZmZlcklkPW9LR2lvNlNsCnNlY3JldEtpbmQ9cXIKc2VjcmV0PUFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgKZGV2aWNlUHVibGljS2V5PU1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRVZQb0JtUlAtWlFERGtnVERkVmlaZm1ud3dQLTNuQ1VPNU1jUmJpSGF2NmxMcmxnVmxzV3BWQnFzR0djdDh4eVNLQl90NG9ZTERqSTI1N2Y3SVdENk9nCmRldmljZU5hbWU9U2Ft4oCZcyBpUGhvbmUKbW9kZWw9aVBob25lMTcsMgpvc1ZlcnNpb249MjYuMQphcHBWZXJzaW9uPTEuMC4wICgxKQpkZXZpY2VOb25jZT1JQ0VpSXlRbEppY29LU29yTEMwdUx6QXhNak0wTlRZM09EazZPenc5UGo4CnRzPTE3OTAwMDAwMDEwMDA",
+      "signingInputLength": 398,
+      "sha256Hex": "c1b39b34ac959eef99c2cd1f44833fbdf59c10a76ca0908f3a5298c3498be788",
+      "signature": "VPcAPQFuQyPQJgSq1lgaoiZzg182jz-x1VgRCenLlQBbmllGw52U2KWl6rc9ys2EZkjYRD_OoXQnVEGNC8Fvew"
+    },
+    {
+      "name": "pair-request-code",
+      "purpose": "pair-request",
+      "signer": "device",
+      "verifyWith": "device",
+      "expectValid": true,
+      "fields": [
+        [
+          "offerId",
+          null
+        ],
+        [
+          "secretKind",
+          "code"
+        ],
+        [
+          "secret",
+          "P2RV5CXM"
+        ],
+        [
+          "devicePublicKey",
+          "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og"
+        ],
+        [
+          "deviceName",
+          "Sam’s iPhone"
+        ],
+        [
+          "model",
+          "iPhone17,2"
+        ],
+        [
+          "osVersion",
+          "26.1"
+        ],
+        [
+          "appVersion",
+          "1.0.0 (1)"
+        ],
+        [
+          "deviceNonce",
+          "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+        ],
+        [
+          "ts",
+          1790000001000
+        ]
+      ],
+      "signingInputUtf8": "myrlin-sig/2\npair-request\nofferId=\nsecretKind=code\nsecret=P2RV5CXM\ndevicePublicKey=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og\ndeviceName=Sam’s iPhone\nmodel=iPhone17,2\nosVersion=26.1\nappVersion=1.0.0 (1)\ndeviceNonce=ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8\nts=1790000001000",
+      "signingInputB64u": "bXlybGluLXNpZy8yCnBhaXItcmVxdWVzdApvZmZlcklkPQpzZWNyZXRLaW5kPWNvZGUKc2VjcmV0PVAyUlY1Q1hNCmRldmljZVB1YmxpY0tleT1NRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUVWUG9CbVJQLVpRRERrZ1REZFZpWmZtbnd3UC0zbkNVTzVNY1JiaUhhdjZsTHJsZ1Zsc1dwVkJxc0dHY3Q4eHlTS0JfdDRvWUxEakkyNTdmN0lXRDZPZwpkZXZpY2VOYW1lPVNhbeKAmXMgaVBob25lCm1vZGVsPWlQaG9uZTE3LDIKb3NWZXJzaW9uPTI2LjEKYXBwVmVyc2lvbj0xLjAuMCAoMSkKZGV2aWNlTm9uY2U9SUNFaUl5UWxKaWNvS1NvckxDMHVMekF4TWpNME5UWTNPRGs2T3p3OVBqOAp0cz0xNzkwMDAwMDAxMDAw",
+      "signingInputLength": 357,
+      "sha256Hex": "ff299bb70d2b74193da2b8174e64f24c569c218b32e597ea5a5c0b2eaba8a95a",
+      "signature": "lD8EoI_l7HyyMCBdsD3xsq1yJDpmJOTnj_T7R8qdKsYD6khr6ATH7v7qT2a51IPxF5LwDCqq16-gE_rveUc_BA"
+    },
+    {
+      "name": "pair-challenge",
+      "purpose": "pair-challenge",
+      "signer": "computer",
+      "verifyWith": "computer",
+      "expectValid": true,
+      "fields": [
+        [
+          "pairId",
+          "pr_gIGCg4SFhoeIiYqLjI2Ojw"
+        ],
+        [
+          "offerId",
+          "oKGio6Sl"
+        ],
+        [
+          "computerId",
+          "c_ff392dwfMAEdmqePZGay"
+        ],
+        [
+          "computerPublicKey",
+          "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKu21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOOP_L-qLSosb-FQB1eePv_WFQTISoDMmDfAUerb3FHQ6Q"
+        ],
+        [
+          "devicePublicKey",
+          "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og"
+        ],
+        [
+          "deviceNonce",
+          "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+        ],
+        [
+          "serverNonce",
+          "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8"
+        ],
+        [
+          "expiresAtMs",
+          1790000121000
+        ]
+      ],
+      "signingInputUtf8": "myrlin-sig/2\npair-challenge\npairId=pr_gIGCg4SFhoeIiYqLjI2Ojw\nofferId=oKGio6Sl\ncomputerId=c_ff392dwfMAEdmqePZGay\ncomputerPublicKey=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKu21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOOP_L-qLSosb-FQB1eePv_WFQTISoDMmDfAUerb3FHQ6Q\ndevicePublicKey=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og\ndeviceNonce=ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8\nserverNonce=QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8\nexpiresAtMs=1790000121000",
+      "signingInputB64u": "bXlybGluLXNpZy8yCnBhaXItY2hhbGxlbmdlCnBhaXJJZD1wcl9nSUdDZzRTRmhvZUlpWXFMakkyT2p3Cm9mZmVySWQ9b0tHaW82U2wKY29tcHV0ZXJJZD1jX2ZmMzkyZHdmTUFFZG1xZVBaR2F5CmNvbXB1dGVyUHVibGljS2V5PU1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRUt1MjFIZTFEUXhJYVoxaDY4SkkyemhsSW42TTYxREdsTDlwbV81a19vT09QX0wtcUxTb3NiLUZRQjFlZVB2X1dGUVRJU29ETW1EZkFVZXJiM0ZIUTZRCmRldmljZVB1YmxpY0tleT1NRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUVWUG9CbVJQLVpRRERrZ1REZFZpWmZtbnd3UC0zbkNVTzVNY1JiaUhhdjZsTHJsZ1Zsc1dwVkJxc0dHY3Q4eHlTS0JfdDRvWUxEakkyNTdmN0lXRDZPZwpkZXZpY2VOb25jZT1JQ0VpSXlRbEppY29LU29yTEMwdUx6QXhNak0wTlRZM09EazZPenc5UGo4CnNlcnZlck5vbmNlPVFFRkNRMFJGUmtkSVNVcExURTFPVDFCUlVsTlVWVlpYV0ZsYVcxeGRYbDgKZXhwaXJlc0F0TXM9MTc5MDAwMDEyMTAwMA",
+      "signingInputLength": 529,
+      "sha256Hex": "e056617608cbf2ed563af980c68c0e0ad6260fbfe58e6934f2c809b7189ef57c",
+      "signature": "RwVDue1HCLlpO2dJ3-aFlbbI5j0EMyeFvUKQ9ZOrpvuOkRa0ZYh_dFoSH9f426qKLRH4Ml5koz7eOmaCKvFR2A"
+    },
+    {
+      "name": "pair-response",
+      "purpose": "pair-response",
+      "signer": "computer",
+      "verifyWith": "computer",
+      "expectValid": true,
+      "fields": [
+        [
+          "pairId",
+          "pr_gIGCg4SFhoeIiYqLjI2Ojw"
+        ],
+        [
+          "computerId",
+          "c_ff392dwfMAEdmqePZGay"
+        ],
+        [
+          "deviceId",
+          "d_TViQs70r__UO4o8s844E"
+        ],
+        [
+          "devicePublicKey",
+          "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og"
+        ],
+        [
+          "deviceName",
+          "Sam’s iPhone"
+        ],
+        [
+          "scopes",
+          [
+            "accounts.read",
+            "accounts.swap",
+            "chat",
+            "media.upload",
+            "search",
+            "sessions.manage"
+          ]
+        ],
+        [
+          "computerName",
+          "STUDIO-PC"
+        ],
+        [
+          "endpoints",
+          [
+            "https://studio-1.tailnet-example.ts.net",
+            "http://127.0.0.1:3458"
+          ]
+        ],
+        [
+          "deviceNonce",
+          "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+        ],
+        [
+          "pairedAtMs",
+          1790000015000
+        ]
+      ],
+      "signingInputUtf8": "myrlin-sig/2\npair-response\npairId=pr_gIGCg4SFhoeIiYqLjI2Ojw\ncomputerId=c_ff392dwfMAEdmqePZGay\ndeviceId=d_TViQs70r__UO4o8s844E\ndevicePublicKey=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og\ndeviceName=Sam’s iPhone\nscopes=accounts.read,accounts.swap,chat,media.upload,search,sessions.manage\ncomputerName=STUDIO-PC\nendpoints=https://studio-1.tailnet-example.ts.net,http://127.0.0.1:3458\ndeviceNonce=ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8\npairedAtMs=1790000015000",
+      "signingInputB64u": "bXlybGluLXNpZy8yCnBhaXItcmVzcG9uc2UKcGFpcklkPXByX2dJR0NnNFNGaG9lSWlZcUxqSTJPancKY29tcHV0ZXJJZD1jX2ZmMzkyZHdmTUFFZG1xZVBaR2F5CmRldmljZUlkPWRfVFZpUXM3MHJfX1VPNG84czg0NEUKZGV2aWNlUHVibGljS2V5PU1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRVZQb0JtUlAtWlFERGtnVERkVmlaZm1ud3dQLTNuQ1VPNU1jUmJpSGF2NmxMcmxnVmxzV3BWQnFzR0djdDh4eVNLQl90NG9ZTERqSTI1N2Y3SVdENk9nCmRldmljZU5hbWU9U2Ft4oCZcyBpUGhvbmUKc2NvcGVzPWFjY291bnRzLnJlYWQsYWNjb3VudHMuc3dhcCxjaGF0LG1lZGlhLnVwbG9hZCxzZWFyY2gsc2Vzc2lvbnMubWFuYWdlCmNvbXB1dGVyTmFtZT1TVFVESU8tUEMKZW5kcG9pbnRzPWh0dHBzOi8vc3R1ZGlvLTEudGFpbG5ldC1leGFtcGxlLnRzLm5ldCxodHRwOi8vMTI3LjAuMC4xOjM0NTgKZGV2aWNlTm9uY2U9SUNFaUl5UWxKaWNvS1NvckxDMHVMekF4TWpNME5UWTNPRGs2T3p3OVBqOApwYWlyZWRBdE1zPTE3OTAwMDAwMTUwMDA",
+      "signingInputLength": 542,
+      "sha256Hex": "bfddd3862356faea466b30f38c78e6d61d87a1f2a9b8bc07bb34218b8c6c6386",
+      "signature": "6xCnKSXe6w5I38SYqYkrBEPEpKiCOlPFZvxZOEhprxEOe1M3KXzPfzQ2Kt1EbAf3lUob1eMr0dMgpnK3DFi4Tg"
+    },
+    {
+      "name": "hello-response",
+      "purpose": "hello-response",
+      "signer": "computer",
+      "verifyWith": "computer",
+      "expectValid": true,
+      "fields": [
+        [
+          "computerId",
+          "c_ff392dwfMAEdmqePZGay"
+        ],
+        [
+          "deviceId",
+          "d_TViQs70r__UO4o8s844E"
+        ],
+        [
+          "clientNonce",
+          "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8"
+        ],
+        [
+          "serverNonce",
+          "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8"
+        ],
+        [
+          "streamEpoch",
+          "e_kJGSk5SVlpeYmZqb"
+        ],
+        [
+          "endpoints",
+          [
+            "https://studio-1.tailnet-example.ts.net",
+            "http://127.0.0.1:3458"
+          ]
+        ],
+        [
+          "apiVersion",
+          2
+        ],
+        [
+          "apiRevision",
+          0
+        ],
+        [
+          "ts",
+          1790000060000
+        ]
+      ],
+      "signingInputUtf8": "myrlin-sig/2\nhello-response\ncomputerId=c_ff392dwfMAEdmqePZGay\ndeviceId=d_TViQs70r__UO4o8s844E\nclientNonce=YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8\nserverNonce=QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8\nstreamEpoch=e_kJGSk5SVlpeYmZqb\nendpoints=https://studio-1.tailnet-example.ts.net,http://127.0.0.1:3458\napiVersion=2\napiRevision=0\nts=1790000060000",
+      "signingInputB64u": "bXlybGluLXNpZy8yCmhlbGxvLXJlc3BvbnNlCmNvbXB1dGVySWQ9Y19mZjM5MmR3Zk1BRWRtcWVQWkdheQpkZXZpY2VJZD1kX1RWaVFzNzByX19VTzRvOHM4NDRFCmNsaWVudE5vbmNlPVlHRmlZMlJsWm1kb2FXcHJiRzF1YjNCeGNuTjBkWFozZUhsNmUzeDlmbjgKc2VydmVyTm9uY2U9UUVGQ1EwUkZSa2RJU1VwTFRFMU9UMUJSVWxOVVZWWlhXRmxhVzF4ZFhsOApzdHJlYW1FcG9jaD1lX2tKR1NrNVNWbHBlWW1acWIKZW5kcG9pbnRzPWh0dHBzOi8vc3R1ZGlvLTEudGFpbG5ldC1leGFtcGxlLnRzLm5ldCxodHRwOi8vMTI3LjAuMC4xOjM0NTgKYXBpVmVyc2lvbj0yCmFwaVJldmlzaW9uPTAKdHM9MTc5MDAwMDA2MDAwMA",
+      "signingInputLength": 352,
+      "sha256Hex": "fc3d5e1686804e3499d91c288de9e425db6f60ace3f5af072d354d964077dd6f",
+      "signature": "hmKAA6p30djZWqWzBmfsIpDMX4U20XLUOwKdOJb54Xr89ExpEKrP9Qgh6xRjs2tKiBNzkOR85aLDhvwaqYFkAA"
+    },
+    {
+      "name": "session-request",
+      "purpose": "session-request",
+      "signer": "device",
+      "verifyWith": "device",
+      "expectValid": true,
+      "fields": [
+        [
+          "computerId",
+          "c_ff392dwfMAEdmqePZGay"
+        ],
+        [
+          "deviceId",
+          "d_TViQs70r__UO4o8s844E"
+        ],
+        [
+          "serverNonce",
+          "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8"
+        ],
+        [
+          "clientNonce",
+          "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8"
+        ],
+        [
+          "ts",
+          1790000060500
+        ]
+      ],
+      "signingInputUtf8": "myrlin-sig/2\nsession-request\ncomputerId=c_ff392dwfMAEdmqePZGay\ndeviceId=d_TViQs70r__UO4o8s844E\nserverNonce=QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8\nclientNonce=YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8\nts=1790000060500",
+      "signingInputB64u": "bXlybGluLXNpZy8yCnNlc3Npb24tcmVxdWVzdApjb21wdXRlcklkPWNfZmYzOTJkd2ZNQUVkbXFlUFpHYXkKZGV2aWNlSWQ9ZF9UVmlRczcwcl9fVU80bzhzODQ0RQpzZXJ2ZXJOb25jZT1RRUZDUTBSRlJrZElTVXBMVEUxT1QxQlJVbE5VVlZaWFdGbGFXMXhkWGw4CmNsaWVudE5vbmNlPVlHRmlZMlJsWm1kb2FXcHJiRzF1YjNCeGNuTjBkWFozZUhsNmUzeDlmbjgKdHM9MTc5MDAwMDA2MDUwMA",
+      "signingInputLength": 223,
+      "sha256Hex": "839d390f564e70d8c15835989c1a00e1a4228bbf83deeeb7472b567e1013c0f0",
+      "signature": "POw3LBCBt6f6epZeeIjZZ_TxX9r6c1NBdYRb5GlHB1LfT_uE446zrXJpWLDE_xQw2iofNHjBJolLXIXni8pQmA"
+    },
+    {
+      "name": "revoked",
+      "purpose": "revoked",
+      "signer": "computer",
+      "verifyWith": "computer",
+      "expectValid": true,
+      "fields": [
+        [
+          "computerId",
+          "c_ff392dwfMAEdmqePZGay"
+        ],
+        [
+          "deviceId",
+          "d_TViQs70r__UO4o8s844E"
+        ],
+        [
+          "clientNonce",
+          "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8"
+        ],
+        [
+          "revokedAtMs",
+          1790086400000
+        ]
+      ],
+      "signingInputUtf8": "myrlin-sig/2\nrevoked\ncomputerId=c_ff392dwfMAEdmqePZGay\ndeviceId=d_TViQs70r__UO4o8s844E\nclientNonce=YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8\nrevokedAtMs=1790086400000",
+      "signingInputB64u": "bXlybGluLXNpZy8yCnJldm9rZWQKY29tcHV0ZXJJZD1jX2ZmMzkyZHdmTUFFZG1xZVBaR2F5CmRldmljZUlkPWRfVFZpUXM3MHJfX1VPNG84czg0NEUKY2xpZW50Tm9uY2U9WUdGaVkyUmxabWRvYVdwcmJHMXViM0J4Y25OMGRYWjNlSGw2ZTN4OWZuOApyZXZva2VkQXRNcz0xNzkwMDg2NDAwMDAw",
+      "signingInputLength": 168,
+      "sha256Hex": "77fc78e2ab6bc72b17719d75d9d58b2cac2cec0cb041051ab69bb39880349dfd",
+      "signature": "5SzA4K9NWPEJNPl1xESSefynrETawgKoHFnCS96OaRTBsQ7L-NuJkYqKd1p4tljSr6JL1lzEeR2hWxBL4N09iA"
+    },
+    {
+      "name": "session-request-tampered-ts",
+      "purpose": "session-request",
+      "signer": "device",
+      "verifyWith": "device",
+      "expectValid": false,
+      "note": "Fields changed after signing (ts plus 1); the signature from session-request must not verify.",
+      "fields": [
+        [
+          "computerId",
+          "c_ff392dwfMAEdmqePZGay"
+        ],
+        [
+          "deviceId",
+          "d_TViQs70r__UO4o8s844E"
+        ],
+        [
+          "serverNonce",
+          "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8"
+        ],
+        [
+          "clientNonce",
+          "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8"
+        ],
+        [
+          "ts",
+          1790000060501
+        ]
+      ],
+      "signingInputUtf8": "myrlin-sig/2\nsession-request\ncomputerId=c_ff392dwfMAEdmqePZGay\ndeviceId=d_TViQs70r__UO4o8s844E\nserverNonce=QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8\nclientNonce=YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8\nts=1790000060501",
+      "signingInputB64u": "bXlybGluLXNpZy8yCnNlc3Npb24tcmVxdWVzdApjb21wdXRlcklkPWNfZmYzOTJkd2ZNQUVkbXFlUFpHYXkKZGV2aWNlSWQ9ZF9UVmlRczcwcl9fVU80bzhzODQ0RQpzZXJ2ZXJOb25jZT1RRUZDUTBSRlJrZElTVXBMVEUxT1QxQlJVbE5VVlZaWFdGbGFXMXhkWGw4CmNsaWVudE5vbmNlPVlHRmlZMlJsWm1kb2FXcHJiRzF1YjNCeGNuTjBkWFozZUhsNmUzeDlmbjgKdHM9MTc5MDAwMDA2MDUwMQ",
+      "signingInputLength": 223,
+      "sha256Hex": "e2edf9d8bab29d81435e7fbd6056a5692f8f946d49bc9a81616e7a09fc7865f6",
+      "signature": "POw3LBCBt6f6epZeeIjZZ_TxX9r6c1NBdYRb5GlHB1LfT_uE446zrXJpWLDE_xQw2iofNHjBJolLXIXni8pQmA"
+    },
+    {
+      "name": "hello-response-wrong-key",
+      "purpose": "hello-response",
+      "signer": "attacker",
+      "verifyWith": "computer",
+      "expectValid": false,
+      "note": "Signed by a key that is not the pinned computer key; the phone must reject it.",
+      "fields": [
+        [
+          "computerId",
+          "c_ff392dwfMAEdmqePZGay"
+        ],
+        [
+          "deviceId",
+          "d_TViQs70r__UO4o8s844E"
+        ],
+        [
+          "clientNonce",
+          "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8"
+        ],
+        [
+          "serverNonce",
+          "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8"
+        ],
+        [
+          "streamEpoch",
+          "e_kJGSk5SVlpeYmZqb"
+        ],
+        [
+          "endpoints",
+          [
+            "https://studio-1.tailnet-example.ts.net",
+            "http://127.0.0.1:3458"
+          ]
+        ],
+        [
+          "apiVersion",
+          2
+        ],
+        [
+          "apiRevision",
+          0
+        ],
+        [
+          "ts",
+          1790000060000
+        ]
+      ],
+      "signingInputUtf8": "myrlin-sig/2\nhello-response\ncomputerId=c_ff392dwfMAEdmqePZGay\ndeviceId=d_TViQs70r__UO4o8s844E\nclientNonce=YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8\nserverNonce=QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8\nstreamEpoch=e_kJGSk5SVlpeYmZqb\nendpoints=https://studio-1.tailnet-example.ts.net,http://127.0.0.1:3458\napiVersion=2\napiRevision=0\nts=1790000060000",
+      "signingInputB64u": "bXlybGluLXNpZy8yCmhlbGxvLXJlc3BvbnNlCmNvbXB1dGVySWQ9Y19mZjM5MmR3Zk1BRWRtcWVQWkdheQpkZXZpY2VJZD1kX1RWaVFzNzByX19VTzRvOHM4NDRFCmNsaWVudE5vbmNlPVlHRmlZMlJsWm1kb2FXcHJiRzF1YjNCeGNuTjBkWFozZUhsNmUzeDlmbjgKc2VydmVyTm9uY2U9UUVGQ1EwUkZSa2RJU1VwTFRFMU9UMUJSVWxOVVZWWlhXRmxhVzF4ZFhsOApzdHJlYW1FcG9jaD1lX2tKR1NrNVNWbHBlWW1acWIKZW5kcG9pbnRzPWh0dHBzOi8vc3R1ZGlvLTEudGFpbG5ldC1leGFtcGxlLnRzLm5ldCxodHRwOi8vMTI3LjAuMC4xOjM0NTgKYXBpVmVyc2lvbj0yCmFwaVJldmlzaW9uPTAKdHM9MTc5MDAwMDA2MDAwMA",
+      "signingInputLength": 352,
+      "sha256Hex": "fc3d5e1686804e3499d91c288de9e425db6f60ace3f5af072d354d964077dd6f",
+      "signature": "Kd9EqoN0xcRAK9M7iRQOyuuvcttV6dEpJIMO9BYxpny3bjjd0UW-Bo9FnL0SqzmolY-hT8-iXEn0NoLzL9dq5g"
+    }
+  ],
+  "matchCode": {
+    "purpose": "match-code",
+    "fields": [
+      [
+        "computerPublicKey",
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKu21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOOP_L-qLSosb-FQB1eePv_WFQTISoDMmDfAUerb3FHQ6Q"
+      ],
+      [
+        "devicePublicKey",
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og"
+      ],
+      [
+        "deviceNonce",
+        "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8"
+      ],
+      [
+        "serverNonce",
+        "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8"
+      ]
+    ],
+    "signingInputUtf8": "myrlin-sig/2\nmatch-code\ncomputerPublicKey=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKu21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOOP_L-qLSosb-FQB1eePv_WFQTISoDMmDfAUerb3FHQ6Q\ndevicePublicKey=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEVPoBmRP-ZQDDkgTDdViZfmnwwP-3nCUO5McRbiHav6lLrlgVlsWpVBqsGGct8xySKB_t4oYLDjI257f7IWD6Og\ndeviceNonce=ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8\nserverNonce=QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8",
+    "signingInputB64u": "bXlybGluLXNpZy8yCm1hdGNoLWNvZGUKY29tcHV0ZXJQdWJsaWNLZXk9TUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFS3UyMUhlMURReElhWjFoNjhKSTJ6aGxJbjZNNjFER2xMOXBtXzVrX29PT1BfTC1xTFNvc2ItRlFCMWVlUHZfV0ZRVElTb0RNbURmQVVlcmIzRkhRNlEKZGV2aWNlUHVibGljS2V5PU1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRVZQb0JtUlAtWlFERGtnVERkVmlaZm1ud3dQLTNuQ1VPNU1jUmJpSGF2NmxMcmxnVmxzV3BWQnFzR0djdDh4eVNLQl90NG9ZTERqSTI1N2Y3SVdENk9nCmRldmljZU5vbmNlPUlDRWlJeVFsSmljb0tTb3JMQzB1THpBeE1qTTBOVFkzT0RrNk96dzlQajgKc2VydmVyTm9uY2U9UUVGQ1EwUkZSa2RJU1VwTFRFMU9UMUJSVWxOVVZWWlhXRmxhVzF4ZFhsOA",
+    "sha256Hex": "caa9cc178330c4dfb019f8689bc33fff3df079623c0e8839c987e63d878bb3f2",
+    "uint32": 3400125463,
+    "code": "5463",
+    "mitmCode": "1563",
+    "mitmNote": "The code the phone would show if a man in the middle replaced the computer key with the attacker key. It differs from \"code\"."
+  },
+  "manualCode": {
+    "bytesHex": "b0b1b2b3b4",
+    "code": "P2RV5CXM",
+    "display": "P2RV-5CXM",
+    "alphabet": "0123456789ABCDEFGHJKMNPQRSTVWXYZ",
+    "normalizes": [
+      {
+        "typed": "p2rv 5cxm",
+        "normalized": "P2RV5CXM"
+      },
+      {
+        "typed": "P2RV-5CXM",
+        "normalized": "P2RV5CXM"
+      },
+      {
+        "typed": "o1il-OOOO",
+        "normalized": "01110000"
+      }
+    ]
+  },
+  "qr": {
+    "scheme": {
+      "link": "myrlin://pair#v=2&o=oKGio6Sl&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&pk=ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78&n=STUDIO-PC&e=https%3A%2F%2Fstudio-1.tailnet-example.ts.net,http%3A%2F%2F127.0.0.1%3A3458",
+      "lengthChars": 211,
+      "parsed": {
+        "v": "2",
+        "o": "oKGio6Sl",
+        "s": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "pk": "ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78",
+        "n": "STUDIO-PC",
+        "e": [
+          "https://studio-1.tailnet-example.ts.net",
+          "http://127.0.0.1:3458"
+        ]
+      }
+    },
+    "universal": {
+      "link": "https://myrlin.io/p#v=2&o=oKGio6Sl&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&pk=ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78&n=STUDIO-PC&e=https%3A%2F%2Fstudio-1.tailnet-example.ts.net,http%3A%2F%2F127.0.0.1%3A3458",
+      "lengthChars": 217,
+      "parsed": {
+        "v": "2",
+        "o": "oKGio6Sl",
+        "s": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "pk": "ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78",
+        "n": "STUDIO-PC",
+        "e": [
+          "https://studio-1.tailnet-example.ts.net",
+          "http://127.0.0.1:3458"
+        ]
+      }
+    },
+    "maxLengthChars": 300
+  }
+}

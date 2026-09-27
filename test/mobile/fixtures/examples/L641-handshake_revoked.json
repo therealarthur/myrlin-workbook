@@ -1,0 +1,9 @@
+{
+  "error": "This iPhone was removed from STUDIO-PC.",
+  "code": "DEVICE_REVOKED",
+  "computerId": "c_ff392dwfMAEdmqePZGay",
+  "deviceId": "d_TViQs70r__UO4o8s844E",
+  "clientNonce": "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8",
+  "revokedAtMs": 1790086400000,
+  "sig": "4nRIswozFhV_jvF-InCRzM7PkL2hCrmmemMe1u9pYJiqXSdxuWyiuw9EXKDTxvlwJ7OjWiwyefkao8-qRR07cQ"
+}

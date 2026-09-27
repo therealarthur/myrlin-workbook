@@ -1,0 +1,30 @@
+{
+  "listener": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 3458,
+    "running": true,
+    "error": null
+  },
+  "identity": {
+    "computerId": "c_ff392dwfMAEdmqePZGay",
+    "fingerprint": "ff392dwfMAEdmqePZGayeCt2nvoqGyRU1is76HaAx78",
+    "createdAtMs": 1790000000000
+  },
+  "endpoints": [
+    {
+      "url": "https://studio-1.tailnet-example.ts.net",
+      "kind": "tailscale",
+      "priority": 0
+    }
+  ],
+  "legacyPairEnabled": false,
+  "screenModel": true,
+  "push": {
+    "configured": false,
+    "keyId": null,
+    "lastError": null
+  },
+  "deviceCount": 1,
+  "streamEpoch": "e_kJGSk5SVlpeYmZqb"
+}

@@ -1,0 +1,23 @@
+{
+  "query": "jitter",
+  "results": [
+    {
+      "kind": "session",
+      "id": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+      "title": "Fix sidebar jitter",
+      "subtitle": "Myrlin iOS",
+      "provider": "claude",
+      "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+      "projectId": "ws_a",
+      "workingDir": "C:\\Users\\dev\\Projects\\myrlin-ios",
+      "lastActiveAtMs": 1790000100000,
+      "matchRanges": [
+        [
+          12,
+          18
+        ]
+      ]
+    }
+  ],
+  "durationMs": 4
+}

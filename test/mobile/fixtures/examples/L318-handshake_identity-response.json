@@ -1,0 +1,11 @@
+{
+  "computerId": "c_ff392dwfMAEdmqePZGay",
+  "computerPublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKu21He1DQxIaZ1h68JI2zhlIn6M61DGlL9pm_5k_oOOP_L-qLSosb-FQB1eePv_WFQTISoDMmDfAUerb3FHQ6Q",
+  "name": "STUDIO-PC",
+  "workbookVersion": "1.4.0-alpha.1",
+  "apiVersion": 2,
+  "apiRevision": 0,
+  "clientNonce": "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8",
+  "ts": 1790000000000,
+  "sig": "4nRIswozFhV_jvF-InCRzM7PkL2hCrmmemMe1u9pYJiqXSdxuWyiuw9EXKDTxvlwJ7OjWiwyefkao8-qRR07cQ"
+}

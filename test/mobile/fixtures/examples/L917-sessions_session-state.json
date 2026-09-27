@@ -1,0 +1,13 @@
+{
+  "sessionId": "cl_733b51a7-b861-4e1c-98b2-5af241fede0f",
+  "state": "working",
+  "enteredAtMs": 1790000100000,
+  "turnId": "t_5b7c0d2e-1f3a-4c55-9e0a-7d2b1c9f8e61",
+  "turnStartedAtMs": 1790000088000,
+  "toolName": "Bash",
+  "detail": "npm test",
+  "source": "transcript",
+  "lastActivityAtMs": 1790000100000,
+  "queuedSends": 0,
+  "estimatedThinkingTokens": null
+}

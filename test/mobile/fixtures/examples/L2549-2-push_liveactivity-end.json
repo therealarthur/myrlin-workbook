@@ -1,0 +1,14 @@
+{
+  "aps": {
+    "timestamp": 1790000170,
+    "event": "end",
+    "content-state": {
+      "computerName": "STUDIO-PC",
+      "sessions": [],
+      "urgentSessionId": null,
+      "updatedAtMs": 1790000170000
+    },
+    "stale-date": 1790001070,
+    "dismissal-date": 1790001070
+  }
+}

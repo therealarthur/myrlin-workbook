@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/common/defs.json",
+  "title": "Shared definitions",
+  "description": "Ids, encodings and enums shared by every mobile v2 schema. PROTOCOL.md sections 0 and 3.",
+  "$defs": {
+    "Nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "description": "32 random bytes, base64url without padding"
+    },
+    "Signature": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{86}$",
+      "description": "raw r||s ECDSA P-256 signature, 64 bytes, base64url"
+    },
+    "PublicKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{122}$",
+      "description": "SPKI DER of an uncompressed P-256 key (91 bytes), base64url"
+    },
+    "Fingerprint": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "description": "base64url(SHA-256(SPKI DER))"
+    },
+    "ComputerId": {
+      "type": "string",
+      "pattern": "^c_[A-Za-z0-9_-]{20}$"
+    },
+    "DeviceId": {
+      "type": "string",
+      "pattern": "^d_[A-Za-z0-9_-]{20}$"
+    },
+    "SessionId": {
+      "type": "string",
+      "pattern": "^(cl|cx|wb)_[A-Za-z0-9._:-]{1,120}$"
+    },
+    "PromptId": {
+      "type": "string",
+      "pattern": "^p_[A-Za-z0-9_-]{20}$"
+    },
+    "OfferId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8}$"
+    },
+    "PairId": {
+      "type": "string",
+      "pattern": "^pr_[A-Za-z0-9_-]{22}$"
+    },
+    "UploadId": {
+      "type": "string",
+      "pattern": "^u_[A-Za-z0-9_-]{22}$"
+    },
+    "MigrationId": {
+      "type": "string",
+      "pattern": "^mg_[A-Za-z0-9_-]{22}$"
+    },
+    "StreamEpoch": {
+      "type": "string",
+      "pattern": "^e_[A-Za-z0-9_-]{16}$"
+    },
+    "TurnId": {
+      "type": "string",
+      "pattern": "^t_[A-Za-z0-9._:-]{1,120}$"
+    },
+    "MessageId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "Uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "Cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "TimestampMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "DurationMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Provider": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "codex"
+      ]
+    },
+    "Scope": {
+      "type": "string",
+      "enum": [
+        "chat",
+        "sessions.manage",
+        "accounts.read",
+        "accounts.swap",
+        "media.upload",
+        "search",
+        "pty.raw"
+      ]
+    },
+    "Owner": {
+      "type": "string",
+      "enum": [
+        "workbook",
+        "background",
+        "none",
+        "external",
+        "chatgpt",
+        "handedOff"
+      ]
+    },
+    "SessionStateName": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "queued",
+        "thinking",
+        "working",
+        "streaming",
+        "needsAnswer",
+        "needsApproval",
+        "sleeping",
+        "interrupted",
+        "failed"
+      ]
+    },
+    "TitleSource": {
+      "type": "string",
+      "enum": [
+        "workbook",
+        "titleStore",
+        "provider",
+        "firstMessage",
+        "none"
+      ]
+    },
+    "EndpointKind": {
+      "type": "string",
+      "enum": [
+        "tailscale",
+        "loopback",
+        "lan",
+        "relay",
+        "custom"
+      ]
+    },
+    "Endpoint": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "pattern": "^(https|http)://[^/\\s]+$"
+        },
+        "kind": {
+          "$ref": "#/$defs/EndpointKind"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        }
+      },
+      "required": [
+        "url",
+        "kind",
+        "priority"
+      ],
+      "additionalProperties": true
+    },
+    "DiffStat": {
+      "type": "object",
+      "properties": {
+        "added": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "removed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "added",
+        "removed",
+        "files"
+      ],
+      "additionalProperties": true
+    },
+    "CodeAndError": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "code",
+        "error"
+      ],
+      "additionalProperties": true
+    },
+    "CodeErrorRetryable": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "error",
+        "retryable"
+      ],
+      "additionalProperties": true
+    },
+    "HexToken": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{16,512}$"
+    },
+    "Sha256Hex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "StreamSnapshot": {
+      "type": "object",
+      "properties": {
+        "streamEpoch": {
+          "$ref": "#/$defs/StreamEpoch"
+        },
+        "streamSeq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "streamEpoch",
+        "streamSeq"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

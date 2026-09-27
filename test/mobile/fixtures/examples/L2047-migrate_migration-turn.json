@@ -1,0 +1,14 @@
+{
+  "turn": 123,
+  "ts": 1789000000000,
+  "user": "Fix the pairing 429.",
+  "events": [
+    {
+      "kind": "assistant",
+      "text": "...",
+      "ts": 1789000005000
+    }
+  ],
+  "rawPath": "C:\\Users\\dev\\.claude\\projects\\...\\733b....jsonl",
+  "rawOffset": 51234567
+}

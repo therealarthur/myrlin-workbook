@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/session-meta.json",
+  "title": "SessionMeta",
+  "description": "Full description of one session; also the data of session.meta. PROTOCOL.md 3.4.4.",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "titleSource": {
+      "$ref": "../common/defs.json#/$defs/TitleSource"
+    },
+    "provider": {
+      "$ref": "../common/defs.json#/$defs/Provider"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "effort": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "permissionMode": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sandbox": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "approvalPolicy": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "workingDir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "branch": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "owner": {
+      "$ref": "../common/defs.json#/$defs/Owner"
+    },
+    "ownerDetail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "live": {
+      "type": "boolean"
+    },
+    "projectId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "folderId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tabGroupIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "archived": {
+      "type": "boolean"
+    },
+    "lineage": {
+      "anyOf": [
+        {
+          "$ref": "./lineage.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "settingsPendingRestart": {
+      "type": "boolean"
+    },
+    "readOnlyReason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "supersededBy": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/SessionId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sizeBytes": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "formatDrift": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "sessionId",
+    "title",
+    "titleSource",
+    "provider",
+    "model",
+    "effort",
+    "permissionMode",
+    "sandbox",
+    "approvalPolicy",
+    "workingDir",
+    "branch",
+    "owner",
+    "ownerDetail",
+    "live",
+    "projectId",
+    "folderId",
+    "tabGroupIds",
+    "pinned",
+    "archived",
+    "lineage",
+    "settingsPendingRestart",
+    "readOnlyReason",
+    "supersededBy",
+    "sizeBytes",
+    "formatDrift"
+  ],
+  "additionalProperties": true
+}

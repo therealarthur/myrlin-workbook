@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/accounts/refresh-request.json",
+  "title": "AccountsRefreshRequest",
+  "description": "POST /api/m/v2/accounts/refresh. PROTOCOL.md 4.11.",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/Provider"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "provider"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/stream/events/sessions.changed.json",
+  "title": "Event sessions.changed",
+  "description": "The sessions.changed event with its envelope. PROTOCOL.md 5.4.",
+  "allOf": [
+    {
+      "$ref": "../envelope.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "const": "sessions"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "sessions.changed"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "changes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "change": {
+                    "type": "string",
+                    "enum": [
+                      "added",
+                      "updated",
+                      "removed",
+                      "idChanged"
+                    ]
+                  },
+                  "sessionId": {
+                    "$ref": "../../common/defs.json#/$defs/SessionId"
+                  },
+                  "previousSessionId": {
+                    "anyOf": [
+                      {
+                        "$ref": "../../common/defs.json#/$defs/SessionId"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "summary": {
+                    "anyOf": [
+                      {
+                        "$ref": "../../sessions/session-summary.json"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "change",
+                  "sessionId",
+                  "previousSessionId",
+                  "summary"
+                ],
+                "additionalProperties": true
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "changes"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "topic",
+        "seq",
+        "type",
+        "data"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

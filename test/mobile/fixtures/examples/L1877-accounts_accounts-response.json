@@ -1,0 +1,142 @@
+{
+  "accounts": {
+    "source": "workbook",
+    "generatedAtMs": 1790000150000,
+    "stalledSinceAtMs": null,
+    "swapsEnabled": true,
+    "swapsDisabledReason": null,
+    "glass": {
+      "apiAvailable": false,
+      "stateFileAgeMs": null
+    },
+    "providers": [
+      {
+        "provider": "claude",
+        "activeAccountId": "acc-uuid-1",
+        "swapEffect": "Running Claude Code sessions follow within about a second.",
+        "recommendation": null,
+        "accounts": [
+          {
+            "provider": "claude",
+            "accountId": "acc-uuid-1",
+            "email": "avery.lane@example.com",
+            "label": "Personal",
+            "displayName": "Personal",
+            "plan": "Max 20x",
+            "active": true,
+            "state": "ok",
+            "stateDetail": null,
+            "staleReason": null,
+            "windows": [
+              {
+                "key": "session",
+                "label": "Session",
+                "percent": 8,
+                "resetsAtMs": 1790002000000,
+                "windowSeconds": 18000,
+                "severity": "normal",
+                "ring": "outer"
+              },
+              {
+                "key": "weekly",
+                "label": "Weekly",
+                "percent": 80,
+                "resetsAtMs": 1790140000000,
+                "windowSeconds": 604800,
+                "severity": "warn",
+                "ring": "inner"
+              },
+              {
+                "key": "weekly:Fable",
+                "label": "Weekly Fable",
+                "percent": 0,
+                "resetsAtMs": 1790140000000,
+                "windowSeconds": 604800,
+                "severity": "normal",
+                "ring": "none"
+              }
+            ],
+            "asOfMs": 1790000100000,
+            "dataSource": "workbookCache",
+            "reloginInDays": null,
+            "headroom": 20,
+            "swappable": true,
+            "chip": "usable",
+            "lastActiveAtMs": 1790000100000
+          }
+        ]
+      },
+      {
+        "provider": "codex",
+        "activeAccountId": "acc-uuid-9",
+        "swapEffect": "Codex switches when it next starts.",
+        "recommendation": null,
+        "accounts": [
+          {
+            "provider": "codex",
+            "accountId": "acc-uuid-9",
+            "email": "avery.lane@example.com",
+            "label": "Personal",
+            "displayName": "Personal",
+            "plan": "Max 20x",
+            "active": true,
+            "state": "ok",
+            "stateDetail": null,
+            "staleReason": null,
+            "windows": [
+              {
+                "key": "session",
+                "label": "Session",
+                "percent": 8,
+                "resetsAtMs": 1790002000000,
+                "windowSeconds": 18000,
+                "severity": "normal",
+                "ring": "outer"
+              },
+              {
+                "key": "weekly",
+                "label": "Weekly",
+                "percent": 80,
+                "resetsAtMs": 1790140000000,
+                "windowSeconds": 604800,
+                "severity": "warn",
+                "ring": "inner"
+              },
+              {
+                "key": "weekly:Fable",
+                "label": "Weekly Fable",
+                "percent": 0,
+                "resetsAtMs": 1790140000000,
+                "windowSeconds": 604800,
+                "severity": "normal",
+                "ring": "none"
+              }
+            ],
+            "asOfMs": 1790000100000,
+            "dataSource": "workbookCache",
+            "reloginInDays": null,
+            "headroom": 20,
+            "swappable": true,
+            "chip": "usable",
+            "lastActiveAtMs": 1790000100000
+          }
+        ]
+      }
+    ],
+    "swapLog": [
+      {
+        "atMs": 1789990000000,
+        "provider": "claude",
+        "accountId": "acc-uuid-1",
+        "accountLabel": "Personal",
+        "source": "phone",
+        "requester": "phone:d_TViQs70r__UO4o8s844E",
+        "reason": null,
+        "ok": true
+      }
+    ],
+    "services": null
+  },
+  "streamEpoch": "e_kJGSk5SVlpeYmZqb",
+  "streamSeq": 7
+}

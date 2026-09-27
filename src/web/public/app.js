@@ -16924,6 +16924,13 @@ class CWMApp {
           this.loadDocs();
         }
         break;
+      case 'mobile:pair-request':
+      case 'mobile:pair-resolved':
+      case 'mobile:devices-changed':
+        // Mobile v2 (BUILD-CONTRACT S16): the Connect app modal, Allow dialog
+        // and Devices tab live in connect-app.js.
+        if (window.MyrlinConnectApp) window.MyrlinConnectApp.onEvent(data);
+        break;
       case 'discover:refreshed':
         // Plan 22-03: a provider's filesystem watcher (or fallback poll)
         // detected a change. Re-fetch /api/discover so the sidebar
@@ -31130,7 +31137,7 @@ class CWMApp {
     if (!btn || !overlay) return;
 
     // Open modal on button click
-    btn.addEventListener('click', () => this.showPairMobileModal());
+    btn.addEventListener('click', () => (window.MyrlinConnectApp ? window.MyrlinConnectApp.open(this) : this.showPairMobileModal()));
 
     // Close modal
     if (closeBtn) {
