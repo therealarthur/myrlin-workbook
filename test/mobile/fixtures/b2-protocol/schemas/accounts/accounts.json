@@ -1,0 +1,357 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/accounts/accounts.json",
+  "title": "AccountsSnapshot",
+  "description": "Glass parity accounts snapshot (A10); also the data of accounts.updated. PROTOCOL.md 3.11.",
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string",
+      "enum": [
+        "glass",
+        "workbook"
+      ]
+    },
+    "generatedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "stalledSinceAtMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TimestampMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "swapsEnabled": {
+      "type": "boolean"
+    },
+    "swapsDisabledReason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "glass": {
+      "type": "object",
+      "properties": {
+        "apiAvailable": {
+          "type": "boolean"
+        },
+        "stateFileAgeMs": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/DurationMs"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "apiAvailable",
+        "stateFileAgeMs"
+      ],
+      "additionalProperties": true
+    },
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "../common/defs.json#/$defs/Provider"
+          },
+          "activeAccountId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "swapEffect": {
+            "type": "string"
+          },
+          "recommendation": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "accountId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "accountId",
+                  "displayName",
+                  "reason"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "./account.json"
+            }
+          }
+        },
+        "required": [
+          "provider",
+          "activeAccountId",
+          "swapEffect",
+          "recommendation",
+          "accounts"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "swapLog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "atMs": {
+            "$ref": "../common/defs.json#/$defs/TimestampMs"
+          },
+          "provider": {
+            "$ref": "../common/defs.json#/$defs/Provider"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "accountLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "ui",
+              "tray",
+              "agent",
+              "phone",
+              "workbook"
+            ]
+          },
+          "requester": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "atMs",
+          "provider",
+          "accountId",
+          "accountLabel",
+          "source",
+          "requester",
+          "reason",
+          "ok"
+        ],
+        "additionalProperties": true
+      },
+      "maxItems": 20
+    },
+    "services": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "type": "string"
+            },
+            "slots": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "slotId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": [
+                      "normal",
+                      "warn",
+                      "critical",
+                      "limited"
+                    ]
+                  },
+                  "percent": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "windows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "percent": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
+                        },
+                        "resetsAtMs": {
+                          "anyOf": [
+                            {
+                              "$ref": "../common/defs.json#/$defs/TimestampMs"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "windowSeconds": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "severity": {
+                          "type": "string",
+                          "enum": [
+                            "normal",
+                            "warn",
+                            "critical",
+                            "limited"
+                          ]
+                        },
+                        "ring": {
+                          "type": "string",
+                          "enum": [
+                            "outer",
+                            "inner",
+                            "single",
+                            "none"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "percent",
+                        "resetsAtMs",
+                        "windowSeconds",
+                        "severity",
+                        "ring"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "detail": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "slotId",
+                  "name",
+                  "severity",
+                  "percent",
+                  "windows",
+                  "detail"
+                ],
+                "additionalProperties": true
+              }
+            }
+          },
+          "required": [
+            "summary",
+            "slots"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "source",
+    "generatedAtMs",
+    "stalledSinceAtMs",
+    "swapsEnabled",
+    "swapsDisabledReason",
+    "glass",
+    "providers",
+    "swapLog",
+    "services"
+  ],
+  "additionalProperties": true
+}

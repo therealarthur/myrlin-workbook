@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/accounts/login-request.json",
+  "title": "LoginRequest",
+  "description": "POST /api/m/v2/accounts/login. PROTOCOL.md 4.11.",
+  "type": "object",
+  "properties": {
+    "clientRequestId": {
+      "$ref": "../common/defs.json#/$defs/Uuid"
+    },
+    "provider": {
+      "$ref": "../common/defs.json#/$defs/Provider"
+    },
+    "accountId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "clientRequestId",
+    "provider",
+    "accountId"
+  ],
+  "additionalProperties": false
+}

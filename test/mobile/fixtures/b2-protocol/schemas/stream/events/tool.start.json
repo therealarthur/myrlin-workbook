@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/stream/events/tool.start.json",
+  "title": "Event tool.start",
+  "description": "The tool.start event with its envelope. PROTOCOL.md 5.4.",
+  "allOf": [
+    {
+      "$ref": "../envelope.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "pattern": "^session:(cl|cx|wb)_[A-Za-z0-9._:-]{1,120}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "tool.start"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "$ref": "../../common/defs.json#/$defs/SessionId"
+            },
+            "turnId": {
+              "anyOf": [
+                {
+                  "$ref": "../../common/defs.json#/$defs/TurnId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "toolCallId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "shell",
+                "read",
+                "edit",
+                "write",
+                "search",
+                "web",
+                "task",
+                "question",
+                "plan",
+                "todo",
+                "mcp",
+                "other"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "detail": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "startedAtMs": {
+              "$ref": "../../common/defs.json#/$defs/TimestampMs"
+            }
+          },
+          "required": [
+            "sessionId",
+            "turnId",
+            "toolCallId",
+            "name",
+            "kind",
+            "title",
+            "detail",
+            "startedAtMs"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "topic",
+        "seq",
+        "type",
+        "data"
+      ],
+      "additionalProperties": true
+    }
+  ]
+}

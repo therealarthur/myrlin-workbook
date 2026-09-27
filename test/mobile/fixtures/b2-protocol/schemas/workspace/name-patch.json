@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/workspace/name-patch.json",
+  "title": "NamePatch",
+  "description": "PATCH /api/m/v2/projects/:projectId and /folders/:folderId. PROTOCOL.md 4.5.2.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[^\\r\\n]+$"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}

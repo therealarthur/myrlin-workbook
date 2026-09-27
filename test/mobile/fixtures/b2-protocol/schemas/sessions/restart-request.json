@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/restart-request.json",
+  "title": "RestartRequest",
+  "description": "POST /api/m/v2/sessions/:sessionId/restart. PROTOCOL.md 4.5.4.",
+  "type": "object",
+  "properties": {
+    "clientRequestId": {
+      "$ref": "../common/defs.json#/$defs/Uuid"
+    },
+    "when": {
+      "type": "string",
+      "enum": [
+        "now",
+        "whenIdle"
+      ]
+    }
+  },
+  "required": [
+    "clientRequestId",
+    "when"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/sends.json",
+  "title": "SendList",
+  "description": "GET /api/m/v2/sessions/:sessionId/sends. PROTOCOL.md 4.4.5.",
+  "type": "object",
+  "properties": {
+    "sends": {
+      "type": "array",
+      "items": {
+        "$ref": "./send-record.json"
+      }
+    }
+  },
+  "required": [
+    "sends"
+  ],
+  "additionalProperties": true
+}

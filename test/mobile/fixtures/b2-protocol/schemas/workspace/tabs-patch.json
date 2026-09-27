@@ -1,0 +1,311 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/workspace/tabs-patch.json",
+  "title": "TabsPatch",
+  "description": "PATCH /api/m/v2/tabs: 1 to 50 intent operations applied in order, all or nothing. PROTOCOL.md 4.8.",
+  "type": "object",
+  "properties": {
+    "baseRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ops": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "createGroup"
+              },
+              "tempId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60,
+                "pattern": "^[^\\r\\n]+$"
+              },
+              "folderId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "afterGroupId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "tempId",
+              "name",
+              "folderId",
+              "afterGroupId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "renameGroup"
+              },
+              "groupId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60,
+                "pattern": "^[^\\r\\n]+$"
+              }
+            },
+            "required": [
+              "op",
+              "groupId",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "deleteGroup"
+              },
+              "groupId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "op",
+              "groupId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "moveGroup"
+              },
+              "groupId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "afterGroupId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "folderId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "groupId",
+              "afterGroupId",
+              "folderId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "moveSession"
+              },
+              "sessionId": {
+                "$ref": "../common/defs.json#/$defs/SessionId"
+              },
+              "toGroupId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "index": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "sessionId",
+              "toGroupId",
+              "index"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "removeSession"
+              },
+              "sessionId": {
+                "$ref": "../common/defs.json#/$defs/SessionId"
+              },
+              "groupId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "op",
+              "sessionId",
+              "groupId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "reorderSessions"
+              },
+              "groupId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sessionIds": {
+                "type": "array",
+                "items": {
+                  "$ref": "../common/defs.json#/$defs/SessionId"
+                },
+                "maxItems": 6,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "op",
+              "groupId",
+              "sessionIds"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "createFolder"
+              },
+              "tempId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60,
+                "pattern": "^[^\\r\\n]+$"
+              },
+              "color": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "tempId",
+              "name",
+              "color"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "renameFolder"
+              },
+              "folderId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60,
+                "pattern": "^[^\\r\\n]+$"
+              }
+            },
+            "required": [
+              "op",
+              "folderId",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "const": "deleteFolder"
+              },
+              "folderId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "op",
+              "folderId"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 50
+    }
+  },
+  "required": [
+    "baseRevision",
+    "ops"
+  ],
+  "additionalProperties": false
+}

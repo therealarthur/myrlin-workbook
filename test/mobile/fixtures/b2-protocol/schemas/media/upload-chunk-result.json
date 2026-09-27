@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/media/upload-chunk-result.json",
+  "title": "UploadChunkResult",
+  "description": "Answer of PUT /uploads/:uploadId/chunks?offset=. PROTOCOL.md 4.10.",
+  "type": "object",
+  "properties": {
+    "uploadId": {
+      "$ref": "../common/defs.json#/$defs/UploadId"
+    },
+    "receivedBytes": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "uploadId",
+    "receivedBytes"
+  ],
+  "additionalProperties": true
+}

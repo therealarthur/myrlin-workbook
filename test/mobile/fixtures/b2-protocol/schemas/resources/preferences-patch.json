@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/resources/preferences-patch.json",
+  "title": "PreferencesPatch",
+  "description": "PATCH /api/m/v2/devices/me/preferences: any subset, nested merge, no nulls. PROTOCOL.md 4.3.4.",
+  "type": "object",
+  "properties": {
+    "notifications": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "boolean"
+        },
+        "approval": {
+          "type": "boolean"
+        },
+        "finished": {
+          "type": "boolean"
+        },
+        "finishedMinMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "accountThresholds": {
+          "type": "boolean"
+        },
+        "agentSwaps": {
+          "type": "boolean"
+        },
+        "migrationReady": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "properties": {
+        "hideSessionNames": {
+          "type": "boolean"
+        },
+        "showMessageText": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "liveActivity": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

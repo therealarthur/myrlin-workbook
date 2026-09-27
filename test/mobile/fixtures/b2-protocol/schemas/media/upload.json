@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/media/upload.json",
+  "title": "Upload",
+  "description": "An upload; also the data of upload.progress. PROTOCOL.md 3.10 and 4.10.",
+  "type": "object",
+  "properties": {
+    "uploadId": {
+      "$ref": "../common/defs.json#/$defs/UploadId"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "image",
+        "video"
+      ]
+    },
+    "filename": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mediaType": {
+      "type": "string",
+      "minLength": 3
+    },
+    "totalBytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "receivedBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "receiving",
+        "ready",
+        "failed",
+        "expired"
+      ]
+    },
+    "sha256": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/Sha256Hex"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "width": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "height": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "durationMs": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/DurationMs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sessionId": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/SessionId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "chunkBytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "createdAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "expiresAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    }
+  },
+  "required": [
+    "uploadId",
+    "kind",
+    "filename",
+    "mediaType",
+    "totalBytes",
+    "receivedBytes",
+    "state",
+    "sha256",
+    "path",
+    "width",
+    "height",
+    "durationMs",
+    "sessionId",
+    "chunkBytes",
+    "createdAtMs",
+    "expiresAtMs"
+  ],
+  "additionalProperties": true
+}

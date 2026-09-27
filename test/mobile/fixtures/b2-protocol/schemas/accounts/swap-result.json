@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/accounts/swap-result.json",
+  "title": "SwapResult",
+  "description": "200 answer of POST /accounts/swap. PROTOCOL.md 4.11.",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "alreadyActive": {
+      "type": "boolean"
+    },
+    "provider": {
+      "$ref": "../common/defs.json#/$defs/Provider"
+    },
+    "activeAccountId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "previousAccountId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "message": {
+      "type": "string"
+    },
+    "restartNote": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "runningProcesses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pid": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pid",
+          "name",
+          "path"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "undo": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "accountId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expiresAtMs": {
+              "$ref": "../common/defs.json#/$defs/TimestampMs"
+            }
+          },
+          "required": [
+            "accountId",
+            "expiresAtMs"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "ok",
+    "alreadyActive",
+    "provider",
+    "activeAccountId",
+    "previousAccountId",
+    "message",
+    "restartNote",
+    "runningProcesses",
+    "undo"
+  ],
+  "additionalProperties": true
+}

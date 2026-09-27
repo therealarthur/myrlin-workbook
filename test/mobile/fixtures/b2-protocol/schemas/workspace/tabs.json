@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/workspace/tabs.json",
+  "title": "TabsState",
+  "description": "The desktop tab groups as the phone sees them. PROTOCOL.md 3.9.",
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "folderId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sessionIds": {
+            "type": "array",
+            "items": {
+              "$ref": "../common/defs.json#/$defs/SessionId"
+            },
+            "maxItems": 6
+          },
+          "capacity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "hiddenPanes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "folderId",
+          "sessionIds",
+          "capacity",
+          "hiddenPanes"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "folders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "collapsed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "color",
+          "collapsed"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "desktopActiveGroupId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "revision",
+    "groups",
+    "folders",
+    "desktopActiveGroupId"
+  ],
+  "additionalProperties": true
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/admin/test-push-result.json",
+  "title": "TestPushResult",
+  "description": "Answer of POST /api/mobile-admin/devices/:deviceId/test-push. PROTOCOL.md 11.4.",
+  "type": "object",
+  "properties": {
+    "sent": {
+      "const": true
+    },
+    "apnsId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "sent",
+    "apnsId"
+  ],
+  "additionalProperties": true
+}

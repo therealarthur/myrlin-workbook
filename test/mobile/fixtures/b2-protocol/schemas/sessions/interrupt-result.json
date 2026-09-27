@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/interrupt-result.json",
+  "title": "InterruptResult",
+  "description": "Answer of POST .../interrupt. PROTOCOL.md 4.4.6 and 7.5.",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "sent",
+        "debounced"
+      ]
+    },
+    "sentAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    }
+  },
+  "required": [
+    "status",
+    "sentAtMs"
+  ],
+  "additionalProperties": true
+}

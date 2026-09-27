@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/resume-anyway-request.json",
+  "title": "ResumeAnywayRequest",
+  "description": "POST /api/m/v2/sessions/:sessionId/resume-anyway. PROTOCOL.md 4.5.7.",
+  "type": "object",
+  "properties": {
+    "clientRequestId": {
+      "$ref": "../common/defs.json#/$defs/Uuid"
+    },
+    "confirm": {
+      "const": true
+    }
+  },
+  "required": [
+    "clientRequestId",
+    "confirm"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/lineage.json",
+  "title": "Lineage",
+  "description": "Migration links of a session. PROTOCOL.md 3.4.7.",
+  "type": "object",
+  "properties": {
+    "migratedFrom": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "$ref": "../common/defs.json#/$defs/SessionId"
+            },
+            "migrationId": {
+              "$ref": "../common/defs.json#/$defs/MigrationId"
+            },
+            "atMs": {
+              "$ref": "../common/defs.json#/$defs/TimestampMs"
+            }
+          },
+          "required": [
+            "sessionId",
+            "migrationId",
+            "atMs"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "handedOffTo": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "$ref": "../common/defs.json#/$defs/SessionId"
+            },
+            "migrationId": {
+              "$ref": "../common/defs.json#/$defs/MigrationId"
+            },
+            "atMs": {
+              "$ref": "../common/defs.json#/$defs/TimestampMs"
+            }
+          },
+          "required": [
+            "sessionId",
+            "migrationId",
+            "atMs"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "migratedFrom",
+    "handedOffTo"
+  ],
+  "additionalProperties": true
+}

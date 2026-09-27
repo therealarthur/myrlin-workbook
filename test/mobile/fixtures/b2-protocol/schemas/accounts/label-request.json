@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/accounts/label-request.json",
+  "title": "LabelRequest",
+  "description": "PUT /api/m/v2/accounts/:provider/:accountId/label. PROTOCOL.md 4.11.",
+  "type": "object",
+  "properties": {
+    "label": {
+      "type": "string",
+      "maxLength": 60,
+      "pattern": "^[^\\r\\n]*$"
+    }
+  },
+  "required": [
+    "label"
+  ],
+  "additionalProperties": false
+}

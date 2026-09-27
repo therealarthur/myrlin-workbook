@@ -1,0 +1,3 @@
+#!/bin/sh
+# Fake codex CLI wrapper for the B2 tests and the Mac sandbox (BUILD-CONTRACT 3.6.3).
+exec node "$(dirname "$0")/../codex.js" "$@"

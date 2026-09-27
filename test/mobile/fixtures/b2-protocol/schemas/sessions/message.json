@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/sessions/message.json",
+  "title": "Message",
+  "description": "One message with typed parts and a stable id. PROTOCOL.md 3.6.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "$ref": "../common/defs.json#/$defs/MessageId"
+    },
+    "sessionId": {
+      "$ref": "../common/defs.json#/$defs/SessionId"
+    },
+    "turnId": {
+      "anyOf": [
+        {
+          "$ref": "../common/defs.json#/$defs/TurnId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "user",
+        "assistant",
+        "tool",
+        "system"
+      ]
+    },
+    "ts": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "final",
+        "pending"
+      ]
+    },
+    "origin": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "phone",
+            "desktop",
+            "terminal",
+            "scheduler",
+            "migration",
+            "provider",
+            "unknown"
+          ]
+        },
+        "deviceId": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/DeviceId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "clientMessageId": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/Uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "deviceId",
+        "clientMessageId"
+      ],
+      "additionalProperties": true
+    },
+    "parts": {
+      "type": "array",
+      "items": {
+        "$ref": "./part.json"
+      }
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "$ref": "./attachment-ref.json"
+      }
+    },
+    "usage": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "inputTokens": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "outputTokens": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cacheReadTokens": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cacheCreationTokens": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "inputTokens",
+            "outputTokens",
+            "cacheReadTokens",
+            "cacheCreationTokens"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cursor": {
+      "$ref": "../common/defs.json#/$defs/Cursor"
+    }
+  },
+  "required": [
+    "id",
+    "sessionId",
+    "turnId",
+    "role",
+    "ts",
+    "model",
+    "status",
+    "origin",
+    "parts",
+    "attachments",
+    "usage",
+    "cursor"
+  ],
+  "additionalProperties": true
+}

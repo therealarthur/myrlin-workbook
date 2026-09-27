@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/migrate/migration-report.json",
+  "title": "MigrationReport",
+  "description": "GET /api/m/v2/migrations/:migrationId/report. PROTOCOL.md 4.12.6.",
+  "type": "object",
+  "properties": {
+    "migrationId": {
+      "$ref": "../common/defs.json#/$defs/MigrationId"
+    },
+    "header": {
+      "$ref": "./report-header.json"
+    },
+    "markdown": {
+      "type": "string"
+    },
+    "savedAtMs": {
+      "$ref": "../common/defs.json#/$defs/TimestampMs"
+    },
+    "coveragePercent": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "tripwire": {
+      "type": "object",
+      "properties": {
+        "changed": {
+          "type": "boolean"
+        },
+        "diffStat": {
+          "anyOf": [
+            {
+              "$ref": "../common/defs.json#/$defs/DiffStat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "changed",
+        "diffStat"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "migrationId",
+    "header",
+    "markdown",
+    "savedAtMs",
+    "coveragePercent",
+    "tripwire"
+  ],
+  "additionalProperties": true
+}

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/migrate/report-header.json",
+  "title": "ReportHeader",
+  "description": "The takeover report JSON header, camelCased by Workbook (A20, F15). PROTOCOL.md 4.12.6.",
+  "type": "object",
+  "properties": {
+    "takeoverReport": {
+      "const": 1
+    },
+    "verdict": {
+      "type": "string"
+    },
+    "claimsChecked": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "claimsHeld": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "claimsFailed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "claimsUnverifiable": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "suspectedMistakes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "openIssues": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "solvedVerified": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "learned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "coverage": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    }
+  },
+  "required": [
+    "takeoverReport",
+    "verdict",
+    "claimsChecked",
+    "claimsHeld",
+    "claimsFailed",
+    "claimsUnverifiable",
+    "suspectedMistakes",
+    "openIssues",
+    "solvedVerified",
+    "learned",
+    "coverage",
+    "confidence"
+  ],
+  "additionalProperties": true
+}

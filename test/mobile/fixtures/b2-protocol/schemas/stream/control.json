@@ -1,0 +1,437 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/stream/control.json",
+  "title": "ControlFrame",
+  "description": "Server control frames (topic $control, seq 0). PROTOCOL.md 5.3.",
+  "oneOf": [
+    {
+      "allOf": [
+        {
+          "$ref": "./envelope.json"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic": {
+              "const": "$control"
+            },
+            "seq": {
+              "const": 0
+            },
+            "type": {
+              "const": "ready"
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "streamEpoch": {
+                  "$ref": "../common/defs.json#/$defs/StreamEpoch"
+                },
+                "deviceId": {
+                  "$ref": "../common/defs.json#/$defs/DeviceId"
+                },
+                "serverTs": {
+                  "$ref": "../common/defs.json#/$defs/TimestampMs"
+                },
+                "heartbeatIntervalMs": {
+                  "$ref": "../common/defs.json#/$defs/DurationMs"
+                },
+                "idleTimeoutMs": {
+                  "$ref": "../common/defs.json#/$defs/DurationMs"
+                },
+                "maxTopics": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "topics": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "topic": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "currentSeq": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "topic",
+                      "currentSeq"
+                    ],
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "required": [
+                "streamEpoch",
+                "deviceId",
+                "serverTs",
+                "heartbeatIntervalMs",
+                "idleTimeoutMs",
+                "maxTopics",
+                "topics"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "topic",
+            "seq",
+            "type",
+            "data"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "./envelope.json"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic": {
+              "const": "$control"
+            },
+            "seq": {
+              "const": 0
+            },
+            "type": {
+              "const": "subscribed"
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "topics": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "topic": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "currentSeq": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "replayed": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "live",
+                          "replay",
+                          "resync"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "topic",
+                      "currentSeq",
+                      "replayed",
+                      "mode"
+                    ],
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "topics"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "topic",
+            "seq",
+            "type",
+            "data"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "./envelope.json"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic": {
+              "const": "$control"
+            },
+            "seq": {
+              "const": 0
+            },
+            "type": {
+              "const": "resync"
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "EPOCH_CHANGED",
+                    "RING_EXPIRED",
+                    "SEQ_AHEAD"
+                  ]
+                },
+                "currentSeq": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "topic",
+                "reason",
+                "currentSeq"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "topic",
+            "seq",
+            "type",
+            "data"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "./envelope.json"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic": {
+              "const": "$control"
+            },
+            "seq": {
+              "const": 0
+            },
+            "type": {
+              "const": "unsubscribed"
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "topics": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "topics"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "topic",
+            "seq",
+            "type",
+            "data"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "./envelope.json"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic": {
+              "const": "$control"
+            },
+            "seq": {
+              "const": 0
+            },
+            "type": {
+              "const": "pong"
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "ts": {
+                  "$ref": "../common/defs.json#/$defs/TimestampMs"
+                },
+                "serverTs": {
+                  "$ref": "../common/defs.json#/$defs/TimestampMs"
+                }
+              },
+              "required": [
+                "id",
+                "ts",
+                "serverTs"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "topic",
+            "seq",
+            "type",
+            "data"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "./envelope.json"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic": {
+              "const": "$control"
+            },
+            "seq": {
+              "const": 0
+            },
+            "type": {
+              "const": "authed"
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "expiresAtMs": {
+                  "$ref": "../common/defs.json#/$defs/TimestampMs"
+                }
+              },
+              "required": [
+                "id",
+                "expiresAtMs"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "topic",
+            "seq",
+            "type",
+            "data"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "./envelope.json"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "topic": {
+              "const": "$control"
+            },
+            "seq": {
+              "const": 0
+            },
+            "type": {
+              "const": "error"
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "error": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "UNKNOWN_COMMAND",
+                    "INVALID_COMMAND",
+                    "TOPIC_NOT_FOUND",
+                    "TOPIC_LIMIT",
+                    "SCOPE_REQUIRED",
+                    "SESSION_NOT_FOUND",
+                    "AUTH_FAILED"
+                  ]
+                },
+                "scope": {
+                  "$ref": "../common/defs.json#/$defs/Scope"
+                }
+              },
+              "required": [
+                "id",
+                "error",
+                "code"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "topic",
+            "seq",
+            "type",
+            "data"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    }
+  ]
+}

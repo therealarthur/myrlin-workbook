@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myrlin.io/protocol/v2/schemas/workspace/tree.json",
+  "title": "Tree",
+  "description": "GET /api/m/v2/tree (snapshot of topic sessions). PROTOCOL.md 4.6.",
+  "type": "object",
+  "properties": {
+    "folders": {
+      "type": "array",
+      "items": {
+        "$ref": "./folder-node.json"
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "$ref": "./project-node.json"
+      }
+    },
+    "rootOrder": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "folder",
+              "project"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "streamEpoch": {
+      "$ref": "../common/defs.json#/$defs/StreamEpoch"
+    },
+    "streamSeq": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "folders",
+    "projects",
+    "rootOrder",
+    "streamEpoch",
+    "streamSeq"
+  ],
+  "additionalProperties": true
+}
