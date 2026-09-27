@@ -330,6 +330,19 @@ function createHub(ctx, opts = {}) {
   }
 
   /**
+   * When the token behind an authentication result expires. B1's
+   * authenticateUpgrade names it tokenExpiresAtMs (session-tokens.js); the
+   * B1 stub of the wave B tests named it expiresAtMs; both are read.
+   * @param {{expiresAtMs?: number, tokenExpiresAtMs?: number}} a
+   * @returns {number}
+   */
+  function tokenExpiryOf(a) {
+    if (a && Number.isFinite(a.expiresAtMs)) return a.expiresAtMs;
+    if (a && Number.isFinite(a.tokenExpiresAtMs)) return a.tokenExpiresAtMs;
+    return now() + DEFAULT_TOKEN_LIFE_MS;
+  }
+
+  /**
    * Handle the auth command: a newer token of the same device renews the socket.
    * @param {object} st
    * @param {object} cmd
@@ -344,7 +357,7 @@ function createHub(ctx, opts = {}) {
     if (!result || result.deviceId !== st.deviceId) {
       return control(st, 'error', { id: cmd.id, error: 'That token was not accepted.', code: 'AUTH_FAILED' });
     }
-    st.expiresAtMs = Number.isFinite(result.expiresAtMs) ? result.expiresAtMs : now() + DEFAULT_TOKEN_LIFE_MS;
+    st.expiresAtMs = tokenExpiryOf(result);
     if (Array.isArray(result.scopes)) st.scopes = result.scopes;
     control(st, 'authed', { id: cmd.id, expiresAtMs: st.expiresAtMs });
   }
@@ -384,9 +397,13 @@ function createHub(ctx, opts = {}) {
    * @param {import('http').IncomingMessage} req
    * @param {import('net').Socket} socket
    * @param {Buffer} head
+   * @param {{deviceId: string, scopes: string[], tokenExpiresAtMs?: number}} [preAuth] - B1's
+   *   listener authenticates the upgrade (and spends the device limiter) before it
+   *   hands the socket over, and passes its result here; without it the hub
+   *   authenticates through ctx.mobile.auth itself.
    * @returns {boolean}
    */
-  function handleUpgrade(req, socket, head) {
+  function handleUpgrade(req, socket, head, preAuth) {
     let pathname = '';
     try { pathname = new URL(req.url, 'http://x').pathname; } catch (_) { pathname = ''; }
     if (pathname !== STREAM_PATH) return false;
@@ -403,8 +420,9 @@ function createHub(ctx, opts = {}) {
     let auth = null;
     try {
       const a = mobile().auth;
-      if (!a || typeof a.authenticateUpgrade !== 'function') throw Object.assign(new Error('Sign in again.'), { status: 401, code: 'AUTH_REQUIRED' });
-      auth = a.authenticateUpgrade(req);
+      if (preAuth && typeof preAuth === 'object' && preAuth.deviceId) auth = preAuth;
+      else if (!a || typeof a.authenticateUpgrade !== 'function') throw Object.assign(new Error('Sign in again.'), { status: 401, code: 'AUTH_REQUIRED' });
+      else auth = a.authenticateUpgrade(req);
       if (!auth || !auth.deviceId) throw Object.assign(new Error('Sign in again.'), { status: 401, code: 'AUTH_REQUIRED' });
     } catch (err) {
       const status = err && Number.isInteger(err.status) ? err.status : 401;
@@ -427,7 +445,7 @@ function createHub(ctx, opts = {}) {
       ws,
       deviceId: auth.deviceId,
       scopes: Array.isArray(auth.scopes) ? auth.scopes : [],
-      expiresAtMs: Number.isFinite(auth.expiresAtMs) ? auth.expiresAtMs : now() + DEFAULT_TOKEN_LIFE_MS,
+      expiresAtMs: tokenExpiryOf(auth),
       topics: new Set(),
       cmdTimes: [],
       badCount: 0,
@@ -589,6 +607,17 @@ function createHub(ctx, opts = {}) {
     if (m.devices && typeof m.devices.onScopesChanged === 'function') unsubs.push(m.devices.onScopesChanged(onScopesChanged));
   } catch (err) { warn('stream could not register device hooks', err && err.message); }
 
+  /**
+   * Publish the WORKBOOK_SHUTTING_DOWN notice to every socket (PROTOCOL.md 5.6).
+   */
+  function shutdownNotice() {
+    let name = 'this computer';
+    try { name = computerName() || name; } catch (_) { /* keep the default */ }
+    try {
+      publishNotice({ noticeId: 'n_shutdown_' + epoch.slice(2), level: 'warn', code: 'WORKBOOK_SHUTTING_DOWN', message: 'Workbook is restarting on ' + name + '.' });
+    } catch (err) { warn('shutdown notice failed', err && err.message); }
+  }
+
   const hub = {
     epoch,
     publish,
@@ -634,18 +663,25 @@ function createHub(ctx, opts = {}) {
     close(code = CLOSE.GOING_AWAY, reason = 'SHUTDOWN') {
       // PROTOCOL.md 5.6: close 1001 is preceded by the WORKBOOK_SHUTTING_DOWN
       // notice; ws sends it before the close frame on every socket.
-      if (!closed && code === CLOSE.GOING_AWAY && sockets.size) {
-        let name = 'this computer';
-        try { name = computerName() || name; } catch (_) { /* keep the default */ }
-        try {
-          publishNotice({ noticeId: 'n_shutdown_' + epoch.slice(2), level: 'warn', code: 'WORKBOOK_SHUTTING_DOWN', message: 'Workbook is restarting on ' + name + '.' });
-        } catch (err) { warn('shutdown notice failed', err && err.message); }
-      }
+      if (!closed && code === CLOSE.GOING_AWAY && sockets.size) shutdownNotice();
       closed = true;
       clearInterval(timer);
       for (const st of Array.from(sockets)) closeSocket(st, code, reason);
       for (const u of unsubs.splice(0)) { try { u(); } catch (_) {} }
       try { wss.close(); } catch (_) {}
+    },
+    /**
+     * Close every open socket with one code and keep the hub running, so the
+     * phones reconnect to it. B1's listener calls it with 1012 when it stops
+     * or restarts (PROTOCOL.md 1.4) and stopMobile with 1001 on a Workbook
+     * shutdown, which is preceded by the WORKBOOK_SHUTTING_DOWN notice (5.6).
+     * @param {number} code
+     * @param {string} [reason]
+     */
+    closeAll(code, reason) {
+      if (closed) return;
+      if (code === CLOSE.GOING_AWAY && sockets.size) shutdownNotice();
+      for (const st of Array.from(sockets)) closeSocket(st, code, reason || '');
     },
     stats() { return { sockets: sockets.size, epoch }; },
   };
