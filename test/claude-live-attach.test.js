@@ -284,6 +284,16 @@ function makeRecord(store, { resumeSessionId = null, command = CLAUDE } = {}) {
 // ─── Main ──────────────────────────────────────────────────────────────────
 
 async function main() {
+  // Gate fixtures keep real persistence and its errors, but serialize writes.
+  // A debounced async save shares its temp file with the next sync save and
+  // can still hold that file open on Windows, even with one Store instance.
+  const fixtureStore = require('../src/state/store').getStore();
+  /** Persist fixture changes before the next guard test can create records. */
+  fixtureStore._debouncedSave = function saveFixtureImmediately() {
+    this._dirty = true;
+    this.save();
+  };
+
   // ── A. spawn.js attach descriptor ──
   const { spawnCommand } = require('../src/providers/claude/spawn');
 
