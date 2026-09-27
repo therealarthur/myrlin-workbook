@@ -1118,7 +1118,7 @@ class PtySessionManager {
    *        CLAUDE_SESSION_LIVE), so no future caller can fork by skipping the gate.
    * @returns {PtySession} The PTY session object
    */
-  spawnSession(sessionId, { command = 'claude', cwd, cols = 120, rows = 30, bypassPermissions = false, resumeSessionId = null, verbose = false, model = null, agentTeams = false, shell: requestedShell = null, newSession = false, initialPrompt = null, flags = [], provider: optsProvider = null, attachShortId = null, effort = null, permissionMode = null, _liveChecked = false, _ptySpawnForTesting = null, _cwdFromJsonlForTesting = null } = {}) { // gsd:provider-literal-allowed (default-command sentinel paired with useProvider check below)
+  spawnSession(sessionId, { command = 'claude', cwd, cols = 120, rows = 30, bypassPermissions = false, resumeSessionId = null, verbose = false, model = null, agentTeams = false, shell: requestedShell = null, newSession = false, initialPrompt = null, flags = [], provider: optsProvider = null, attachShortId = null, effort = null, permissionMode = null, argsExtra = null, _liveChecked = false, _ptySpawnForTesting = null, _cwdFromJsonlForTesting = null } = {}) { // gsd:provider-literal-allowed (default-command sentinel paired with useProvider check below)
     // Return existing session if already alive
     const existing = this.sessions.get(sessionId);
     if (existing && existing.alive) {
@@ -1318,6 +1318,10 @@ class PtySessionManager {
           // the Claude descriptor emits their flags (B3, S10), others ignore them.
           effort: effort || null,
           permissionMode: permissionMode || null,
+          // Mobile v2: extra CLI arguments for a migration launch (B3 charter
+          // flags, BUILD-CONTRACT 3.4.3 createSession argsExtra); descriptors
+          // that do not know the field ignore it.
+          argsExtra: Array.isArray(argsExtra) ? argsExtra.slice() : null,
         });
       } catch (err) {
         console.error('[PTY] Provider ' + providerId + ' spawnCommand failed for ' + sessionId + ': ' + err.message);

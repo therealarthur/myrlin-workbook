@@ -197,7 +197,9 @@ function createCodexMapper() {
           else if (p.type === 'web_search_call') { name = 'web_search_call'; input = { query: p.action && p.action.query ? p.action.query : null }; }
           else if (p.type === 'tool_search_call') { name = 'tool_search_call'; input = p.arguments ? parseArgs(p.arguments) : null; }
           if (name === 'shell' && input && Array.isArray(input.command)) input = Object.assign({}, input, { command: input.command.join(' ') });
-          msg.parts.push(toolCallPart(p.call_id || p.id || id, name, input));
+          const tc = toolCallPart(p.call_id || p.id || id, name, input);
+          if (m.full) { tc.input = input; tc.inputTruncated = false; }
+          msg.parts.push(tc);
           return msg;
         }
         case 'toolOutput': {

@@ -403,7 +403,9 @@ function createClaudeMapper() {
                 const ts = tsOf(rec);
                 base.parts.push({ type: 'thinking', text: raw ? t.text : null, redacted: !raw, durationMs: prevTs && ts ? Math.max(0, ts - prevTs) : null, truncated: raw ? t.truncated : false, fullLength: raw ? t.fullLength : 0 });
               } else if (b.type === 'tool_use') {
-                base.parts.push(toolCallPart(b.id, b.name, b.input));
+                const tc = toolCallPart(b.id, b.name, b.input);
+                if (m.full) { tc.input = b.input === undefined ? null : b.input; tc.inputTruncated = false; }
+                base.parts.push(tc);
               }
             }
             prevTs = tsOf(rec) || prevTs;
