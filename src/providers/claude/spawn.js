@@ -42,9 +42,9 @@
 // is dropped with a warning, the same way the flag filter below drops a
 // malformed flag, and nothing a person typed can reach the command line.
 //
-// Evidence, `claude help` of the installed Claude Code 2.1.283 (read on
-// 2026-09-27 in a scratch folder): `effort <level>` lists low, medium,
-// high, xhigh, max; `permission-mode <mode>` lists acceptEdits, auto,
+// Evidence, the help output of the installed Claude Code 2.1.283:
+// the effort option lists low, medium, high, xhigh, max;
+// the permission mode option lists acceptEdits, auto,
 // bypassPermissions, manual, dontAsk, plan. There is no "default" choice in
 // that build, so the phone's "default" ("Ask before changes") is emitted as
 // the CLI's "manual", and "bypassPermissions" keeps using the existing
@@ -123,27 +123,27 @@ function checkArgsExtra(argsExtra) {
  *
  * @param {Object} init
  * @param {string} init.sessionId             - Myrlin internal session id (currently unused, reserved for future flagging).
- * @param {string|null} [init.providerSessionId]  - Claude transcript UUID for `resume`. Validated against /^[a-zA-Z0-9_-]+$/.
- * @param {string|null} [init.newSessionId]   - UUID to assign to a FRESH conversation via `session-id`. Ignored when
+ * @param {string|null} [init.providerSessionId]  - Claude transcript UUID for the resume option. Validated against /^[a-zA-Z0-9_-]+$/.
+ * @param {string|null} [init.newSessionId]   - UUID to assign to a FRESH conversation via the session id option. Ignored when
  *                                              providerSessionId is set (a resume already has an id). Same validation.
  *                                              Minted by pty-manager (2026-09-22) so the transcript id is known before
  *                                              the CLI starts, instead of being watched for or guessed afterwards.
  * @param {string|null} [init.cwd]            - Working directory (passes through; pty-manager validates and falls back).
- * @param {boolean} [init.bypassPermissions]  - Adds `dangerously-skip-permissions`.
- * @param {string[]} [init.flags]             - Extra `flag` tokens. Each must match /^[a-zA-Z0-9-]+$/ or it is silently dropped.
+ * @param {boolean} [init.bypassPermissions]  - Adds the skip permissions flag.
+ * @param {string[]} [init.flags]             - Extra flag names (letters, digits and hyphens), each emitted with two leading hyphens.
  * @param {string|null} [init.model]          - Model id, e.g. `sonnet` or `claude-3-5-haiku-latest`. Validated.
- * @param {boolean} [init.verbose]            - Adds `verbose`.
+ * @param {boolean} [init.verbose]            - Adds the verbose flag.
  * @param {string|null} [init.initialPrompt]  - First-turn prompt to append as the trailing positional arg. Single-quote-escaped.
- * @param {string|null} [init.attachShortId]  - Short id of a live Claude Code BACKGROUND session (`claude agents json`
- *                                              `id`, 8 chars today). When set the descriptor is `claude attach <id>`
+ * @param {string|null} [init.attachShortId]  - Short id of a live Claude Code BACKGROUND session (the id field of the JSON listing of `claude agents`,
+ *                                              8 chars today). When set the descriptor is `claude attach <id>`
  *                                              and every other option is ignored: the attach client joins the running
  *                                              session instead of forking its transcript with resume (2026-09-26).
  *                                              Validated against /^[A-Za-z0-9]{4,32}$/ because the id is joined into
  *                                              the pane's shell command line.
- * @param {string|null} [init.effort]         - Mobile v2 (S10): one of CLAUDE_EFFORT_VALUES, emitted as `effort`;
+ * @param {string|null} [init.effort]         - Mobile v2 (S10): one of CLAUDE_EFFORT_VALUES, emitted as the effort option;
  *                                              anything else is dropped with a warning.
  * @param {string|null} [init.permissionMode] - Mobile v2 (S10): one of CLAUDE_PERMISSION_MODES. bypassPermissions
- *                                              uses `dangerously-skip-permissions`; the others `permission-mode`
+ *                                              uses the skip permissions flag; the others the permission mode option
  *                                              (default is spelled "manual" by the 2.1.283 CLI). Unknown values
  *                                              are dropped with a warning and the legacy bypassPermissions flag rules.
  * @param {string[]|null} [init.argsExtra]    - Mobile v2: extra arguments from an in process caller (the migration
@@ -222,9 +222,9 @@ function spawnCommand({
     args.push('--resume');
     args.push(providerSessionId);
   } else if (newSessionId) {
-    // Fresh conversation with a caller-chosen id. `claude session-id <uuid>`
-    // makes the CLI write its transcript as <uuid>.jsonl, so the Workbook
-    // knows the resume id at spawn time. Never combined with resume.
+    // Fresh conversation with a caller-chosen id. The session id option makes
+    // the CLI write its transcript as <uuid>.jsonl, so the Workbook knows the
+    // resume id at spawn time. Never combined with the resume option.
     args.push('--session-id');
     args.push(newSessionId);
   }
@@ -247,9 +247,8 @@ function spawnCommand({
     args.push('--verbose');
   }
   if (model) {
-    // Single-quote the model value so shell glob characters in aliases like
-    // sonnet[1m] are not expanded by bash before being passed to claude.
-    // Escape pattern: ' becomes '\''  (close-quote, escaped quote, reopen-quote).
+    // The check above throws for any character outside [a-zA-Z0-9._:-], so
+    // the quoting branch below is a guard that current values never reach.
     //
     // Mobile v2 (B3, session settings model): the check above already limits
     // the value to [a-zA-Z0-9._:-], which no shell expands, so such a value
