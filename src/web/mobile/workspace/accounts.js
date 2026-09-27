@@ -41,6 +41,8 @@ const LIMITED_AT = 100;
 const STALL_MS = 3 * 60 * 1000;
 /** accounts.updated at most this often (PROTOCOL.md 14). */
 const PUBLISH_MIN_MS = 2000;
+/** Check local active account identities when an external login emits no event. */
+const ROSTER_CHECK_MS = 30 * 1000;
 /** Recheck immediately after a strict age threshold has elapsed. */
 const AGE_BOUNDARY_MS = 1;
 /** Delay before reading Glass after it accepts an explicit refresh. */
@@ -1496,11 +1498,38 @@ function createAccounts(deps) {
     ensureBaseline();
     if (fixture) return;
     stops.push(glass.watchStateFile(refreshMonitored));
+    /** Compare only active identities, without reading a roster or calling Glass. */
+    function fingerprint() {
+      let claudeId = null;
+      let codexId = null;
+      try {
+        if (ctx.credentialManager && typeof ctx.credentialManager.getActiveAccountUuid === 'function') claudeId = ctx.credentialManager.getActiveAccountUuid();
+      } catch (_) { /* absent or unreadable local state */ }
+      try {
+        if (ctx.codexAccountManager && typeof ctx.codexAccountManager.getActiveAccountId === 'function') codexId = ctx.codexAccountManager.getActiveAccountId();
+      } catch (_) { /* absent or unreadable local state */ }
+      return JSON.stringify([claudeId, codexId]);
+    }
+    let lastFingerprint = fingerprint();
+    const rosterTimer = setInterval(() => {
+      const fp = fingerprint();
+      if (fp !== lastFingerprint) { lastFingerprint = fp; pendingReason = 'other'; refreshMonitored(); }
+    }, ROSTER_CHECK_MS);
+    if (rosterTimer.unref) rosterTimer.unref();
+    stops.push(() => clearInterval(rosterTimer));
     refreshMonitored();
   }
 
   /** Drop watcher work and ignore a lookup that completes after listener shutdown. */
   function stop() {
+    if (publishTimer) {
+      clearTimeout(publishTimer);
+      publishTimer = null;
+      lastPublishAt = now();
+      common.publish(ctx, 'accounts', 'accounts.updated', { accounts: snapshot(), reason: pendingReason || 'other' });
+    }
+    pendingReason = null;
+    seenAgentSwaps = null;
     monitoring = false;
     monitorGeneration += 1;
     monitorRefresh = null;

@@ -2,8 +2,8 @@
  * b3-accounts-monitor.test.js: listener-scoped account monitoring.
  *
  * WHY: a disabled phone listener must do no account work. Account route
- * events and Glass file events refresh enabled listeners without roster
- * polling, and late async results cannot revive stopped monitoring.
+ * events, Glass file changes and local identity fingerprints keep enabled
+ * listeners current. Late async results cannot revive stopped monitoring.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  */
@@ -15,8 +15,23 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { EventEmitter } = require('events');
+const { createRequire } = require('module');
 const mobile = require('../../src/web/mobile');
 const { getStore } = require('../../src/state/store');
+const { createAccounts } = require('../../src/web/mobile/workspace/accounts');
+
+/** Let the first Glass snapshot and its immediate publication settle. */
+const INITIAL_SNAPSHOT_MS = 30;
+/** Keep the next label changes within the accounts publication window. */
+const LABEL_CHANGE_WAIT_MS = 100;
+/** Wait past the two-second accounts publication window after restart. */
+const RESTART_SETTLE_MS = 2500;
+/** Let the new agent-swap baseline finish after monitoring starts again. */
+const SWAP_BASELINE_WAIT_MS = 200;
+/** Age the fixture swap entries well before the listener restart. */
+const HOUR_MS = 60 * 60 * 1000;
+/** The local account fingerprint interval prescribed for external login changes. */
+const FINGERPRINT_CHECK_MS = 30 * 1000;
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -29,6 +44,50 @@ const settings = { enabled: false, host: '127.0.0.1', port: 0, detectTailscale: 
 
 /** Complete account lookup promise continuations without a wall-clock poll. */
 async function settle() { await new Promise((resolve) => setImmediate(resolve)); }
+
+/** Wait for a real publication or baseline deadline in the restart tests. */
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+/** Build accounts directly with sandbox state, fake Glass and observable outputs. */
+function accountHarness(manualIntervals = false) {
+  const events = [];
+  const notices = [];
+  const pushes = [];
+  const intervals = new Set();
+  const state = { label: 'One', swapLog: [], claudeId: 'fixture-first', codexId: null, statusCalls: 0 };
+  const accountCtx = {
+    dataDir: fs.mkdtempSync(path.join(H.sandbox.dir, 'direct-monitor-')),
+    credentialManager: { getSafeList: () => ({ profiles: [] }), getActiveAccountUuid: () => state.claudeId },
+    codexAccountManager: { getSafeList: () => ({ accounts: [] }), getActiveAccountId: () => state.codexId },
+    mobile: {
+      hub: { publish: (topic, type, data) => events.push({ topic, type, data }), publishNotice: (notice) => notices.push(notice) },
+      push: { notify: (event) => pushes.push(event) },
+    },
+  };
+  const glass = {
+    status: async () => {
+      state.statusCalls += 1;
+      return { generatedAtMs: Date.now(), accounts: [{ provider: 'claude', id: 'acc-1', label: state.label, active: true, windows: [], state: 'ok' }], swapLog: state.swapLog, swapsEnabled: true };
+    },
+    apiUp: () => false,
+    stateFileAgeMs: () => null,
+    readStateFile: () => null,
+    watchStateFile: () => () => {},
+  };
+  let factory = createAccounts;
+  if (manualIntervals) {
+    const file = path.join(H.REPO_ROOT, 'src/web/mobile/workspace/accounts.js');
+    const sandbox = {
+      module: { exports: {} }, require: createRequire(file), process,
+      setTimeout, clearTimeout,
+      setInterval(fn, ms) { const handle = { fn, ms, unref() {} }; intervals.add(handle); return handle; },
+      clearInterval(handle) { intervals.delete(handle); },
+    };
+    vm.runInNewContext(fs.readFileSync(file, 'utf8'), sandbox);
+    factory = sandbox.module.exports.createAccounts;
+  }
+  return { accounts: factory({ ctx: accountCtx, glass }), events, notices, pushes, intervals, state };
+}
 
 /** A safe roster with no credential files or vendor network calls. */
 function roster() {
@@ -213,11 +272,75 @@ test('a listener start completing after stop cannot revive account monitoring', 
   ctx.mobile.chat.stop();
 });
 
-test('the Glass directory watcher needs no periodic file polling', async () => {
+test('stop flushes the latest account update for replay after a listener restart', async () => {
+  const h = accountHarness();
+  try {
+    h.accounts.start();
+    await sleep(INITIAL_SNAPSHOT_MS);
+    h.state.label = 'Two';
+    h.accounts.onWorkbookEvent('credentials:changed');
+    await sleep(LABEL_CHANGE_WAIT_MS);
+    h.state.label = 'Three';
+    h.accounts.onWorkbookEvent('credentials:changed');
+    await sleep(LABEL_CHANGE_WAIT_MS);
+    h.accounts.stop();
+    h.accounts.start();
+    await sleep(RESTART_SETTLE_MS);
+    const updates = h.events.filter((event) => event.type === 'accounts.updated');
+    assert.strictEqual(updates[updates.length - 1].data.accounts.providers[0].accounts[0].label, 'Three');
+  } finally {
+    h.accounts.stop();
+  }
+});
+
+test('agent swaps logged while monitoring is off become a silent restart baseline', async () => {
+  const h = accountHarness();
+  try {
+    h.accounts.start();
+    await sleep(INITIAL_SNAPSHOT_MS);
+    h.accounts.stop();
+    for (const hours of [2, 3]) h.state.swapLog.push({ source: 'agent', ok: true, atMs: Date.now() - hours * HOUR_MS });
+    h.accounts.start();
+    await sleep(SWAP_BASELINE_WAIT_MS);
+    assert.strictEqual(h.pushes.filter((event) => event.kind === 'swap').length, 0);
+    assert.strictEqual(h.notices.filter((notice) => notice.code === 'AGENT_SWAP').length, 0);
+  } finally {
+    h.accounts.stop();
+  }
+});
+
+test('local identity changes trigger one refresh and the fingerprint interval stops with monitoring', async () => {
+  const h = accountHarness(true);
+  try {
+    assert.strictEqual(h.intervals.size, 0);
+    h.accounts.start();
+    await settle();
+    assert.strictEqual(h.intervals.size, 1);
+    const timer = Array.from(h.intervals)[0];
+    assert.strictEqual(timer.ms, FINGERPRINT_CHECK_MS);
+    const before = h.state.statusCalls;
+    timer.fn();
+    await settle();
+    assert.strictEqual(h.state.statusCalls, before, 'unchanged local identities do not call Glass');
+    h.state.claudeId = 'fixture-second';
+    timer.fn();
+    await settle();
+    assert.strictEqual(h.state.statusCalls, before + 1);
+    timer.fn();
+    await settle();
+    assert.strictEqual(h.state.statusCalls, before + 1, 'the changed identity is remembered');
+    h.accounts.stop();
+    assert.strictEqual(h.intervals.size, 0);
+  } finally {
+    h.accounts.stop();
+  }
+});
+
+test('the Glass directory watcher keeps a slow mtime poll as a safety net', async () => {
   const h = watcherHarness();
   let changes = 0;
   const stop = h.client.watchStateFile(() => { changes += 1; });
-  assert.strictEqual(h.intervals.size, 0);
+  assert.strictEqual(h.intervals.size, 1);
   assert.strictEqual(h.watchers[0].folder, h.folder);
   h.watchers[0].notify('rename', 'state.json');
   h.watchers[0].notify('change', 'state.json');
@@ -227,6 +350,7 @@ test('the Glass directory watcher needs no periodic file polling', async () => {
   h.flush();
   assert.strictEqual(changes, 1);
   stop();
+  assert.strictEqual(h.intervals.size, 0);
   assert.strictEqual(h.watchers[0].closed, true);
   assert.strictEqual(h.timeouts.size, 0);
 });
@@ -241,7 +365,7 @@ test('watcher failure falls back to file polling and returns to events on recove
   Array.from(h.intervals)[0].fn();
   h.flush();
   assert.strictEqual(changes, 1);
-  assert.strictEqual(h.intervals.size, 0);
+  assert.strictEqual(h.intervals.size, 1);
   h.watchers[0].emit('error', new Error('fixture watch failure'));
   assert.strictEqual(h.intervals.size, 1);
   stop();

@@ -29,7 +29,7 @@ const API_FRESH_MS = 60 * 1000;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 /** Debounce of the state.json watcher. */
 const WATCH_DEBOUNCE_MS = 500;
-/** Poll interval when fs.watch is not available. */
+/** Safety poll interval for directory watchers that miss a file change. */
 const WATCH_POLL_MS = 5000;
 
 /**
@@ -253,8 +253,8 @@ function createGlassClient(o) {
   }
 
   /**
-   * Watch state.json and call fn (debounced) when it changes. Falls back to
-   * a poll of its modification time.
+   * Watch state.json and call fn (debounced) when it changes. A slow mtime
+   * poll catches directory watchers that silently miss a change.
    *
    * @param {Function} fn - Callback.
    * @returns {Function} Stop.
@@ -268,14 +268,15 @@ function createGlassClient(o) {
     let poll = null;
     let stopped = false;
     let lastMtime = -1;
+    try { lastMtime = fs.statSync(stateFile).mtimeMs; } catch (_) { /* absent */ }
     const fire = () => {
       if (stopped || timer) return;
       timer = setTimeout(() => { timer = null; try { fn(); } catch (_) { /* theirs */ } }, WATCH_DEBOUNCE_MS);
       if (timer.unref) timer.unref();
     };
 
-    /** Poll only while no directory watcher exists, then retry attaching it. */
-    function startFallback() {
+    /** Keep a slow mtime safety net and retry attaching a missing watcher. */
+    function startPoll() {
       if (stopped || poll) return;
       poll = setInterval(() => {
         let m = -1;
@@ -294,16 +295,16 @@ function createGlassClient(o) {
         watcher.on('error', () => {
           if (watcher) { try { watcher.close(); } catch (_) { /* already closed */ } }
           watcher = null;
-          startFallback();
+          startPoll();
         });
-        if (poll) { clearInterval(poll); poll = null; }
       } catch (_) {
         watcher = null;
-        startFallback();
+        startPoll();
       }
     }
 
     attachWatcher();
+    startPoll();
     return () => {
       stopped = true;
       if (poll) clearInterval(poll);
