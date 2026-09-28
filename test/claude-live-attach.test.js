@@ -1038,8 +1038,11 @@ async function main() {
     await until(() => exec.pending.length >= 1, 2000, 'lookup started');
     store.updateSession(id, { resumeSessionId: BG_SID });
     exec.release(LISTING);
+    await until(() => exec.pending.length >= 1, LIVE_GATE_TEST_TIMEOUT_MS, 'fresh lookup started');
+    exec.release(LISTING);
     await until(() => spy.calls.length === 1, 3000, 'spawn');
     assert.ok(/claude attach a1b2c3d4$/.test(spy.calls[0].fullCommand), 'attached to the new target, not resumed: ' + spy.calls[0].fullCommand);
+    assert.strictEqual(exec.calls.length, 2, 'the changed target gets two actual lookups');
   });
 
   await check('a desktop attach refreshes a just cached listing when the record changes', async () => {

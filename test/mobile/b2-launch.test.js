@@ -186,16 +186,22 @@ kit.test('stop fails a send queued behind a turn and never relaunches the sessio
   await kit.until(() => env.chat.internals.sends.list(sid).some((x) => x.clientMessageId === queuedMessageId && x.state === 'queued' && x.reason === 'busy'),
     TURN_READY_TIMEOUT_MS, 'the second send waits behind the open turn');
 
-  const before = spawns.length;
-  const restart = await kit.api(env.base, 'POST', '/sessions/' + sid + '/restart', { clientRequestId: crypto.randomUUID(), when: 'whenIdle' }, env.device.token);
-  kit.eq([restart.status, restart.body.status], [202, 'scheduled']);
-  const stopped = await kit.api(env.base, 'POST', '/sessions/' + sid + '/stop', { clientRequestId: crypto.randomUUID() }, env.device.token);
-  kit.eq([stopped.status, stopped.body.status], [200, 'stopped']);
-  await kit.until(() => env.chat.internals.sends.list(sid).some((x) => x.clientMessageId === queuedMessageId && x.state === 'failed' && x.error && x.error.code === 'SESSION_EXITED'),
-    STOP_SEND_FAILURE_TIMEOUT_MS, 'the queued send fails when the session stops');
-  await kit.sleep(STOP_RELAUNCH_OBSERVE_MS);
-  kit.eq(spawns.length, before, 'the stopped session never respawns');
-  kit.eq(env.chat.internals.sends.pending(sid), [], 'the stopped session has no pending sends');
+  const cap = captureLaunches();
+  try {
+    const before = spawns.length;
+    const restart = await kit.api(env.base, 'POST', '/sessions/' + sid + '/restart', { clientRequestId: crypto.randomUUID(), when: 'whenIdle' }, env.device.token);
+    kit.eq([restart.status, restart.body.status], [202, 'scheduled']);
+    const stopped = await kit.api(env.base, 'POST', '/sessions/' + sid + '/stop', { clientRequestId: crypto.randomUUID() }, env.device.token);
+    kit.eq([stopped.status, stopped.body.status], [200, 'stopped']);
+    await kit.until(() => env.chat.internals.sends.list(sid).some((x) => x.clientMessageId === queuedMessageId && x.state === 'failed' && x.error && x.error.code === 'SESSION_EXITED'),
+      STOP_SEND_FAILURE_TIMEOUT_MS, 'the queued send fails when the session stops');
+    await kit.sleep(STOP_RELAUNCH_OBSERVE_MS);
+    kit.eq(spawns.length, before, 'the stopped session never respawns');
+    kit.eq(cap.calls.length, 0, 'the stopped session never requests another launch');
+    kit.eq(env.chat.internals.sends.pending(sid), [], 'the stopped session has no pending sends');
+  } finally {
+    cap.restore();
+  }
 });
 
 // ── Fix round: the phone body never reaches a command line (W2, PROTOCOL.md 0.1) ──
