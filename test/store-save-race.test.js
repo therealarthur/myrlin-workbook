@@ -15,6 +15,7 @@ const path = require('path');
 const { getStore } = require('../src/state/store');
 
 const SAVE_RACE_REPETITIONS = 20;
+const DEBOUNCE_FIRE_MS = 150;
 const DEBOUNCE_SETTLE_MS = 400;
 
 /** Exercise real persistence and report a failing assertion as a nonzero exit. */
@@ -27,6 +28,7 @@ async function main() {
   for (let i = 0; i < SAVE_RACE_REPETITIONS; i++) {
     const workspace = store.createWorkspace({ name: 'save-race-' + i });
     store._debouncedSave();
+    await new Promise((resolve) => setTimeout(resolve, DEBOUNCE_FIRE_MS));
     const session = store.createSession({
       name: 'critical-' + i,
       workspaceId: workspace.id,
