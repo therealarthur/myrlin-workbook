@@ -1,4 +1,4 @@
-﻿/**
+/**
  * b3-accounts-monitor.test.js: listener-scoped account monitoring.
  *
  * WHY: a disabled phone listener must do no account work. Account route
