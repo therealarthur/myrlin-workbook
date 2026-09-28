@@ -17,7 +17,7 @@ kit.sandbox();
 let env;
 
 kit.test('boot the chat track on the B1 stub', async () => {
-  env = await kit.bootChat({ options: { hub: { ringSizes: { tabs: 4 }, tokenGraceMs: 300, heartbeatMs: 100, deadPeerMs: 200 } } });
+  env = await kit.bootChat({ options: { hub: { ringSizes: { tabs: 4 }, tokenGraceMs: 300, heartbeatMs: 100, deadPeerMs: 60000 } } });
 });
 
 kit.test('upgrade refusals answer plain HTTP error bodies', async () => {
@@ -40,6 +40,7 @@ kit.test('ready frame first, with the automatic topics', async () => {
 });
 
 kit.test('live subscribe, then published events arrive with seq 1, 2, 3', async () => {
+  kit.eq(s1.closeInfo(), null, 's1 is still open');
   s1.send({ type: 'subscribe', id: 'c1', epoch: null, topics: [{ topic: 'tabs', sinceSeq: null }] });
   const sub = await s1.next((f) => f.type === 'subscribed' && f.data.id === 'c1');
   kit.validateFrame(sub);
@@ -80,6 +81,7 @@ kit.test('RING_EXPIRED beyond the ring, EPOCH_CHANGED with another epoch, SEQ_AH
 });
 
 kit.test('topic errors: unknown topic, unknown session, no scope', async () => {
+  kit.eq(s1.closeInfo(), null, 's1 is still open');
   s1.send({ type: 'subscribe', id: 'e1', epoch: null, topics: [{ topic: 'nope', sinceSeq: null }, { topic: 'session:cl_00000000-0000-4000-8000-000000000000', sinceSeq: null }] });
   await s1.next((f) => f.type === 'error' && f.data.code === 'TOPIC_NOT_FOUND');
   await s1.next((f) => f.type === 'error' && f.data.code === 'SESSION_NOT_FOUND');
@@ -109,6 +111,7 @@ kit.test('scope loss removes topics with error and unsubscribed, socket stays op
 });
 
 kit.test('ping answers pong; auth renews with a newer token of the same device', async () => {
+  kit.eq(s1.closeInfo(), null, 's1 is still open');
   s1.send({ type: 'ping', id: 'p', ts: 123 });
   const pong = await s1.next((f) => f.type === 'pong');
   kit.eq([pong.data.id, pong.data.ts], ['p', 123]);

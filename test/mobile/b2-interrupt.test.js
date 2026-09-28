@@ -15,20 +15,24 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const kit = require('./fakes/b2-kit');
-const { createInterrupts } = require('../../src/web/mobile/chat/interrupt');
+const { createInterrupts, DEBOUNCE_MS } = require('../../src/web/mobile/chat/interrupt');
+
+const INTERRUPT_CLOCK_START_MS = 1790000000000;
 
 const sb = kit.sandbox();
 
 function stubbed(state) {
+  const clock = { t: INTERRUPT_CLOCK_START_MS };
   const writes = [];
   const w = { turnOpen: false, prompt: null };
   const svc = createInterrupts({
+    now: () => clock.t,
     ctx: { mobile: {} },
     index: { resolve: (id) => ({ sessionId: id, owner: 'workbook' }), meta: () => ({}), computerName: () => 'PC' },
     runtime: { write: (sid, b) => { writes.push(b); return true; }, withLock: async (sid, fn) => fn() },
     lazy: { turns: () => ({ isTurnOpen: () => w.turnOpen, stateOf: () => ({ state: w.turnOpen ? 'thinking' : 'idle' }) }), prompts: () => ({ openFor: () => (w.prompt ? [w.prompt] : []) }) },
   });
-  return { svc, writes, w, state };
+  return { svc, writes, w, state, clock };
 }
 const code = async (p) => { try { await p; return null; } catch (e) { return [e.status, e.code, e.extra]; } };
 
@@ -58,6 +62,10 @@ kit.test('one ESC alone, then a second tap within 1500 ms is debounced; the same
   kit.eq(again, a);
   kit.eq(s.writes, ['\x1b']);
   kit.ok(s.svc.lastPhoneEscAt('cl_a') === a.sentAtMs, 'remembered for stoppedBy');
+  s.clock.t += DEBOUNCE_MS;
+  const c = await s.svc.interrupt('cl_a', { clientRequestId: 'r3' }, { deviceId: null });
+  kit.eq([c.status, c.sentAtMs], ['sent', s.clock.t]);
+  kit.eq(s.writes, ['\x1b', '\x1b']);
 });
 
 let env;

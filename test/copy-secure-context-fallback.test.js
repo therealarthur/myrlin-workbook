@@ -391,8 +391,10 @@ async function main() {
     // -p5, which is the same independent versioning the paragraph above
     // describes, now demonstrated in the other direction.
     assert.ok(
+      // Mobile v2 (B3): app.js moves to its own token (layout revisions);
+      // terminal.js keeps its token, the independent versioning above.
       /terminal\.js\?v=20260819-mobile-term/.test(indexSrc) &&
-        /app\.js\?v=20260819-mobile-term/.test(indexSrc),
+        /app\.js\?v=20260927-mobile-v2-b3-fix2/.test(indexSrc),
       'native-copy and pane-event fixes must not reuse stale browser cache entries'
     );
   });

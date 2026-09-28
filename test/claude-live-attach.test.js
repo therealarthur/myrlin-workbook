@@ -75,6 +75,7 @@ async function check(name, fn) {
 
 const CLAUDE = 'claude'; // gsd:provider-literal-allowed (test fixture for the Claude provider)
 const EM_DASH = String.fromCharCode(0x2014);
+const LIVE_GATE_TEST_TIMEOUT_MS = 3000;
 
 // Synthetic ids, shaped like the real `claude agents --json` output.
 const BG_SID = 'a1b2c3d4-0000-4000-8000-000000000001';
@@ -1037,8 +1038,55 @@ async function main() {
     await until(() => exec.pending.length >= 1, 2000, 'lookup started');
     store.updateSession(id, { resumeSessionId: BG_SID });
     exec.release(LISTING);
+    await until(() => exec.pending.length >= 1, LIVE_GATE_TEST_TIMEOUT_MS, 'fresh lookup started');
+    exec.release(LISTING);
     await until(() => spy.calls.length === 1, 3000, 'spawn');
     assert.ok(/claude attach a1b2c3d4$/.test(spy.calls[0].fullCommand), 'attached to the new target, not resumed: ' + spy.calls[0].fullCommand);
+    assert.strictEqual(exec.calls.length, 2, 'the changed target gets two actual lookups');
+  });
+
+  await check('a desktop attach refreshes a just cached listing when the record changes', async () => {
+    const originalLookup = live.getDefaultLookup();
+    const lookupTime = Date.now();
+    let entries = [];
+    const lookup = live.createLiveSessionLookup({
+      now: () => lookupTime,
+      env: {},
+      homedir: os.tmpdir(),
+      resolveCandidates: () => [{ path: 'fixture-claude', viaCmd: false }],
+      execFileImpl(_file, _args, _options, callback) {
+        const output = JSON.stringify(entries);
+        queueMicrotask(() => callback(null, output));
+        return null;
+      },
+    });
+    live._setDefaultLookupForTesting(lookup);
+    const { mgr, store } = buildPtyFixture(live.getDefaultLookup());
+    const spy = makeSpawnSpy();
+    const id = makeRecord(store, { resumeSessionId: NONE_SID });
+    const ws = new FakeWs();
+    const originalDecide = mgr._decideLive;
+    const decisions = [];
+    mgr._decideLive = async function decideThenChange(sessionId, gate) {
+      const decision = await originalDecide.call(mgr, sessionId, gate);
+      decisions.push({ fresh: gate.fresh, cached: decision.lookup.cached });
+      if (decisions.length === 1) {
+        entries = [IT_ENTRY];
+        store.updateSession(id, { resumeSessionId: IT_SID });
+      }
+      return decision;
+    };
+    try {
+      mgr.attachClient(id, ws, { _ptySpawnForTesting: spy, _liveFresh: true });
+      await until(() => ws.text().includes('Type copy'), LIVE_GATE_TEST_TIMEOUT_MS, 'live-session notice');
+      assert.strictEqual(lookup.runs, 2, 'the changed target gets another actual listing');
+      assert.strictEqual(spy.calls.length, 0, 'the external transcript is never resumed');
+      assert.deepStrictEqual(decisions, [{ fresh: true, cached: false }, { fresh: true, cached: false }]);
+    } finally {
+      mgr._decideLive = originalDecide;
+      live._setDefaultLookupForTesting(originalLookup);
+      mgr.destroyAll();
+    }
   });
 
   await check('R7 (review async F2) a custom-command pane is tracked: a second pane on its transcript gets the notice', async () => {

@@ -16834,6 +16834,23 @@ class CWMApp {
     }
 
     switch (data.type) {
+      case 'layout:updated': {
+        // Mobile v2 (BUILD-CONTRACT S20, PROTOCOL.md 4.8.1): a phone (or a
+        // second desktop page) changed the tab layout. The payload is
+        // {revision, changedBy}; this page reloads it unless it already has
+        // that revision or a save of its own is pending.
+        const layoutEvent = (data && data.data && typeof data.data === 'object') ? data.data : data;
+        if (layoutEvent && typeof layoutEvent.revision === 'number') {
+          this._fetchAndApplyRemoteLayout(layoutEvent.revision);
+        }
+        break;
+      }
+      case 'session:title':
+        // Mobile v2 (BUILD-CONTRACT S20, PROTOCOL.md 4.5.1): a phone renamed a
+        // session through Workbook's title store; refresh the names shown.
+        if (this._throttledLoadSessions) this._throttledLoadSessions();
+        if (typeof this.loadProjects === 'function') this.loadProjects();
+        break;
       case 'session:started':
         this._setAttentionState(
           data.sessionId || data.id || (data.session && data.session.id),
@@ -25779,6 +25796,9 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   async initTerminalGroups() {
+    this._layoutLoadRetryAttempt = 0;
+    this._layoutHeldEdits = false;
+    this._layoutRevisionUnsupported = false;
     // Load layout from server
     this._tabGroups = [];
     this._tabFolders = []; // Tab group folders: { id, name, color, collapsed }
@@ -25793,6 +25813,13 @@ class CWMApp {
   async loadTerminalLayout() {
     try {
       const layout = await this.api('GET', '/api/layout');
+      // Mobile v2 (BUILD-CONTRACT S17): the layout's revision, sent back as
+      // baseRevision so the server can keep a phone's tab edit (4.8.1).
+      this._layoutRevision = (layout && typeof layout.revision === 'number') ? layout.revision : null;
+      if (typeof this._layoutRevision === 'number') this._layoutLoadRetryAttempt = 0;
+      if (layout && typeof layout === 'object' && typeof layout.revision !== 'number') {
+        this._layoutRevisionUnsupported = true;
+      } else if (this._layoutRevision === null) this._retryTerminalLayoutLoad();
       if (layout && layout.tabGroups && layout.tabGroups.length > 0) {
         this._tabGroups = layout.tabGroups;
         this._tabFolders = layout.tabFolders || [];
@@ -25804,6 +25831,8 @@ class CWMApp {
         this._activeGroupId = 'tg_default';
       }
     } catch (_) {
+      this._layoutRevision = null;
+      this._retryTerminalLayoutLoad();
       this._tabGroups = [{ id: 'tg_default', name: 'Main', panes: [] }];
       this._tabFolders = [];
       this._activeGroupId = 'tg_default';
@@ -27099,17 +27128,198 @@ class CWMApp {
     if (typeof this.renderWorkspaces === 'function') {
       this.renderWorkspaces();
     }
+    // A failed initial load leaves only a provisional local layout. Fetch
+    // the server snapshot before saving, retaining edits made during recovery.
+    if (typeof this._layoutRevision !== 'number' && !this._layoutRevisionUnsupported) {
+      this._layoutHeldEdits = true;
+      this._retryTerminalLayoutLoad();
+      return;
+    }
     clearTimeout(this._layoutSaveTimer);
     this._layoutSaveTimer = setTimeout(async () => {
-      this.saveCurrentGroupPanes();
-      try {
-        await this.api('PUT', '/api/layout', {
-          tabGroups: this._tabGroups,
-          tabFolders: this._tabFolders,
-          activeGroupId: this._activeGroupId,
-        });
-      } catch (_) {}
+      // Mobile v2 (BUILD-CONTRACT S18): the debounce has fired, so no save is
+      // pending any more; the PUT below is in flight until it answers. Saves
+      // run one after another so each carries the revision the last answered.
+      this._layoutSaveTimer = null;
+      this._layoutSaveInFlight = (this._layoutSaveInFlight || 0) + 1;
+      const previousSave = this._layoutSaveChain || Promise.resolve();
+      this._layoutSaveChain = previousSave.catch(() => {}).then(async () => {
+        if (typeof this._layoutRevision !== 'number' && !this._layoutRevisionUnsupported) {
+          this._retryTerminalLayoutLoad();
+          return;
+        }
+        this.saveCurrentGroupPanes();
+        try {
+          const saved = await this.api('PUT', '/api/layout', {
+            tabGroups: this._tabGroups,
+            tabFolders: this._tabFolders,
+            activeGroupId: this._activeGroupId,
+            // Mobile v2 (S18): the revision this page last saw (PROTOCOL.md 4.8.1).
+            baseRevision: this._layoutRevision,
+          });
+          if (saved && typeof saved.revision === 'number') this._layoutRevision = saved.revision;
+          // The server re-applied a phone's tab edit on top of this save.
+          if (saved && saved.merged === true && saved.layout) this.applyRemoteLayout(saved.layout);
+        } catch (_) {}
+      }).finally(() => {
+        this._layoutSaveInFlight = Math.max(0, (this._layoutSaveInFlight || 1) - 1);
+        // A remote change announced while this save was pending or in flight.
+        const missed = this._layoutPendingRemote;
+        if (!this._layoutSaveInFlight && !this._layoutSaveTimer &&
+            typeof missed === 'number' && missed !== this._layoutRevision) {
+          this._layoutPendingRemote = null;
+          this._fetchAndApplyRemoteLayout(missed);
+        }
+      });
     }, 500);
+  }
+
+  /**
+   * Retry an unavailable initial layout without ever saving the provisional
+   * default over the server's groups. One timer owns recovery until a real
+   * revision arrives, including when an SSE refresh wins the race.
+   */
+  _retryTerminalLayoutLoad() {
+    const LAYOUT_LOAD_RETRY_BASE_MS = 1000;
+    const LAYOUT_LOAD_RETRY_MAX_MS = 30000;
+    if (this._layoutLoadRetryTimer || typeof this._layoutRevision === 'number') return;
+    if (!this.state || !this.state.token) return;
+    this._layoutLoadRetryTimer = setTimeout(async () => {
+      try {
+        if (typeof this._layoutRevision === 'number') return;
+        if (!this.state || !this.state.token) return;
+        const layout = await this.api('GET', '/api/layout');
+        if (typeof this._layoutRevision === 'number') return;
+        if (!layout) return;
+        if (typeof layout.revision !== 'number') {
+          this._layoutRevisionUnsupported = true;
+          if (Array.isArray(layout.tabGroups) && layout.tabGroups.length) this.applyRemoteLayout(layout);
+          return;
+        }
+        if (!Array.isArray(layout.tabGroups) || layout.tabGroups.length === 0) {
+          this._layoutRevision = layout.revision;
+          if (this._layoutHeldEdits) {
+            this._layoutHeldEdits = false;
+            this.saveTerminalLayout();
+          }
+        } else if (this._layoutHeldEdits) {
+          let local = this._tabGroups.filter(g => !(g.id === 'tg_default' && (!g.panes || g.panes.length === 0)));
+          local.forEach((g, i) => {
+            if (layout.tabGroups.some(remote => remote.id === g.id)) {
+              let newId = 'tg_offline_' + Date.now().toString(36) + '_' + i;
+              if (this._activeGroupId === g.id) this._activeGroupId = newId;
+              g.id = newId;
+            }
+          });
+          this.applyRemoteLayout({ ...layout, tabGroups: layout.tabGroups.concat(local), tabFolders: layout.tabFolders || [], activeGroupId: this._activeGroupId });
+          this._layoutHeldEdits = false;
+          this.saveTerminalLayout();
+        } else {
+          const recovered = Array.isArray(layout.tabGroups) && layout.tabGroups.length
+            ? layout
+            : { ...layout, tabGroups: [{ id: 'tg_default', name: 'Main', panes: [] }], tabFolders: [], activeGroupId: 'tg_default' };
+          this.applyRemoteLayout(recovered);
+        }
+        this._layoutLoadRetryAttempt = 0;
+      } catch (_) {
+        // Offline or signed out: keep holding saves and retry the load.
+      } finally {
+        this._layoutLoadRetryTimer = null;
+        if (typeof this._layoutRevision !== 'number' && !this._layoutRevisionUnsupported && this.state && this.state.token) this._retryTerminalLayoutLoad();
+      }
+    }, Math.min(LAYOUT_LOAD_RETRY_BASE_MS * 2 ** (this._layoutLoadRetryAttempt || 0), LAYOUT_LOAD_RETRY_MAX_MS));
+    this._layoutLoadRetryAttempt = (this._layoutLoadRetryAttempt || 0) + 1;
+  }
+
+  /**
+   * Mobile v2 (BUILD-CONTRACT S19, PROTOCOL.md 4.8.1): replace the tab
+   * groups and folders with a layout the server holds (a phone edit, or this
+   * page's save rebased on one). Keeps the active group when it still
+   * exists, re-renders the tab strip, and, when the active group's panes
+   * changed, re-opens it through the same path a group switch uses, so a
+   * pane the phone added opens like any pane. Cached panes of other groups
+   * whose panes changed are dropped, so switching to them opens the new set.
+   *
+   * @param {Object} layout - {tabGroups, tabFolders, activeGroupId, revision}.
+   */
+  applyRemoteLayout(layout) {
+    if (!layout || !Array.isArray(layout.tabGroups) || layout.tabGroups.length === 0) return;
+    const paneKey = (group) => JSON.stringify(((group && group.panes) || [])
+      .map(p => [p.slot, p.sessionId || null, p.viewType || null,
+        (p.viewData && p.viewData.providerSessionId) || null])
+      .sort((a, b) => a[0] - b[0]));
+    const before = new Map((this._tabGroups || []).map(g => [g.id, paneKey(g)]));
+    const activeId = this._activeGroupId;
+    this._tabGroups = layout.tabGroups;
+    this._tabFolders = Array.isArray(layout.tabFolders) ? layout.tabFolders : [];
+    if (typeof layout.revision === 'number') this._layoutRevision = layout.revision;
+
+    // Cached (non active) groups: drop the ones that are gone or changed.
+    for (const cachedId of Object.keys(this._groupPaneCache || {})) {
+      if (cachedId === activeId) continue;
+      const g = this._tabGroups.find(x => x.id === cachedId);
+      if (!g || before.get(cachedId) !== paneKey(g)) this._disposeGroupCache(cachedId);
+    }
+
+    const active = this._tabGroups.find(g => g.id === activeId);
+    const reopen = (targetId) => {
+      // The group switch path, entered the way deleteTerminalGroup enters
+      // it: the live panes are cached under a temporary id (so they are not
+      // written back over the incoming records) and disposed after.
+      this._activeGroupId = '__switching__';
+      this.switchTerminalGroup(targetId);
+      this._disposeGroupCache('__switching__');
+    };
+    if (!active) {
+      const fallback = (layout.activeGroupId && this._tabGroups.some(g => g.id === layout.activeGroupId))
+        ? layout.activeGroupId
+        : this._tabGroups[0].id;
+      reopen(fallback);
+    } else if (before.get(activeId) !== paneKey(active)) {
+      reopen(activeId);
+    } else {
+      this.renderTerminalGroupTabs();
+      if (this.isMobile && typeof this.updateTerminalTabs === 'function') this.updateTerminalTabs();
+    }
+    if (typeof this.renderWorkspaces === 'function') this.renderWorkspaces();
+  }
+
+  /**
+   * Mobile v2 (BUILD-CONTRACT S20): react to layout:updated. Returns at once
+   * for a revision this page already has (its own save, or one it applied);
+   * while a save of its own is pending or in flight it waits, because that
+   * save's answer carries merged: true and the server's layout when anything
+   * changed underneath (and a revision still missed afterwards is fetched
+   * then); otherwise it reads GET /api/layout and applies it.
+   *
+   * @param {number} revision - The revision the server announced.
+   * @returns {Promise<void>}
+   */
+  async _fetchAndApplyRemoteLayout(revision) {
+    if (revision === this._layoutRevision) return;
+    if (typeof this._layoutRevision === 'number' && revision < this._layoutRevision) return;
+    if (this._layoutSaveTimer || this._layoutSaveInFlight) {
+      this._layoutPendingRemote = Math.max(
+        typeof this._layoutPendingRemote === 'number' ? this._layoutPendingRemote : -1,
+        revision
+      );
+      return;
+    }
+    try {
+      const layout = await this.api('GET', '/api/layout');
+      if (!layout || typeof layout.revision !== 'number') return;
+      if (layout.revision === this._layoutRevision) return;
+      // A local change started while the read was in flight: its save
+      // answer decides (it is rebased on the server's layout if needed).
+      if (this._layoutSaveTimer || this._layoutSaveInFlight) {
+        this._layoutPendingRemote = layout.revision;
+        return;
+      }
+      this._layoutRevision = layout.revision;
+      this.applyRemoteLayout(layout);
+    } catch (_) {
+      // Offline or signed out: the next event or reload catches up.
+    }
   }
 
 

@@ -22,6 +22,10 @@ const path = require('path');
 const crypto = require('crypto');
 const kit = require('./fakes/b2-kit');
 
+const LIVE_FIXTURE_TIMEOUT_MS = 5000;
+const TURN_READY_TIMEOUT_MS = 15000;
+const STOP_SEND_FAILURE_TIMEOUT_MS = 3000;
+const STOP_RELAUNCH_OBSERVE_MS = 2500;
 const sb = kit.sandbox();
 let env;
 const spawns = [];
@@ -32,7 +36,9 @@ function stateEntry(sessionId, kind, shortId) {
   fs.writeFileSync(path.join(sb.state, 'claude-' + sessionId + '.json'), JSON.stringify({ id: shortId, sessionId, pid: process.pid, kind, status: 'idle', waitingFor: null, cwd: sb.work, name: 'x', startedAt: Date.now(), state: kind === 'background' ? 'working' : null }));
 }
 
-kit.test('boot', async () => { env = await kit.bootChat({ pty: true }); });
+kit.test('boot', async () => {
+  env = await kit.bootChat({ pty: true });
+});
 
 kit.test('launchDetached spawns a fresh tracked session from its record', async () => {
   const rec = kit.trackedSession(env.store, { provider: 'claude', workingDir: sb.work });
@@ -66,6 +72,11 @@ kit.test('a live interactive match is refused with SESSION_LIVE_ELSEWHERE and no
   const r = await env.pm.launchDetached(rec.id, { _ptySpawnForTesting: spy, _liveFresh: true });
   kit.eq([r.status, r.code], ['refused', 'SESSION_LIVE_ELSEWHERE']);
   kit.eq(spawns.length, before, 'no spawn on refusal');
+  // The mobile owner cache may predate this test's newly written live fixture.
+  await kit.until(async () => {
+    await env.chat.internals.agents.onDemand(-1);
+    return !!env.chat.internals.agents.entryFor(transcript);
+  }, LIVE_FIXTURE_TIMEOUT_MS, 'the owner poller sees the interactive fixture');
   env.chat.internals.index.invalidate();
   const sid = 'cl_' + transcript;
   const send = await kit.api(env.base, 'POST', '/sessions/' + sid + '/send', { clientMessageId: crypto.randomUUID(), text: 'hi' }, env.device.token);
@@ -117,8 +128,16 @@ kit.test('new session errors: WORKING_DIR_NOT_FOUND, PROJECT_REQUIRED, INVALID_S
 });
 
 kit.test('restart now during a turn is SESSION_BUSY; stop kills the pane', async () => {
-  await kit.api(env.base, 'POST', '/sessions/' + newSid + '/send', { clientMessageId: crypto.randomUUID(), text: 'long: busy' }, env.device.token);
-  await kit.until(() => env.chat.internals.turns.isTurnOpen(newSid), 15000, 'turn open');
+  const busyMessageId = crypto.randomUUID();
+  await kit.api(env.base, 'POST', '/sessions/' + newSid + '/send', { clientMessageId: busyMessageId, text: 'long: busy' }, env.device.token);
+  // The first prompt may still have an open turn. Wait for this send's turn,
+  // so stopping it cannot leave a queued prompt that relaunches the fixture.
+  await kit.until(() => {
+    const send = env.chat.internals.sends.list(newSid).find((x) => x.clientMessageId === busyMessageId);
+    const turn = env.chat.internals.turns.turnOf(newSid);
+    return send && send.state === 'confirmed' && turn && turn.turnId === 't_' + send.messageId
+      && env.chat.internals.turns.isTurnOpen(newSid);
+  }, TURN_READY_TIMEOUT_MS, 'the long prompt is confirmed and its turn is open');
   const r = await kit.api(env.base, 'POST', '/sessions/' + newSid + '/restart', { clientRequestId: crypto.randomUUID(), when: 'now' }, env.device.token);
   kit.eq([r.status, r.body.code], [409, 'SESSION_BUSY']);
   const w = await kit.api(env.base, 'POST', '/sessions/' + newSid + '/restart', { clientRequestId: crypto.randomUUID(), when: 'whenIdle' }, env.device.token);
@@ -126,8 +145,63 @@ kit.test('restart now during a turn is SESSION_BUSY; stop kills the pane', async
   const s = await kit.api(env.base, 'POST', '/sessions/' + newSid + '/stop', { clientRequestId: crypto.randomUUID() }, env.device.token);
   kit.eq([s.status, s.body.status], [200, 'stopped']);
   kit.validate(s.body, 'sessions/status-result.json');
+  await kit.until(() => {
+    env.chat.internals.index.invalidate();
+    const ref = env.chat.internals.index.resolve(newSid);
+    return !!ref && ref.owner === 'none';
+  }, TURN_READY_TIMEOUT_MS, 'the stopped session reads as not running');
   const s2 = await kit.api(env.base, 'POST', '/sessions/' + newSid + '/stop', { clientRequestId: crypto.randomUUID() }, env.device.token);
-  kit.eq(s2.body.status, 'notRunning');
+  kit.eq([s2.status, s2.body && s2.body.status, s2.body && s2.body.code], [200, 'notRunning', undefined]);
+  kit.eq(env.chat.internals.sends.pending(newSid), [], 'the stopped fixture has no send left to relaunch it');
+});
+
+kit.test('stop fails a send queued behind a turn and never relaunches the session', async () => {
+  const cwd = path.join(sb.work, 'stop-with-queued-send');
+  fs.mkdirSync(cwd, { recursive: true });
+  const firstMessageId = crypto.randomUUID();
+  const created = await kit.api(env.base, 'POST', '/sessions', {
+    clientRequestId: crypto.randomUUID(), provider: 'claude', workingDir: cwd,
+    projectId: env.store.getAllWorkspacesList()[0].id, name: null,
+    settings: { permissionMode: 'default' }, tabGroupId: null, afterSessionId: null,
+    message: { clientMessageId: firstMessageId, text: 'first words', attachments: [] },
+  }, env.device.token);
+  kit.eq(created.status, 201, JSON.stringify(created.body));
+  const sid = created.body.session.sessionId;
+  await kit.until(() => env.chat.internals.sends.list(sid).some((x) => x.clientMessageId === firstMessageId && x.state === 'confirmed'),
+    TURN_READY_TIMEOUT_MS, 'the first message is confirmed');
+
+  const busyMessageId = crypto.randomUUID();
+  const busy = await kit.api(env.base, 'POST', '/sessions/' + sid + '/send', { clientMessageId: busyMessageId, text: 'long: first' }, env.device.token);
+  kit.eq(busy.status, 202);
+  await kit.until(() => {
+    const send = env.chat.internals.sends.list(sid).find((x) => x.clientMessageId === busyMessageId);
+    const turn = env.chat.internals.turns.turnOf(sid);
+    return send && send.state === 'confirmed' && turn && turn.turnId === 't_' + send.messageId
+      && env.chat.internals.turns.isTurnOpen(sid);
+  }, TURN_READY_TIMEOUT_MS, 'the long prompt is confirmed and its turn is open');
+
+  const queuedMessageId = crypto.randomUUID();
+  const queued = await kit.api(env.base, 'POST', '/sessions/' + sid + '/send', { clientMessageId: queuedMessageId, text: 'second' }, env.device.token);
+  kit.eq(queued.status, 202);
+  await kit.until(() => env.chat.internals.sends.list(sid).some((x) => x.clientMessageId === queuedMessageId && x.state === 'queued' && x.reason === 'busy'),
+    TURN_READY_TIMEOUT_MS, 'the second send waits behind the open turn');
+
+  const cap = captureLaunches();
+  try {
+    const before = spawns.length;
+    const restart = await kit.api(env.base, 'POST', '/sessions/' + sid + '/restart', { clientRequestId: crypto.randomUUID(), when: 'whenIdle' }, env.device.token);
+    kit.eq([restart.status, restart.body.status], [202, 'scheduled']);
+    const stopped = await kit.api(env.base, 'POST', '/sessions/' + sid + '/stop', { clientRequestId: crypto.randomUUID() }, env.device.token);
+    kit.eq([stopped.status, stopped.body.status], [200, 'stopped']);
+    await kit.until(() => env.chat.internals.sends.list(sid).some((x) => x.clientMessageId === queuedMessageId && x.state === 'failed' && x.error && x.error.code === 'SESSION_EXITED'),
+      STOP_SEND_FAILURE_TIMEOUT_MS, 'the queued send fails when the session stops');
+    await kit.sleep(STOP_RELAUNCH_OBSERVE_MS);
+    kit.eq(spawns.length, before, 'the stopped session never respawns');
+    kit.eq(cap.calls.length, 0, 'the stopped session never requests another launch');
+    kit.eq(env.chat.internals.sends.pending(sid), [], 'the stopped session has no pending sends');
+  } finally {
+    cap.restore();
+  }
 });
 
 // ── Fix round: the phone body never reaches a command line (W2, PROTOCOL.md 0.1) ──
@@ -229,26 +303,55 @@ kit.test('launchDetached ignores a caller supplied _liveChecked: a live interact
   kit.eq(spawns.length, before, 'nothing spawned');
 });
 
-kit.test('launchDetached checks again when the record changes during the lookup (attachClient rule)', async () => {
+kit.test('launchDetached refreshes even a just cached listing when the record changes during the lookup', async () => {
   const quiet = crypto.randomUUID();
   const live = crypto.randomUUID();
   kit.writeClaude(sb.projects, sb.work, quiet, kit.claudeExchange('quiet'));
   kit.writeClaude(sb.projects, sb.work, live, kit.claudeExchange('live'));
-  stateEntry(live, 'interactive', 'lv12ab34');
   const rec = kit.trackedSession(env.store, { provider: 'claude', workingDir: sb.work, resumeSessionId: quiet });
+  const liveSessions = require('../../src/providers/claude/live-sessions');
+  const originalLookup = liveSessions.getDefaultLookup();
+  const lookupTime = Date.now();
+  let entries = [];
+  // Keep the listing inside the fresh reuse window without depending on timing.
+  const lookup = liveSessions.createLiveSessionLookup({
+    now: () => lookupTime,
+    env: {},
+    homedir: sb.work,
+    resolveCandidates: () => [{ path: 'fixture-claude', viaCmd: false }],
+    execFileImpl(_file, _args, _options, callback) {
+      const output = JSON.stringify(entries);
+      queueMicrotask(() => callback(null, output));
+      return null;
+    },
+  });
+  liveSessions._setDefaultLookupForTesting(lookup);
   const orig = env.pm._decideLive;
-  let decisions = 0;
+  const decisions = [];
   env.pm._decideLive = async function decideThenChange(id, gate) {
-    decisions += 1;
     const d = await orig.call(env.pm, id, gate);
-    // The record moves to another transcript while the first lookup ran.
-    if (decisions === 1) env.store.updateSession(rec.id, { resumeSessionId: live });
+    decisions.push({ target: gate.resumeSessionId, fresh: gate.fresh, cached: d.lookup.cached });
+    if (decisions.length === 1) {
+      // The new target goes live after the listing, before the record recheck.
+      entries = [{ id: 'lv12ab34', sessionId: live, kind: 'interactive', pid: process.pid, cwd: sb.work }];
+      env.store.updateSession(rec.id, { resumeSessionId: live });
+    }
     return d;
   };
   const before = spawns.length;
   let r;
-  try { r = await env.pm.launchDetached(rec.id, { _ptySpawnForTesting: spy, _liveFresh: true }); } finally { env.pm._decideLive = orig; }
-  kit.eq([r.status, r.code, decisions], ['refused', 'SESSION_LIVE_ELSEWHERE', 2]);
+  try {
+    r = await env.pm.launchDetached(rec.id, { _ptySpawnForTesting: spy, _liveFresh: true });
+  } finally {
+    env.pm._decideLive = orig;
+    liveSessions._setDefaultLookupForTesting(originalLookup);
+  }
+  kit.eq([r.status, r.code], ['refused', 'SESSION_LIVE_ELSEWHERE']);
+  kit.eq(decisions, [
+    { target: quiet, fresh: true, cached: false },
+    { target: live, fresh: true, cached: false },
+  ]);
+  kit.eq(lookup.runs, 2, 'the changed target requires another actual listing');
   kit.eq(spawns.length, before, 'the changed target was checked, never spawned unchecked');
 });
 

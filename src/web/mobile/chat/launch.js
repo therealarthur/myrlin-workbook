@@ -511,6 +511,10 @@ function createLauncher(deps) {
       } else {
         fail(409, 'SESSION_READ_ONLY', 'This session cannot be stopped from the phone.', { owner: ref.owner, reason: (index.meta(ref.sessionId) || {}).readOnlyReason || null });
       }
+      const sq = lazy.sends && lazy.sends();
+      if (sq && typeof sq.failSession === 'function') sq.failSession(ref.sessionId, 'SESSION_EXITED');
+      const pr = pendingRestarts.get(ref.sessionId);
+      if (pr) { clearInterval(pr); pendingRestarts.delete(ref.sessionId); }
       index.invalidate();
       index.noteChanged(ref.sessionId, 'updated');
       audit(who.deviceId, 'stop', ref.sessionId, ref.owner, true);

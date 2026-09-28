@@ -2064,7 +2064,8 @@ class PtySessionManager {
       try { again = this._liveGateFor(sessionId, baseOpts); } catch (_) { again = null; }
       if (!again || !sameGateTarget(again, gate)) {
         console.log(`[PTY] ${sessionId} changed during the live-session check; checking the new target`);
-        this.attachClient(sessionId, ws, baseOpts);
+        if (again && again.lookup && typeof again.lookup.invalidate === 'function') again.lookup.invalidate();
+        this.attachClient(sessionId, ws, { ...baseOpts, _liveFresh: true });
         replay();
         return;
       }
@@ -2449,7 +2450,9 @@ class PtySessionManager {
           return { status: 'refused', code: 'LAUNCH_CANCELLED', message: 'The session changed while it was being checked.' };
         }
         console.log(`[PTY] ${sessionId} changed during a detached live-session check; checking the new target`);
-        return this.launchDetached(sessionId, baseOpts, _recheckDepth + 1);
+        // A changed target must not reuse even the lookup's brief fresh cache.
+        if (again && typeof again.lookup.invalidate === 'function') again.lookup.invalidate();
+        return this.launchDetached(sessionId, { ...baseOpts, _liveFresh: true }, _recheckDepth + 1);
       }
       if (decision.action === 'resume' && gate.resumeSessionId) {
         const other = this._otherPaneOnTranscript(sessionId, gate.resumeSessionId);
