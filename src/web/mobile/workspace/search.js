@@ -60,6 +60,15 @@ const NAME_INDEX_TTL_MS = 2000;
 const NAME_INDEX_STALE_OK_MS = 30 * 1000;
 /** Delay before a background rebuild after a change (coalesces bursts). */
 const NAME_INDEX_WARM_DELAY_MS = 250;
+/**
+ * Background rebuilds happen only while a phone has searched within this
+ * window. WHY: the index build walks every transcript synchronously; running
+ * it on every session change while no phone is searching pinned the desktop
+ * Workbook's main thread (2026-09-28 live profile: about 80 percent of a core).
+ */
+const NAME_INDEX_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
+/** Background rebuilds run at most this often, even while a phone searches. */
+const NAME_INDEX_BG_MIN_INTERVAL_MS = 15 * 1000;
 /** Store events that change a name the index holds. */
 const NAME_STORE_EVENTS = Object.freeze(['session:created', 'session:updated', 'session:deleted', 'workspace:created', 'workspace:updated', 'workspace:deleted', 'group:created', 'group:updated', 'group:deleted', 'providerSessionTitles:updated', 'state:reloaded']);
 /** The coverage sentence (PROTOCOL.md 4.9.2, A15). */
@@ -138,6 +147,7 @@ function createSearch(deps) {
    * @returns {object[]} Candidate results without match fields.
    */
   function names_index() {
+    lastQueryAt = now();
     const age = now() - nameIndex.at;
     if (age < NAME_INDEX_TTL_MS) return nameIndex.entries;
     // A recent index answers at once while a fresh one is built after the
@@ -198,6 +208,8 @@ function createSearch(deps) {
 
   let warmTimer = null;
   let lastBuildAt = 0;
+  /** When a phone last read the name index (0: never since start). */
+  let lastQueryAt = 0;
   /**
    * Rebuild the name index in the background after a short delay (once per
    * burst of changes).
@@ -206,9 +218,11 @@ function createSearch(deps) {
    */
   function warmSoon(delayMs) {
     if (warmTimer) return;
-    // Background builds run at most once per NAME_INDEX_TTL_MS, so a busy
-    // computer (store updates every second) never rebuilds in a loop.
-    const wait = Math.max(Number.isFinite(delayMs) ? delayMs : NAME_INDEX_WARM_DELAY_MS, (lastBuildAt + NAME_INDEX_TTL_MS) - now());
+    // No phone is searching: stay idle; the next query builds on demand.
+    if (now() - lastQueryAt > NAME_INDEX_ACTIVE_WINDOW_MS) return;
+    // Background builds run at most once per NAME_INDEX_BG_MIN_INTERVAL_MS, so
+    // a busy computer (store updates every second) never rebuilds in a loop.
+    const wait = Math.max(Number.isFinite(delayMs) ? delayMs : NAME_INDEX_WARM_DELAY_MS, (lastBuildAt + NAME_INDEX_BG_MIN_INTERVAL_MS) - now());
     warmTimer = setTimeout(() => {
       warmTimer = null;
       try { buildNameIndex(); } catch (err) { log('name index build failed: ' + (err && err.message)); }
