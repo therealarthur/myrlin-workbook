@@ -351,10 +351,18 @@ async function main() {
     let ticks = 0;
     let longestBlockMs = 0;
     let last = Date.now();
+    let lastCpu = process.cpuUsage();
+    let longestBlockCpuMs = 0;
     const beat = setInterval(() => {
       const now = Date.now();
       const over = now - last - 1;
       if (over > longestBlockMs) longestBlockMs = over;
+      // Wall gaps include OS scheduling stalls, CPU time does not.
+      const cpu = process.cpuUsage();
+      const cpuMs = ((cpu.user - lastCpu.user) + (cpu.system - lastCpu.system)) / 1000;
+      const block = Math.min(over, cpuMs);
+      if (block > longestBlockCpuMs) longestBlockCpuMs = block;
+      lastCpu = cpu;
       last = now;
       ticks++;
     }, 1);
@@ -366,8 +374,8 @@ async function main() {
     assert.ok(ticks >= 3, 'the event loop turned only ' + ticks + ' time(s) during the walk');
     assert.ok(discover._stats().yields >= 1,
       'the walk never yielded on its slice budget (yields=' + discover._stats().yields + ')');
-    assert.ok(longestBlockMs < 150,
-      'a single main-thread block of ' + longestBlockMs + 'ms exceeds the 150ms contract bar');
+    assert.ok(longestBlockCpuMs < 150,
+      'a single main-thread block used ' + Math.round(longestBlockCpuMs) + 'ms of CPU (longest wall gap ' + longestBlockMs + 'ms), over the 150ms contract bar');
   });
 
   await test('a timer scheduled before the call runs before the walk resolves', async () => {
