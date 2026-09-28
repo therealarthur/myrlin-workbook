@@ -104,6 +104,7 @@ function watcherHarness() {
   const timeouts = new Set();
   const watchers = [];
   let unavailable = false;
+  let mtimeMs = 7;
   const fakeFs = Object.assign({}, fs, {
     watch(folder, fn) {
       if (unavailable) throw Object.assign(new Error('watch unavailable'), { code: 'ENOENT' });
@@ -115,7 +116,7 @@ function watcherHarness() {
       watchers.push(watcher);
       return watcher;
     },
-    statSync() { return { mtimeMs: 7 }; },
+    statSync() { return { mtimeMs }; },
   });
   const sandbox = {
     module: { exports: {} },
@@ -129,7 +130,7 @@ function watcherHarness() {
   vm.runInNewContext(fs.readFileSync(path.join(H.REPO_ROOT, 'src/web/mobile/workspace/glass-client.js'), 'utf8'), sandbox);
   const folder = path.join(H.sandbox.dir, 'glass-watch-fixture');
   const client = sandbox.module.exports.createGlassClient({ env: { CWM_GLASS_DIR: folder } });
-  return { client, folder, watchers, intervals, timeouts, unavailable: (value) => { unavailable = value; }, flush() { for (const t of Array.from(timeouts)) { timeouts.delete(t); t.fn(); } } };
+  return { client, folder, watchers, intervals, timeouts, unavailable: (value) => { unavailable = value; }, advanceMtime() { mtimeMs += 1; }, flush() { for (const t of Array.from(timeouts)) { timeouts.delete(t); t.fn(); } } };
 }
 
 test('mounting with the listener disabled reads no rosters and starts no Glass watcher', async () => {
@@ -361,15 +362,45 @@ test('watcher failure falls back to file polling and returns to events on recove
   let changes = 0;
   const stop = h.client.watchStateFile(() => { changes += 1; });
   assert.strictEqual(h.intervals.size, 1);
+  Array.from(h.intervals)[0].fn();
+  h.flush();
+  assert.strictEqual(changes, 0, 'the seeded unchanged mtime is silent');
+  h.advanceMtime();
   h.unavailable(false);
   Array.from(h.intervals)[0].fn();
   h.flush();
   assert.strictEqual(changes, 1);
   assert.strictEqual(h.intervals.size, 1);
+  Array.from(h.intervals)[0].fn();
+  h.flush();
+  assert.strictEqual(changes, 1, 'one changed mtime notifies exactly once');
   h.watchers[0].emit('error', new Error('fixture watch failure'));
   assert.strictEqual(h.intervals.size, 1);
   stop();
   assert.strictEqual(h.intervals.size, 0);
+});
+
+test('broadcastSSE forwards every account event name to the monitor and nothing else', async () => {
+  const source = fs.readFileSync(path.join(H.REPO_ROOT, 'src/web/server.js'), 'utf8').replace(/\r\n/g, '\n');
+  const broadcastStart = source.indexOf('function broadcastSSE(');
+  assert.ok(broadcastStart >= 0);
+  const broadcastEnd = source.indexOf('\n}\n', broadcastStart);
+  assert.ok(broadcastEnd > broadcastStart);
+  const broadcast = source.slice(broadcastStart, broadcastEnd);
+  assert.ok(broadcast.includes("require('./mobile').onAccountChange(eventType)"));
+  const match = /if \(\/(\^\([^/]+)\/\.test\(eventType\)\)/.exec(broadcast);
+  assert.ok(match, 'the account event forwarding condition exists');
+  const forwards = new RegExp(match[1]);
+  const eventsStart = source.indexOf('const GLOBAL_EVENT_TYPES = new Set([');
+  assert.ok(eventsStart >= 0);
+  const eventsEnd = source.indexOf('])', eventsStart);
+  assert.ok(eventsEnd > eventsStart);
+  const globalEvents = source.slice(eventsStart, eventsEnd);
+  const accountEvents = Array.from(globalEvents.matchAll(/'(credentials:[^']+|provider-accounts:[^']+)'/g), (entry) => entry[1]);
+  assert.strictEqual(accountEvents.length, 5);
+  for (const name of accountEvents) assert.ok(forwards.test(name), name);
+  assert.strictEqual(forwards.test('session:updated'), false);
+  assert.strictEqual(forwards.test('settings:updated'), false);
 });
 
 H.run('B3 accounts monitor', tests);
