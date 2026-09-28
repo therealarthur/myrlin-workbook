@@ -25796,6 +25796,9 @@ class CWMApp {
      ═══════════════════════════════════════════════════════════ */
 
   async initTerminalGroups() {
+    this._layoutLoadRetryAttempt = 0;
+    this._layoutHeldEdits = false;
+    this._layoutRevisionUnsupported = false;
     // Load layout from server
     this._tabGroups = [];
     this._tabFolders = []; // Tab group folders: { id, name, color, collapsed }

@@ -54,7 +54,7 @@ function layoutPage(api) {
   const timers = new Map();
   const delays = [];
   let timerId = 0;
-  const methods = ['loadTerminalLayout', 'saveTerminalLayout', '_retryTerminalLayoutLoad', 'applyRemoteLayout', '_fetchAndApplyRemoteLayout'];
+  const methods = ['initTerminalGroups', 'loadTerminalLayout', 'saveTerminalLayout', '_retryTerminalLayoutLoad', 'applyRemoteLayout', '_fetchAndApplyRemoteLayout'];
   const page = vm.runInNewContext('({' + methods.map(methodBody).join(',') + '})', {
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, fn); delays.push(ms); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -110,6 +110,25 @@ kit.test('layout load recovery backs off after consecutive network errors', asyn
   await h.page.loadTerminalLayout();
   for (let i = 0; i < 3; i += 1) await h.fire();
   kit.eq(h.delays, [1000, 2000, 4000, 8000]);
+});
+
+kit.test('terminal group reinitialization after sign-in resets layout recovery and its first retry delay', async () => {
+  const resets = [];
+  const h = layoutPage(async () => {
+    resets.push([h.page._layoutLoadRetryAttempt, h.page._layoutHeldEdits, h.page._layoutRevisionUnsupported]);
+    throw new Error('offline');
+  });
+  h.page.state.token = null;
+  h.page._layoutLoadRetryAttempt = 5;
+  h.page._layoutHeldEdits = true;
+  h.page._layoutRevisionUnsupported = true;
+  h.page.state.token = 'signed-in-token';
+  await h.page.initTerminalGroups();
+  kit.eq(resets, [[0, false, false]], 'reinitialization resets recovery before loading the layout');
+  kit.eq(h.delays, [1000], 'the first retry uses the initial backoff delay');
+  kit.eq(h.page._layoutLoadRetryAttempt, 1);
+  kit.eq([h.page._layoutHeldEdits, h.page._layoutRevisionUnsupported], [false, false]);
+  kit.eq(h.timers.size, 1);
 });
 
 kit.test('failed initial layout reads hold saves until recovery loads the phone layout', async () => {
