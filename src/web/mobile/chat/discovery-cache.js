@@ -93,8 +93,17 @@ function createDiscoveryCache({ registry, now = Date.now, ttlMs = TTL_MS } = {})
     },
     /** Provider change callback from Workbook (B1's onProviderChange). */
     onProviderChange(provider) {
-      if (provider && state.has(provider)) refreshOne(provider, true);
-      else for (const p of PROVIDERS) refreshOne(p, true);
+      // Mark the provider stale only; the next read refreshes it in the
+      // background without forcing a full walk (the provider's own warm cache
+      // answers). WHY: Workbook reports provider changes constantly while
+      // sessions write transcripts, and a forced Codex rediscovery reads the
+      // head of every rollout synchronously; run back to back it froze the
+      // desktop's main thread for seconds at a time (2026-09-28 live profile).
+      const list = provider && state.has(provider) ? [provider] : PROVIDERS;
+      for (const p of list) {
+        const s = state.get(p);
+        if (s) s.at = 0;
+      }
     },
     /** @param {(provider: string) => void} fn */
     onChanged(fn) { listeners.add(fn); return () => listeners.delete(fn); },
