@@ -197,11 +197,18 @@ function ensureCore(ctx) {
  *
  * @param {object} ctx - Context.
  */
-function mountOtherTracks(ctx) {
+function mountOtherTracks(ctx, opts = {}) {
   // A test of B1 alone sets ctx.mountTracks to false, so the stub hub it
   // placed at ctx.mobile.hub stays (BUILD-CONTRACT 2.1: a track tests with
   // stubs of the other tracks' parts). Production never sets it.
   if (ctx && ctx.mountTracks === false) return;
+  // The chat track mounts only once the phone listener is enabled. WHY: it
+  // taps every PTY's output (a screen reader per session, transcript tails
+  // every 2 s, a 1 s turn check, session index rebuilds that trigger Codex
+  // rediscovery), all of it for phones, and it ran on every desktop with the
+  // listener off, which made the desktop lag (2026-09-28 live profile). The
+  // workspace track still mounts at once for the desktop layout hooks.
+  const withChat = opts.chat !== false;
   // Test seams for a track's mount function, by flag ({chat: {...}, workspace: {...}}).
   const trackOptions = (ctx && ctx.trackOptions && typeof ctx.trackOptions === 'object') ? ctx.trackOptions : {};
   const tryMount = (dir, fnName, flag) => {
@@ -221,8 +228,14 @@ function mountOtherTracks(ctx) {
       rt.log('[mobile] ' + fnName + ' failed: ' + (err && err.message));
     }
   };
-  tryMount('chat', 'mountChat', 'chat');
+  if (withChat) tryMount('chat', 'mountChat', 'chat');
   tryMount('workspace', 'mountWorkspace', 'workspace');
+  // Chat mounted after workspace (the listener was enabled later): give
+  // workspace the chat it could not see at its own mount.
+  const ws = ctx && ctx.mobile && ctx.mobile.workspace;
+  if (ws && typeof ws.attachChat === 'function' && ctx.mobile.chat) {
+    try { ws.attachChat(ctx.mobile.chat); } catch (err) { rt.log('[mobile] attachChat failed: ' + (err && err.message)); }
+  }
 }
 
 /**
@@ -235,8 +248,8 @@ function mountOtherTracks(ctx) {
 function startMobile(ctx) {
   const runtime = ensureCore(ctx);
   const generation = ++runtime.accountMonitorGeneration;
-  mountOtherTracks(runtime.ctx);
   const s = runtime.getSettings();
+  mountOtherTracks(runtime.ctx, { chat: !!s.enabled });
   for (const e of s.envErrors) runtime.log('[mobile] ' + e);
   if (s.envHost && !contextMod.isLoopbackHost(s.host)) {
     runtime.log('[mobile] CWM_MOBILE_HOST must be 127.0.0.1 or ::1; the phone listener stays stopped');
@@ -302,6 +315,7 @@ async function restartListener() {
     runtime.endpoints.stop();
     return runtime.listener.status();
   }
+  mountOtherTracks(runtime.ctx, { chat: true }); // first enable mounts the chat track
   runtime.identity.ensure(); // first start of the listener creates K_c (PROTOCOL.md 2.1)
   runtime.endpoints.start();
   const status = await runtime.listener.start();

@@ -937,6 +937,7 @@ const standaloneTests = [
   'provider-account-tabs.test.js',       // feat/codex-account-switcher C2: account-panel tab bar + provider pipeline + SSE cases + CSS gates
   'quota-widget-support.test.js',        // feat/quota-widget-support: W1 mcpOAuth-preserving apply/rollback, W2 CODEX_RUNNING warn-and-allow, W3 isolated imports (capture-root allowlist, profile identity check); review fixes: .claude.json BOM and stuck-vs-busy, Claude Code lock interop, Codex Swap anyway UI
   'windows-hide-sweep.test.js',  // chore/windowshide-sweep: every server-side child_process call site passes windowsHide (source gate)
+  'perf-monitor.test.js',        // 2026-09-28 lag monitor: window top lists, stall attribution, profile block summary
   'git-conflict-cache.test.js',  // chore/windowshide-sweep: short-TTL git status cache hit/expiry/eager invalidation
   'jsonl-tailer.test.js',            // issue #10 T1 P1: byte-offset tailer (watch+poll, UTF-8 carry, truncate reset, oversized sentinel) + readTailWindow
   'claude-mirror-parse.test.js',     // issue #10 T1 P2: claude mirror.parseLine (pure, never throws, text cap, skip set)

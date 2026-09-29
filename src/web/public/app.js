@@ -16956,7 +16956,7 @@ class CWMApp {
         // variant avoids burst rebuilds when multiple events fire in
         // rapid succession.
         if (typeof this.loadProjects === 'function') {
-          this.loadProjects();
+          this._scheduleDiscoverRefresh();
         }
         break;
       case 'tunnel:opened':
@@ -19637,6 +19637,29 @@ class CWMApp {
    * Load projects from server. Uses dual caching (browser + server) unless forceRefresh.
    * @param {boolean} [forceRefresh=false] - Bypass both browser and server caches
    */
+  /**
+   * Coalesce discover:refreshed events into at most one sidebar refresh per
+   * DISCOVER_REFRESH_MIN_MS. WHY: active agent sessions write transcripts
+   * all the time, so the server announced a provider change about once a
+   * second (22 in 30 s, 2026-09-28 live trace) and each one re-parsed the
+   * cached project list and rebuilt the whole sidebar, and on the server a
+   * fetch after an event walks that provider again. The refresh bypasses the
+   * page's 30 s sessionStorage copy, since the event says the data changed.
+   */
+  _scheduleDiscoverRefresh() {
+    const DISCOVER_REFRESH_MIN_MS = 15000;
+    const DISCOVER_REFRESH_SETTLE_MS = 2000;
+    if (this._discoverRefreshTimer) return;
+    const sinceLast = Date.now() - (this._discoverRefreshAt || 0);
+    const wait = Math.max(DISCOVER_REFRESH_SETTLE_MS, DISCOVER_REFRESH_MIN_MS - sinceLast);
+    this._discoverRefreshTimer = setTimeout(() => {
+      this._discoverRefreshTimer = null;
+      this._discoverRefreshAt = Date.now();
+      try { sessionStorage.removeItem('cwm_projects'); } catch (_) { /* storage blocked */ }
+      this.loadProjects();
+    }, wait);
+  }
+
   async loadProjects(forceRefresh = false) {
     try {
       // Try sessionStorage cache first (skip if force refreshing)
@@ -19661,6 +19684,15 @@ class CWMApp {
       const byProvider = (data && typeof data.projects === 'object' && !Array.isArray(data.projects))
         ? data.projects
         : {};
+      // Skip the sidebar rebuild when the server answered with exactly what
+      // is already on screen (the usual case for a refresh after an event).
+      let projectsSig = null;
+      try { projectsSig = JSON.stringify(data); } catch (_) { projectsSig = null; }
+      if (projectsSig && projectsSig === this._lastProjectsSig && Array.isArray(this.state.projects) && this.state.projects.length) {
+        try { sessionStorage.setItem('cwm_projects', JSON.stringify({ ts: Date.now(), data: this.state.projects })); } catch (_) { /* storage full */ }
+        return;
+      }
+      this._lastProjectsSig = projectsSig;
       this.state.projectsByProvider = byProvider;
       this.state.projects = this._mergeProjectsByProvider(byProvider);
       // Plan 22-01: hydrate ad-hoc provider-settings cache from the
@@ -28027,13 +28059,29 @@ class CWMApp {
     if (!dir) return null;
     const cached = this.state.gitStatusCache[dir];
     if (cached && Date.now() - cached.timestamp < 30000) return cached.data;
-    try {
-      const data = await this.api('GET', '/api/git/status?dir=' + encodeURIComponent(dir));
-      this.state.gitStatusCache[dir] = { data, timestamp: Date.now() };
-      return data;
-    } catch {
-      return null;
-    }
+    // One request per directory at a time. WHY: renderSessions asks once per
+    // session row, so a list with 13 sessions in one folder sent 13 requests
+    // at once (100 git status requests in 30 s in a 2026-09-28 live trace),
+    // each spawning git on the server and blocking its main thread.
+    if (!this._gitStatusInFlight) this._gitStatusInFlight = new Map();
+    const pending = this._gitStatusInFlight.get(dir);
+    if (pending) return pending;
+    const request = (async () => {
+      try {
+        const data = await this.api('GET', '/api/git/status?dir=' + encodeURIComponent(dir));
+        this.state.gitStatusCache[dir] = { data, timestamp: Date.now() };
+        return data;
+      } catch {
+        // Remember the failure too, so a broken directory is not retried on
+        // every render.
+        this.state.gitStatusCache[dir] = { data: null, timestamp: Date.now() };
+        return null;
+      } finally {
+        this._gitStatusInFlight.delete(dir);
+      }
+    })();
+    this._gitStatusInFlight.set(dir, request);
+    return request;
   }
 
   async fetchResources() {

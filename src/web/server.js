@@ -11,6 +11,11 @@
  */
 
 const path = require('path');
+// Performance monitor first: it wraps child_process before the line below
+// reads execSync, so every spawn's main-thread cost is measured (perf-monitor.js).
+const perf = require('./perf-monitor').install({
+  dataDir: (() => { try { return require('../utils/data-dir').getDataDir(); } catch (_) { return null; } })(),
+});
 const { execFile, execSync } = require('child_process');
 const express = require('express');
 
@@ -219,6 +224,21 @@ const app = express();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Route timings for the performance monitor (GET /api/perf). The key is the
+// matched route pattern, so /api/x/:id counts as one route.
+app.use((req, res, next) => {
+  const t0 = process.hrtime.bigint();
+  res.on('finish', () => {
+    try {
+      // An SSE stream "finishes" when the page closes; its length is not a cost.
+      if (String(res.getHeader('Content-Type') || '').includes('event-stream')) return;
+      const pattern = req.route && req.route.path ? (req.baseUrl || '') + req.route.path : (req.path.startsWith('/api/') ? req.path : 'static');
+      perf.route(req.method + ' ' + pattern, Number(process.hrtime.bigint() - t0) / 1e6);
+    } catch (_) { /* metrics never break a request */ }
+  });
+  next();
+});
 
 // API Version header on every response (ERRR-03)
 app.use((req, res, next) => {
@@ -2538,7 +2558,7 @@ app.get('/api/discover', requireAuth, async (req, res) => {
     let entry = _discoverCache.get(provider.id);
     if (forceRefresh || !entry || (now - entry.time) >= DISCOVER_CACHE_TTL) {
       try {
-        const sessions = await provider.discover({ forceRefresh });
+        const sessions = await perf.timeAsync('discover:' + provider.id, () => provider.discover({ forceRefresh }));
         if (!Array.isArray(sessions)) {
           throw new Error('provider.discover returned non-array');
         }
@@ -6958,6 +6978,7 @@ function broadcastSSE(eventType, data) {
   if (/^(credentials|provider-accounts):/.test(eventType)) {
     try { require('./mobile').onAccountChange(eventType); } catch (_) { /* optional mobile track */ }
   }
+  perf.count('sse:' + eventType);
   const payload = JSON.stringify({ type: eventType, data, timestamp: new Date().toISOString() });
   // Send as unnamed event so EventSource.onmessage fires (named events require addEventListener per type)
   const message = `data: ${payload}\n\n`;
@@ -7470,16 +7491,97 @@ async function gitRepoRoot(dir) {
   }
 }
 
+/**
+ * The original five-spawn git status read (rev-parse, abbrev-ref, status,
+ * upstream, rev-list). Kept as the fallback when the porcelain v2 read below
+ * cannot parse its answer (a git older than 2.11).
+ * @param {string} dir
+ * @returns {Promise<object>}
+ */
+async function computeGitStatusLegacy(dir) {
+  const root = await gitRepoRoot(dir);
+  if (!root) return { isGitRepo: false };
+  const branch = (await gitExec(['rev-parse', '--abbrev-ref', 'HEAD'], dir)).trim();
+  let dirty = false;
+  try {
+    const status = await gitExec(['status', '--porcelain'], dir);
+    dirty = status.trim().length > 0;
+  } catch {}
+  let remote = null;
+  try {
+    remote = (await gitExec(['rev-parse', '--abbrev-ref', '@{upstream}'], dir)).trim();
+  } catch {}
+  let ahead = 0, behind = 0;
+  if (remote) {
+    try {
+      const counts = (await gitExec(['rev-list', '--left-right', '--count', `HEAD...${remote}`], dir)).trim();
+      const [a, b] = counts.split('\t').map(Number);
+      ahead = a || 0;
+      behind = b || 0;
+    } catch {}
+  }
+  return { isGitRepo: true, repoRoot: root, branch, dirty, remote, ahead, behind };
+}
+
+/**
+ * Git status of a directory in two git spawns instead of five:
+ * `rev-parse --show-toplevel`, then `status --porcelain=v2 --branch`, whose
+ * header carries the branch, upstream and ahead/behind counts. WHY: every
+ * process spawn blocks Node's main thread on Windows (20 to 260 ms each in a
+ * 2026-09-28 live profile), and the sidebar asks for many directories at
+ * once, so the old five spawns per directory froze the desktop in bursts.
+ * Same answer shape as computeGitStatusLegacy.
+ * @param {string} dir
+ * @returns {Promise<object>}
+ */
+async function computeGitStatus(dir) {
+  const root = await gitRepoRoot(dir);
+  if (!root) return { isGitRepo: false };
+  let out;
+  try {
+    out = await gitExec(['status', '--porcelain=v2', '--branch'], dir);
+  } catch {
+    return computeGitStatusLegacy(dir);
+  }
+  let branch = null;
+  let remote = null;
+  let ahead = 0, behind = 0;
+  let dirty = false;
+  for (const line of out.split('\n')) {
+    if (!line) continue;
+    if (line.startsWith('# branch.head ')) {
+      const head = line.slice(14).trim();
+      branch = head === '(detached)' ? 'HEAD' : head;
+    } else if (line.startsWith('# branch.upstream ')) {
+      remote = line.slice(18).trim() || null;
+    } else if (line.startsWith('# branch.ab ')) {
+      const m = /\+(\d+)\s+-(\d+)/.exec(line);
+      if (m) { ahead = Number(m[1]) || 0; behind = Number(m[2]) || 0; }
+    } else if (!line.startsWith('#')) {
+      dirty = true;
+    }
+  }
+  if (branch === null) return computeGitStatusLegacy(dir);
+  return { isGitRepo: true, repoRoot: root, branch, dirty, remote, ahead, behind };
+}
+
+/** A directory's git status read in flight, shared by concurrent requests. */
+const gitStatusInFlight = new Map();
+/** A directory that is not a repo rarely becomes one; keep that answer longer. */
+const GIT_STATUS_NOT_REPO_TTL = 60000;
+
 app.get('/api/git/status', requireAuth, async (req, res) => {
   let dir = req.query.dir;
   if (!dir && req.query.workspaceId) {
     dir = resolveWorkspaceDir(getStore(), req.query.workspaceId);
   }
   if (!dir) return res.status(400).json({ error: 'dir query parameter required' });
+  // One cache key per directory however the client spelled it (C:/x and C:\x).
+  const key = path.resolve(String(dir));
 
   // Return cached result if fresh enough
-  const cached = gitStatusCache.get(dir);
-  if (cached && Date.now() - cached.ts < GIT_STATUS_CACHE_TTL) {
+  const cached = gitStatusCache.get(key);
+  if (cached && Date.now() - cached.ts < (cached.data && cached.data.isGitRepo === false ? GIT_STATUS_NOT_REPO_TTL : GIT_STATUS_CACHE_TTL)) {
     return res.json(cached.data);
   }
 
@@ -7487,41 +7589,48 @@ app.get('/api/git/status', requireAuth, async (req, res) => {
   const fs = require('fs');
   if (!fs.existsSync(dir)) {
     const result = { isGitRepo: false };
-    gitStatusCache.set(dir, { data: result, ts: Date.now() });
+    gitStatusCache.set(key, { data: result, ts: Date.now() });
     return res.json(result);
   }
 
   try {
-    const root = await gitRepoRoot(dir);
-    if (!root) {
-      const result = { isGitRepo: false };
-      gitStatusCache.set(dir, { data: result, ts: Date.now() });
-      return res.json(result);
+    // Concurrent requests for one directory (the sidebar asks once per
+    // session row) share a single read instead of spawning git each.
+    let pending = gitStatusInFlight.get(key);
+    if (!pending) {
+      pending = computeGitStatus(dir).finally(() => gitStatusInFlight.delete(key));
+      gitStatusInFlight.set(key, pending);
     }
-    const branch = (await gitExec(['rev-parse', '--abbrev-ref', 'HEAD'], dir)).trim();
-    let dirty = false;
-    try {
-      const status = await gitExec(['status', '--porcelain'], dir);
-      dirty = status.trim().length > 0;
-    } catch {}
-    let remote = null;
-    try {
-      remote = (await gitExec(['rev-parse', '--abbrev-ref', '@{upstream}'], dir)).trim();
-    } catch {}
-    let ahead = 0, behind = 0;
-    if (remote) {
-      try {
-        const counts = (await gitExec(['rev-list', '--left-right', '--count', `HEAD...${remote}`], dir)).trim();
-        const [a, b] = counts.split('\t').map(Number);
-        ahead = a || 0;
-        behind = b || 0;
-      } catch {}
-    }
-    const result = { isGitRepo: true, repoRoot: root, branch, dirty, remote, ahead, behind };
-    gitStatusCache.set(dir, { data: result, ts: Date.now() });
+    const result = await pending;
+    gitStatusCache.set(key, { data: result, ts: Date.now() });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Performance monitor (src/web/perf-monitor.js) ─────────
+// GET /api/perf: event loop delay, stalls with the operations inside them,
+// spawn costs, route timings, SSE rates and the browser's reports.
+app.get('/api/perf', requireAuth, (req, res) => {
+  res.json(perf.snapshot());
+});
+
+// POST /api/perf/client: a page's own numbers (perf-hud.js), kept per page.
+app.post('/api/perf/client', requireAuth, (req, res) => {
+  const body = req.body || {};
+  perf.client(body.id, body.report);
+  res.json({ ok: true });
+});
+
+// POST /api/perf/profile?seconds=10: profile the main thread in process and
+// answer with the functions behind each long block.
+app.post('/api/perf/profile', requireAuth, async (req, res) => {
+  try {
+    const seconds = Number(req.query.seconds || (req.body && req.body.seconds)) || 10;
+    res.json(await perf.profile(seconds, 'manual'));
+  } catch (err) {
+    res.status(500).json({ error: err.message, code: 'PROFILE_FAILED' });
   }
 });
 
@@ -9233,7 +9342,7 @@ function getGlobalSessionFileMap() {
  * @returns {{ conflicts: Array<{ file: string, sessions: Array<{ id: string, name: string }> }>, checkedSessions: number, timestamp: string }}
  */
 app.get('/api/conflicts', requireAuth, (req, res) => {
-  const { sessionFiles, checkedSessions } = getGlobalSessionFileMap();
+  const { sessionFiles, checkedSessions } = perf.timeSync('conflict-file-map', () => getGlobalSessionFileMap());
 
   // Cross-reference: find files that appear in 2+ sessions
   const fileToSessions = new Map(); // normalizedPath -> [{ id, name }]

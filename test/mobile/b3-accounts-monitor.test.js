@@ -161,6 +161,7 @@ test('mounting with the listener disabled reads no rosters and starts no Glass w
   await settle();
   assert.strictEqual(status.running, false);
   assert.ok(ctx.mobile.workspace, 'workspace layout hooks remain mounted');
+  assert.ok(!ctx.mobile.chat, 'the chat track (PTY taps for phones) stays unmounted while the listener is off');
   assert.deepStrictEqual(calls, { status: 0, roster: 0, watched: 0, stopped: 0 });
   mobile.onAccountChange('credentials:usage');
   await settle();
@@ -171,6 +172,8 @@ test('successful listener start begins one monitor and repeated starts are idemp
   enable(true);
   assert.strictEqual((await mobile.restartListener()).running, true);
   await settle();
+  assert.ok(ctx.mobile.chat, 'enabling the listener mounts the chat track');
+  assert.strictEqual(typeof ctx.mobile.workspace.attachChat, 'function', 'workspace can take the late chat track');
   assert.strictEqual(calls.watched, 1);
   assert.strictEqual(calls.status, 1);
   assert.ok(calls.roster > 0);

@@ -176,17 +176,26 @@ function mountWorkspace(router, ctx, options) {
   // spawn), and wb_ ids that re-key keep their flags and stored settings.
   const pm = typeof ctx.getPtyManager === 'function' ? ctx.getPtyManager() : null;
   if (pm && typeof pm.onSessionSpawn === 'function') unsubs.push(pm.onSessionSpawn((wbId) => settings.onSpawn(wbId)));
-  const chat = ctx.mobile.chat;
-  if (chat && chat.sessions && typeof chat.sessions.onChanged === 'function') {
-    unsubs.push(chat.sessions.onChanged((ev) => {
-      for (const ch of (ev && ev.changes) || []) {
-        if (ch.change === 'idChanged' && ch.previousSessionId) {
-          flags.rekey(ch.previousSessionId, ch.sessionId);
-          settings.rekey(ch.previousSessionId, ch.sessionId);
+  // The chat track may mount after this one (it waits for the phone listener
+  // to be enabled, mobile/index.js), so the re-key hook attaches whenever
+  // chat appears: now, or from mountOtherTracks through attachChat.
+  let chatAttached = null;
+  const attachChat = (chat) => {
+    if (!chat || chat === chatAttached) return;
+    if (chat.sessions && typeof chat.sessions.onChanged === 'function') {
+      chatAttached = chat;
+      unsubs.push(chat.sessions.onChanged((ev) => {
+        for (const ch of (ev && ev.changes) || []) {
+          if (ch.change === 'idChanged' && ch.previousSessionId) {
+            flags.rekey(ch.previousSessionId, ch.sessionId);
+            settings.rekey(ch.previousSessionId, ch.sessionId);
+          }
         }
-      }
-    }));
-  }
+      }));
+    }
+  };
+  attachChat(ctx.mobile.chat);
+  workspace.attachChat = attachChat;
 
   try { migrations.load(); } catch (err) { log('migration resume failed: ' + (err && err.message)); }
 

@@ -513,6 +513,34 @@ function statSizeAndMtime(filePath) {
   }
 }
 
+/** Stats of rollout files by path: {stamp, at, size, mtime}. */
+const _rowStatCache = new Map();
+const ROW_STAT_MAX_AGE_MS = 5 * 60 * 1000;
+const ROW_STAT_CACHE_MAX = 20000;
+
+/**
+ * statSizeAndMtime for a state-db row, reused while the row's own timestamp
+ * is unchanged (and for at most five minutes). WHY: discovery stat()ed the
+ * rollout of every thread on every call, 250 ms of synchronous file system
+ * calls on the main thread per discovery with a few thousand threads
+ * (2026-09-28 live profile); only the threads that moved need a fresh stat.
+ *
+ * @param {string} filePath
+ * @param {number|null} stamp - The row's updated or recency time.
+ * @returns {{size: number, mtime: Date|null}}
+ */
+function statSizeAndMtimeForRow(filePath, stamp) {
+  const now = Date.now();
+  const hit = _rowStatCache.get(filePath);
+  if (hit && stamp && hit.stamp === stamp && now - hit.at < ROW_STAT_MAX_AGE_MS) {
+    return { size: hit.size, mtime: hit.mtime };
+  }
+  const fresh = statSizeAndMtime(filePath);
+  if (_rowStatCache.size >= ROW_STAT_CACHE_MAX) _rowStatCache.clear();
+  _rowStatCache.set(filePath, { stamp: stamp || null, at: now, size: fresh.size, mtime: fresh.mtime });
+  return fresh;
+}
+
 /**
  * Attach the shared project descriptor to a session record.
  *
@@ -555,7 +583,7 @@ function sessionFromThreadRow(row, indexTitles) {
   if (!row || typeof row.id !== 'string' || row.id.length === 0) return null;
 
   const rolloutPath = row.rolloutPath || null;
-  const fileStat = rolloutPath ? statSizeAndMtime(rolloutPath) : { size: 0, mtime: null };
+  const fileStat = rolloutPath ? statSizeAndMtimeForRow(rolloutPath, row.updatedAtMs || row.recencyAtMs || null) : { size: 0, mtime: null };
 
   const resolved = stateDb.resolveTitle(
     Object.assign({}, row.titleParts, { indexTitle: indexTitles.get(row.id) || null })

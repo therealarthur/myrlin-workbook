@@ -196,7 +196,7 @@ check('index.html cache-busts the app pane-focus/host fix', () => {
   // Mobile v2 (B3): app.js gained layout revisions (baseRevision on every
   // save, layout:updated, merged answers), so a page holding a cached copy
   // would save without baseRevision; app.js moves to its own token again.
-  assert.ok(/app\.js\?v=20260927-mobile-v2-b3-fix2/.test(indexSrc),
+  assert.ok(/app\.js\?v=20260928-perf1/.test(indexSrc),
     'expected the current app.js cache token');
 });
 

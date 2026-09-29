@@ -341,7 +341,7 @@ kit.test('app.js moved to a new cache token atomically; the added code has no em
   // token moved with the change, in index.html and every pinning test (G10).
   const read = (rel) => fs.readFileSync(path.join(__dirname, '..', '..', rel), 'utf8');
   const token = (/<script src="app\.js\?v=([A-Za-z0-9._-]+)"/.exec(read('src/web/public/index.html')) || [])[1];
-  kit.eq(token, '20260927-mobile-v2-b3-fix2');
+  kit.eq(token, '20260928-perf1');
   for (const t of ['test/terminal-select-mode.test.js', 'test/copy-secure-context-fallback.test.js', 'test/browser/workbook-shell.test.js']) kit.ok(read(t).includes('?v=' + token), t + ' pins the new token');
 });
 

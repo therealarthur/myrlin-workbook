@@ -15,6 +15,7 @@
 'use strict';
 
 const { warn } = require('./common');
+const perf = require('../../perf-monitor');
 
 const TTL_MS = 30000;
 const PROVIDERS = ['claude', 'codex']; // gsd:provider-literal-allowed (mobile v2: the phone protocol names the two agent providers)
@@ -50,7 +51,7 @@ function createDiscoveryCache({ registry, now = Date.now, ttlMs = TTL_MS } = {})
     }
     s.inFlight = (async () => {
       try {
-        const res = await prov.discover({ forceRefresh: !!force });
+        const res = await perf.get().timeAsync('mobile-discover:' + provider, () => prov.discover({ forceRefresh: !!force }));
         s.entries = Array.isArray(res) ? res : [];
         s.at = now();
         s.warm = true;

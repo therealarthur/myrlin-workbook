@@ -323,7 +323,7 @@ function createSessionIndex({ ctx, discovery, agents = null, now = Date.now }) {
   /** @returns {Map<string, object>} */
   function refs() {
     if (!built || now() - builtAt > REBUILD_TTL_MS) {
-      built = build();
+      built = require('../../perf-monitor').get().timeSync('mobile-session-index', build);
       builtAt = now();
     }
     return built;
